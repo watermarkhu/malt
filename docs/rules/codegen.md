@@ -8,7 +8,6 @@ icon: lucide/braces
 **Auto-fix:** No
 **Category:** Code Generation
 **Can be disabled:** Yes
-**Enabled by default:** No (opt in via `[lint.rules.CODEGEN_ENGINE]` or `[lint.categories]`)
 
 ## What this rule does
 

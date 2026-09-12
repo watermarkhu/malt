@@ -8,7 +8,6 @@ icon: lucide/lightbulb
 **Auto-fix:** No
 **Category:** Suggested Improvements
 **Can be disabled:** Yes
-**Enabled by default:** No (opt in via `[lint.rules.SUGGESTED_IMPROVEMENTS]` or `[lint.categories.suggested-improvements]`)
 
 ## What this rule does
 

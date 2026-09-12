@@ -8,7 +8,6 @@ icon: lucide/package
 **Auto-fix:** No
 **Category:** Deployment
 **Can be disabled:** Yes
-**Enabled by default:** No (opt in via `[lint.rules.DEPLOYMENT_ENGINE]` or `[lint.categories]`)
 
 ## What this rule does
 

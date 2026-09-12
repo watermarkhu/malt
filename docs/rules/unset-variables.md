@@ -8,7 +8,6 @@ icon: lucide/alert-triangle
 **Auto-fix:** No
 **Category:** Unset Variables
 **Can be disabled:** Yes
-**Enabled by default:** Yes
 
 ## What this rule does
 

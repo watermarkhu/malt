@@ -8,7 +8,6 @@ icon: lucide/trash-2
 **Auto-fix:** No
 **Category:** Unused Constructions
 **Can be disabled:** Yes
-**Enabled by default:** Yes
 
 ## What this rule does
 

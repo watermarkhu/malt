@@ -8,7 +8,6 @@ icon: lucide/cog
 **Auto-fix:** No
 **Category:** Configuration Issues
 **Can be disabled:** Yes
-**Enabled by default:** No (opt in via `[lint.rules.CONFIG_ISSUES_ENGINE]` or `[lint.categories]`)
 
 ## What this rule does
 

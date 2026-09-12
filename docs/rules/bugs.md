@@ -8,7 +8,6 @@ icon: lucide/bug
 **Auto-fix:** Yes
 **Category:** Bugs
 **Can be disabled:** Yes
-**Enabled by default:** Yes
 
 ## What this rule does
 
