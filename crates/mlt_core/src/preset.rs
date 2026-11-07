@@ -4,6 +4,11 @@
 //! Presets are selected via `[lint] preset = "..."` in a `.mlt.toml` file, the
 //! `--preset` CLI flag, or the [`DEFAULT_PRESET`] when neither is specified.
 //!
+//! A preset layers on top of each rule's built-in default
+//! ([`crate::Rule::enabled_by_default`]): a rule is on by default only if the
+//! rule itself is default-on and the preset does not disable its category. The
+//! `all` preset is the exception: it also turns on default-off engines.
+//!
 //! Presets are intentionally data-driven: adding a new one is a single row in
 //! [`PRESETS`]. Explicit `[lint.categories]` / `[lint.rules]` entries always
 //! take precedence over a preset, so a preset-disabled category can still be
@@ -21,12 +26,22 @@ pub struct PresetDef {
     pub name: &'static str,
     /// Categories disabled by this preset.
     pub disabled_categories: &'static [Category],
+    /// Whether this preset also enables rules that are off by default
+    /// (see [`crate::Rule::enabled_by_default`]).
+    pub enables_default_off: bool,
 }
 
 impl PresetDef {
     /// Whether this preset disables `category`.
     pub fn disables(&self, category: Category) -> bool {
         self.disabled_categories.contains(&category)
+    }
+
+    /// Whether a rule in `category` is enabled when neither a per-rule nor a
+    /// per-category setting applies. `rule_default` is the rule's
+    /// [`crate::Rule::enabled_by_default`].
+    pub fn default_enabled(&self, category: Category, rule_default: bool) -> bool {
+        (rule_default || self.enables_default_off) && !self.disables(category)
     }
 }
 
@@ -38,12 +53,14 @@ pub static PRESETS: &[PresetDef] = &[
     PresetDef {
         name: "all",
         disabled_categories: &[],
+        enables_default_off: true,
     },
     PresetDef {
         name: "mathworks",
         // Matches MATLAB Code Analyzer's factory configuration: the "Custom
         // Checks" complexity metrics and "Naming" conventions are opt-in.
         disabled_categories: &[Category::CustomChecks, Category::Naming],
+        enables_default_off: false,
     },
     PresetDef {
         name: "recommended",
@@ -56,6 +73,7 @@ pub static PRESETS: &[PresetDef] = &[
             Category::Naming,
             Category::CustomChecks,
         ],
+        enables_default_off: false,
     },
 ];
 
@@ -97,6 +115,18 @@ mod tests {
         assert!(!all.disables(Category::CustomChecks));
         assert!(!all.disables(Category::Naming));
         assert!(!all.disables(Category::Performance));
+    }
+
+    #[test]
+    fn default_enabled_combines_rule_default_and_preset() {
+        let mw = resolve("mathworks").unwrap();
+        assert!(mw.default_enabled(Category::Bugs, true));
+        assert!(!mw.default_enabled(Category::Naming, true));
+        assert!(!mw.default_enabled(Category::CodeGeneration, false));
+
+        let all = resolve("all").unwrap();
+        assert!(all.default_enabled(Category::Naming, true));
+        assert!(all.default_enabled(Category::CodeGeneration, false));
     }
 
     #[test]

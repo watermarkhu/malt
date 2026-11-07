@@ -8,6 +8,7 @@ icon: lucide/check-circle
 **Auto-fix:** Yes
 **Category:** Good Practices
 **Can be disabled:** Yes
+**Enabled by default:** Yes
 
 ## What this rule does
 

@@ -314,7 +314,8 @@ impl Config {
     /// Resolution order:
     /// 1. Per-rule config takes precedence (if rule is explicitly configured).
     /// 2. Per-category config applies if the rule has no explicit config.
-    /// 3. Fall back to `default_enabled` (the rule's built-in default).
+    /// 3. The active preset combined with `default_enabled` (the rule's
+    ///    built-in default); see [`PresetDef::default_enabled`].
     pub fn is_rule_enabled_for_category(
         &self,
         rule_id: &str,
@@ -330,8 +331,8 @@ impl Config {
             // None means category is disabled ("off").
             return cat_severity.is_some();
         }
-        // Fall back to the rule's built-in default.
-        default_enabled
+        // Fall back to the preset applied to the rule's built-in default.
+        self.preset.default_enabled(category, default_enabled)
     }
 
     /// Get the configured severity override for a rule, if any.
@@ -597,8 +598,7 @@ mod preset_config_tests {
     #[test]
     fn explicit_category_reenables_default_off_rule() {
         // A default-off rule can be re-enabled per category.
-        let config =
-            Config::from_toml("[lint.categories]\ncode-generation = \"warn\"\n").unwrap();
+        let config = Config::from_toml("[lint.categories]\ncode-generation = \"warn\"\n").unwrap();
         assert!(config.is_rule_enabled_for_category(
             "CODEGEN_ENGINE",
             Category::CodeGeneration,
@@ -607,14 +607,34 @@ mod preset_config_tests {
     }
 
     #[test]
-    fn default_enabled_true_keeps_rule_on() {
-        // Default-on rules (naming, custom checks) stay enabled under any preset.
-        let config = Config::from_toml("[lint]\npreset = \"all\"\n").unwrap();
-        assert!(config.is_rule_enabled_for_category("NAMING_ENGINE", Category::Naming, true));
-        assert!(config.is_rule_enabled_for_category(
+    fn mathworks_preset_disables_naming_by_default() {
+        let config = Config::from_toml("").unwrap();
+        assert!(!config.is_rule_enabled_for_category("NAMING_ENGINE", Category::Naming, true));
+        assert!(!config.is_rule_enabled_for_category(
             "CUSTOM_CHECKS",
             Category::CustomChecks,
             true,
+        ));
+        assert!(config.is_rule_enabled_for_category("BUGS_ENGINE", Category::Bugs, true));
+    }
+
+    #[test]
+    fn explicit_category_reenables_preset_disabled() {
+        let config = Config::from_toml(
+            "[lint]\npreset = \"mathworks\"\n\n[lint.categories]\nnaming = \"warn\"\n",
+        )
+        .unwrap();
+        assert!(config.is_rule_enabled_for_category("NAMING_ENGINE", Category::Naming, true));
+    }
+
+    #[test]
+    fn all_preset_enables_everything() {
+        let config = Config::from_toml("[lint]\npreset = \"all\"\n").unwrap();
+        assert!(config.is_rule_enabled_for_category("NAMING_ENGINE", Category::Naming, true));
+        assert!(config.is_rule_enabled_for_category(
+            "CODEGEN_ENGINE",
+            Category::CodeGeneration,
+            false,
         ));
     }
 }

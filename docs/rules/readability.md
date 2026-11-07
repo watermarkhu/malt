@@ -8,6 +8,7 @@ icon: lucide/eye
 **Auto-fix:** Yes
 **Category:** Readability
 **Can be disabled:** Yes
+**Enabled by default:** Yes
 
 ## What this rule does
 

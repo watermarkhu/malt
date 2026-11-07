@@ -8,6 +8,7 @@ icon: lucide/archive
 **Auto-fix:** No
 **Category:** Compatibility
 **Can be disabled:** Yes
+**Enabled by default:** Yes
 
 ## What this rule does
 

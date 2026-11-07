@@ -9,26 +9,26 @@ icon: lucide/list-checks
 
 | Rule ID | Category | Description | Default Severity | Auto-fix |
 | ------- | -------- | ----------- | ---------------- | -------- |
-| [`UNSUPPORTED_ENGINE`](rules/unsupported.md) | Unsupported | Unsupported or deprecated feature checks | Warning | No |
-| [`SYNTAX_ERRORS_ENGINE`](rules/syntax-errors.md) | Syntax Errors | Parser-level and semantic syntax validation | Error | Yes |
-| [`LANGUAGE_SPEC_ENGINE`](rules/language-spec.md) | Language Specification | Language specification constraint violation | Error | No |
-| [`PERFORMANCE_ENGINE`](rules/performance.md) | Performance | Performance improvement suggestions | Info | Yes |
-| [`CONFIG_ISSUES_ENGINE`](rules/config-issues.md) | Configuration Issues | Detects configuration-related issues in MATLAB code | Error | No |
 | [`BUGS_ENGINE`](rules/bugs.md) | Bugs | Bug detection checks for likely bugs and logic errors | Error | Yes |
-| [`NOSEMI`](rules/nosemi.md) | Formatting | Statement without trailing semicolon may produce unintended console output | Info | Yes |
-| [`DEPLOYMENT_ENGINE`](rules/deployment.md) | Deployment | MATLAB Compiler deployment constraint checks | Warning | No |
-| [`UNSET_VARIABLES_ENGINE`](rules/unset-variables.md) | Unset Variables | Detects variables that might not be defined before use | Warning | No |
-| [`SYSTEM_OBJECTS_ENGINE`](rules/system-objects.md) | System Objects | System object validation checks | Warning | No |
-| [`COMPAT`](rules/compatibility.md) | Compatibility | Deprecated or removed function usage | Warning | No |
-| [`READABILITY_ENGINE`](rules/readability.md) | Readability | Readability improvement checks for MATLAB code | Info | Yes |
-| [`GOOD_PRACTICES_ENGINE`](rules/good-practices.md) | Good Practices | Common best-practice checks for MATLAB code | Warning | Yes |
-| [`FORMATTING_ENGINE`](rules/formatting.md) | Formatting | Formatting suggestion checks (NOCOMMA, NO4LP, ALIGN, NOPTS, NOPRT, PRTCAL, NCOMMA) | Info | Yes |
-| [`CUSTOM_CHECKS`](rules/custom-checks.md) | Custom Checks | Code complexity and style metrics | Warning | No |
-| [`INCOMPLETE_ANALYSIS`](rules/incomplete-analysis.md) | Incomplete Analysis | Internal linter limits and analysis integrity checks | Error | No |
 | [`CODEGEN_ENGINE`](rules/codegen.md) | Code Generation | MATLAB code generation constraint checks | Error | No |
-| [`UNUSED_ENGINE`](rules/unused.md) | Unused Constructions | Detect unused variables, functions, and dead code | Warning | No |
-| [`SUGGESTED_IMPROVEMENTS`](rules/suggested-improvements.md) | Suggested Improvements | Not-recommended function or pattern with suggested replacement | Info | No |
+| [`COMPAT`](rules/compatibility.md) | Compatibility | Deprecated or removed function usage | Warning | No |
+| [`CONFIG_ISSUES_ENGINE`](rules/config-issues.md) | Configuration Issues | Detects configuration-related issues in MATLAB code | Error | No |
+| [`CUSTOM_CHECKS`](rules/custom-checks.md) | Custom Checks | Code complexity and style metrics | Warning | No |
+| [`DEPLOYMENT_ENGINE`](rules/deployment.md) | Deployment | MATLAB Compiler deployment constraint checks | Warning | No |
+| [`FORMATTING_ENGINE`](rules/formatting.md) | Formatting | Formatting suggestion checks (NOCOMMA, NO4LP, ALIGN, NOPTS, NOPRT, PRTCAL, NCOMMA) | Info | Yes |
+| [`GOOD_PRACTICES_ENGINE`](rules/good-practices.md) | Good Practices | Common best-practice checks for MATLAB code | Warning | Yes |
+| [`INCOMPLETE_ANALYSIS`](rules/incomplete-analysis.md) | Incomplete Analysis | Internal linter limits and analysis integrity checks | Error | No |
+| [`LANGUAGE_SPEC_ENGINE`](rules/language-spec.md) | Language Specification | Language specification constraint violation | Error | No |
 | [`NAMING_ENGINE`](rules/naming.md) | Naming | Naming convention checks (81 sub-rules for 9 entity types x 9 check types) | Info | No |
+| [`NOSEMI`](rules/nosemi.md) | Formatting | Statement without trailing semicolon may produce unintended console output | Info | Yes |
+| [`PERFORMANCE_ENGINE`](rules/performance.md) | Performance | Performance improvement suggestions | Info | Yes |
+| [`READABILITY_ENGINE`](rules/readability.md) | Readability | Readability improvement checks for MATLAB code | Info | Yes |
+| [`SUGGESTED_IMPROVEMENTS`](rules/suggested-improvements.md) | Suggested Improvements | Not-recommended function or pattern with suggested replacement | Info | No |
+| [`SYNTAX_ERRORS_ENGINE`](rules/syntax-errors.md) | Syntax Errors | Parser-level and semantic syntax validation | Error | Yes |
+| [`SYSTEM_OBJECTS_ENGINE`](rules/system-objects.md) | System Objects | System object validation checks | Warning | No |
+| [`UNSET_VARIABLES_ENGINE`](rules/unset-variables.md) | Unset Variables | Detects variables that might not be defined before use | Warning | No |
+| [`UNSUPPORTED_ENGINE`](rules/unsupported.md) | Unsupported | Unsupported or deprecated feature checks | Warning | No |
+| [`UNUSED_ENGINE`](rules/unused.md) | Unused Constructions | Detect unused variables, functions, and dead code | Warning | No |
 
 These rows are generated from the rule docstrings by `docs/scripts/gen_rules_docs.ts`. Rebuild the docs (`bun run docs:gen`) to refresh them.
 
@@ -2220,7 +2220,9 @@ behavior-changes = "off"
 
 The specialized engines `CODEGEN_ENGINE`, `DEPLOYMENT_ENGINE`,
 `SYSTEM_OBJECTS_ENGINE`, `CONFIG_ISSUES_ENGINE`, `SUGGESTED_IMPROVEMENTS`, and
-`UNSUPPORTED_ENGINE` are off by default. Re-enable one per rule or per category:
+`UNSUPPORTED_ENGINE` are off by default, and the default `mathworks` preset also
+turns off `NAMING_ENGINE` and `CUSTOM_CHECKS`. Re-enable one per rule or per
+category (or use `preset = "all"` to turn everything on):
 
 ```toml
 [lint.rules.CODEGEN_ENGINE]

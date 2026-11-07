@@ -8,6 +8,7 @@ icon: lucide/align-left
 **Auto-fix:** Yes
 **Category:** Formatting
 **Can be disabled:** Yes
+**Enabled by default:** Yes
 
 ## What this rule does
 

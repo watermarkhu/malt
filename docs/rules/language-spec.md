@@ -8,6 +8,7 @@ icon: lucide/book-marked
 **Auto-fix:** No
 **Category:** Language Specification
 **Can be disabled:** Yes
+**Enabled by default:** Yes
 
 ## What this rule does
 

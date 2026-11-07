@@ -146,8 +146,6 @@ mod tests {
             "FORMATTING_ENGINE",
             "NOSEMI",
             "PERFORMANCE_ENGINE",
-            "CUSTOM_CHECKS",
-            "NAMING_ENGINE",
             "COMPAT",
         ] {
             assert!(
@@ -155,6 +153,33 @@ mod tests {
                 "{on} should be on by default"
             );
         }
+    }
+
+    #[test]
+    fn mathworks_preset_disables_naming_and_custom_checks() {
+        let ids = active_ids(&Config::default());
+        assert!(!ids.contains(&"NAMING_ENGINE".to_string()));
+        assert!(!ids.contains(&"CUSTOM_CHECKS".to_string()));
+    }
+
+    #[test]
+    fn all_preset_enables_every_engine() {
+        let config = Config::from_toml("[lint]\npreset = \"all\"\n").unwrap();
+        let active = active_ids(&config);
+        for id in all_rules(&config).iter().map(|r| r.id()) {
+            assert!(
+                active.contains(&id.to_string()),
+                "{id} should be on under 'all'"
+            );
+        }
+    }
+
+    #[test]
+    fn recommended_preset_disables_formatting() {
+        let config = Config::from_toml("[lint]\npreset = \"recommended\"\n").unwrap();
+        let ids = active_ids(&config);
+        assert!(!ids.contains(&"NOSEMI".to_string()));
+        assert!(ids.contains(&"BUGS_ENGINE".to_string()));
     }
 
     #[test]

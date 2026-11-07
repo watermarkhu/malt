@@ -8,6 +8,7 @@ icon: lucide/x-circle
 **Auto-fix:** Yes
 **Category:** Syntax Errors
 **Can be disabled:** Yes
+**Enabled by default:** Yes
 
 ## What this rule does
 

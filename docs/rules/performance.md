@@ -8,6 +8,7 @@ icon: lucide/zap
 **Auto-fix:** Yes
 **Category:** Performance
 **Can be disabled:** Yes
+**Enabled by default:** Yes
 
 ## What this rule does
 

@@ -8,6 +8,7 @@ icon: lucide/boxes
 **Auto-fix:** No
 **Category:** System Objects
 **Can be disabled:** Yes
+**Enabled by default:** No (opt in per rule or per category)
 
 ## What this rule does
 

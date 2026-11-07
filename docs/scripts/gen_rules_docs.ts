@@ -32,6 +32,7 @@ const SRCS = join(REPO, 'crates', 'mlt_rules', 'src')
 const DATA_DIR = join(SRCS, 'data')
 const COMPAT_TOML = join(DATA_DIR, 'compatibility.toml')
 const SI_TOML = join(DATA_DIR, 'suggested_improvements.toml')
+const PRESET_RS = join(REPO, 'crates', 'mlt_core', 'src', 'preset.rs')
 
 // ---------------------------------------------------------------------------
 // Category metadata (human labels + default icons)
@@ -275,6 +276,7 @@ interface RuleModule {
   sections: Section[]
   checks: CheckRow[]
   description: string // from `fn description()` in source
+  enabledByDefault: boolean // from `fn enabled_by_default()` in source
 }
 
 /** Extract the rule description string literal from `fn description()`. */
@@ -284,8 +286,26 @@ function extractDescription(file: string): string {
   return m ? m[1] : ''
 }
 
+/** Whether the rule overrides `fn enabled_by_default()` to return `false`. */
+function extractEnabledByDefault(file: string): boolean {
+  const text = readFileSync(file, 'utf8')
+  return !/fn\s+enabled_by_default\s*\(&self\)\s*->\s*bool\s*\{(?:\s*\/\/[^\n]*)*\s*false\s*\}/.test(text)
+}
+
+/** Category slugs disabled by the default `mathworks` preset (from preset.rs). */
+function defaultPresetDisabledCategories(): Set<string> {
+  const text = readFileSync(PRESET_RS, 'utf8')
+  const block = text.match(/name:\s*"mathworks",[\s\S]*?disabled_categories:\s*&\[([^\]]*)\]/)
+  if (!block) throw new Error(`could not find the mathworks preset in ${PRESET_RS}`)
+  const slugs = [...block[1].matchAll(/Category::(\w+)/g)].map((m) =>
+    m[1].replace(/([a-z])([A-Z])/g, '$1-$2').toLowerCase(),
+  )
+  return new Set(slugs)
+}
+
 function walkRs(dir: string, out: string[] = []): string[] {
-  for (const entry of readdirSync(dir)) {
+  // Sorted so generated output does not depend on filesystem order.
+  for (const entry of readdirSync(dir).sort()) {
     const p = join(dir, entry)
     const st = statSync(p)
     if (st.isDirectory()) walkRs(p, out)
@@ -310,6 +330,7 @@ function discoverModules(): RuleModule[] {
       sections,
       checks,
       description: extractDescription(file),
+      enabledByDefault: extractEnabledByDefault(file),
     })
   }
   return modules
@@ -387,6 +408,14 @@ export function anchor(id: string): string {
 // Rule page rendering
 // ---------------------------------------------------------------------------
 
+function enabledByDefaultLabel(mod: RuleModule): string {
+  if (!mod.enabledByDefault) return 'No (opt in per rule or per category)'
+  if (defaultPresetDisabledCategories().has(mod.frontmatter.category)) {
+    return 'No (off in the default `mathworks` preset)'
+  }
+  return 'Yes'
+}
+
 function renderRulePage(mod: RuleModule): string {
   const fm = mod.frontmatter
   const slug = fm.slug ?? fm.id.toLowerCase().replace(/_/g, '-')
@@ -401,6 +430,7 @@ function renderRulePage(mod: RuleModule): string {
   out.push(`**Auto-fix:** ${fm.fix ? 'Yes' : 'No'}`)
   out.push(`**Category:** ${categoryLabel}`)
   out.push('**Can be disabled:** Yes')
+  out.push(`**Enabled by default:** ${enabledByDefaultLabel(mod)}`)
   if (fm.note) out.push('', `> *${fm.note}*`)
   out.push('')
 

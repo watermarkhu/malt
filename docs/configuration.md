@@ -25,7 +25,7 @@ config file.
 | Preset | Disabled categories | Description |
 | ------ | ------------------- | ----------- |
 | `mathworks` *(default)* | `custom-checks`, `naming` | Matches MATLAB Code Analyzer's factory configuration: complexity metrics and naming conventions are opt-in. |
-| `all` | — | Every rule enabled. |
+| `all` | — | Every rule enabled, including the [default-off engines](#default-behavior). |
 | `recommended` | `performance`, `readability`, `formatting`, `suggested-improvements`, `naming`, `custom-checks` | Errors and warnings on; Info-level style/suggestion checks off. |
 
 ```toml
@@ -36,6 +36,10 @@ preset = "recommended"
 ```bash
 mlt --preset all src/**/*.m
 ```
+
+A preset only removes categories; the specialized engines that are
+[off by default](#default-behavior) stay off under `mathworks` and
+`recommended`. `all` is the exception and turns them on as well.
 
 Precedence: `--preset` > `[lint] preset` > `mathworks`. Explicit
 `[lint.categories]` / `[lint.rules]` entries always win over the preset, so a
@@ -196,31 +200,27 @@ All other keys in the table are rule-specific parameters (see **Per-Engine Param
 
 When no `.mlt.toml` is present:
 
-- Most rules are **enabled**; each uses its **default severity**
-- These specialized engines are **off by default** (opt in per rule or per category):
+- The **`mathworks`** preset is active, so `custom-checks` and `naming` are off
+- These specialized engines are **off by default** under every preset except
+  `all` (opt in per rule or per category):
   - `CODEGEN_ENGINE` (`code-generation`) — MATLAB Coder constraints
   - `DEPLOYMENT_ENGINE` (`deployment`) — MATLAB Compiler constraints
   - `SYSTEM_OBJECTS_ENGINE` (`system-objects`) — `matlab.System` validation
   - `CONFIG_ISSUES_ENGINE` (`configuration-issues`) — config-function misuse
   - `SUGGESTED_IMPROVEMENTS` (`suggested-improvements`) — replacement hints
   - `UNSUPPORTED_ENGINE` (`unsupported`) — platform-specific features
+- All other rules are **enabled** at their default severity
 - No files are excluded
 - No rule-specific parameters are set
 
-The equivalent default configuration looks like this:
+Each rule page shows whether the rule is enabled by default. To opt in:
 
 ```toml title=".mlt.toml"
 [lint.categories]
-code-generation = "off"
-deployment = "off"
-system-objects = "off"
-configuration-issues = "off"
-suggested-improvements = "off"
-unsupported = "off"
+code-generation = "error"   # enable the whole category
 
-# (CUSTOM_CHECKS stays enabled but inert: every threshold defaults to 0,
-# which disables that check until you set a limit. NAMING_ENGINE stays
-# enabled but only its length checks fire without further configuration.)
+[lint.rules]
+NAMING_ENGINE = "info"      # or enable a single rule
 ```
 
 ## Severity Override Precedence

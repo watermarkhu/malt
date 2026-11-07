@@ -8,6 +8,7 @@ icon: lucide/type
 **Auto-fix:** No
 **Category:** Naming
 **Can be disabled:** Yes
+**Enabled by default:** No (off in the default `mathworks` preset)
 
 ## What this rule does
 

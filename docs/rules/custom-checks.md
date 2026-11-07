@@ -8,6 +8,7 @@ icon: lucide/sliders-horizontal
 **Auto-fix:** No
 **Category:** Custom Checks
 **Can be disabled:** Yes
+**Enabled by default:** No (off in the default `mathworks` preset)
 
 ## What this rule does
 

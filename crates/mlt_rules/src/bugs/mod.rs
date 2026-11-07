@@ -649,17 +649,15 @@ impl BugsEngine {
                     }
                 }
             }
-            "identifier" => {
-                if node_text(node, source).trim() == "varargout" {
-                    *used = true;
-                    if first_use.is_none() {
-                        *first_use = Some((
-                            node.start_byte(),
-                            node.end_byte(),
-                            node.start_position().row + 1,
-                            node.start_position().column + 1,
-                        ));
-                    }
+            "identifier" if node_text(node, source).trim() == "varargout" => {
+                *used = true;
+                if first_use.is_none() {
+                    *first_use = Some((
+                        node.start_byte(),
+                        node.end_byte(),
+                        node.start_position().row + 1,
+                        node.start_position().column + 1,
+                    ));
                 }
             }
             _ => {}
