@@ -36,7 +36,7 @@ local ci_and_docs = new Mapping<String, Step> {
     ["actionlint"] = Builtins.actionlint
     ["rumdl"] = (Builtins.rumdl) {
         // Lint the site docs only (VitePress flavor, configured in .rumdl.toml).
-        // Developer-facing markdown (AGENTS.md, .opencode/) is intentionally
+        // Developer-facing markdown (.agents/) is intentionally
         // excluded.
         glob = List("docs/**/*.md", "wasm-pkg/README.md")
         check = "rumdl check --diff {{files}}"

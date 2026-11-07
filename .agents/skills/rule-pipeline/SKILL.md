@@ -24,7 +24,8 @@ and 3.
 | 2. Review | subagent | `reviewer` | `opencode-go/mimo-v2.5` | Verdict + corrected plan |
 | 3. Implement | subagent | `implementer` | `opencode-go/deepseek-v4-flash` | Code, tests, docs + verification |
 
-Agents are defined in `.opencode/agent/{reviewer,implementer}.md`.
+Agent prompts live in `.agents/agents/{reviewer,implementer}.md`; their description,
+mode, model, and permissions are registered in the root `opencode.json`.
 
 ## Rule context lookup (main session only)
 
@@ -47,7 +48,7 @@ MFAMB, FVINR), run one flow per rule:
 
 1. **Plan in the main session.** For each rule:
    - Look up the rule context on the MathWorks check index via Playwright (see above).
-   - Study the codebase conventions: `AGENTS.md` "Adding a New Rule", the target
+   - Study the codebase conventions: `.agents/AGENTS.md` "Adding a New Rule", the target
      module in `crates/mlt_rules/src/`, a reference rule like `nosemi.rs`, and
      `docs/nosemi.md`.
    - Write a self-contained implementation plan including: rule ID, official

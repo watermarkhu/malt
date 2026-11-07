@@ -12,14 +12,37 @@ The goal is full feature parity with MATLAB's Code Analyzer (~2,680 checks), usi
 
 ```
 mlt/
-├── Cargo.toml              # Workspace root (resolver = "2")
+├── .agents/                # Agent guidance (this file), subagent prompts, skills
+├── opencode.json           # Registers .agents/ with OpenCode (instructions + subagents)
+├── Cargo.toml              # Workspace root (resolver = "2"); version placeholder 0.0.0
+├── pyproject.toml          # PyPI package `mlt` (maturin, ships the CLI binary)
 ├── package.json            # Docs toolchain (bun + VitePress), npm scripts
 ├── crates/
 │   ├── mlt_cli/            # CLI binary (clap, config discovery, output formatting)
 │   ├── mlt_core/           # Core engine (Rule trait, RuleRegistry, Linter, Config, Diagnostic)
-│   └── mlt_rules/          # Individual lint rule implementations
+│   ├── mlt_rules/          # Individual lint rule implementations
+│   └── mlt_wasm/           # WebAssembly bindings (npm package `mlt-wasm`)
+├── python/                 # `python -m mlt` shim + wheel smoke tests
+├── wasm-pkg/               # npm package README, package.json template, smoke test
 └── docs/                   # VitePress documentation site (Markdown)
 ```
+
+### Packages and releases
+
+| Directory | crates.io / registry name | Rust library name |
+|-----------|---------------------------|-------------------|
+| `crates/mlt_core` | `mlt-lint-core` | `mlt_core` |
+| `crates/mlt_rules` | `mlt-lint-rules` | `mlt_rules` |
+| `crates/mlt_cli` | `mlt-lint` (binary `mlt`) | — |
+| `crates/mlt_wasm` | npm `mlt-wasm` (not on crates.io) | `mlt_lib` |
+| `pyproject.toml` | PyPI `mlt` | — |
+
+The `mlt`, `mlt_core` and `mlt_wasm` crate names belong to MapLibre, hence the
+`mlt-lint` prefix. Code keeps using `mlt_core::` / `mlt_rules::`.
+
+Versions are never bumped by hand: `Cargo.toml` stays at `0.0.0` and the Release
+workflow stamps the semVersie version (from the Conventional Commit title of the
+pull request into `main`) before publishing. See `.github/CONTRIBUTING.md`.
 
 ### Crate Responsibilities
 
