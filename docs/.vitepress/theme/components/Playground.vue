@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { withBase } from 'vitepress'
 import MonacoEditor from './MonacoEditor.vue'
 
 interface Warning {
@@ -14,7 +15,7 @@ interface Warning {
 // Load the locally-built wasm when present (after `mise run serve-local-wasm`),
 // otherwise fall back to the published CDN build.
 const CDN_URL = 'https://cdn.jsdelivr.net/npm/mlt-wasm/mlt_lib.js'
-const LOCAL_URL = '/assets/mlt-wasm/mlt_lib.js'
+const LOCAL_URL = withBase('/assets/mlt-wasm/mlt_lib.js')
 
 const EXAMPLES: Record<string, string> = {
   common: `x = 1
@@ -67,9 +68,11 @@ const exampleKey = ref('')
 
 const DEFAULT_TOML = `# mlt playground configuration (.mlt.toml).
 # Everything here is optional; comments-only uses mlt's defaults.
-# Engines off by default (uncomment a block to re-enable):
+# Off by default (uncomment a block to re-enable):
 #   code-generation, deployment, system-objects,
-#   configuration-issues, suggested-improvements, unsupported
+#   configuration-issues, suggested-improvements, unsupported,
+#   and naming + custom-checks (via the default "mathworks" preset).
+# preset = "all" under [lint] turns everything on.
 #
 # [lint.categories]
 # code-generation = "error"
@@ -186,6 +189,10 @@ function loadExample(): void {
 }
 
 onMounted(main)
+onBeforeUnmount(() => {
+  clearTimeout(debounceTimer)
+  clearTimeout(tomlDebounceTimer)
+})
 </script>
 
 <template>

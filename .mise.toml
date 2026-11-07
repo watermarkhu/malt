@@ -9,6 +9,8 @@
 node = "24.19.0"
 # Bun for the VitePress docs project (install, `bun run docs:*` scripts).
 bun = "latest"
+# uv for the Python wrapper (PyPI package `mlt`, built with maturin).
+uv = "latest"
 # Clang C compiler — required to compile the tree-sitter-matlab C parser for
 # the wasm32 target (the `cc` crate uses it as `CC` when building wasm).
 clang = "22.1.8"
@@ -44,6 +46,10 @@ rustup target add wasm32-unknown-unknown 2>/dev/null || true
 export WASI_SDK="$PWD/${WASI_SDK}"
 export CC_wasm32_unknown_unknown="$WASI_SDK/bin/clang"
 export CFLAGS_wasm32_unknown_unknown="-isystem $WASI_SDK/share/wasi-sysroot/include/wasm32-wasip1 -D__wasi__"
+# Newer rustc no longer passes --allow-undefined to the wasm linker. tree-sitter's
+# C runtime references libc symbols (stderr, clock_gettime) on code paths the
+# linter never reaches; they are dropped by the time wasm-bindgen runs.
+export CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUSTFLAGS="-C link-arg=--allow-undefined"
 wasm-pack build crates/mlt_wasm --target web --no-default-features --features wasm
 """
 

@@ -38,3 +38,18 @@ bun.lockb
 crates/mlt_wasm/pkg/
 wasm-pkg/pkg/
 docs/public/assets/mlt-wasm/
+
+# Python (maturin wheel for PyPI)
+.venv/
+dist/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+
+# Python wrapper (uv + maturin)
+.venv/
+dist/
+__pycache__/
+.pytest_cache/
+.ruff_cache/

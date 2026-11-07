@@ -1,9 +1,14 @@
 [package]
-name = "mlt_cli"
-version = "0.1.0"
+name = "mlt-lint"
+version.workspace = true
 edition.workspace = true
 license.workspace = true
 authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+keywords.workspace = true
+categories.workspace = true
+readme = "../../README.md"
 description = "Command-line interface for the mlt MATLAB linter"
 
 [[bin]]
@@ -11,8 +16,8 @@ name = "mlt"
 path = "src/main.rs"
 
 [dependencies]
-mlt_core = { path = "../mlt_core" }
-mlt_rules = { path = "../mlt_rules" }
+mlt_core.workspace = true
+mlt_rules.workspace = true
 clap.workspace = true
 anyhow.workspace = true
 

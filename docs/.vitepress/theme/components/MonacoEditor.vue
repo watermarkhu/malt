@@ -27,6 +27,11 @@ let applyingExternal = false
 onMounted(async () => {
   const monaco = await loadMonaco()
   if (!container.value) return
+  // Monaco measures glyph widths from `fontFamily` itself, so it needs the
+  // resolved font list rather than a CSS variable reference.
+  const monoFont =
+    getComputedStyle(container.value).getPropertyValue('--vp-font-family-mono').trim() ||
+    'monospace'
   instance = monaco.editor.create(container.value, {
     value: props.modelValue,
     language: props.language,
@@ -34,7 +39,7 @@ onMounted(async () => {
     minimap: { enabled: false },
     scrollBeyondLastLine: false,
     fontSize: 13,
-    fontFamily: 'var(--vp-font-family-mono)',
+    fontFamily: monoFont,
     tabSize: 2,
     padding: { top: 12 },
     automaticLayout: true,

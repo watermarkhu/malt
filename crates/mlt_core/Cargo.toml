@@ -1,10 +1,18 @@
 [package]
-name = "mlt_core"
-version = "0.1.0"
+name = "mlt-lint-core"
+version.workspace = true
 edition.workspace = true
 license.workspace = true
 authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+keywords.workspace = true
+categories.workspace = true
+readme = "../../README.md"
 description = "Core engine for mlt: AST traversal, rule traits, and diagnostics"
+
+[lib]
+name = "mlt_core"
 
 [dependencies]
 tree-sitter.workspace = true

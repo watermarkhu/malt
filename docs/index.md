@@ -34,8 +34,8 @@ features:
 ## Quick Start
 
 ```bash
-# Install from source
-cargo install --path crates/mlt_cli
+# Install (prebuilt wheels on PyPI)
+uv tool install mlt
 
 # Lint MATLAB files
 mlt path/to/file.m

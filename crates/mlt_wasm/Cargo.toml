@@ -1,9 +1,12 @@
 [package]
 name = "mlt_wasm"
-version = "0.1.0"
+version.workspace = true
 edition.workspace = true
 license.workspace = true
 authors.workspace = true
+repository.workspace = true
+# Shipped through npm (`mlt-wasm`), not crates.io.
+publish = false
 description = "Browser WebAssembly bindings for mlt, the MATLAB linter"
 
 [lib]
@@ -14,8 +17,8 @@ crate-type = ["cdylib", "rlib"]
 wasm-opt = false
 
 [dependencies]
-mlt_core = { path = "../mlt_core" }
-mlt_rules = { path = "../mlt_rules" }
+mlt_core.workspace = true
+mlt_rules.workspace = true
 serde = { workspace = true }
 serde_json = "1"
 

@@ -287,19 +287,19 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "88904434abc2901f197fe8cc55f0445e7ded921dba5911dad2e2b39b48e663c4"
 
 [[package]]
-name = "mlt_cli"
-version = "0.1.0"
+name = "mlt-lint"
+version = "0.0.0"
 dependencies = [
  "anyhow",
  "clap",
- "mlt_core",
- "mlt_rules",
+ "mlt-lint-core",
+ "mlt-lint-rules",
  "tempfile",
 ]
 
 [[package]]
-name = "mlt_core"
-version = "0.1.0"
+name = "mlt-lint-core"
+version = "0.0.0"
 dependencies = [
  "serde",
  "thiserror",
@@ -310,11 +310,11 @@ dependencies = [
 ]
 
 [[package]]
-name = "mlt_rules"
-version = "0.1.0"
+name = "mlt-lint-rules"
+version = "0.0.0"
 dependencies = [
  "inventory",
- "mlt_core",
+ "mlt-lint-core",
  "regex",
  "serde",
  "toml",
@@ -324,12 +324,12 @@ dependencies = [
 
 [[package]]
 name = "mlt_wasm"
-version = "0.1.0"
+version = "0.0.0"
 dependencies = [
  "cc",
  "console_error_panic_hook",
- "mlt_core",
- "mlt_rules",
+ "mlt-lint-core",
+ "mlt-lint-rules",
  "serde",
  "serde-wasm-bindgen",
  "serde_json",

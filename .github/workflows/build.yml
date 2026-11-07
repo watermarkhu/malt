@@ -1,0 +1,183 @@
+name: Build
+
+# Builds every distributable: Python wheels + sdist (PyPI), the WebAssembly npm
+# package, and the crates.io packages (verified, not uploaded). Called by
+# qualify.yml (no version: builds as 0.0.0) and release.yml (stamped version),
+# so a pull request exercises exactly what a release publishes.
+
+on:
+  workflow_call:
+    inputs:
+      version:
+        description: Semantic version to stamp into the Cargo workspace (empty keeps 0.0.0)
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+
+env:
+  VERSION: ${{ inputs.version }}
+
+jobs:
+  wheels:
+    name: Wheel ${{ matrix.platform.name }}
+    runs-on: ${{ matrix.platform.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        platform:
+          - { name: linux-x86_64, runner: ubuntu-latest, target: x86_64, manylinux: auto }
+          - { name: linux-aarch64, runner: ubuntu-latest, target: aarch64, manylinux: auto }
+          - { name: musllinux-x86_64, runner: ubuntu-latest, target: x86_64-unknown-linux-musl, manylinux: musllinux_1_2 }
+          - { name: musllinux-aarch64, runner: ubuntu-latest, target: aarch64-unknown-linux-musl, manylinux: musllinux_1_2 }
+          - { name: macos-x86_64, runner: macos-latest, target: x86_64-apple-darwin }
+          - { name: macos-aarch64, runner: macos-latest, target: aarch64-apple-darwin }
+          - { name: windows-x64, runner: windows-latest, target: x64 }
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Stamp version
+        if: env.VERSION != ''
+        shell: bash
+        run: sed -i.bak "s/\"0\.0\.0\"/\"${VERSION}\"/g" Cargo.toml && rm Cargo.toml.bak
+
+      - name: Build wheel
+        uses: PyO3/maturin-action@86b9d133d34bc1b40018696f782949dac11bd380 # v1.49.4
+        with:
+          target: ${{ matrix.platform.target }}
+          manylinux: ${{ matrix.platform.manylinux }}
+          args: --release --out dist
+
+      - name: Upload wheel
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: wheels-${{ matrix.platform.name }}
+          path: dist/*.whl
+          if-no-files-found: error
+
+  sdist:
+    name: Source distribution
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Stamp version
+        if: env.VERSION != ''
+        run: sed -i "s/\"0\.0\.0\"/\"${VERSION}\"/g" Cargo.toml
+
+      - name: Build sdist
+        uses: PyO3/maturin-action@86b9d133d34bc1b40018696f782949dac11bd380 # v1.49.4
+        with:
+          command: sdist
+          args: --out dist
+
+      - name: Upload sdist
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: wheels-sdist
+          path: dist/*.tar.gz
+          if-no-files-found: error
+
+  test-wheels:
+    name: Test wheel ${{ matrix.platform.name }}
+    needs: wheels
+    runs-on: ${{ matrix.platform.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        platform:
+          - { name: linux-x86_64, runner: ubuntu-latest }
+          - { name: macos-aarch64, runner: macos-latest }
+          - { name: windows-x64, runner: windows-latest }
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: wheels-${{ matrix.platform.name }}
+          path: dist
+
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+
+      - name: Install wheel and run the Python smoke tests
+        shell: bash
+        run: |
+          uv venv --python 3.13
+          uv pip install --no-index --find-links dist mlt
+          uv pip install pytest
+          uv run --no-project pytest python/tests -v
+
+  wasm:
+    name: WebAssembly package
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Stamp version
+        if: env.VERSION != ''
+        run: sed -i "s/\"0\.0\.0\"/\"${VERSION}\"/g" Cargo.toml
+
+      - name: Setup Rust
+        uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1.17.0
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Setup mise
+        uses: jdx/mise-action@7e36c90d9ab29c415a2384db3006f3ec8a8cc654 # v4.2.4
+        with:
+          experimental: true
+          install: true
+          install_args: "cargo:wasm-pack node"
+
+      - name: Download WASI SDK
+        run: mise run setup-wasi
+
+      - name: Build WASM
+        run: mise run build-wasm
+
+      - name: Prepare package
+        run: |
+          cp wasm-pkg/README.md crates/mlt_wasm/pkg/
+          cp LICENSE crates/mlt_wasm/pkg/
+          jq -s '.[0] * .[1]' crates/mlt_wasm/pkg/package.json wasm-pkg/package.json.tmpl > crates/mlt_wasm/pkg/package.json.new
+          mv crates/mlt_wasm/pkg/package.json.new crates/mlt_wasm/pkg/package.json
+          jq '{name, version}' crates/mlt_wasm/pkg/package.json
+
+      - name: Smoke test in Node.js
+        run: mise x -- node wasm-pkg/smoke-test.mjs crates/mlt_wasm/pkg
+
+      - name: Upload WASM package
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: wasm-pkg
+          path: crates/mlt_wasm/pkg/
+          if-no-files-found: error
+
+  crates:
+    name: crates.io packages
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Stamp version
+        if: env.VERSION != ''
+        run: sed -i "s/\"0\.0\.0\"/\"${VERSION}\"/g" Cargo.toml
+
+      - name: Setup Rust
+        uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1.17.0
+
+      # Packages, builds, and verifies every publishable crate in dependency
+      # order against a local registry overlay, without uploading.
+      - name: Package crates (dry run)
+        run: cargo publish --workspace --dry-run --allow-dirty

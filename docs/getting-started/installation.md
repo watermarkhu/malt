@@ -4,45 +4,49 @@ icon: lucide/download
 
 # Installation
 
-## From source (Cargo)
+Every channel installs the same `mlt` command-line tool.
 
-mlt is written in Rust and currently installed from source via Cargo.
+## From PyPI (recommended)
 
-### Prerequisites
-
-- [Rust toolchain](https://rustup.rs/) (1.70+ recommended)
-- A C compiler (required by tree-sitter build)
-
-### Install
+The `mlt` wheels bundle a prebuilt binary for Linux (glibc and musl, x86_64 and
+aarch64), macOS (Intel and Apple silicon), and Windows (x64), so no Rust
+toolchain is needed:
 
 ```bash
-# Clone the repository
+uv tool install mlt     # or: pipx install mlt / pip install mlt
+uvx mlt src/            # run once without installing
+```
+
+`python -m mlt` works too, which is handy inside virtual environments.
+
+## From crates.io
+
+The crates are published under the `mlt-lint` name (the `mlt` crate name
+belongs to another project); the installed binary is still `mlt`:
+
+```bash
+cargo install mlt-lint
+```
+
+This needs a [Rust toolchain](https://rustup.rs/) and a C compiler (for the
+tree-sitter parser).
+
+## From source
+
+```bash
 git clone https://github.com/watermarkhu/mlt.git
 cd mlt
-
-# Install the binary
 cargo install --path crates/mlt_cli
 ```
 
-This places the `mlt` binary in your Cargo bin directory (typically `~/.cargo/bin/`).
+To build without installing, run `cargo build --release`; the binary is at
+`target/release/mlt`.
 
-### Build without installing
+## In the browser or Node.js
 
-```bash
-# Build in release mode
-cargo build --release
-
-# Binary is at target/release/mlt
-./target/release/mlt --version
-```
-
-## From crates.io (planned)
-
-Once published:
-
-```bash
-cargo install mlt
-```
+The WebAssembly build is published to npm as
+[`mlt-wasm`](https://www.npmjs.com/package/mlt-wasm). See
+[WebAssembly](../usage/wasm.md).
 
 ## Verify Installation
 

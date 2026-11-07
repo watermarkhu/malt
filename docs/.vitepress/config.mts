@@ -9,9 +9,11 @@ export default defineConfig({
   title: 'mlt',
   description: 'An ultra-fast, extensible linter for MATLAB, written in Rust',
   cleanUrls: true,
+  // GitHub Pages serves the project site at https://watermarkhu.nl/mlt/.
+  base: '/mlt/',
   lastUpdated: true,
 
-  head: [['link', { rel: 'icon', type: 'image/svg+xml', href: '/favicon.svg' }]],
+  head: [['link', { rel: 'icon', type: 'image/svg+xml', href: '/mlt/favicon.svg' }]],
 
   markdown: {
     config: (md) => {

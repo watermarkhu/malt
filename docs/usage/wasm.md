@@ -57,14 +57,10 @@ mise run test-wasm    # run the host-side binding tests
 > `dup` path in tree-sitter's C runtime. The resulting module is a standard
 > browser wasm with no WASI imports.
 
-The built package lands in `crates/mlt_wasm/pkg/`. To publish:
-
-```bash
-npm publish crates/mlt_wasm/pkg
-```
-
-`release.yml` performs this automatically on version tags (using npm
-`--provenance`, gated on the `NPM_TOKEN` secret).
+The built package lands in `crates/mlt_wasm/pkg/`. Releases are published
+automatically: when a pull request into `main` is merged, `release.yml` stamps the
+version, builds the package, and runs `npm publish --provenance`. See
+[CONTRIBUTING](https://github.com/watermarkhu/mlt/blob/main/.github/CONTRIBUTING.md).
 
 ## Local docs build
 

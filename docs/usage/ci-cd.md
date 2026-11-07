@@ -40,11 +40,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-
       - name: Install mlt
-        run: cargo install --path crates/mlt_cli
+        run: pipx install mlt
 
       - name: Lint
         run: |
