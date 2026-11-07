@@ -26,9 +26,12 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        # glibc wheels target manylinux_2_28: on manylinux2014 (glibc 2.17)
+        # tree-sitter's C runtime fails to link because `_DEFAULT_SOURCE` (glibc
+        # >= 2.19) does not expose le16toh/be16toh there.
         platform:
-          - { name: linux-x86_64, runner: ubuntu-latest, target: x86_64, manylinux: auto }
-          - { name: linux-aarch64, runner: ubuntu-latest, target: aarch64, manylinux: auto }
+          - { name: linux-x86_64, runner: ubuntu-latest, target: x86_64, manylinux: 2_28 }
+          - { name: linux-aarch64, runner: ubuntu-latest, target: aarch64, manylinux: 2_28 }
           - { name: musllinux-x86_64, runner: ubuntu-latest, target: x86_64-unknown-linux-musl, manylinux: musllinux_1_2 }
           - { name: musllinux-aarch64, runner: ubuntu-latest, target: aarch64-unknown-linux-musl, manylinux: musllinux_1_2 }
           - { name: macos-x86_64, runner: macos-latest, target: x86_64-apple-darwin }
