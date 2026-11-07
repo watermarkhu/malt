@@ -49,7 +49,10 @@ export CFLAGS_wasm32_unknown_unknown="-isystem $WASI_SDK/share/wasi-sysroot/incl
 # Newer rustc no longer passes --allow-undefined to the wasm linker. tree-sitter's
 # C runtime references libc symbols (stderr, clock_gettime) on code paths the
 # linter never reaches; they are dropped by the time wasm-bindgen runs.
-export CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUSTFLAGS="-C link-arg=--allow-undefined"
+# Appended to RUSTFLAGS (not CARGO_TARGET_*_RUSTFLAGS, which a set RUSTFLAGS such
+# as CI's "-D warnings" overrides). wasm-pack passes --target, so host build
+# scripts do not receive it.
+export RUSTFLAGS="${RUSTFLAGS:-} -C link-arg=--allow-undefined"
 wasm-pack build crates/mlt_wasm --target web --no-default-features --features wasm
 """
 
