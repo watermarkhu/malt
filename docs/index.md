@@ -35,7 +35,7 @@ features:
 
 ```bash
 # Install (prebuilt wheels on PyPI)
-uv tool install mlt
+uv tool install mlt-lint
 
 # Lint MATLAB files
 mlt path/to/file.m

@@ -57,7 +57,7 @@ wheels = [
 ]
 
 [[package]]
-name = "mlt"
+name = "mlt-lint"
 source = { editable = "." }
 
 [package.dev-dependencies]

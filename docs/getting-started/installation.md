@@ -8,13 +8,13 @@ Every channel installs the same `mlt` command-line tool.
 
 ## From PyPI (recommended)
 
-The `mlt` wheels bundle a prebuilt binary for Linux (glibc and musl, x86_64 and
+The `mlt-lint` wheels bundle a prebuilt binary for Linux (glibc and musl, x86_64 and
 aarch64), macOS (Intel and Apple silicon), and Windows (x64), so no Rust
 toolchain is needed:
 
 ```bash
-uv tool install mlt     # or: pipx install mlt / pip install mlt
-uvx mlt src/            # run once without installing
+uv tool install mlt-lint     # or: pipx install mlt-lint / pip install mlt-lint
+uvx --from mlt-lint mlt src/   # run once without installing
 ```
 
 `python -m mlt` works too, which is handy inside virtual environments.

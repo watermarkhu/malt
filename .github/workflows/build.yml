@@ -113,7 +113,7 @@ jobs:
         shell: bash
         run: |
           uv venv --python 3.13
-          uv pip install --no-index --find-links dist mlt
+          uv pip install --no-index --find-links dist mlt-lint
           uv pip install pytest
           uv run --no-project pytest python/tests -v
 

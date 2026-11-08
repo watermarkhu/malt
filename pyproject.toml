@@ -3,7 +3,7 @@ requires = ["maturin>=1.9,<2"]
 build-backend = "maturin"
 
 [project]
-name = "mlt"
+name = "mlt-lint"
 description = "An ultra-fast MATLAB linter with MATLAB Code Analyzer-compatible checks, written in Rust"
 authors = [{ name = "Mark Shui Hu", email = "watermarkhu@gmail.com" }]
 license = "MIT"

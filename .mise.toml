@@ -9,7 +9,7 @@
 node = "24.19.0"
 # Bun for the VitePress docs project (install, `bun run docs:*` scripts).
 bun = "latest"
-# uv for the Python wrapper (PyPI package `mlt`, built with maturin).
+# uv for the Python wrapper (PyPI package `mlt-lint`, built with maturin).
 uv = "latest"
 # Clang C compiler — required to compile the tree-sitter-matlab C parser for
 # the wasm32 target (the `cc` crate uses it as `CC` when building wasm).

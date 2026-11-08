@@ -11,7 +11,7 @@ existing `%#ok<...>` suppressions keep working.
 
 | Channel | Command |
 | ------- | ------- |
-| PyPI | `pip install mlt` or `uv tool install mlt` (or run once with `uvx mlt`) |
+| PyPI | `pip install mlt-lint` or `uv tool install mlt-lint` (or run once with `uvx --from mlt-lint mlt`) |
 | crates.io | `cargo install mlt-lint` |
 | npm (WebAssembly) | `npm install mlt-wasm` |
 

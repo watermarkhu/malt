@@ -41,7 +41,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Install mlt
-        run: pipx install mlt
+        run: pipx install mlt-lint
 
       - name: Lint
         run: |

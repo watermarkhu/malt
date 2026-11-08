@@ -47,6 +47,6 @@ When such a pull request is merged, the workflow:
    crates, the Python wheels and the npm package; `main` keeps `0.0.0`),
 2. commits and pushes a `vX.Y.Z` tag,
 3. publishes `mlt-lint-core`, `mlt-lint-rules` and `mlt-lint` to crates.io,
-   `mlt` to PyPI, and `mlt-wasm` to npm,
+   `mlt-lint` to PyPI, and `mlt-wasm` to npm,
 4. creates a GitHub release with the wheels, sdist and npm tarball attached,
 5. deploys the documentation to GitHub Pages.

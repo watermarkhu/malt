@@ -15,7 +15,7 @@ mlt/
 ├── .agents/                # Agent guidance (this file), subagent prompts, skills
 ├── opencode.json           # Registers .agents/ with OpenCode (instructions + subagents)
 ├── Cargo.toml              # Workspace root (resolver = "2"); version placeholder 0.0.0
-├── pyproject.toml          # PyPI package `mlt` (maturin, ships the CLI binary)
+├── pyproject.toml          # PyPI package `mlt-lint` (maturin, ships the CLI binary)
 ├── package.json            # Docs toolchain (bun + VitePress), npm scripts
 ├── crates/
 │   ├── mlt_cli/            # CLI binary (clap, config discovery, output formatting)
@@ -35,7 +35,7 @@ mlt/
 | `crates/mlt_rules` | `mlt-lint-rules` | `mlt_rules` |
 | `crates/mlt_cli` | `mlt-lint` (binary `mlt`) | — |
 | `crates/mlt_wasm` | npm `mlt-wasm` (not on crates.io) | `mlt_lib` |
-| `pyproject.toml` | PyPI `mlt` | — |
+| `pyproject.toml` | PyPI `mlt-lint` (installs the `mlt` command and `mlt` module) | — |
 
 The `mlt`, `mlt_core` and `mlt_wasm` crate names belong to MapLibre, hence the
 `mlt-lint` prefix. Code keeps using `mlt_core::` / `mlt_rules::`.
