@@ -25,7 +25,7 @@ local hygiene = new Mapping<String, Step> {
     ["check-merge-conflict"] = Builtins.check_merge_conflict
     ["check-added-large-files"] = (Builtins.check_added_large_files) {
         // The rule data tables are intentionally large (500KB+); exclude them.
-        exclude = List("crates/mlt_rules/src/data/*.toml")
+        exclude = List("crates/malt_rules/src/data/*.toml")
     }
     ["check-case-conflict"] = Builtins.check_case_conflict
     ["detect-private-key"] = Builtins.detect_private_key
@@ -46,7 +46,7 @@ local ci_and_docs = new Mapping<String, Step> {
     // must match the rule docstring schema in the sources; fails if
     // `bun run docs:gen` would change anything.
     ["docs-gen"] {
-        glob = List("docs/**/*.md", "docs/scripts/gen_rules_docs.ts", "docs/scripts/SCHEMA.md", "crates/mlt_rules/src/**/*.rs", "crates/mlt_rules/src/data/*.toml")
+        glob = List("docs/**/*.md", "docs/scripts/gen_rules_docs.ts", "docs/scripts/SCHEMA.md", "crates/malt_rules/src/**/*.rs", "crates/malt_rules/src/data/*.toml")
         check = "bun docs/scripts/gen_rules_docs.ts --check"
     }
 }

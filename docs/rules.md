@@ -2115,7 +2115,7 @@ to refresh them whenever `data/compatibility.toml` or
 
 ## Rule Categories
 
-mlt organizes rules into the same categories as MATLAB's Code Analyzer:
+malt organizes rules into the same categories as MATLAB's Code Analyzer:
 
 | Category | Config Key | Description |
 | -------- | ---------- | ----------- |
@@ -2172,7 +2172,7 @@ Low-priority suggestions:
 
 ### Configuring Severity
 
-Override default severities in `.mlt.toml`:
+Override default severities in `.malt.toml`:
 
 ```toml
 [lint.rules]
@@ -2236,23 +2236,23 @@ See [Configuration](configuration.md#default-behavior) for the full default set.
 
 ## Auto-fix Support
 
-Rules marked with "Yes" in the Auto-fix column provide automatic fixes. Run mlt with `--fix` to apply them:
+Rules marked with "Yes" in the Auto-fix column provide automatic fixes. Run malt with `--fix` to apply them:
 
 ```bash
-mlt --fix src/**/*.m
+malt --fix src/**/*.m
 ```
 
 Fixes are applied atomically per file. Overlapping fixes are detected and the conflicting fix is skipped with a warning.
 
 ## Adding New Rules
 
-mlt uses auto-registration via the `inventory` crate. To add a new rule:
+malt uses auto-registration via the `inventory` crate. To add a new rule:
 
-1. Create a new module in `crates/mlt_rules/src/` (e.g., `agrow.rs`)
+1. Create a new module in `crates/malt_rules/src/` (e.g., `agrow.rs`)
 2. Implement the `Rule` trait with a `from_config` factory
 3. Add `inventory::submit!(crate::RuleRegistration::new("AGROW", Agrow::from_config));` at the bottom
 4. Add documentation in `docs/rules/agrow.md`
 
 No manual edits to `lib.rs` are needed beyond adding the `pub mod` declaration.
 
-See the [repository](https://github.com/watermarkhu/mlt) for the full development guide.
+See the [repository](https://github.com/watermarkhu/malt) for the full development guide.

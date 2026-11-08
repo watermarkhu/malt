@@ -7,7 +7,7 @@ icon: lucide/terminal
 ## Synopsis
 
 ```text
-mlt [OPTIONS] <FILES>...
+malt [OPTIONS] <FILES>...
 ```
 
 ## Arguments
@@ -21,7 +21,7 @@ mlt [OPTIONS] <FILES>...
 | Option                | Description                                      |
 | --------------------- | ------------------------------------------------ |
 | `--fix`               | Apply automatic fixes where available            |
-| `--config <PATH>`     | Path to config file (default: `.mlt.toml` in CWD) |
+| `--config <PATH>`     | Path to config file (default: `.malt.toml` in CWD) |
 | `--preset <PRESET>`   | Preset to use (`all`, `mathworks`, `recommended`); overrides `[lint] preset` |
 | `-h`, `--help`        | Print help information                           |
 | `-V`, `--version`     | Print version information                        |
@@ -33,7 +33,7 @@ mlt [OPTIONS] <FILES>...
 Lint one or more MATLAB files and print diagnostics to stdout:
 
 ```bash
-mlt src/compute.m src/utils.m
+malt src/compute.m src/utils.m
 ```
 
 Output format:
@@ -53,7 +53,7 @@ src/compute.m:2:5 [W] M001: Statement without trailing semicolon may produce uni
 Run with `--fix` to automatically apply fixes:
 
 ```bash
-mlt --fix src/compute.m
+malt --fix src/compute.m
 ```
 
 Output:
@@ -66,13 +66,13 @@ Only diagnostics with auto-fix support are applied. Issues without fixes are lef
 
 ### Explicit configuration
 
-By default, mlt looks for `.mlt.toml` in the current working directory. Override with `--config`:
+By default, malt looks for `.malt.toml` in the current working directory. Override with `--config`:
 
 ```bash
-mlt --config configs/strict.toml src/**/*.m
+malt --config configs/strict.toml src/**/*.m
 ```
 
-If `--config` is specified and the file does not exist, mlt exits with an error. If no `--config` is given and `.mlt.toml` is not found, mlt uses the `mathworks` preset (see [Configuration](../configuration.md#presets)).
+If `--config` is specified and the file does not exist, malt exits with an error. If no `--config` is given and `.malt.toml` is not found, malt uses the `mathworks` preset (see [Configuration](../configuration.md#presets)).
 
 ## Exit Codes
 
@@ -84,28 +84,28 @@ If `--config` is specified and the file does not exist, mlt exits with an error.
 
 ## Shell Glob Expansion
 
-mlt does not perform its own glob expansion. Use your shell's globbing:
+malt does not perform its own glob expansion. Use your shell's globbing:
 
 ```bash
 # Bash/Zsh — lint all .m files recursively
-mlt **/*.m
+malt **/*.m
 
 # Or use find
-find src -name '*.m' -exec mlt {} +
+find src -name '*.m' -exec malt {} +
 ```
 
 ## Examples
 
 ```bash
 # Lint a single file
-mlt main.m
+malt main.m
 
 # Lint all MATLAB files in a directory (using shell glob)
-mlt src/**/*.m
+malt src/**/*.m
 
 # Fix issues with a custom config
-mlt --fix --config .mlt-strict.toml lib/**/*.m
+malt --fix --config .malt-strict.toml lib/**/*.m
 
 # Check version
-mlt --version
+malt --version
 ```

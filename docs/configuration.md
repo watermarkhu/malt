@@ -4,17 +4,17 @@ icon: lucide/settings
 
 # Configuration
 
-mlt is configured via a `.mlt.toml` file in your project directory. This page is the complete reference for the configuration schema.
+malt is configured via a `.malt.toml` file in your project directory. This page is the complete reference for the configuration schema.
 
 ## Config File Discovery
 
-mlt looks for `.mlt.toml` in the current working directory by default. You can override this with the `--config` flag:
+malt looks for `.malt.toml` in the current working directory by default. You can override this with the `--config` flag:
 
 ```bash
-mlt --config path/to/config.toml src/**/*.m
+malt --config path/to/config.toml src/**/*.m
 ```
 
-If no config file is found and `--config` is not specified, mlt uses the built-in **`mathworks`** preset (see [Presets](#presets)).
+If no config file is found and `--config` is not specified, malt uses the built-in **`mathworks`** preset (see [Presets](#presets)).
 
 ## Presets
 
@@ -34,7 +34,7 @@ preset = "recommended"
 ```
 
 ```bash
-mlt --preset all src/**/*.m
+malt --preset all src/**/*.m
 ```
 
 A preset only removes categories; the specialized engines that are
@@ -53,12 +53,12 @@ preset = "recommended"
 readability = "info"   # re-enable the readability suggestions
 ```
 
-Presets are defined in `crates/mlt_core/src/preset.rs`; adding one is a single
+Presets are defined in `crates/malt_core/src/preset.rs`; adding one is a single
 row in the `PRESETS` table.
 
 ## Schema Overview
 
-```toml title=".mlt.toml"
+```toml title=".malt.toml"
 [lint]
 # Global lint settings
 exclude = ["vendor/**", "third_party/**"]
@@ -198,7 +198,7 @@ All other keys in the table are rule-specific parameters (see **Per-Engine Param
 
 ## Default Behavior
 
-When no `.mlt.toml` is present:
+When no `.malt.toml` is present:
 
 - The **`mathworks`** preset is active, so `custom-checks` and `naming` are off
 - These specialized engines are **off by default** under every preset except
@@ -215,7 +215,7 @@ When no `.mlt.toml` is present:
 
 Each rule page shows whether the rule is enabled by default. To opt in:
 
-```toml title=".mlt.toml"
+```toml title=".malt.toml"
 [lint.categories]
 code-generation = "error"   # enable the whole category
 
@@ -268,7 +268,7 @@ disabled_checks = ["PFEVC", "PFANSLP"]   # Turn off specific checks
 
 ## Complete Example
 
-```toml title=".mlt.toml"
+```toml title=".malt.toml"
 [lint]
 # Skip generated and vendored code
 exclude = [

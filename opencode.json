@@ -13,7 +13,7 @@
       ]
     },
     "implementer": {
-      "description": "Step 3 of the rule pipeline. Implements a MATLAB Code Analyzer rule in mlt following the reviewed plan. Use with a rule ID plus the approved plan, e.g. Task(subagent_type=\"implementer\", prompt=\"... plan ...\").",
+      "description": "Step 3 of the rule pipeline. Implements a MATLAB Code Analyzer rule in malt following the reviewed plan. Use with a rule ID plus the approved plan, e.g. Task(subagent_type=\"implementer\", prompt=\"... plan ...\").",
       "mode": "subagent",
       "model": "opencode-go/deepseek-v4-flash",
       "system": "{file:.agents/agents/implementer.md}"

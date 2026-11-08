@@ -4,7 +4,7 @@ icon: lucide/play
 
 # Quick Start
 
-Get up and running with mlt in minutes.
+Get up and running with malt in minutes.
 
 ## Basic Usage
 
@@ -12,24 +12,24 @@ Get up and running with mlt in minutes.
 
 ```bash
 # Lint a single file
-mlt src/compute.m
+malt src/compute.m
 
 # Lint multiple files
-mlt src/compute.m src/utils.m lib/helpers.m
+malt src/compute.m src/utils.m lib/helpers.m
 ```
 
 ### Auto-fix issues
 
 ```bash
 # Apply automatic fixes
-mlt --fix src/compute.m
+malt --fix src/compute.m
 ```
 
 ## Create a Configuration File
 
-Create a `.mlt.toml` file in your project root to customize behavior:
+Create a `.malt.toml` file in your project root to customize behavior:
 
-```toml title=".mlt.toml"
+```toml title=".malt.toml"
 [lint]
 exclude = ["vendor/**", "test/fixtures/**"]
 
@@ -37,15 +37,15 @@ exclude = ["vendor/**", "test/fixtures/**"]
 M001 = "warn"
 ```
 
-mlt automatically discovers `.mlt.toml` in the current working directory. You can also specify a config file explicitly:
+malt automatically discovers `.malt.toml` in the current working directory. You can also specify a config file explicitly:
 
 ```bash
-mlt --config path/to/.mlt.toml src/compute.m
+malt --config path/to/.malt.toml src/compute.m
 ```
 
 ## Example Configuration
 
-```toml title=".mlt.toml"
+```toml title=".malt.toml"
 [lint]
 # Exclude directories from linting
 exclude = ["vendor/**", "third_party/**"]
@@ -62,7 +62,7 @@ ignore_functions = ["disp", "fprintf", "warning", "error"]
 
 ## Understanding Output
 
-mlt outputs diagnostics in a clear, grep-friendly format:
+malt outputs diagnostics in a clear, grep-friendly format:
 
 ```text
 src/compute.m:2:5 [W] M001: Statement without trailing semicolon may produce unintended console output

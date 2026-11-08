@@ -1,17 +1,17 @@
-# mlt-wasm
+# malt-wasm
 
 Fast MATLAB linter with 2,680+ Code Analyzer checks, compiled to WebAssembly.
 
 ## Installation
 
 ```bash
-npm install mlt-wasm
+npm install malt-wasm
 ```
 
 ## Quick Start
 
 ```javascript
-import init, { Linter } from 'mlt-wasm';
+import init, { Linter } from 'malt-wasm';
 
 // Initialize the WASM module
 await init();
@@ -47,7 +47,7 @@ const linter = new Linter({
 
 ### `Linter.from_toml(toml)`
 
-Create a linter from a `.mlt.toml` configuration string, with full config
+Create a linter from a `.malt.toml` configuration string, with full config
 fidelity (per-rule severity, per-category overrides, rule parameters,
 `exclude`). Throws a string error when the TOML cannot be parsed.
 
@@ -82,7 +82,7 @@ const fixed = linter.fix('x = 1');
 
 ### `Linter.get_version()`
 
-Get the mlt version.
+Get the malt version.
 
 ```javascript
 const version = Linter.get_version(); // e.g., "0.1.0"
@@ -135,7 +135,7 @@ interface Warning {
 
 ```html
 <script type="module">
-  import init, { Linter } from './mlt_lib.js';
+  import init, { Linter } from './malt_lib.js';
 
   async function main() {
     await init();
@@ -152,7 +152,7 @@ interface Warning {
 
 ```html
 <script type="module">
-  import init, { Linter } from 'https://cdn.jsdelivr.net/npm/mlt-wasm/mlt_lib.js';
+  import init, { Linter } from 'https://cdn.jsdelivr.net/npm/malt-wasm/malt_lib.js';
 
   await init();
   const linter = new Linter({});
@@ -163,7 +163,7 @@ interface Warning {
 ## Node.js Usage
 
 ```javascript
-import init, { Linter } from 'mlt-wasm';
+import init, { Linter } from 'malt-wasm';
 import { readFile } from 'fs/promises';
 
 await init();
@@ -185,7 +185,7 @@ use a local build instead:
 ```bash
 mise install
 mise run build-wasm
-mise run serve-local-wasm   # copies crates/mlt_wasm/pkg -> docs/public/assets/mlt-wasm
+mise run serve-local-wasm   # copies crates/malt_wasm/pkg -> docs/public/assets/malt-wasm
 ```
 
 ## License

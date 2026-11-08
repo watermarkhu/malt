@@ -1,11 +1,11 @@
 ---
 name: rule-pipeline
-description: Orchestrates implementation of MATLAB Code Analyzer rules in mlt: plan in the main session, then review and implement via parallel Reviewer → Implementer subagent flows. Use when implementing one or more new lint rules or checks in this repo, or when asked to run the rule pipeline / per-rule flow. Launches many independent flows in parallel, one per rule.
+description: Orchestrates implementation of MATLAB Code Analyzer rules in malt: plan in the main session, then review and implement via parallel Reviewer → Implementer subagent flows. Use when implementing one or more new lint rules or checks in this repo, or when asked to run the rule pipeline / per-rule flow. Launches many independent flows in parallel, one per rule.
 ---
 
 # Rule Implementation Pipeline (plan in main → Review → Implement)
 
-Every new MATLAB Code Analyzer rule in `mlt` is implemented as follows:
+Every new MATLAB Code Analyzer rule in `malt` is implemented as follows:
 
 1. **Planning happens in the MAIN session** (not a subagent) — the main session owns
    the single Playwright MCP instance and does the rule-context lookup and codebase
@@ -49,7 +49,7 @@ MFAMB, FVINR), run one flow per rule:
 1. **Plan in the main session.** For each rule:
    - Look up the rule context on the MathWorks check index via Playwright (see above).
    - Study the codebase conventions: `.agents/AGENTS.md` "Adding a New Rule", the target
-     module in `crates/mlt_rules/src/`, a reference rule like `nosemi.rs`, and
+     module in `crates/malt_rules/src/`, a reference rule like `nosemi.rs`, and
      `docs/nosemi.md`.
    - Write a self-contained implementation plan including: rule ID, official
      description, severity, category, can_be_disabled; `target_node_types()` or
@@ -75,7 +75,7 @@ Do not serialize steps 2 and 3. Each is a batch of parallel tasks.
 - `cargo clippy --all-targets` passes with zero warnings
 - `cargo test` passes (fires, not-fires, and config tests from the plan)
 - Docs updated: `docs/<rule_id>.md`, `docs/rules.md`, VitePress sidebar (`docs/.vitepress/config.mts`)
-- `crates/mlt_rules/src/lib.rs` has the `pub mod` line for any new module
+- `crates/malt_rules/src/lib.rs` has the `pub mod` line for any new module
 
 ## Notes
 

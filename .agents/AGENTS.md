@@ -1,28 +1,28 @@
 # AGENTS.md
 
-This document describes how to develop and document the `mlt` codebase for AI coding agents and human contributors.
+This document describes how to develop and document the `malt` codebase for AI coding agents and human contributors.
 
 ## Project Overview
 
-`mlt` (pronounced "melt") is an ultra-fast, extensible linter for MATLAB written in Rust. It uses `tree-sitter-matlab` for parsing and is architecturally inspired by [ruff](https://github.com/astral-sh/ruff) and [rumdl](https://github.com/rvben/rumdl).
+`malt` is an ultra-fast, extensible linter for MATLAB written in Rust. It uses `tree-sitter-matlab` for parsing and is architecturally inspired by [ruff](https://github.com/astral-sh/ruff) and [rumdl](https://github.com/rvben/rumdl).
 
 The goal is full feature parity with MATLAB's Code Analyzer (~2,680 checks), using the same check IDs (e.g., `NOSEMI`, `AGROW`, `naming.class.casing`).
 
 ## Workspace Structure
 
 ```
-mlt/
+malt/
 ├── .agents/                # Agent guidance (this file), subagent prompts, skills
 ├── opencode.json           # Registers .agents/ with OpenCode (instructions + subagents)
 ├── Cargo.toml              # Workspace root (resolver = "2"); version placeholder 0.0.0
-├── pyproject.toml          # PyPI package `mlt-lint` (maturin, ships the CLI binary)
+├── pyproject.toml          # PyPI package `malt` (maturin, ships the CLI binary)
 ├── package.json            # Docs toolchain (bun + VitePress), npm scripts
 ├── crates/
-│   ├── mlt_cli/            # CLI binary (clap, config discovery, output formatting)
-│   ├── mlt_core/           # Core engine (Rule trait, RuleRegistry, Linter, Config, Diagnostic)
-│   ├── mlt_rules/          # Individual lint rule implementations
-│   └── mlt_wasm/           # WebAssembly bindings (npm package `mlt-wasm`)
-├── python/                 # `python -m mlt` shim + wheel smoke tests
+│   ├── malt_cli/           # CLI binary (clap, config discovery, output formatting)
+│   ├── malt_core/          # Core engine (Rule trait, RuleRegistry, Linter, Config, Diagnostic)
+│   ├── malt_rules/         # Individual lint rule implementations
+│   └── malt_wasm/          # WebAssembly bindings (npm package `malt-wasm`)
+├── python/                 # `python -m malt` shim + wheel smoke tests
 ├── wasm-pkg/               # npm package README, package.json template, smoke test
 └── docs/                   # VitePress documentation site (Markdown)
 ```
@@ -31,14 +31,14 @@ mlt/
 
 | Directory | crates.io / registry name | Rust library name |
 |-----------|---------------------------|-------------------|
-| `crates/mlt_core` | `mlt-lint-core` | `mlt_core` |
-| `crates/mlt_rules` | `mlt-lint-rules` | `mlt_rules` |
-| `crates/mlt_cli` | `mlt-lint` (binary `mlt`) | — |
-| `crates/mlt_wasm` | npm `mlt-wasm` (not on crates.io) | `mlt_lib` |
-| `pyproject.toml` | PyPI `mlt-lint` (installs the `mlt` command and `mlt` module) | — |
+| `crates/malt_core` | `malt-core` | `malt_core` |
+| `crates/malt_rules` | `malt-rules` | `malt_rules` |
+| `crates/malt_cli` | `malt-cli` (binary `malt`) | — |
+| `crates/malt_wasm` | npm `malt-wasm` (not on crates.io) | `malt_lib` |
+| `pyproject.toml` | PyPI `malt` (installs the `malt` command and the `malt` module) | — |
 
-The `mlt`, `mlt_core` and `mlt_wasm` crate names belong to MapLibre, hence the
-`mlt-lint` prefix. Code keeps using `mlt_core::` / `mlt_rules::`.
+The bare `malt` crate (crates.io) and npm package belong to unrelated projects, hence
+the `malt-*` crate names and `malt-wasm`. Code keeps using `malt_core::` / `malt_rules::`.
 
 Versions are never bumped by hand: `Cargo.toml` stays at `0.0.0` and the Release
 workflow stamps the semVersie version (from the Conventional Commit title of the
@@ -48,24 +48,24 @@ pull request into `main`) before publishing. See `.github/CONTRIBUTING.md`.
 
 | Crate | Purpose |
 |-------|---------|
-| `mlt_core` | Defines `Rule` trait, `Category` enum, `NodeContext`/`FileContext`, `RuleRegistry`, `Linter` engine, `Config` parsing, `Diagnostic`/`Fix`/`Severity` types. No concrete rules live here. |
-| `mlt_rules` | All concrete rule implementations. Uses `inventory` crate for auto-registration. Exports `all_rules(&Config)` and `active_rules(&Config)`. Depends on `mlt_core`. |
-| `mlt_cli` | Binary entry point. Discovers `.mlt.toml`, builds registry, invokes linter, formats output. Depends on both `mlt_core` and `mlt_rules`. |
+| `malt_core` | Defines `Rule` trait, `Category` enum, `NodeContext`/`FileContext`, `RuleRegistry`, `Linter` engine, `Config` parsing, `Diagnostic`/`Fix`/`Severity` types. No concrete rules live here. |
+| `malt_rules` | All concrete rule implementations. Uses `inventory` crate for auto-registration. Exports `all_rules(&Config)` and `active_rules(&Config)`. Depends on `malt_core`. |
+| `malt_cli` | Binary entry point. Discovers `.malt.toml`, builds registry, invokes linter, formats output. Depends on both `malt_core` and `malt_rules`. |
 
 ### Dependency Direction
 
 ```
-mlt_cli → mlt_rules → mlt_core
+malt_cli → malt_rules → malt_core
 ```
 
-`mlt_core` has zero internal dependencies. `mlt_rules` depends only on `mlt_core`. `mlt_cli` depends on both.
+`malt_core` has zero internal dependencies. `malt_rules` depends only on `malt_core`. `malt_cli` depends on both.
 
 ## Architecture
 
 ### Lint Engine Flow
 
-1. CLI loads `.mlt.toml` → parses into `Config`
-2. `mlt_rules::active_rules(&config)` → constructs only enabled rules (filtered by per-rule and per-category config)
+1. CLI loads `.malt.toml` → parses into `Config`
+2. `malt_rules::active_rules(&config)` → constructs only enabled rules (filtered by per-rule and per-category config)
 3. `RuleRegistry::new(rules, &config)` → indexes rules by `target_node_types()`, resolves effective severity per rule (per-rule > per-category > rule default)
 4. `Linter::new(registry)` → initializes tree-sitter parser with MATLAB grammar
 5. `linter.lint(source, file_path)` → single-pass DFS traversal:
@@ -135,7 +135,7 @@ inventory::submit!(crate::RuleRegistration::new("RULE_ID", RuleStruct::from_conf
 
 ### Configuration System
 
-Config file: `.mlt.toml` (discovered in CWD, or explicit `--config <path>`).
+Config file: `.malt.toml` (discovered in CWD, or explicit `--config <path>`).
 
 ```toml
 [lint]
@@ -164,28 +164,28 @@ This is the most common task. Follow these steps exactly:
 
 ### 1. Create the rule module
 
-Most categories are now **directories** (`crates/mlt_rules/src/<category>/`) holding
+Most categories are now **directories** (`crates/malt_rules/src/<category>/`) holding
 one file per check plus a `mod.rs` that owns the engine struct, config, the
 `impl Rule` dispatch, shared helpers (`pub(crate)`), and `inventory::submit!`.
 Before adding a check, look at the category's existing layout.
 
 - **Adding a check to an existing category directory** (the common case): create
-  `crates/mlt_rules/src/<category>/check_<name>.rs` containing
+  `crates/malt_rules/src/<category>/check_<name>.rs` containing
   `use super::*; impl <Category>Engine { pub(crate) fn check_<name>(...) }` plus
   that check's tests in a `#[cfg(test)] mod tests`. Add `mod check_<name>;` to the
   directory's `mod.rs`, and dispatch from the engine's `check()`/`check_file()`.
 - **Adding a brand-new standalone rule** (rare; e.g. `NOSEMI`): create a flat
-  `crates/mlt_rules/src/<rule_id_lowercase>.rs`:
+  `crates/malt_rules/src/<rule_id_lowercase>.rs`:
 
 ```rust
 //! # RULE_ID: Rule Description
 //!
 //! Explanation of what the rule checks.
 
-use mlt_core::{Category, Config, Diagnostic, Fix, NodeContext, Rule, Severity};
+use malt_core::{Category, Config, Diagnostic, Fix, NodeContext, Rule, Severity};
 use serde::Deserialize;
 
-/// Rule-specific configuration (deserialized from .mlt.toml).
+/// Rule-specific configuration (deserialized from .malt.toml).
 #[derive(Debug, Clone, Deserialize, Default)]
 pub struct RuleIdConfig {
     // Add rule-specific parameters here with #[serde(default)]
@@ -224,7 +224,7 @@ category's `mod.rs` as `pub(crate)` so check files can call them via `use super:
 
 ### 2. Register the module
 
-In `crates/mlt_rules/src/lib.rs`, add only (for a brand-new flat module or category):
+In `crates/malt_rules/src/lib.rs`, add only (for a brand-new flat module or category):
 
 ```rust
 pub mod rule_id_lowercase;
@@ -344,10 +344,10 @@ pub struct RuleIdConfig {
 |---------|---------|
 | `cargo build` | Build all crates |
 | `cargo clippy` | Lint Rust code (must pass with zero warnings) |
-| `cargo test` | Run all tests (unit tests in `mlt_core::config`) |
+| `cargo test` | Run all tests (unit tests in `malt_core::config`) |
 | `cargo run -- <file.m>` | Run the linter on a MATLAB file |
 | `cargo run -- --fix <file.m>` | Apply auto-fixes |
-| `cargo run -- --config path/.mlt.toml <file.m>` | Lint with explicit config |
+| `cargo run -- --config path/.malt.toml <file.m>` | Lint with explicit config |
 | `bun install` | Install the docs toolchain (VitePress, lucide icons) |
 | `bun run docs:dev` | Preview the docs locally |
 | `bun run docs:build` | Regenerate generated tables/pages, then build the site |
@@ -372,8 +372,8 @@ Documentation uses [VitePress](https://vitepress.dev/):
 - Preview: `bun run docs:dev` (runs `docs:gen` first)
 - Build: `bun run docs:build` (runs `docs:gen`, then `vitepress build docs`)
 - **Rule pages are generated from source docstrings.** Every rule module in
-  `crates/mlt_rules/src` carries a standardized `//!` header docstring (schema
-  documented in `docs/scripts/SCHEMA.md`) with a ```` ```mlt ```` front-matter
+  `crates/malt_rules/src` carries a standardized `//!` header docstring (schema
+  documented in `docs/scripts/SCHEMA.md`) with a ```` ```malt ```` front-matter
   block and fixed `## Rule` / `## Fix` / `## Examples` sections. The rule index
   table in `docs/rules.md` and the per-rule pages in `docs/rules/*.md` are
   produced by `docs/scripts/gen_rules_docs.ts`. `docs:build` regenerates them
@@ -395,7 +395,7 @@ docs/
 │   ├── cli.md                  # CLI reference
 │   ├── editors.md              # Editor integration
 │   └── ci-cd.md                # CI/CD integration
-├── configuration.md            # .mlt.toml schema reference
+├── configuration.md            # .malt.toml schema reference
 ├── rules.md                    # Rules overview + generated rule index table
 └── rules/<slug>.md             # One generated page per rule engine
 ```
@@ -408,7 +408,7 @@ Every rule module's `//!` docstring IS its documentation. Full spec:
 ```
 //! # <META_ID>: <Human Title>
 //!
-//! ```mlt
+//! ```malt
 //! id = "<META_ID>"
 //! title = "<Human Title>"
 //! category = "<category-slug>"

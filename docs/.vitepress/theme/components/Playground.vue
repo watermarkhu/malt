@@ -14,8 +14,8 @@ interface Warning {
 
 // Load the locally-built wasm when present (after `mise run serve-local-wasm`),
 // otherwise fall back to the published CDN build.
-const CDN_URL = 'https://cdn.jsdelivr.net/npm/mlt-wasm/mlt_lib.js'
-const LOCAL_URL = withBase('/assets/mlt-wasm/mlt_lib.js')
+const CDN_URL = 'https://cdn.jsdelivr.net/npm/malt-wasm/malt_lib.js'
+const LOCAL_URL = withBase('/assets/malt-wasm/malt_lib.js')
 
 const EXAMPLES: Record<string, string> = {
   common: `x = 1
@@ -66,8 +66,8 @@ const input = ref('')
 const warnings = ref<Warning[]>([])
 const exampleKey = ref('')
 
-const DEFAULT_TOML = `# mlt playground configuration (.mlt.toml).
-# Everything here is optional; comments-only uses mlt's defaults.
+const DEFAULT_TOML = `# malt playground configuration (.malt.toml).
+# Everything here is optional; comments-only uses malt's defaults.
 # Off by default (uncomment a block to re-enable):
 #   code-generation, deployment, system-objects,
 #   configuration-issues, suggested-improvements, unsupported,
@@ -127,7 +127,7 @@ async function main(): Promise<void> {
     lint()
     loading.value = false
   } catch (err) {
-    loadError.value = `Failed to load mlt-wasm: ${(err as Error).message}`
+    loadError.value = `Failed to load malt-wasm: ${(err as Error).message}`
     loading.value = false
   }
 }
@@ -142,7 +142,7 @@ function rebuildLinter(): boolean {
     configError.value = ''
     return true
   } catch (err) {
-    configError.value = `Invalid .mlt.toml: ${typeof err === 'string' ? err : (err as Error).message}`
+    configError.value = `Invalid .malt.toml: ${typeof err === 'string' ? err : (err as Error).message}`
     return false
   }
 }
@@ -196,13 +196,13 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div id="mlt-playground">
-    <div v-if="loading" class="pg-status pg-loading">Loading mlt-wasm…</div>
+  <div id="malt-playground">
+    <div v-if="loading" class="pg-status pg-loading">Loading malt-wasm…</div>
     <div v-else-if="loadError" class="pg-status pg-error">{{ loadError }}</div>
 
     <template v-else>
       <div class="pg-toolbar">
-        <span class="pg-version">mlt v{{ version }}</span>
+        <span class="pg-version">malt v{{ version }}</span>
         <div class="pg-toolbar-right">
           <select v-model="exampleKey" class="pg-select" @change="loadExample">
             <option value="">Load an example…</option>
@@ -220,7 +220,7 @@ onBeforeUnmount(() => {
 
       <div class="pg-config">
         <button class="pg-btn pg-config-toggle" @click="showConfig = !showConfig">
-          {{ showConfig ? '▾' : '▸' }} .mlt.toml configuration
+          {{ showConfig ? '▾' : '▸' }} .malt.toml configuration
         </button>
         <div v-if="showConfig" class="pg-config-body">
           <MonacoEditor
@@ -273,7 +273,7 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
-#mlt-playground {
+#malt-playground {
   margin-top: 1rem;
   font-family: var(--vp-font-family-base, inherit);
 }

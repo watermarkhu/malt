@@ -4,28 +4,28 @@ icon: lucide/download
 
 # Installation
 
-Every channel installs the same `mlt` command-line tool.
+Every channel installs the same `malt` command-line tool.
 
 ## From PyPI (recommended)
 
-The `mlt-lint` wheels bundle a prebuilt binary for Linux (glibc and musl, x86_64 and
+The `malt` wheels bundle a prebuilt binary for Linux (glibc and musl, x86_64 and
 aarch64), macOS (Intel and Apple silicon), and Windows (x64), so no Rust
 toolchain is needed:
 
 ```bash
-uv tool install mlt-lint     # or: pipx install mlt-lint / pip install mlt-lint
-uvx --from mlt-lint mlt src/   # run once without installing
+uv tool install malt     # or: pipx install malt / pip install malt
+uvx malt src/   # run once without installing
 ```
 
-`python -m mlt` works too, which is handy inside virtual environments.
+`python -m malt` works too, which is handy inside virtual environments.
 
 ## From crates.io
 
-The crates are published under the `mlt-lint` name (the `mlt` crate name
-belongs to another project); the installed binary is still `mlt`:
+The CLI is published as the `malt-cli` crate (the bare `malt` crate name belongs
+to another project); the installed binary is still `malt`:
 
 ```bash
-cargo install mlt-lint
+cargo install malt-cli
 ```
 
 This needs a [Rust toolchain](https://rustup.rs/) and a C compiler (for the
@@ -34,28 +34,28 @@ tree-sitter parser).
 ## From source
 
 ```bash
-git clone https://github.com/watermarkhu/mlt.git
-cd mlt
-cargo install --path crates/mlt_cli
+git clone https://github.com/watermarkhu/malt.git
+cd malt
+cargo install --path crates/malt_cli
 ```
 
 To build without installing, run `cargo build --release`; the binary is at
-`target/release/mlt`.
+`target/release/malt`.
 
 ## In the browser or Node.js
 
 The WebAssembly build is published to npm as
-[`mlt-wasm`](https://www.npmjs.com/package/mlt-wasm). See
+[`malt-wasm`](https://www.npmjs.com/package/malt-wasm). See
 [WebAssembly](../usage/wasm.md).
 
 ## Verify Installation
 
 ```bash
-mlt --version
+malt --version
 ```
 
 ## Next Steps
 
-- [Quick Start](quickstart.md) — Get up and running with mlt
+- [Quick Start](quickstart.md) — Get up and running with malt
 - [CLI Reference](../usage/cli.md) — Full command reference
-- [Configuration](../configuration.md) — Customize mlt for your project
+- [Configuration](../configuration.md) — Customize malt for your project

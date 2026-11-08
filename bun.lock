@@ -3,7 +3,7 @@
   "configVersion": 1,
   "workspaces": {
     "": {
-      "name": "mlt-docs",
+      "name": "malt-docs",
       "devDependencies": {
         "@shikijs/monaco": "^4.4.3",
         "lucide-vue-next": "^1.0.0",

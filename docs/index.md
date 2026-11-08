@@ -2,7 +2,7 @@
 layout: home
 
 hero:
-  name: mlt
+  name: malt
   text: An ultra-fast, extensible linter for MATLAB, written in Rust
   tagline: Single-pass AST traversal powered by tree-sitter, with 2,680+ MATLAB Code Analyzer checks. Lint thousands of files in milliseconds.
   actions:
@@ -24,7 +24,7 @@ features:
     details: Clean Rule trait architecture inspired by ruff and rumdl. Add new rules with minimal boilerplate.
     icon: 🧩
   - title: Auto-fix support
-    details: Rules can provide automatic fixes. Run mlt --fix to apply them in one shot.
+    details: Rules can provide automatic fixes. Run malt --fix to apply them in one shot.
     icon: 🔧
   - title: Configurable
     details: TOML-based configuration. Enable, disable, or override severity per rule. Per-rule parameters.
@@ -35,13 +35,13 @@ features:
 
 ```bash
 # Install (prebuilt wheels on PyPI)
-uv tool install mlt-lint
+uv tool install malt
 
 # Lint MATLAB files
-mlt path/to/file.m
+malt path/to/file.m
 
 # Auto-fix issues
-mlt --fix path/to/file.m
+malt --fix path/to/file.m
 ```
 
 ## Example Output
@@ -57,12 +57,12 @@ Found 2 issues in 1 file.
 
 - **Single-pass traversal** — The AST is walked exactly once. Rules subscribe to node types and are dispatched via an O(1) registry lookup.
 - **tree-sitter powered** — Leverages `tree-sitter-matlab` for fast, incremental, error-tolerant parsing.
-- **Workspace architecture** — Separated into `mlt_core` (engine), `mlt_rules` (rule implementations), and `mlt_cli` (interface).
+- **Workspace architecture** — Separated into `malt_core` (engine), `malt_rules` (rule implementations), and `malt_cli` (interface).
 - **Inspired by the best** — Architecture modeled after [ruff](https://github.com/astral-sh/ruff) and [rumdl](https://github.com/rvben/rumdl).
 
 ## Next Steps
 
-- [Installation](getting-started/installation.md) — Build and install mlt from source
+- [Installation](getting-started/installation.md) — Build and install malt from source
 - [Quick Start](getting-started/quickstart.md) — Get up and running in minutes
 - [Rules Reference](rules.md) — Explore all available linting rules
-- [Configuration](configuration.md) — Customize mlt for your project with `.mlt.toml`
+- [Configuration](configuration.md) — Customize malt for your project with `.malt.toml`

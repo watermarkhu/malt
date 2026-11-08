@@ -73,7 +73,7 @@ jobs:
         run: cargo test --workspace --locked
 
       - name: Run WASM binding host tests
-        run: cargo test --locked -p mlt_wasm --features wasm
+        run: cargo test --locked -p malt_wasm --features wasm
 
   python:
     name: Python wrapper (ruff, ty)

@@ -1,4 +1,4 @@
-"""Smoke tests for the installed ``mlt`` wheel."""
+"""Smoke tests for the installed ``malt`` wheel."""
 
 from __future__ import annotations
 
@@ -6,12 +6,12 @@ import subprocess
 import sys
 from pathlib import Path
 
-from mlt import find_mlt_bin
+from malt import find_malt_bin
 
 
 def run(*args: str) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
-        [sys.executable, "-m", "mlt", *args],
+        [sys.executable, "-m", "malt", *args],
         capture_output=True,
         text=True,
         check=False,
@@ -19,13 +19,13 @@ def run(*args: str) -> subprocess.CompletedProcess[str]:
 
 
 def test_binary_is_bundled() -> None:
-    assert Path(find_mlt_bin()).is_file()
+    assert Path(find_malt_bin()).is_file()
 
 
 def test_version() -> None:
     result = run("--version")
     assert result.returncode == 0, result.stderr
-    assert result.stdout.startswith("mlt ")
+    assert result.stdout.startswith("malt ")
 
 
 def test_lints_a_file(tmp_path: Path) -> None:

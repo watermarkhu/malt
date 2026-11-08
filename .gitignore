@@ -35,9 +35,9 @@ bun.lockb
 
 # WASM build artifacts
 .tools/
-crates/mlt_wasm/pkg/
+crates/malt_wasm/pkg/
 wasm-pkg/pkg/
-docs/public/assets/mlt-wasm/
+docs/public/assets/malt-wasm/
 
 # Python (maturin wheel for PyPI)
 .venv/

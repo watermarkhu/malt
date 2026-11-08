@@ -1,0 +1,25 @@
+[package]
+name = "malt-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+keywords.workspace = true
+categories.workspace = true
+readme = "../../README.md"
+description = "Command-line interface for the malt MATLAB linter"
+
+[[bin]]
+name = "malt"
+path = "src/main.rs"
+
+[dependencies]
+malt-core.workspace = true
+malt-rules.workspace = true
+clap.workspace = true
+anyhow.workspace = true
+
+[dev-dependencies]
+tempfile = "3"

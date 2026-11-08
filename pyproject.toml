@@ -3,7 +3,7 @@ requires = ["maturin>=1.9,<2"]
 build-backend = "maturin"
 
 [project]
-name = "mlt-lint"
+name = "malt"
 description = "An ultra-fast MATLAB linter with MATLAB Code Analyzer-compatible checks, written in Rust"
 authors = [{ name = "Mark Shui Hu", email = "watermarkhu@gmail.com" }]
 license = "MIT"
@@ -31,10 +31,10 @@ classifiers = [
 ]
 
 [project.urls]
-Homepage = "https://watermarkhu.nl/mlt"
-Documentation = "https://watermarkhu.nl/mlt"
-Repository = "https://github.com/watermarkhu/mlt"
-Changelog = "https://github.com/watermarkhu/mlt/releases"
+Homepage = "https://watermarkhu.nl/malt"
+Documentation = "https://watermarkhu.nl/malt"
+Repository = "https://github.com/watermarkhu/malt"
+Changelog = "https://github.com/watermarkhu/malt/releases"
 
 [dependency-groups]
 dev = [
@@ -45,11 +45,11 @@ dev = [
 ]
 
 [tool.maturin]
-# Ship the `mlt` CLI binary in the wheel (like ruff), plus the small
-# `python -m mlt` shim from python/mlt.
+# Ship the `malt` CLI binary in the wheel (like ruff), plus the small
+# `python -m malt` shim from python/malt.
 bindings = "bin"
-manifest-path = "crates/mlt_cli/Cargo.toml"
-module-name = "mlt"
+manifest-path = "crates/malt_cli/Cargo.toml"
+module-name = "malt"
 python-source = "python"
 strip = true
 

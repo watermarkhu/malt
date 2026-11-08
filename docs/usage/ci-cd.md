@@ -12,7 +12,7 @@ CI/CD integration guides are planned for a future release. This page outlines th
 
 ## GitHub Actions (Planned)
 
-Once mlt is published to crates.io, a GitHub Action will be available:
+Once malt is published to crates.io, a GitHub Action will be available:
 
 ```yaml title=".github/workflows/lint.yml"
 name: Lint MATLAB
@@ -23,12 +23,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: watermarkhu/mlt-action@main  # planned
+      - uses: watermarkhu/malt-action@main  # planned
 ```
 
 ## Manual CI Setup
 
-Until a dedicated action is available, you can install and run mlt manually:
+Until a dedicated action is available, you can install and run malt manually:
 
 ```yaml title=".github/workflows/lint.yml"
 name: Lint MATLAB
@@ -40,17 +40,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install mlt
-        run: pipx install mlt-lint
+      - name: Install malt
+        run: pipx install malt
 
       - name: Lint
         run: |
-          find . -name '*.m' -not -path './vendor/*' | xargs mlt
+          find . -name '*.m' -not -path './vendor/*' | xargs malt
 ```
 
 ## Exit Codes for CI
 
-mlt's exit codes are designed for CI use:
+malt's exit codes are designed for CI use:
 
 | Code | Meaning | CI Behavior |
 | ---- | ------- | ----------- |
@@ -64,14 +64,14 @@ A pre-commit hook configuration is planned:
 
 ```yaml title=".pre-commit-config.yaml"
 repos:
-  - repo: https://github.com/watermarkhu/mlt
+  - repo: https://github.com/watermarkhu/malt
     rev: v0.1.0  # use latest version
     hooks:
-      - id: mlt
+      - id: malt
         types: [file]
         files: '\.m$'
 ```
 
 ## Contributing
 
-If you'd like to help build CI/CD integrations, see the [repository](https://github.com/watermarkhu/mlt) for contribution guidelines.
+If you'd like to help build CI/CD integrations, see the [repository](https://github.com/watermarkhu/malt) for contribution guidelines.

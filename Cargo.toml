@@ -1,10 +1,10 @@
 [workspace]
 resolver = "2"
 members = [
-    "crates/mlt_cli",
-    "crates/mlt_core",
-    "crates/mlt_rules",
-    "crates/mlt_wasm",
+    "crates/malt_cli",
+    "crates/malt_core",
+    "crates/malt_rules",
+    "crates/malt_wasm",
 ]
 
 [workspace.package]
@@ -14,16 +14,16 @@ version = "0.0.0"
 edition = "2021"
 license = "MIT"
 authors = ["Mark Shui Hu"]
-repository = "https://github.com/watermarkhu/mlt"
-homepage = "https://watermarkhu.nl/mlt"
+repository = "https://github.com/watermarkhu/malt"
+homepage = "https://watermarkhu.nl/malt"
 keywords = ["matlab", "linter", "lint", "static-analysis", "tree-sitter"]
 categories = ["development-tools", "command-line-utilities"]
 
 [workspace.dependencies]
-# Internal crates. On crates.io they are published as `mlt-lint-*` (the `mlt*`
-# names belong to MapLibre Tiles); the library names stay `mlt_core`/`mlt_rules`.
-mlt_core = { package = "mlt-lint-core", path = "crates/mlt_core", version = "0.0.0" }
-mlt_rules = { package = "mlt-lint-rules", path = "crates/mlt_rules", version = "0.0.0" }
+# Internal crates, published to crates.io as `malt-core`, `malt-rules` and
+# `malt-cli` (the bare `malt` crate name belongs to an unrelated project).
+malt-core = { path = "crates/malt_core", version = "0.0.0" }
+malt-rules = { path = "crates/malt_rules", version = "0.0.0" }
 tree-sitter = "0.25"
 tree-sitter-language = "0.1"
 tree-sitter-matlab = "1.3"

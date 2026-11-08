@@ -1,8 +1,8 @@
 #!/usr/bin/env bun
 /**
- * Generate mlt documentation pages from the rule docstring schema.
+ * Generate malt documentation pages from the rule docstring schema.
  *
- * Every rule module in `crates/mlt_rules/src` documents itself with a
+ * Every rule module in `crates/malt_rules/src` documents itself with a
  * standardized `//!` header docstring (see `docs/scripts/SCHEMA.md`). This
  * script reads those docstrings and emits:
  *
@@ -28,11 +28,11 @@ import { fileURLToPath } from 'node:url'
 const REPO = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..')
 const RULES_MD = join(REPO, 'docs', 'rules.md')
 const RULES_DIR = join(REPO, 'docs', 'rules')
-const SRCS = join(REPO, 'crates', 'mlt_rules', 'src')
+const SRCS = join(REPO, 'crates', 'malt_rules', 'src')
 const DATA_DIR = join(SRCS, 'data')
 const COMPAT_TOML = join(DATA_DIR, 'compatibility.toml')
 const SI_TOML = join(DATA_DIR, 'suggested_improvements.toml')
-const PRESET_RS = join(REPO, 'crates', 'mlt_core', 'src', 'preset.rs')
+const PRESET_RS = join(REPO, 'crates', 'malt_core', 'src', 'preset.rs')
 
 // ---------------------------------------------------------------------------
 // Category metadata (human labels + default icons)
@@ -121,10 +121,10 @@ interface FrontMatter {
   [k: string]: unknown
 }
 
-/** Parse the ```mlt front-matter block from a docstring, if present. */
+/** Parse the ```malt front-matter block from a docstring, if present. */
 function parseFrontMatter(doc: string): FrontMatter | null {
   const lines = doc.split('\n')
-  let i = lines.findIndex((l) => l.trim() === '```mlt')
+  let i = lines.findIndex((l) => l.trim() === '```malt')
   if (i === -1) return null
   const kv: Record<string, string> = {}
   for (let j = i + 1; j < lines.length; j++) {
@@ -162,7 +162,7 @@ interface Section {
 /** Split the docstring (after the front-matter block) into `##` sections. */
 function splitSections(doc: string): Section[] {
   const lines = doc.split('\n')
-  const fmEnd = lines.findIndex((l) => l.trim() === '```mlt')
+  const fmEnd = lines.findIndex((l) => l.trim() === '```malt')
   let start = 0
   if (fmEnd !== -1) {
     start = fmEnd
@@ -314,7 +314,7 @@ function walkRs(dir: string, out: string[] = []): string[] {
   return out
 }
 
-/** Discover all modules whose docstring carries the `mlt` front-matter. */
+/** Discover all modules whose docstring carries the `malt` front-matter. */
 function discoverModules(): RuleModule[] {
   const modules: RuleModule[] = []
   for (const file of walkRs(SRCS)) {
@@ -703,7 +703,7 @@ function checkDrift(modules: RuleModule[], only?: string): boolean {
 // CLI
 // ---------------------------------------------------------------------------
 
-const USAGE = `Generate mlt documentation tables and category pages.
+const USAGE = `Generate malt documentation tables and category pages.
 
 CLI:
     bun docs/scripts/gen_rules_docs.ts --print-data     # print data-driven tables

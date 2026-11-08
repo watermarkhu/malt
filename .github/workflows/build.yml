@@ -113,7 +113,7 @@ jobs:
         shell: bash
         run: |
           uv venv --python 3.13
-          uv pip install --no-index --find-links dist mlt-lint
+          uv pip install --no-index --find-links dist malt
           uv pip install pytest
           uv run --no-project pytest python/tests -v
 
@@ -149,20 +149,20 @@ jobs:
 
       - name: Prepare package
         run: |
-          cp wasm-pkg/README.md crates/mlt_wasm/pkg/
-          cp LICENSE crates/mlt_wasm/pkg/
-          jq -s '.[0] * .[1]' crates/mlt_wasm/pkg/package.json wasm-pkg/package.json.tmpl > crates/mlt_wasm/pkg/package.json.new
-          mv crates/mlt_wasm/pkg/package.json.new crates/mlt_wasm/pkg/package.json
-          jq '{name, version}' crates/mlt_wasm/pkg/package.json
+          cp wasm-pkg/README.md crates/malt_wasm/pkg/
+          cp LICENSE crates/malt_wasm/pkg/
+          jq -s '.[0] * .[1]' crates/malt_wasm/pkg/package.json wasm-pkg/package.json.tmpl > crates/malt_wasm/pkg/package.json.new
+          mv crates/malt_wasm/pkg/package.json.new crates/malt_wasm/pkg/package.json
+          jq '{name, version}' crates/malt_wasm/pkg/package.json
 
       - name: Smoke test in Node.js
-        run: mise x -- node wasm-pkg/smoke-test.mjs crates/mlt_wasm/pkg
+        run: mise x -- node wasm-pkg/smoke-test.mjs crates/malt_wasm/pkg
 
       - name: Upload WASM package
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: wasm-pkg
-          path: crates/mlt_wasm/pkg/
+          path: crates/malt_wasm/pkg/
           if-no-files-found: error
 
   crates:

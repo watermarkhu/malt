@@ -14,7 +14,7 @@ Editor integration is planned for a future release. This page will be updated wi
 
 ### Language Server Protocol (LSP)
 
-An LSP server for mlt is on the roadmap. Once available, it will provide:
+An LSP server for malt is on the roadmap. Once available, it will provide:
 
 - Real-time diagnostics as you type
 - Quick-fix code actions
@@ -22,11 +22,11 @@ An LSP server for mlt is on the roadmap. Once available, it will provide:
 
 ### VS Code
 
-A VS Code extension is planned that will wrap the mlt LSP server and provide:
+A VS Code extension is planned that will wrap the malt LSP server and provide:
 
 - Inline diagnostic highlighting
 - One-click auto-fix via code actions
-- Configuration snippets for `.mlt.toml`
+- Configuration snippets for `.malt.toml`
 
 ### Neovim
 
@@ -38,12 +38,12 @@ Integration with the built-in MATLAB editor is being explored.
 
 ## Current Workaround
 
-Until native editor integration is available, you can use mlt as an external tool:
+Until native editor integration is available, you can use malt as an external tool:
 
-1. Configure your editor to run `mlt <current-file>` on save
+1. Configure your editor to run `malt <current-file>` on save
 2. Parse the output format (`file:line:column [severity] rule: message`) for diagnostics
 3. Many editors support this via "problem matcher" patterns
 
 ## Contributing
 
-If you'd like to help build editor integrations, see the [repository](https://github.com/watermarkhu/mlt) for contribution guidelines.
+If you'd like to help build editor integrations, see the [repository](https://github.com/watermarkhu/malt) for contribution guidelines.

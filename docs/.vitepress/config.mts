@@ -6,14 +6,14 @@ const cratesIconSvg =
 
 export default defineConfig({
   lang: 'en-US',
-  title: 'mlt',
+  title: 'malt',
   description: 'An ultra-fast, extensible linter for MATLAB, written in Rust',
   cleanUrls: true,
-  // GitHub Pages serves the project site at https://watermarkhu.nl/mlt/.
-  base: '/mlt/',
+  // GitHub Pages serves the project site at https://watermarkhu.nl/malt/.
+  base: '/malt/',
   lastUpdated: true,
 
-  head: [['link', { rel: 'icon', type: 'image/svg+xml', href: '/mlt/favicon.svg' }]],
+  head: [['link', { rel: 'icon', type: 'image/svg+xml', href: '/malt/favicon.svg' }]],
 
   markdown: {
     config: (md) => {
@@ -28,7 +28,7 @@ export default defineConfig({
   },
 
   themeConfig: {
-    siteTitle: 'mlt',
+    siteTitle: 'malt',
     nav: [
       { text: 'Getting Started', link: '/getting-started/installation', activeMatch: '/getting-started/' },
       { text: 'Usage', link: '/usage/cli', activeMatch: '/usage/' },
@@ -113,17 +113,17 @@ export default defineConfig({
     },
     search: { provider: 'local' },
     editLink: {
-      pattern: 'https://github.com/watermarkhu/mlt/edit/main/docs/:path',
+      pattern: 'https://github.com/watermarkhu/malt/edit/main/docs/:path',
       text: 'Edit this page',
     },
     lastUpdated: { text: 'Updated' },
     socialLinks: [
-      { icon: 'github', link: 'https://github.com/watermarkhu/mlt' },
-      { icon: { svg: cratesIconSvg }, link: 'https://crates.io/crates/mlt' },
+      { icon: 'github', link: 'https://github.com/watermarkhu/malt' },
+      { icon: { svg: cratesIconSvg }, link: 'https://crates.io/crates/malt' },
     ],
     footer: {
       message: 'Copyright © 2026 Mark Shui Hu',
-      copyright: 'mlt is licensed under the MIT license',
+      copyright: 'malt is licensed under the MIT license',
     },
   },
 })

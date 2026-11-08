@@ -1,0 +1,39 @@
+[package]
+name = "malt_wasm"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+# Shipped through npm (`malt-wasm`), not crates.io.
+publish = false
+description = "Browser WebAssembly bindings for malt, the MATLAB linter"
+
+[lib]
+name = "malt_lib"
+crate-type = ["cdylib", "rlib"]
+
+[package.metadata.wasm-pack.profile.release]
+wasm-opt = false
+
+[dependencies]
+malt-core.workspace = true
+malt-rules.workspace = true
+serde = { workspace = true }
+serde_json = "1"
+
+# Optional browser-wasm dependencies, enabled by the `wasm` feature.
+wasm-bindgen = { version = "0.2", optional = true }
+serde-wasm-bindgen = { version = "0.6", optional = true }
+console_error_panic_hook = { version = "0.1", optional = true }
+
+[features]
+default = []
+wasm = ["wasm-bindgen", "console_error_panic_hook", "serde-wasm-bindgen"]
+
+[build-dependencies]
+cc = "1.2"
+
+[dev-dependencies]
+tree-sitter.workspace = true
+tree-sitter-matlab.workspace = true

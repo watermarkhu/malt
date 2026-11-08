@@ -281,24 +281,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32a66949e030da00e8c7d4434b251670a91556f4144941d37452769c25d58a53"
 
 [[package]]
-name = "memchr"
-version = "2.8.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "88904434abc2901f197fe8cc55f0445e7ded921dba5911dad2e2b39b48e663c4"
-
-[[package]]
-name = "mlt-lint"
+name = "malt-cli"
 version = "0.0.0"
 dependencies = [
  "anyhow",
  "clap",
- "mlt-lint-core",
- "mlt-lint-rules",
+ "malt-core",
+ "malt-rules",
  "tempfile",
 ]
 
 [[package]]
-name = "mlt-lint-core"
+name = "malt-core"
 version = "0.0.0"
 dependencies = [
  "serde",
@@ -310,11 +304,11 @@ dependencies = [
 ]
 
 [[package]]
-name = "mlt-lint-rules"
+name = "malt-rules"
 version = "0.0.0"
 dependencies = [
  "inventory",
- "mlt-lint-core",
+ "malt-core",
  "regex",
  "serde",
  "toml",
@@ -323,13 +317,13 @@ dependencies = [
 ]
 
 [[package]]
-name = "mlt_wasm"
+name = "malt_wasm"
 version = "0.0.0"
 dependencies = [
  "cc",
  "console_error_panic_hook",
- "mlt-lint-core",
- "mlt-lint-rules",
+ "malt-core",
+ "malt-rules",
  "serde",
  "serde-wasm-bindgen",
  "serde_json",
@@ -337,6 +331,12 @@ dependencies = [
  "tree-sitter-matlab",
  "wasm-bindgen",
 ]
+
+[[package]]
+name = "memchr"
+version = "2.8.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "88904434abc2901f197fe8cc55f0445e7ded921dba5911dad2e2b39b48e663c4"
 
 [[package]]
 name = "once_cell"

@@ -17,7 +17,7 @@ type MarkdownItLike = {
  * markdown-it plugin that renders `title="..."` from a fenced code block's
  * info string as a `.vp-code-title` caption above the code block:
  *
- *     ```toml title=".mlt.toml"
+ *     ```toml title=".malt.toml"
  *
  * The `title="..."` attribute is stripped from the info string so the code
  * block itself still gets the correct language class.

@@ -1,6 +1,6 @@
-# mlt Rule Documentation Schema
+# malt Rule Documentation Schema
 
-Every rule module in `crates/mlt_rules/src` documents itself through a
+Every rule module in `crates/malt_rules/src` documents itself through a
 **standardized header docstring** written in markdown inside the Rust `//!`
 module comment. `docs/scripts/gen_rules_docs.ts` reads these docstrings and
 generates one documentation page per rule.
@@ -17,7 +17,7 @@ Every rule docstring MUST follow this exact structure:
 ```text
 //! # <META_ID>: <Human Title>
 //!
-//! ```mlt
+//! ```malt
 //! id = "<META_ID>"                    # required — config/registration ID
 //! title = "<Human Title>"             # required — shown as the page H1
 //! category = "<category-slug>"        # required — Category::as_str()
@@ -57,10 +57,10 @@ between `## Rule` and `## Fix`:
 ```
 
 Data-driven engines (`data_file = "..."`) instead reference a TOML table in
-`crates/mlt_rules/src/data/`; the generator builds the check-ID list from the
+`crates/malt_rules/src/data/`; the generator builds the check-ID list from the
 data file. See [Data-driven engines](#data-driven-engines).
 
-## Front-matter keys (` ```mlt ` block)
+## Front-matter keys (` ```malt ` block)
 
 | Key | Required | Type | Description |
 | --- | -------- | ---- | ----------- |
@@ -107,7 +107,7 @@ check IDs.
 ## Data-driven engines
 
 When `data_file` is present, the generator reads
-`crates/mlt_rules/src/data/<data_file>` and builds the check-ID list from its
+`crates/malt_rules/src/data/<data_file>` and builds the check-ID list from its
 `[[checks]]` entries (`id`, `severity`, `message`, `category`, `function_name`).
 The docstring omits the `## Check IDs` table; the generator substitutes an
 anchored table grouped by the entries' `category` field.
@@ -133,7 +133,7 @@ modules one at a time.
 
 ## Rules for writers
 
-- Keep the `mlt` front-matter block byte-parseable: simple `key = "value"`
+- Keep the `malt` front-matter block byte-parseable: simple `key = "value"`
   lines, double-quoted strings, no comments inside the block.
 - The front-matter `severity`/`category` MUST match the `Rule` impl's
   `fn severity()` / `fn category()`.

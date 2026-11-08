@@ -1,4 +1,4 @@
-# mise configuration for mlt development environment
+# mise configuration for malt development environment
 # This file manages development tools and project tasks.
 
 [tools]
@@ -9,7 +9,7 @@
 node = "24.19.0"
 # Bun for the VitePress docs project (install, `bun run docs:*` scripts).
 bun = "latest"
-# uv for the Python wrapper (PyPI package `mlt-lint`, built with maturin).
+# uv for the Python wrapper (PyPI package `malt`, built with maturin).
 uv = "latest"
 # Clang C compiler — required to compile the tree-sitter-matlab C parser for
 # the wasm32 target (the `cc` crate uses it as `CC` when building wasm).
@@ -53,7 +53,7 @@ export CFLAGS_wasm32_unknown_unknown="-isystem $WASI_SDK/share/wasi-sysroot/incl
 # as CI's "-D warnings" overrides). wasm-pack passes --target, so host build
 # scripts do not receive it.
 export RUSTFLAGS="${RUSTFLAGS:-} -C link-arg=--allow-undefined"
-wasm-pack build crates/mlt_wasm --target web --no-default-features --features wasm
+wasm-pack build crates/malt_wasm --target web --no-default-features --features wasm
 """
 
 [tasks.setup-wasi]
@@ -70,12 +70,12 @@ echo "wasi-sdk ready at .tools/wasi-sdk-33.0-x86_64-linux"
 
 [tasks.test-wasm]
 description = "Run the wasm binding host tests"
-run = "cargo test --features wasm -p mlt_wasm"
+run = "cargo test --features wasm -p malt_wasm"
 
 [tasks.serve-local-wasm]
 description = "Copy the local wasm build into docs/public so the playground loads it locally"
 run = """
-rm -rf docs/public/assets/mlt-wasm
-mkdir -p docs/public/assets/mlt-wasm
-cp -r crates/mlt_wasm/pkg/. docs/public/assets/mlt-wasm/
+rm -rf docs/public/assets/malt-wasm
+mkdir -p docs/public/assets/malt-wasm
+cp -r crates/malt_wasm/pkg/. docs/public/assets/malt-wasm/
 """

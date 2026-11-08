@@ -1,4 +1,4 @@
-# rumdl configuration for mlt docs
+# rumdl configuration for malt docs
 #
 # The docs site is built with VitePress. The `standard` flavor (CommonMark +
 # GFM extensions) matches VitePress markdown. The defaults are relaxed for

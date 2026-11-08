@@ -125,8 +125,8 @@ jobs:
         env:
           CARGO_REGISTRY_TOKEN: ${{ steps.crates-auth.outputs.token || secrets.CARGO_REGISTRY_TOKEN }}
         run: |
-          for crate in mlt-lint-core mlt-lint-rules mlt-lint; do
-            if curl -sfA "mlt-release (github.com/watermarkhu/mlt)" \
+          for crate in malt-core malt-rules malt-cli; do
+            if curl -sfA "malt-release (github.com/watermarkhu/malt)" \
                 "https://crates.io/api/v1/crates/${crate}/${VERSION}" > /dev/null; then
               echo "⏭️ ${crate} ${VERSION} already published, skipping"
             else
@@ -157,14 +157,14 @@ jobs:
       # npm trusted publishing (https://docs.npmjs.com/trusted-publishers): the
       # npm CLI exchanges this job's OIDC identity for a short-lived publish
       # token, so no NODE_AUTH_TOKEN / NPM_TOKEN secret is involved. The trusted
-      # publisher configured for `mlt-wasm` on npmjs.com must name this exact
+      # publisher configured for `malt-wasm` on npmjs.com must name this exact
       # workflow file (release.yml) and the `release` environment.
       - name: Publish WASM to npm
         run: |
           cd wasm-pkg/pkg
           if ! output=$(npm publish --provenance --access public 2>&1); then
             if echo "$output" | grep -q "previously published"; then
-              echo "⏭️ mlt-wasm ${VERSION} already published, skipping"
+              echo "⏭️ malt-wasm ${VERSION} already published, skipping"
             else
               echo "$output"
               exit 1

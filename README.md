@@ -1,8 +1,8 @@
-# mlt
+# malt
 
 An ultra-fast, extensible linter for MATLAB, written in Rust.
 
-`mlt` (pronounced "melt") parses MATLAB with tree-sitter and runs every rule in a
+`malt` parses MATLAB with tree-sitter and runs every rule in a
 single pass over the syntax tree. It aims for parity with MATLAB's Code Analyzer
 and uses the same check IDs (`NOSEMI`, `AGROW`, `naming.class.casing`, ...), so
 existing `%#ok<...>` suppressions keep working.
@@ -11,22 +11,22 @@ existing `%#ok<...>` suppressions keep working.
 
 | Channel | Command |
 | ------- | ------- |
-| PyPI | `pip install mlt-lint` or `uv tool install mlt-lint` (or run once with `uvx --from mlt-lint mlt`) |
-| crates.io | `cargo install mlt-lint` |
-| npm (WebAssembly) | `npm install mlt-wasm` |
+| PyPI | `pip install malt` or `uv tool install malt` (or run once with `uvx malt`) |
+| crates.io | `cargo install malt-cli` |
+| npm (WebAssembly) | `npm install malt-wasm` |
 
-PyPI and crates.io install the same `mlt` command; the npm package is a
+PyPI and crates.io install the same `malt` command; the npm package is a
 WebAssembly library for browsers and Node.js.
 
 ## Usage
 
 ```bash
-mlt src/                 # lint a directory
-mlt --fix src/foo.m      # apply automatic fixes
-mlt --preset all src/    # enable every rule
+malt src/                 # lint a directory
+malt --fix src/foo.m      # apply automatic fixes
+malt --preset all src/    # enable every rule
 ```
 
-Configure rules in a `.mlt.toml` at the project root:
+Configure rules in a `.malt.toml` at the project root:
 
 ```toml
 [lint]
@@ -39,7 +39,7 @@ NOSEMI = "off"
 ## Documentation
 
 Full documentation, the rule reference and an in-browser playground are at
-<https://watermarkhu.nl/mlt>.
+<https://watermarkhu.nl/malt>.
 
 ## License
 
