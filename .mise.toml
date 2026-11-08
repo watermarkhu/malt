@@ -20,10 +20,12 @@ pinact = "latest"
 # Git hooks via hk (pinned; Renovate updates). Runs through `mise x` so every
 # contributor gets the pinned tools on PATH without activating mise.
 hk = "1.54.1"
-# Markdown linter for the docs (VitePress flavor) and GitHub Actions linter,
-# used by the hk pre-commit hooks.
+# Markdown linter for the docs (VitePress flavor) and GitHub Actions linter
+# (jactionlint, a security-aware fork of actionlint), used by the hk pre-commit
+# hooks. jactionlint runs shellcheck on the `run:` scripts of the workflows.
 rumdl = "latest"
-actionlint = "latest"
+jactionlint = "latest"
+shellcheck = "latest"
 
 [env]
 # Ensure the wasm build uses clang for the tree-sitter C parser and finds the

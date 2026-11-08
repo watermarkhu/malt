@@ -23,6 +23,7 @@ jobs:
   wheels:
     name: Wheel ${{ matrix.platform.name }}
     runs-on: ${{ matrix.platform.runner }}
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -74,6 +75,7 @@ jobs:
   sdist:
     name: Source distribution
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -103,6 +105,7 @@ jobs:
     name: Test wheel ${{ matrix.platform.name }}
     needs: wheels
     runs-on: ${{ matrix.platform.runner }}
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -153,6 +156,7 @@ jobs:
   wasm:
     name: WebAssembly package
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -169,6 +173,7 @@ jobs:
       # the npm page is empty without a README.
       - name: Verify package contents
         working-directory: crates/malt_wasm/pkg
+        shell: bash # with pipefail: a failing `npm pack` must not be hidden by the pipe
         run: |
           jq '{name, version}' package.json
           test "$(jq -r .name package.json)" = "malt-wasm"
@@ -190,6 +195,7 @@ jobs:
   crates:
     name: crates.io packages
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -201,6 +207,8 @@ jobs:
 
       - name: Setup Rust
         uses: actions-rust-lang/setup-rust-toolchain@a188e68d0fd2bd36ad51dccb2b07ba6e75105f30 # v2.0.1
+        with:
+          cache: false # the job runs `cargo publish`: never restore a cache into it
 
       # Packages, builds, and verifies every publishable crate in dependency
       # order against a local registry overlay, without uploading.
