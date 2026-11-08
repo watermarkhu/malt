@@ -794,6 +794,29 @@ fn collect_uses_in_expr(
         return;
     }
 
+    // A lambda binds its parameters inside its body.
+    if node.kind() == "lambda" {
+        let mut inner = assigned.clone();
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            if child.kind() == "arguments" {
+                let mut c = child.walk();
+                for p in child.children(&mut c) {
+                    if p.kind() == "identifier" {
+                        inner.insert(node_text(p, source).to_string());
+                    }
+                }
+            }
+        }
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            if child.kind() != "arguments" {
+                collect_uses_in_expr(child, source, &inner, uses);
+            }
+        }
+        return;
+    }
+
     // Recurse into children.
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
@@ -869,13 +892,56 @@ fn collect_assignment_targets(
             }
         }
         "function_call" | "field_expression" | "cell_index" => {
-            // Indexed assignment: `A(i) = ...` or `obj.field = ...`
-            // The base variable is a use, not a new definition.
-            collect_uses_in_expr(lhs, source, assigned, uses);
+            // Partial assignment: `A(i) = ...`, `s.f = ...`. It reads the
+            // old value only when there is one, and it creates the variable
+            // otherwise.
+            let root = partial_root(lhs);
+            let root_name = root.map(|r| node_text(r, source).to_string());
+            let existed = root_name.as_ref().is_some_and(|n| assigned.contains(n));
+            if existed {
+                collect_uses_in_expr(lhs, source, assigned, uses);
+            } else {
+                // Index expressions are still reads; the root itself is not.
+                let before = uses.len();
+                collect_uses_in_expr(lhs, source, assigned, uses);
+                if let (Some(name), Some(r)) = (&root_name, root) {
+                    let at = r.start_position().row + 1;
+                    let col = r.start_position().column + 1;
+                    let mut i = before;
+                    while i < uses.len() {
+                        if uses[i].name == *name
+                            && uses[i].use_line == at
+                            && uses[i].use_column == col
+                        {
+                            uses.remove(i);
+                        } else {
+                            i += 1;
+                        }
+                    }
+                }
+            }
+            if let Some(name) = root_name {
+                assigned.insert(name);
+            }
         }
         _ => {
             collect_uses_in_expr(lhs, source, assigned, uses);
         }
+    }
+}
+
+/// The variable a partial assignment target is rooted at (`x` in `x.y(3).z`).
+fn partial_root(mut node: Node) -> Option<Node> {
+    loop {
+        node = match node.kind() {
+            "identifier" => return Some(node),
+            "function_call" => node.child_by_field_name("name")?,
+            "field_expression" => node.child_by_field_name("object")?,
+            "cell_index" => node
+                .child_by_field_name("name")
+                .or_else(|| node.named_child(0))?,
+            _ => return None,
+        };
     }
 }
 

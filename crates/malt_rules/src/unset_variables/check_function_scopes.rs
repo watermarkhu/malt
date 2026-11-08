@@ -31,7 +31,19 @@ impl UnsetVariablesEngine {
             };
 
             // Run definite-assignment analysis.
-            let da = analyze_definite_assignment(func_node, source);
+            let mut da = analyze_definite_assignment(func_node, source);
+
+            // A nested function shares the workspace of the functions around it.
+            if scope.kind == ScopeKind::NestedFunction {
+                let mut outer = HashSet::new();
+                let mut parent = scope.parent;
+                while let Some(idx) = parent {
+                    let p = &symbol_table.scopes[idx];
+                    outer.extend(p.defs.iter().map(|d| d.name.clone()));
+                    parent = p.parent;
+                }
+                da.possibly_unset.retain(|u| !outer.contains(&u.name));
+            }
 
             // Emit NODEF/USENS for possibly-unset variables.
             self.emit_possibly_unset_diagnostics(&da, &mut diagnostics);
@@ -68,14 +80,17 @@ impl UnsetVariablesEngine {
                 (
                     "USENS",
                     format!(
-                        "Explicitly initialize this variable to avoid a potential uninitialized variable, or use a valid syntax for function call on line {}.",
-                        unset_var.use_line
+                        "Explicitly initialize variable '{}' to avoid a potential uninitialized variable, or use a valid syntax for function call on line {}.",
+                        unset_var.name, unset_var.use_line
                     ),
                 )
             } else {
                 (
                     "NODEF",
-                    "Variable might be used before it is defined.".to_string(),
+                    format!(
+                        "Variable '{}' might be used before it is defined.",
+                        unset_var.name
+                    ),
                 )
             };
 
@@ -173,5 +188,39 @@ end
             has_relevant,
             "expected NODEF or USENS for 'z', got: {diags:?}"
         );
+    }
+
+    fn nodef_ids(src: &str) -> Vec<&'static str> {
+        lint_file(&*engine(), src)
+            .iter()
+            .map(|d| d.rule_id)
+            .filter(|id| *id == "NODEF" || *id == "USENS")
+            .collect()
+    }
+
+    #[test]
+    fn first_indexed_assignment_creates_the_variable() {
+        assert!(nodef_ids(
+            "function foo()\n    A(2) = 5;\n    s.f = 1;\n    disp(A); disp(s);\nend\n"
+        )
+        .is_empty());
+    }
+
+    #[test]
+    fn partial_assignment_to_an_input_is_fine() {
+        assert!(nodef_ids("function foo(A)\n    A(2) = 5;\n    disp(A);\nend\n").is_empty());
+    }
+
+    #[test]
+    fn lambda_parameters_are_bound() {
+        assert!(
+            nodef_ids("function foo()\n    h = @(x) x + 1;\n    disp(h(1));\nend\n").is_empty()
+        );
+    }
+
+    #[test]
+    fn nested_function_sees_the_parent_workspace() {
+        let src = "function r = foo()\n    r = 1;\n    function inner()\n        disp(r);\n    end\nend\n";
+        assert!(nodef_ids(src).is_empty());
     }
 }
