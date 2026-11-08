@@ -118,7 +118,7 @@ jobs:
       # CARGO_REGISTRY_TOKEN secret covers the very first publish.
       - name: Authenticate with crates.io
         id: crates-auth
-        uses: rust-lang/crates-io-auth-action@b7e9a28eded4986ec6b1fa40eeee8f8f165559ec # v1.0.3
+        uses: rust-lang/crates-io-auth-action@3268eb413133e2960fa4ae0e963ca76380c54cd9 # v1.0.6
         continue-on-error: true
 
       - name: Publish crates
