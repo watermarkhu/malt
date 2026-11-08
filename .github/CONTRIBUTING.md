@@ -51,3 +51,40 @@ When such a pull request is merged, the workflow:
 4. creates a GitHub release with the wheels, sdist and npm tarball attached,
 5. (separately) the **Pages** workflow deploys the documentation to GitHub Pages
    from `main` on every push, through the `github-pages` environment.
+
+## 5. One-time release setup
+
+Releases use trusted publishing (OIDC), so no long-lived publish tokens are stored
+in the repository. GitHub side:
+
+- an environment named `release` with **no deployment branch restriction**: the
+  release job runs on `pull_request` events, whose ref is `refs/pull/N/merge`;
+- the `APP_ID` variable and `APP_PRIVATE_KEY` secret of the GitHub App that pushes
+  the release tag and creates the release;
+- Settings → Actions → General → "Allow GitHub Actions to create and approve pull
+  requests" (the dev-branch workflow opens the rolling draft PR).
+
+On each registry, register a trusted publisher for repository `watermarkhu/malt`,
+workflow **`release.yml`** and environment **`release`**:
+
+| Registry | Package(s) | Where | Available |
+| -------- | ---------- | ----- | --------- |
+| [crates.io](https://crates.io/docs/trusted-publishing) | `malt-core`, `malt-rules`, `malt-cli` | each crate's Settings → Trusted Publishing | after the crate exists |
+| [PyPI](https://docs.pypi.org/trusted-publishers/) | `malt` | project Settings → Publishing (or a pending publisher if the project does not exist yet) | any time |
+| [npm](https://docs.npmjs.com/trusted-publishers) | `malt-wasm` | package Settings → Trusted publisher (allow `npm publish`) | after the package exists |
+
+crates.io and npm cannot trust a package that does not exist yet, so the first
+release needs a bootstrap:
+
+1. **crates.io:** add a `CARGO_REGISTRY_TOKEN` secret from an API token with the
+   `publish-new` and `publish-update` scopes and the crate pattern `malt-*`. The first
+   release publishes with it. Then add the trusted publisher to all three crates,
+   delete the secret, and remove the fallback marked in `release.yml`.
+2. **npm:** publish a `0.0.0` placeholder of `malt-wasm` once from your machine
+   (`mise run build-wasm`, then `npm publish --access public` in
+   `crates/malt_wasm/pkg`), then add the trusted publisher. A new npm trusted
+   publisher expires if it has no successful publish within 2 days.
+3. **PyPI:** nothing to bootstrap.
+
+Afterwards, set the npm package's Publishing access to "Require two-factor
+authentication and disallow tokens".
