@@ -187,6 +187,9 @@ jobs:
           jq -s '.[0] * .[1]' crates/malt_wasm/pkg/package.json wasm-pkg/package.json.tmpl > crates/malt_wasm/pkg/package.json.new
           mv crates/malt_wasm/pkg/package.json.new crates/malt_wasm/pkg/package.json
           jq '{name, version}' crates/malt_wasm/pkg/package.json
+          # wasm-pack names its raw output after the crate (`malt_wasm`); the npm
+          # package is `malt-wasm`, set by wasm-pkg/package.json.tmpl.
+          test "$(jq -r .name crates/malt_wasm/pkg/package.json)" = "malt-wasm"
 
       - name: Smoke test in Node.js
         run: mise x -- node wasm-pkg/smoke-test.mjs crates/malt_wasm/pkg

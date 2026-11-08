@@ -83,7 +83,9 @@ release needs a bootstrap:
 2. **npm:** publish an empty `0.0.0` placeholder of `malt-wasm` once from your
    machine, then add the trusted publisher (allow `npm publish`). Without an
    existing package CI cannot authenticate, and npm answers the publish with a
-   misleading `404`:
+   misleading `404`. Never publish `crates/malt_wasm/pkg` by hand: wasm-pack names
+   that raw output `malt_wasm` (underscore), a different package that npm treats as
+   too similar to `malt-wasm`:
 
    ```sh
    mkdir /tmp/malt-wasm-placeholder && cd /tmp/malt-wasm-placeholder
