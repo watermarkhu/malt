@@ -35,6 +35,10 @@ impl UnusedEngine {
                     continue;
                 }
                 let name = &def.name;
+                // Full assignments of a never-read variable are NASGU's.
+                if !def.partial || def.multi_output {
+                    continue;
+                }
 
                 if output_args.contains(name.as_str()) {
                     continue;
@@ -43,25 +47,30 @@ impl UnusedEngine {
                     continue;
                 }
 
-                // Find the next assignment of this name after the current one.
-                let next_assignment = scope.defs.iter().find(|d| {
-                    d.kind == DefKind::Assignment
-                        && d.name == *name
-                        && d.byte_range.start > def.byte_range.start
-                });
+                // Report once per variable, at its first partial assignment,
+                // and only when it is never read: a use that is the target of
+                // a partial assignment itself does not count as a read.
+                let is_target = |at: usize| {
+                    scope
+                        .defs
+                        .iter()
+                        .any(|d| d.partial && d.name == *name && d.byte_range.start == at)
+                };
+                let first = scope
+                    .defs
+                    .iter()
+                    .find(|d| d.partial && d.name == *name)
+                    .is_some_and(|d| std::ptr::eq(d, def));
+                let read = scope
+                    .uses
+                    .iter()
+                    .any(|u| u.name == *name && !is_target(u.byte_range.start));
+                let fully_assigned = scope
+                    .defs
+                    .iter()
+                    .any(|d| d.name == *name && !d.partial && d.kind == DefKind::Assignment);
 
-                // The value is "subsequently used" only if there is a use of
-                // this name after the current assignment and (if the variable
-                // is reassigned) before the next assignment.
-                let subsequently_used = scope.uses.iter().any(|u| {
-                    u.name == *name
-                        && u.byte_range.start > def.byte_range.start
-                        && next_assignment
-                            .map(|na| u.byte_range.start < na.byte_range.start)
-                            .unwrap_or(true)
-                });
-
-                if !subsequently_used {
+                if first && !read && !fully_assigned {
                     diagnostics.push(Diagnostic {
                         rule_id: "SETNU",
                         message: "Variable is set, but might be unused.".to_string(),
@@ -90,18 +99,21 @@ mod tests {
     // -- SETNU: assignment whose value is never subsequently used ------------
 
     #[test]
-    fn setnu_fires_on_unused_assignment() {
-        let diags = lint_file(&*engine(), "function foo()\n    x = 5;\nend\n");
-        assert!(has_id(&diags, "SETNU"), "got: {diags:?}");
+    fn setnu_fires_on_partial_assignment_never_read() {
+        let diags = lint_file(
+            &*engine(),
+            "function foo()\n    A(2) = 5;\n    A(3) = 6;\nend\n",
+        );
+        let n = diags.iter().filter(|d| d.rule_id == "SETNU").count();
+        assert_eq!(n, 1, "once per variable, got: {diags:?}");
+        assert!(!has_id(&diags, "NASGU"), "disjoint from NASGU: {diags:?}");
     }
 
     #[test]
-    fn setnu_fires_when_overwritten_before_use() {
-        let diags = lint_file(
-            &*engine(),
-            "function foo()\n    x = 1;\n    x = 2;\n    disp(x);\nend\n",
-        );
-        assert!(has_id(&diags, "SETNU"), "got: {diags:?}");
+    fn setnu_leaves_full_assignments_to_nasgu() {
+        let diags = lint_file(&*engine(), "function foo()\n    x = 5;\nend\n");
+        assert!(!has_id(&diags, "SETNU"), "got: {diags:?}");
+        assert!(has_id(&diags, "NASGU"), "got: {diags:?}");
     }
 
     #[test]

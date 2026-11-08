@@ -81,6 +81,16 @@ pub struct VarDef {
     pub line: usize,
     /// 1-indexed column number.
     pub column: usize,
+    /// Offset from which the definition is in effect. For an assignment this is
+    /// the end of the statement: the right-hand side is evaluated first, so a
+    /// use inside `x = x + 1` comes before the definition it belongs to. For
+    /// every other kind it is the start of `byte_range`.
+    pub effect_start: usize,
+    /// A partial assignment (`A(i) = v`, `s.f = v`, `C{i} = v`) rather than a
+    /// full one.
+    pub partial: bool,
+    /// One element of a `[a, b] = f()` output list.
+    pub multi_output: bool,
 }
 
 /// A single variable usage (read) occurrence.
@@ -94,6 +104,10 @@ pub struct VarUse {
     pub line: usize,
     /// 1-indexed column number.
     pub column: usize,
+    /// The name is the callee of `name(...)`. MATLAB resolves it as an indexed
+    /// variable only if a variable of that name exists; with no definition in
+    /// sight it is a function call, not an undefined variable.
+    pub is_call_target: bool,
 }
 
 // ---------------------------------------------------------------------------
@@ -433,6 +447,9 @@ impl<'a> Builder<'a> {
                     name: func_name.clone(),
                     kind: DefKind::NestedFunction,
                     byte_range: name_node.start_byte()..name_node.end_byte(),
+                    effect_start: name_node.start_byte(),
+                    partial: false,
+                    multi_output: false,
                     line: name_pos.row + 1,
                     column: name_pos.column + 1,
                 });
@@ -560,6 +577,9 @@ impl<'a> Builder<'a> {
                     name: self.node_text(node).to_string(),
                     kind: DefKind::OutputArg,
                     byte_range: node.start_byte()..node.end_byte(),
+                    effect_start: node.start_byte(),
+                    partial: false,
+                    multi_output: false,
                     line: pos.row + 1,
                     column: pos.column + 1,
                 });
@@ -574,6 +594,9 @@ impl<'a> Builder<'a> {
                                 name: self.node_text(child).to_string(),
                                 kind: DefKind::OutputArg,
                                 byte_range: child.start_byte()..child.end_byte(),
+                                effect_start: child.start_byte(),
+                                partial: false,
+                                multi_output: false,
                                 line: pos.row + 1,
                                 column: pos.column + 1,
                             });
@@ -612,6 +635,9 @@ impl<'a> Builder<'a> {
                         name: self.node_text(child).to_string(),
                         kind: DefKind::InputArg,
                         byte_range: child.start_byte()..child.end_byte(),
+                        effect_start: child.start_byte(),
+                        partial: false,
+                        multi_output: false,
                         line: pos.row + 1,
                         column: pos.column + 1,
                     });
@@ -655,6 +681,9 @@ impl<'a> Builder<'a> {
                                     name: self.node_text(arg).to_string(),
                                     kind: DefKind::LambdaParam,
                                     byte_range: arg.start_byte()..arg.end_byte(),
+                                    effect_start: arg.start_byte(),
+                                    partial: false,
+                                    multi_output: false,
                                     line: arg_pos.row + 1,
                                     column: arg_pos.column + 1,
                                 });
@@ -680,7 +709,22 @@ impl<'a> Builder<'a> {
             }
         }
 
-        self.pop_scope();
+        // A variable the lambda reads but does not bind is captured from the
+        // enclosing scope: a use there, or the assignment looks dead.
+        if let Some(lambda) = self.current_scope() {
+            let captured: Vec<VarUse> = self.scopes[lambda]
+                .uses
+                .iter()
+                .filter(|u| !self.scopes[lambda].defs.iter().any(|d| d.name == u.name))
+                .cloned()
+                .collect();
+            self.pop_scope();
+            if let Some(parent) = self.current_scope() {
+                self.scopes[parent].uses.extend(captured);
+            }
+        } else {
+            self.pop_scope();
+        }
     }
 
     // -- assignment ---------------------------------------------------------
@@ -691,7 +735,7 @@ impl<'a> Builder<'a> {
     fn visit_assignment(&mut self, node: tree_sitter::Node<'a>) {
         // Process LHS: definitions.
         if let Some(lhs) = node.child_by_field_name("left") {
-            self.extract_assignment_lhs(lhs);
+            self.extract_assignment_lhs(lhs, node.end_byte());
         }
 
         // Process RHS: usages (just recurse normally).
@@ -701,7 +745,9 @@ impl<'a> Builder<'a> {
     }
 
     /// Extract definitions from an assignment LHS.
-    fn extract_assignment_lhs(&mut self, lhs: tree_sitter::Node<'a>) {
+    ///
+    /// `effect` is where the assignment takes effect: the end of the statement.
+    fn extract_assignment_lhs(&mut self, lhs: tree_sitter::Node<'a>, effect: usize) {
         match lhs.kind() {
             "identifier" => {
                 let pos = lhs.start_position();
@@ -709,6 +755,9 @@ impl<'a> Builder<'a> {
                     name: self.node_text(lhs).to_string(),
                     kind: DefKind::Assignment,
                     byte_range: lhs.start_byte()..lhs.end_byte(),
+                    effect_start: effect,
+                    partial: false,
+                    multi_output: false,
                     line: pos.row + 1,
                     column: pos.column + 1,
                 });
@@ -723,6 +772,9 @@ impl<'a> Builder<'a> {
                                 name: self.node_text(child).to_string(),
                                 kind: DefKind::Assignment,
                                 byte_range: child.start_byte()..child.end_byte(),
+                                effect_start: effect,
+                                partial: false,
+                                multi_output: true,
                                 line: pos.row + 1,
                                 column: pos.column + 1,
                             });
@@ -731,25 +783,67 @@ impl<'a> Builder<'a> {
                     }
                 }
             }
-            "function_call" => {
-                // Indexed assignment: `A(i) = ...` or `obj.field = ...`.
-                // The name of the function_call is the variable being
-                // assigned into; we treat it as a usage (the variable must
-                // already exist). Arguments are usages too. Recurse normally.
-                self.visit_node(lhs);
-            }
-            "field_expression" => {
-                // `obj.field = ...` — `obj` is a usage.
-                self.visit_node(lhs);
-            }
-            "cell_index" => {
-                // `C{i} = ...` — treat like indexed assignment.
-                self.visit_node(lhs);
+            // `A(i) = v`, `s.f = v`, `C{i} = v`: a partial assignment.
+            "function_call" | "field_expression" | "cell_index" => {
+                self.partial_assignment(lhs, effect);
             }
             _ => {
                 // Unknown LHS shape — recurse for safety.
                 self.visit_node(lhs);
             }
+        }
+    }
+
+    /// A partial assignment (`A(i) = v`, `s.f.g = v`, `C{i} = v`) defines its
+    /// root variable, creating it when it does not exist yet. It also reads the
+    /// previous value, which is recorded as a use only when there is one:
+    /// the first `A(2) = 5` has nothing to read.
+    fn partial_assignment(&mut self, lhs: tree_sitter::Node<'a>, effect: usize) {
+        let Some(root) = Self::root_identifier(lhs) else {
+            self.visit_node(lhs);
+            return;
+        };
+        let name = self.node_text(root).to_string();
+        let defined_before = self
+            .current_scope()
+            .is_some_and(|idx| self.scopes[idx].defs.iter().any(|d| d.name == name));
+
+        // Index expressions and the like are plain uses.
+        self.visit_node(lhs);
+        if !defined_before {
+            if let Some(idx) = self.current_scope() {
+                let at = root.start_byte();
+                self.scopes[idx]
+                    .uses
+                    .retain(|u| !(u.name == name && u.byte_range.start == at));
+            }
+        }
+        let pos = root.start_position();
+        self.add_def(VarDef {
+            name,
+            kind: DefKind::Assignment,
+            byte_range: root.start_byte()..root.end_byte(),
+            line: pos.row + 1,
+            column: pos.column + 1,
+            effect_start: effect,
+            partial: true,
+            multi_output: false,
+        });
+    }
+
+    /// The variable an indexed or field expression is rooted at (`x` in
+    /// `x.y(3).z`).
+    fn root_identifier(mut node: tree_sitter::Node<'a>) -> Option<tree_sitter::Node<'a>> {
+        loop {
+            node = match node.kind() {
+                "identifier" => return Some(node),
+                "function_call" => node.child_by_field_name("name")?,
+                "field_expression" => node.child_by_field_name("object")?,
+                "cell_index" => node
+                    .child_by_field_name("name")
+                    .or_else(|| node.named_child(0))?,
+                _ => return None,
+            };
         }
     }
 
@@ -789,6 +883,9 @@ impl<'a> Builder<'a> {
                         name: self.node_text(child).to_string(),
                         kind: DefKind::ForIterator,
                         byte_range: child.start_byte()..child.end_byte(),
+                        effect_start: child.start_byte(),
+                        partial: false,
+                        multi_output: false,
                         line: pos.row + 1,
                         column: pos.column + 1,
                     });
@@ -819,6 +916,9 @@ impl<'a> Builder<'a> {
                         name: self.node_text(child).to_string(),
                         kind,
                         byte_range: child.start_byte()..child.end_byte(),
+                        effect_start: child.start_byte(),
+                        partial: false,
+                        multi_output: false,
                         line: pos.row + 1,
                         column: pos.column + 1,
                     });
@@ -929,10 +1029,12 @@ impl<'a> Builder<'a> {
 
             // Function call name: count as usage (could be array indexing).
             "function_call" => {
-                // The `name` field of function_call should be counted as a
-                // usage because it could be array indexing (`A(i)`), where
-                // `A` must be defined.
-                self.record_use(node);
+                // The callee is a use because it could be indexing (`A(i)`),
+                // but one that checks can tell from a plain variable use.
+                let is_callee = parent
+                    .child_by_field_name("name")
+                    .is_some_and(|n| n.id() == node.id());
+                self.record_use_as(node, is_callee);
             }
 
             // Field expression: only the `object` part is a usage, not the
@@ -985,12 +1087,18 @@ impl<'a> Builder<'a> {
 
     /// Record a variable usage at the given identifier node.
     fn record_use(&mut self, node: tree_sitter::Node) {
+        self.record_use_as(node, false);
+    }
+
+    /// Record a use; `is_call_target` marks the callee of `name(...)`.
+    fn record_use_as(&mut self, node: tree_sitter::Node, is_call_target: bool) {
         let pos = node.start_position();
         self.add_use(VarUse {
             name: self.node_text(node).to_string(),
             byte_range: node.start_byte()..node.end_byte(),
             line: pos.row + 1,
             column: pos.column + 1,
+            is_call_target,
         });
     }
 }

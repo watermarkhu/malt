@@ -23,13 +23,18 @@ impl UnsetVariablesEngine {
                 if reported.contains(&var_use.name) {
                     continue;
                 }
+                // `name(...)` with no variable of that name in sight is a
+                // function call, not a read of an undefined variable.
+                if var_use.is_call_target {
+                    continue;
+                }
 
                 // Find the earliest definition of this variable in the scope.
                 let earliest_def = scope
                     .defs
                     .iter()
                     .filter(|d| d.name == var_use.name)
-                    .min_by_key(|d| d.byte_range.start);
+                    .min_by_key(|d| d.effect_start);
 
                 match earliest_def {
                     None => {
@@ -37,7 +42,10 @@ impl UnsetVariablesEngine {
                         reported.insert(var_use.name.clone());
                         diagnostics.push(Diagnostic {
                             rule_id: "SVNODEF",
-                            message: "Variable might not have a value, because variable definition may not be executed.".to_string(),
+                            message: format!(
+                                "Variable '{}' might not have a value, because variable definition may not be executed.",
+                                var_use.name
+                            ),
                             severity: Severity::Warning,
                             byte_range: var_use.byte_range.clone(),
                             line: var_use.line,
@@ -45,13 +53,15 @@ impl UnsetVariablesEngine {
                             fix: None,
                         });
                     }
-                    Some(def) if var_use.byte_range.start < def.byte_range.start => {
+                    Some(def) if var_use.byte_range.start < def.effect_start => {
                         // Variable is used before its first definition → SUSENS.
                         reported.insert(var_use.name.clone());
                         diagnostics.push(Diagnostic {
                             rule_id: "SUSENS",
-                            message: "Variable is used, but might be unset (within a script)."
-                                .to_string(),
+                            message: format!(
+                                "Variable '{}' is used, but might be unset (within a script).",
+                                var_use.name
+                            ),
                             severity: Severity::Warning,
                             byte_range: var_use.byte_range.clone(),
                             line: var_use.line,
@@ -112,5 +122,34 @@ mod tests {
                 .any(|d| d.rule_id == "SVNODEF" || d.rule_id == "SUSENS"),
             "should not warn for 'x' in script when defined first"
         );
+    }
+
+    fn ids(source: &str) -> Vec<&'static str> {
+        lint_file(&*engine(), source)
+            .iter()
+            .map(|d| d.rule_id)
+            .filter(|id| *id == "SVNODEF" || *id == "SUSENS")
+            .collect()
+    }
+
+    #[test]
+    fn script_function_calls_are_not_undefined_variables() {
+        assert!(ids("disp(1);\nz = max(1, 2);\n").is_empty());
+    }
+
+    #[test]
+    fn script_first_indexed_assignment_defines_the_variable() {
+        assert!(ids("A(2) = 5;\ns.f = 1;\nC{3} = 2;\ndisp(A); disp(s); disp(C);\n").is_empty());
+    }
+
+    #[test]
+    fn script_self_reference_in_first_assignment_is_unset() {
+        assert_eq!(ids("x = x + 1;\n"), vec!["SUSENS"]);
+    }
+
+    #[test]
+    fn script_messages_name_the_variable() {
+        let d = lint_file(&*engine(), "y = foo + 1;\n");
+        assert!(d.iter().any(|d| d.message.contains("'foo'")), "{d:?}");
     }
 }

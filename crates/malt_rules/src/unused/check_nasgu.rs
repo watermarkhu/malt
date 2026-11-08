@@ -20,7 +20,8 @@ impl UnusedEngine {
 
             for def in &scope.defs {
                 // Only check assignment defs.
-                if def.kind != DefKind::Assignment {
+                // Partial assignments (A(i) = v) are SETNU's business.
+                if def.kind != DefKind::Assignment || def.partial || def.multi_output {
                     continue;
                 }
                 let name = &def.name;

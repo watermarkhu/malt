@@ -1,71 +1,44 @@
-//! ASGLU check: value assigned to a variable that is immediately overwritten.
+//! ASGLU check: an element of `[a, b] = f()` that is never used.
 
 use super::*;
+use malt_core::Fix;
 
 impl UnusedEngine {
-    /// Run ASGLU check: consecutive assignments to the same variable with no
-    /// use between them.
+    /// Run ASGLU check: an output of a multi-value call that is never read can
+    /// be replaced by `~`, which skips it. Equivalent, so the fix is safe.
     pub(crate) fn check_asglu(&self, table: &SymbolTable, diagnostics: &mut Vec<Diagnostic>) {
         if self.is_check_disabled("ASGLU") {
             return;
         }
 
         for scope in &table.scopes {
-            // Group assignment defs by variable name, sorted by byte offset.
-            let mut assignments_by_name: HashMap<&str, Vec<usize>> = HashMap::new();
-            for (idx, def) in scope.defs.iter().enumerate() {
-                if def.kind == DefKind::Assignment {
-                    assignments_by_name
-                        .entry(def.name.as_str())
-                        .or_default()
-                        .push(idx);
-                }
-            }
-
-            for (name, indices) in &assignments_by_name {
-                if self.should_ignore_name(name) {
+            for def in &scope.defs {
+                if !def.multi_output || def.kind != DefKind::Assignment {
                     continue;
                 }
-                if indices.len() < 2 {
+                let name = &def.name;
+                if self.should_ignore_name(name) || scope.is_used(name) {
                     continue;
                 }
-
-                // Check consecutive pairs: if no use exists between them,
-                // the first assignment is overwritten.
-                for pair in indices.windows(2) {
-                    let first_def = &scope.defs[pair[0]];
-                    let second_def = &scope.defs[pair[1]];
-
-                    let has_use_between = scope.uses.iter().any(|u| {
-                        u.name == *name
-                            && u.byte_range.start > first_def.byte_range.end
-                            && u.byte_range.start < second_def.byte_range.start
-                    });
-
-                    if !has_use_between {
-                        // Also skip if the first def is an OutputArg (initial
-                        // declaration before assignment).
-                        let output_args: HashSet<&str> = scope
-                            .defs
-                            .iter()
-                            .filter(|d| d.kind == DefKind::OutputArg)
-                            .map(|d| d.name.as_str())
-                            .collect();
-                        if output_args.contains(name) {
-                            continue;
-                        }
-
-                        diagnostics.push(Diagnostic {
-                            rule_id: "ASGLU",
-                            message: "Value assigned to variable might be unused. Consider replacing the variable with ~ instead.".to_string(),
-                            severity: Severity::Warning,
-                            byte_range: first_def.byte_range.clone(),
-                            line: first_def.line,
-                            column: first_def.column,
-                            fix: None,
-                        });
-                    }
+                // Outputs of the enclosing function are used by the caller.
+                if scope
+                    .defs
+                    .iter()
+                    .any(|d| d.kind == DefKind::OutputArg && d.name == *name)
+                {
+                    continue;
                 }
+                diagnostics.push(Diagnostic {
+                    rule_id: "ASGLU",
+                    message: format!(
+                        "Value assigned to variable '{name}' might be unused. Consider replacing the variable with ~ instead."
+                    ),
+                    severity: Severity::Warning,
+                    byte_range: def.byte_range.clone(),
+                    line: def.line,
+                    column: def.column,
+                    fix: Some(Fix::new(def.byte_range.clone(), "~")),
+                });
             }
         }
     }
@@ -81,20 +54,26 @@ mod tests {
         UnusedEngine::from_config(&Config::default())
     }
 
-    // -- ASGLU: assignment immediately overwritten --------------------------
-
     #[test]
-    fn asglu_fires_on_overwritten_assignment() {
-        let diags = lint_file(&*engine(), "function foo()\n    x = 1;\n    x = 2;\nend\n");
-        assert!(has_id(&diags, "ASGLU"), "got: {diags:?}");
+    fn asglu_fires_on_unused_output_element() {
+        let src = "function foo()\n    [a, b] = size(1);\n    disp(a);\nend\n";
+        let diags = lint_file(&*engine(), src);
+        let d: Vec<_> = diags.iter().filter(|d| d.rule_id == "ASGLU").collect();
+        assert_eq!(d.len(), 1, "got: {diags:?}");
+        assert_eq!(&src[d[0].byte_range.clone()], "b");
+        assert_eq!(d[0].fix.as_ref().unwrap().replacement, "~");
+        assert!(!has_id(&diags, "NASGU"), "disjoint from NASGU: {diags:?}");
     }
 
     #[test]
-    fn asglu_ok_when_used_between() {
-        let diags = lint_file(
-            &*engine(),
-            "function foo()\n    x = 1;\n    disp(x);\n    x = 2;\nend\n",
-        );
-        assert!(!has_id(&diags, "ASGLU"), "got: {diags:?}");
+    fn asglu_ok_when_every_element_is_used() {
+        let src = "function foo()\n    [a, b] = size(1);\n    disp(a + b);\nend\n";
+        assert!(!has_id(&lint_file(&*engine(), src), "ASGLU"));
+    }
+
+    #[test]
+    fn asglu_ignores_plain_overwrites() {
+        let src = "function foo()\n    x = 1;\n    x = 2;\nend\n";
+        assert!(!has_id(&lint_file(&*engine(), src), "ASGLU"));
     }
 }
