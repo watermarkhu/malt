@@ -155,36 +155,20 @@ jobs:
         run: npm install -g npm@11.18.0
 
       # npm trusted publishing (https://docs.npmjs.com/trusted-publishers): the
-      # npm CLI exchanges this job's OIDC identity for a short-lived token, so no
-      # NODE_AUTH_TOKEN / NPM_TOKEN secret is involved. The trusted publisher
-      # configured for `mlt-wasm` on npmjs.com must name this exact workflow
-      # file (release.yml) and the `release` environment, and must NOT allow
-      # direct `npm publish`: the version is only *staged* here
-      # (https://docs.npmjs.com/staged-publishing) and goes live once a
-      # maintainer approves it with 2FA.
-      - name: Stage WASM package on npm
+      # npm CLI exchanges this job's OIDC identity for a short-lived publish
+      # token, so no NODE_AUTH_TOKEN / NPM_TOKEN secret is involved. The trusted
+      # publisher configured for `mlt-wasm` on npmjs.com must name this exact
+      # workflow file (release.yml) and the `release` environment.
+      - name: Publish WASM to npm
         run: |
           cd wasm-pkg/pkg
-          if ! output=$(npm stage publish . --provenance --access public 2>&1); then
+          if ! output=$(npm publish --provenance --access public 2>&1); then
             if echo "$output" | grep -q "previously published"; then
               echo "⏭️ mlt-wasm ${VERSION} already published, skipping"
             else
               echo "$output"
               exit 1
             fi
-          else
-            echo "$output"
-            {
-              echo "### npm approval required"
-              echo
-              echo "\`mlt-wasm@${VERSION}\` is **staged, not yet public**. Approve it with 2FA on"
-              echo "https://www.npmjs.com/package/mlt-wasm (Staged Packages tab) or with:"
-              echo
-              echo '```sh'
-              echo 'npm stage list mlt-wasm'
-              echo 'npm stage approve <stage-id>'
-              echo '```'
-            } >> "$GITHUB_STEP_SUMMARY"
           fi
           npm pack --pack-destination ../../dist
 
