@@ -165,6 +165,18 @@ pub struct ReadabilityConfig {
 // Lookup table: isa(x, 'type') → preferred function
 // ---------------------------------------------------------------------------
 
+/// Checks whose rewrite is not equivalent in every situation, so `--fix` leaves
+/// it alone (`--unsafe-fixes` applies it):
+///
+/// - RPMT0/1/I/N, RPMTT/F: `x*1`, `x+0`, `c || true` ... drop an operation that
+///   still converts the type (logical, char, integer) or evaluates a side effect;
+/// - STREMP: `strcmp(s, '')` and `strlength(s)==0` differ for non-text input;
+/// - ISMAT: `isa(x, 'double')` is not `isnumeric(x)` (single and integer types);
+/// - ISROW / ISCOL: `size(x, 1) == 1` is true for an N-d array, `isrow(x)` is not.
+const UNSAFE_FIXES: &[&str] = &[
+    "RPMT0", "RPMT1", "RPMTI", "RPMTN", "RPMTT", "RPMTF", "STREMP", "ISMAT", "ISROW", "ISCOL",
+];
+
 /// Mapping from `isa` second argument (without quotes) to
 /// (check_id, preferred_function, description).
 pub(crate) const ISA_REPLACEMENTS: &[(&str, &str, &str, &str)] = &[
@@ -260,6 +272,8 @@ impl ReadabilityEngine {
     }
 
     /// Emit a diagnostic for a given node with the specified check ID.
+    ///
+    /// Fixes of the checks in [`UNSAFE_FIXES`] are marked unsafe.
     fn diag(
         &self,
         check_id: &'static str,
@@ -275,7 +289,13 @@ impl ReadabilityEngine {
             byte_range: node.start_byte()..node.end_byte(),
             line: start.row + 1,
             column: start.column + 1,
-            fix,
+            fix: fix.map(|f| {
+                if UNSAFE_FIXES.contains(&check_id) {
+                    f.unsafe_fix()
+                } else {
+                    f
+                }
+            }),
         }
     }
 
@@ -404,9 +424,10 @@ impl ReadabilityEngine {
                 "STREMP",
                 "For readability, use '~contains(str1, str2)' instead of 'isempty(strfind(str1, str2))'.",
                 node,
+                // Parenthesised: `~strcmp(s, '')` must not become `~strlength(s)==0`.
                 Some(Fix::new(
                     node.start_byte()..node.end_byte(),
-                    format!("strlength({var})==0"),
+                    format!("(strlength({var})==0)"),
                 )),
             ));
             return;

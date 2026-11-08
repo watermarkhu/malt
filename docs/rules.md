@@ -20,7 +20,7 @@ icon: lucide/list-checks
 | [`INCOMPLETE_ANALYSIS`](rules/incomplete-analysis.md) | Incomplete Analysis | Internal linter limits and analysis integrity checks | Error | No |
 | [`LANGUAGE_SPEC_ENGINE`](rules/language-spec.md) | Language Specification | Language specification constraint violation | Error | No |
 | [`NAMING_ENGINE`](rules/naming.md) | Naming | Naming convention checks (81 sub-rules for 9 entity types x 9 check types) | Info | No |
-| [`NOSEMI`](rules/nosemi.md) | Formatting | Statement without trailing semicolon may produce unintended console output | Info | Yes |
+| [`NOSEMI`](rules/nosemi.md) | Formatting | Extra semicolon is unnecessary | Info | Yes |
 | [`PERFORMANCE_ENGINE`](rules/performance.md) | Performance | Performance improvement suggestions | Info | Yes |
 | [`READABILITY_ENGINE`](rules/readability.md) | Readability | Readability improvement checks for MATLAB code | Info | Yes |
 | [`SUGGESTED_IMPROVEMENTS`](rules/suggested-improvements.md) | Suggested Improvements | Not-recommended function or pattern with suggested replacement | Info | No |
@@ -2182,9 +2182,9 @@ NOSEMI = "error"    # Upgrade from info to error
 Or in a full table:
 
 ```toml
-[lint.rules.NOSEMI]
-severity = "error"
-ignore_functions = ["disp", "fprintf"]
+[lint.rules.NO4LP]
+severity = "warn"
+indent_size = 2
 ```
 
 ### Category-Level Configuration

@@ -43,11 +43,6 @@ impl ReadabilityEngine {
             if inner_args.named_child_count() != 1 {
                 continue;
             }
-            let target = match inner_args.named_child(0) {
-                Some(c) => c,
-                None => continue,
-            };
-            let target_text = &source[target.start_byte()..target.end_byte()];
 
             let other = named_children[1 - i];
             if other.kind() != "string" {
@@ -61,10 +56,9 @@ impl ReadabilityEngine {
                     "STLOW",
                     "In this comparison the call to UPPER/LOWER is unnecessary.",
                     arg,
-                    Some(Fix::new(
-                        arg.start_byte()..arg.end_byte(),
-                        target_text.to_string(),
-                    )),
+                    // Dropping UPPER/LOWER from a case-sensitive strcmp changes its
+                    // result, so there is no rewrite to offer.
+                    None,
                 ));
             }
         }
@@ -120,16 +114,16 @@ mod tests {
     }
 
     #[test]
-    fn stlow_fix_replaces_call_with_inner_arg() {
+    fn stlow_does_not_rewrite_a_case_sensitive_comparison() {
         let source = "x = strcmp(upper(x), 'ABC');\n";
         let diags = lint_nodes(&*engine(), source);
         let diag = diags
             .iter()
             .find(|d| d.rule_id == "STLOW")
             .expect("STLOW should fire");
-        let fix = diag.fix.as_ref().expect("STLOW should carry an auto-fix");
-        assert_eq!(fix.replacement, "x");
-        assert_eq!(&source[fix.byte_range.clone()], "upper(x)");
+        // Dropping upper() from a case-sensitive strcmp changes its result
+        // (x = 'abc' matches before, not after): the check reports, never rewrites.
+        assert!(diag.fix.is_none(), "STLOW must not carry an auto-fix");
     }
 
     #[test]

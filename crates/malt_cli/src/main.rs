@@ -6,7 +6,7 @@ use std::process;
 use anyhow::{Context, Result};
 use clap::Parser;
 
-use malt_core::{apply_fixes, Config, Diagnostic, Linter, RuleRegistry, Severity};
+use malt_core::{fix_source, Config, Diagnostic, FixMode, Linter, RuleRegistry, Severity};
 
 /// malt — An ultra-fast, extensible linter for MATLAB.
 #[derive(Parser, Debug)]
@@ -16,9 +16,13 @@ struct Cli {
     #[arg(required = true)]
     files: Vec<PathBuf>,
 
-    /// Apply auto-fixes where available.
+    /// Apply safe auto-fixes where available, repeating until nothing changes.
     #[arg(long)]
     fix: bool,
+
+    /// Also apply fixes that may change behaviour (requires --fix).
+    #[arg(long, requires = "fix")]
+    unsafe_fixes: bool,
 
     /// Path to config file (default: .malt.toml in current directory).
     #[arg(long, value_name = "PATH")]
@@ -30,10 +34,27 @@ struct Cli {
     preset: Option<String>,
 }
 
+/// Stack size of the thread that lints. Many rules walk the syntax tree
+/// recursively, and the 8 MiB of a main thread (2 MiB on some platforms) is
+/// too little for deeply nested code. The memory is only reserved, and only
+/// the part that is used gets committed.
+const LINT_STACK_BYTES: usize = 256 * 1024 * 1024;
+
 fn main() {
     let cli = Cli::parse();
 
-    if let Err(err) = run(cli) {
+    let worker = std::thread::Builder::new()
+        .name("malt".into())
+        .stack_size(LINT_STACK_BYTES)
+        .spawn(move || run(cli));
+    let result = match worker {
+        Ok(handle) => handle
+            .join()
+            .unwrap_or_else(|_| Err(anyhow::anyhow!("the analyzer thread panicked"))),
+        // Could not reserve the stack: fall back to the thread we are on.
+        Err(_) => Err(anyhow::anyhow!("could not start the analyzer thread")),
+    };
+    if let Err(err) = result {
         eprintln!("error: {err:#}");
         process::exit(2);
     }
@@ -63,6 +84,8 @@ fn run(cli: Cli) -> Result<()> {
 
     let mut total_diagnostics = 0;
     let mut files_with_issues = 0;
+    let mut fixable = 0;
+    let mut unsafe_fixable = 0;
 
     for file_path in &cli.files {
         let source = match fs::read_to_string(file_path) {
@@ -106,29 +129,42 @@ fn run(cli: Cli) -> Result<()> {
             }
         };
 
-        let diagnostics = linter
-            .lint(&source, file_path)
-            .with_context(|| format!("failed to parse {}", file_path.display()))?;
+        let diagnostics = if cli.fix {
+            let mode = if cli.unsafe_fixes {
+                FixMode::All
+            } else {
+                FixMode::Safe
+            };
+            let outcome = fix_source(&mut linter, &source, file_path, mode)
+                .with_context(|| format!("failed to parse {}", file_path.display()))?;
+            // Only touch the file when something was actually fixed.
+            if outcome.source != source {
+                fs::write(file_path, &outcome.source)
+                    .with_context(|| format!("failed to write {}", file_path.display()))?;
+                println!(
+                    "Fixed {} issue{} in {}",
+                    outcome.applied,
+                    if outcome.applied == 1 { "" } else { "s" },
+                    file_path.display()
+                );
+            }
+            outcome.remaining
+        } else {
+            linter
+                .lint(&source, file_path)
+                .with_context(|| format!("failed to parse {}", file_path.display()))?
+        };
 
         if diagnostics.is_empty() {
             continue;
         }
 
-        if cli.fix {
-            let fixed = apply_fixes(&source, &diagnostics);
-            fs::write(file_path, &fixed)
-                .with_context(|| format!("failed to write {}", file_path.display()))?;
-
-            let fix_count = diagnostics.iter().filter(|d| d.fix.is_some()).count();
-            println!(
-                "Fixed {} issue{} in {}",
-                fix_count,
-                if fix_count == 1 { "" } else { "s" },
-                file_path.display()
-            );
-        } else {
-            for diag in &diagnostics {
-                print_diagnostic(file_path, diag);
+        for diag in &diagnostics {
+            print_diagnostic(file_path, diag);
+            match diag.fix.as_ref() {
+                Some(f) if f.is_safe() => fixable += 1,
+                Some(_) => unsafe_fixable += 1,
+                None => {}
             }
         }
 
@@ -136,7 +172,7 @@ fn run(cli: Cli) -> Result<()> {
         files_with_issues += 1;
     }
 
-    if !cli.fix && total_diagnostics > 0 {
+    if total_diagnostics > 0 {
         println!(
             "\nFound {} issue{} in {} file{}.",
             total_diagnostics,
@@ -144,6 +180,14 @@ fn run(cli: Cli) -> Result<()> {
             files_with_issues,
             if files_with_issues == 1 { "" } else { "s" },
         );
+        if fixable > 0 {
+            println!("{fixable} fixable with the `--fix` option.");
+        }
+        if unsafe_fixable > 0 && !cli.unsafe_fixes {
+            println!(
+                "{unsafe_fixable} more with `--fix --unsafe-fixes` (these may change behaviour)."
+            );
+        }
         process::exit(1);
     }
 

@@ -16,8 +16,11 @@ mod wasm {
     use std::collections::HashMap;
     use std::path::Path;
 
-    use malt_core::{apply_fixes, position_of, Config, Diagnostic, RuleRegistry, Severity};
+    use malt_core::{fix_source, position_of, Config, Diagnostic, FixMode, RuleRegistry, Severity};
     use wasm_bindgen::prelude::*;
+
+    /// Deepest syntax tree analyzed in the browser (about 80 nested statements).
+    const WASM_MAX_TREE_DEPTH: usize = 200;
 
     /// A single diagnostic serialized for JavaScript consumers.
     #[derive(serde::Serialize)]
@@ -184,6 +187,8 @@ mod wasm {
         let registry = RuleRegistry::new(rules, &malt_config);
         let mut linter = malt_core::Linter::new(registry);
         linter.set_inline_suppression(malt_config.inline_suppression);
+        // About 1 MiB of stack and no thread to enlarge it: stop earlier than natively.
+        linter.set_max_tree_depth(WASM_MAX_TREE_DEPTH);
         Linter {
             linter,
             config_warnings: Vec::new(),
@@ -249,8 +254,8 @@ mod wasm {
         /// * `path` - Optional file path (see `check`).
         pub fn fix(&mut self, content: &str, path: Option<String>) -> String {
             let path = Path::new(path.as_deref().unwrap_or("untitled.m"));
-            match self.linter.lint(content, path) {
-                Ok(diagnostics) => apply_fixes(content, &diagnostics),
+            match fix_source(&mut self.linter, content, path, FixMode::Safe) {
+                Ok(outcome) => outcome.source,
                 Err(_) => content.to_string(),
             }
         }
@@ -307,8 +312,8 @@ mod wasm {
             let warnings = l.check("x = 1\n", None);
             let parsed: Vec<serde_json::Value> = serde_json::from_str(&warnings).unwrap();
             assert!(
-                parsed.iter().any(|w| w["rule_id"] == "NOSEMI"),
-                "expected NOSEMI warning, got: {warnings}"
+                parsed.iter().any(|w| w["rule_id"] == "NOPTS"),
+                "expected NOPTS warning, got: {warnings}"
             );
         }
 
@@ -316,12 +321,12 @@ mod wasm {
         fn check_clean_code_has_no_nosemi() {
             let mut l = linter();
             // A simple script statement with a trailing semicolon is clean from
-            // the formatting perspective; no NOSEMI (and no parse error).
+            // the formatting perspective; no NOPTS (and no parse error).
             let warnings = l.check("result = 1;\n", None);
             let parsed: Vec<serde_json::Value> = serde_json::from_str(&warnings).unwrap();
             assert!(
-                !parsed.iter().any(|w| w["rule_id"] == "NOSEMI"),
-                "unexpected NOSEMI, got: {warnings}"
+                !parsed.iter().any(|w| w["rule_id"] == "NOPTS"),
+                "unexpected NOPTS, got: {warnings}"
             );
             assert!(
                 parsed.iter().all(|w| w.get("error").is_none()),
@@ -334,7 +339,7 @@ mod wasm {
             let mut l = linter();
             let warnings = l.check("x = 1\n", None);
             let parsed: Vec<serde_json::Value> = serde_json::from_str(&warnings).unwrap();
-            let nosemi = parsed.iter().find(|w| w["rule_id"] == "NOSEMI").unwrap();
+            let nosemi = parsed.iter().find(|w| w["rule_id"] == "NOPTS").unwrap();
             assert!(nosemi["line"].as_u64().is_some());
             assert!(nosemi["column"].as_u64().is_some());
             assert!(nosemi["end_line"].as_u64().is_some());
@@ -356,15 +361,15 @@ mod wasm {
         #[test]
         fn disable_rule_suppresses_diagnostic() {
             let config = LinterConfig {
-                disable: vec!["NOSEMI".to_string()],
+                disable: vec!["NOPTS".to_string()],
                 ..Default::default()
             };
             let mut l = from_config(config);
             let warnings = l.check("x = 1\n", None);
             let parsed: Vec<serde_json::Value> = serde_json::from_str(&warnings).unwrap();
             assert!(
-                !parsed.iter().any(|w| w["rule_id"] == "NOSEMI"),
-                "NOSEMI should be disabled, got: {warnings}"
+                !parsed.iter().any(|w| w["rule_id"] == "NOPTS"),
+                "NOPTS should be disabled, got: {warnings}"
             );
         }
 
@@ -378,8 +383,8 @@ mod wasm {
             let warnings = l.check("x = 1\n", None);
             let parsed: Vec<serde_json::Value> = serde_json::from_str(&warnings).unwrap();
             assert!(
-                !parsed.iter().any(|w| w["rule_id"] == "NOSEMI"),
-                "NOSEMI should be disabled when only AGROW is enabled"
+                !parsed.iter().any(|w| w["rule_id"] == "NOPTS"),
+                "NOPTS should be disabled when only AGROW is enabled"
             );
         }
 
@@ -401,12 +406,12 @@ mod wasm {
 
         #[test]
         fn from_toml_disables_rule() {
-            let mut l = from_toml_str("[lint.rules]\nNOSEMI = \"off\"\n").unwrap();
+            let mut l = from_toml_str("[lint.rules]\nNOPTS = \"off\"\n").unwrap();
             let warnings = l.check("x = 1\n", None);
             let parsed: Vec<serde_json::Value> = serde_json::from_str(&warnings).unwrap();
             assert!(
-                !parsed.iter().any(|w| w["rule_id"] == "NOSEMI"),
-                "NOSEMI should be disabled, got: {warnings}"
+                !parsed.iter().any(|w| w["rule_id"] == "NOPTS"),
+                "NOPTS should be disabled, got: {warnings}"
             );
         }
 
@@ -434,7 +439,7 @@ mod wasm {
 
         #[test]
         fn from_toml_rejects_invalid_toml() {
-            assert!(from_toml_str("[lint.rules\nNOSEMI = ").is_err());
+            assert!(from_toml_str("[lint.rules\nNOPTS = ").is_err());
         }
     }
 }
@@ -454,15 +459,15 @@ mod preset_tests {
 
     #[test]
     fn from_toml_reads_preset() {
-        // `recommended` disables formatting (which includes NOSEMI).
+        // `recommended` disables formatting (which includes NOPTS).
         let mut l = Linter::from_toml("[lint]\npreset = \"recommended\"\n").unwrap();
-        assert!(!rule_ids(&mut l, "x = 1\n").contains(&"NOSEMI".to_string()));
+        assert!(!rule_ids(&mut l, "x = 1\n").contains(&"NOPTS".to_string()));
     }
 
     #[test]
     fn from_toml_mathworks_keeps_formatting() {
         let mut l = Linter::from_toml("").unwrap();
-        assert!(rule_ids(&mut l, "x = 1\n").contains(&"NOSEMI".to_string()));
+        assert!(rule_ids(&mut l, "x = 1\n").contains(&"NOPTS".to_string()));
     }
 
     #[test]
@@ -472,6 +477,6 @@ mod preset_tests {
             ..Default::default()
         };
         let mut l = from_config(config);
-        assert!(!rule_ids(&mut l, "x = 1\n").contains(&"NOSEMI".to_string()));
+        assert!(!rule_ids(&mut l, "x = 1\n").contains(&"NOPTS".to_string()));
     }
 }

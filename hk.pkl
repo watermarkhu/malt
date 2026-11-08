@@ -20,8 +20,14 @@ local rust = new Group {
 
 /// Basic repository hygiene steps shared by pre-commit and `hk fix`.
 local hygiene = new Mapping<String, Step> {
-    ["trailing-whitespace"] = Builtins.trailing_whitespace
-    ["end-of-file-fixer"] = Builtins.newlines
+    // The fix-safety fixtures are MATLAB inputs whose exact bytes are the test:
+    // missing final newlines, trailing blanks and CRLF are deliberate.
+    ["trailing-whitespace"] = (Builtins.trailing_whitespace) {
+        exclude = List("crates/malt_cli/tests/fixtures/**")
+    }
+    ["end-of-file-fixer"] = (Builtins.newlines) {
+        exclude = List("crates/malt_cli/tests/fixtures/**")
+    }
     ["check-merge-conflict"] = Builtins.check_merge_conflict
     ["check-added-large-files"] = (Builtins.check_added_large_files) {
         // The rule data tables are intentionally large (500KB+); exclude them.

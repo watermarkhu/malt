@@ -115,8 +115,15 @@ impl SyntaxErrorsEngine {
         // Check consecutive children of block/source_file that are statements
         // on the same line without separator.
         if self.is_check_enabled("SEPEXR") && (kind == "source_file" || kind == "block") {
+            // Compare statements only. The `;` and `,` separators are children
+            // of the block too (anonymous nodes): pairing a separator with the
+            // next statement would see an empty gap and report a separator
+            // as missing on every `x = 1; y = 2;`.
             let mut cursor = node.walk();
-            let children: Vec<Node> = node.children(&mut cursor).collect();
+            let children: Vec<Node> = node
+                .children(&mut cursor)
+                .filter(|child| child.is_named())
+                .collect();
 
             for pair in children.windows(2) {
                 let prev = pair[0];
@@ -188,9 +195,28 @@ mod tests {
     // -- SEPEXR: missing separator between statements -----------------------
 
     #[test]
-    fn sepexr_fires_on_same_line_statements() {
-        let diags = lint_file(&*engine(), "x = 1; 2");
-        assert!(has_id(&diags, "SEPEXR"), "got: {diags:?}");
+    fn sepexr_leaves_missing_separators_to_the_parser() {
+        // A statement run into the previous one is a parse error, reported as
+        // SYNER; and a body that follows its condition is SEPEX's business.
+        for src in ["if x y = 1; end\n", "x = 1; 2\n"] {
+            let diags = lint_file(&*engine(), src);
+            assert!(!has_id(&diags, "SEPEXR"), "{src:?} got: {diags:?}");
+        }
+    }
+
+    #[test]
+    fn sepexr_silent_when_a_separator_is_present() {
+        for src in [
+            "x = 1; y = 2;\n",
+            "x = 1;y = 2;\n",
+            "x = 1, y = 2;\n",
+            "x = 1;; y = 2;\n",
+            "disp(1); disp(2);\n",
+            "if a, b = 1; end; z = 3;\n",
+        ] {
+            let diags = lint_file(&*engine(), src);
+            assert!(!has_id(&diags, "SEPEXR"), "{src:?} got: {diags:?}");
+        }
     }
 
     #[test]

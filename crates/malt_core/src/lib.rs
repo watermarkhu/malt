@@ -20,9 +20,9 @@ pub mod suppression;
 
 // Re-export primary types at crate root for ergonomic imports.
 pub use config::{Config, ConfigError, RuleConfig};
-pub use diagnostic::{Diagnostic, Fix, Severity};
-pub use fix::{apply_fixes, position_of};
-pub use linter::{LintError, Linter};
+pub use diagnostic::{Applicability, Diagnostic, Fix, Severity};
+pub use fix::{apply_fixes, apply_fixes_with, fix_source, position_of, FixMode, FixOutcome};
+pub use linter::{LintError, Linter, DEFAULT_MAX_TREE_DEPTH};
 pub use preset::{PresetDef, DEFAULT_PRESET, PRESETS};
 pub use registry::RuleRegistry;
 pub use rule::{Category, FileContext, NodeContext, Rule};

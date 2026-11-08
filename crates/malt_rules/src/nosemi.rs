@@ -1,8 +1,8 @@
-//! # NOSEMI: Trailing Semicolon Missing
+//! # NOSEMI: Extra Semicolon
 //!
 //! ```malt
 //! id = "NOSEMI"
-//! title = "Trailing Semicolon Missing"
+//! title = "Extra Semicolon"
 //! category = "formatting"
 //! severity = "info"
 //! fix = true
@@ -11,49 +11,52 @@
 //!
 //! ## Rule
 //!
-//! Flags MATLAB statements that produce output without a trailing semicolon.
-//! In MATLAB, such statements print their result to the console, which is
-//! almost always unintentional in production code and can cause significant
-//! performance degradation in loops.
+//! Flags a semicolon that does nothing: one that follows another semicolon
+//! (`x = 1;;`), or that ends a block statement or its header line (`end;`,
+//! `if ready;`, `function f;`). A semicolon that is the only separator on its
+//! line, as in `if ready; go(); end`, is not extra and is left alone.
+//!
+//! A statement that is *missing* its semicolon is a different finding: see
+//! NOPTS, NOPRT and PRTCAL.
 //!
 //! ## Fix
 //!
-//! Inserts a trailing semicolon immediately after the statement, suppressing
-//! the console output without changing program behavior.
+//! Deletes the extra semicolon (and the blanks in front of it).
 //!
 //! ## Examples
 //!
 //! ### Incorrect
 //!
 //! ```matlab
-//! x = compute_value()
-//! data = load('file.mat')
+//! x = compute_value();;
+//! if ready;
+//!     go();
+//! end;
 //! ```
 //!
 //! ### Correct
 //!
 //! ```matlab
 //! x = compute_value();
-//! data = load('file.mat');
+//! if ready
+//!     go();
+//! end
 //! ```
 //!
 //! ### Fixed
 //!
 //! ```diff
-//! - x = compute_value()
+//! - x = compute_value();;
 //! + x = compute_value();
-//! ```
-//!
-//! ## Configuration
-//!
-//! ```toml
-//! [lint.rules.NOSEMI]
-//! severity = "info"
-//! ignore_functions = ["disp", "fprintf", "warning", "error"]
+//! - if ready;
+//! + if ready
+//! - end;
+//! + end
 //! ```
 
 use malt_core::{Category, Config, Diagnostic, Fix, NodeContext, Rule, Severity};
 use serde::Deserialize;
+use tree_sitter::Node;
 
 // ---------------------------------------------------------------------------
 // Rule-specific configuration
@@ -61,42 +64,61 @@ use serde::Deserialize;
 
 /// Configuration for NOSEMI.
 ///
-/// Deserialized from the `[lint.rules.NOSEMI]` section in `.malt.toml`.
+/// Deserialized from the `[lint.rules.NOSEMI]` section in `.malt.toml`. The
+/// rule has no parameters today; the struct keeps adding one non-breaking.
 #[derive(Debug, Clone, Deserialize, Default)]
-pub struct NosemiConfig {
-    /// Function names to ignore (statements calling these functions won't be
-    /// flagged even without a semicolon). Useful for intentional output
-    /// functions like `disp`, `fprintf`, etc.
-    #[serde(default)]
-    pub ignore_functions: Vec<String>,
-}
+pub struct NosemiConfig {}
 
 // ---------------------------------------------------------------------------
 // Rule implementation
 // ---------------------------------------------------------------------------
 
-/// Rule NOSEMI: flags statements at the top level of a block that do not end
-/// with a trailing semicolon.
-///
-/// Targets `assignment`, `function_call`, and `command` nodes. Only fires when
-/// the node is a direct child of `source_file` or `block` (i.e., at statement
-/// level, not as a sub-expression).
+/// Rule NOSEMI: flags semicolons that serve no purpose.
 pub struct Nosemi {
-    config: NosemiConfig,
+    _config: NosemiConfig,
 }
 
-/// Statement-level node types that should typically end with a semicolon.
-const TARGET_NODES: &[&str] = &["assignment", "function_call", "command"];
+/// Nodes whose children are a sequence of statements and separators.
+const SEQUENCES: &[&str] = &["source_file", "block", "class_definition"];
 
-/// Parent node types that indicate statement-level context.
-const STATEMENT_PARENTS: &[&str] = &["source_file", "block"];
+/// Nodes with a header line that a `;` may (needlessly) terminate:
+/// `if x;`, `for i = 1:3;`, `function f;`, `else;`, ...
+const HEADERS: &[&str] = &[
+    "if_statement",
+    "elseif_clause",
+    "else_clause",
+    "while_statement",
+    "for_statement",
+    "switch_statement",
+    "case_clause",
+    "otherwise_clause",
+    "try_statement",
+    "catch_clause",
+    "function_definition",
+];
+
+/// Statements closed by `end`: a `;` right behind one is extra.
+const END_CLOSED: &[&str] = &[
+    "if_statement",
+    "while_statement",
+    "for_statement",
+    "switch_statement",
+    "try_statement",
+    "function_definition",
+    "class_definition",
+    "properties",
+    "methods",
+    "events",
+    "enumeration",
+    "spmd_statement",
+];
 
 impl Nosemi {
     /// Factory constructor. Reads rule-specific params from config.
     pub fn from_config(config: &Config) -> Box<dyn Rule> {
         let rule_config: NosemiConfig = config.rule_params("NOSEMI");
         Box::new(Self {
-            config: rule_config,
+            _config: rule_config,
         })
     }
 }
@@ -107,7 +129,7 @@ impl Rule for Nosemi {
     }
 
     fn description(&self) -> &'static str {
-        "Statement without trailing semicolon may produce unintended console output"
+        "Extra semicolon is unnecessary"
     }
 
     fn severity(&self) -> Severity {
@@ -119,124 +141,86 @@ impl Rule for Nosemi {
     }
 
     fn target_node_types(&self) -> &'static [&'static str] {
-        TARGET_NODES
+        const TARGETS: &[&str] = &[
+            "source_file",
+            "block",
+            "class_definition",
+            "if_statement",
+            "elseif_clause",
+            "else_clause",
+            "while_statement",
+            "for_statement",
+            "switch_statement",
+            "case_clause",
+            "otherwise_clause",
+            "try_statement",
+            "catch_clause",
+            "function_definition",
+        ];
+        TARGETS
     }
 
     fn check(&self, ctx: &NodeContext) -> Vec<Diagnostic> {
         let node = ctx.node;
+        let source = ctx.source;
+        let kind = node.kind();
+        let mut diagnostics = Vec::new();
 
-        // Only fire at statement level: parent must be source_file or block.
-        // This prevents flagging function_call nodes that are sub-expressions
-        // (e.g., `x = foo(bar(1))` — bar(1) is not a statement).
-        let is_statement_level = node
-            .parent()
-            .map(|p| STATEMENT_PARENTS.contains(&p.kind()))
-            .unwrap_or(false);
-
-        if !is_statement_level {
-            return Vec::new();
-        }
-
-        // If this is a function_call or command, check if the function name
-        // is in the ignore list.
-        if !self.config.ignore_functions.is_empty() {
-            if let Some(func_name) = extract_function_name(node, ctx.source) {
-                if self.config.ignore_functions.iter().any(|f| f == func_name) {
-                    return Vec::new();
-                }
-            }
-        }
-
-        // Check if the statement is followed by a semicolon.
-        let has_semicolon = has_trailing_semicolon(node, ctx.source);
-
-        if has_semicolon {
-            return Vec::new();
-        }
-
-        // Compute position for the diagnostic.
-        let start = node.start_position();
-        let end_byte = node.end_byte();
-
-        vec![Diagnostic {
-            rule_id: self.id(),
-            message: "Extra semicolon is unnecessary.".to_string(),
-            severity: self.severity(),
-            byte_range: node.start_byte()..end_byte,
-            line: start.row + 1, // tree-sitter is 0-indexed
-            column: start.column + 1,
-            fix: Some(Fix::insert(end_byte, ";")),
-        }]
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-/// Extract the function name from a `function_call` or `command` node.
-fn extract_function_name<'a>(node: tree_sitter::Node<'a>, source: &'a str) -> Option<&'a str> {
-    match node.kind() {
-        "function_call" => {
-            // The `name` field of a function_call node.
-            let name_node = node.child_by_field_name("name")?;
-            // For simple calls, the name is an identifier.
-            // For method calls (obj.method), take the full text.
-            Some(&source[name_node.start_byte()..name_node.end_byte()])
-        }
-        "command" => {
-            // The first child of a command is the command_name.
-            let name_node = node.child(0)?;
-            if name_node.kind() == "command_name" {
-                Some(&source[name_node.start_byte()..name_node.end_byte()])
+        let mut cursor = node.walk();
+        for token in node.children(&mut cursor).filter(|c| c.kind() == ";") {
+            let extra = if SEQUENCES.contains(&kind) {
+                follows_extra_context(token, source)
+            } else if HEADERS.contains(&kind) {
+                // Directly under a header node, a `;` terminates the header line.
+                ends_its_line(source, token.end_byte())
             } else {
-                None
+                false
+            };
+            if extra {
+                diagnostics.push(diagnostic(token, source));
             }
         }
-        _ => None,
+        diagnostics
     }
 }
 
-/// Determine whether a statement node is followed by a semicolon.
-///
-/// In tree-sitter-matlab's grammar, semicolons (`;`) and newlines are statement
-/// terminators that appear as sibling nodes after the statement. We check the
-/// source text immediately following the node for a `;` (skipping whitespace
-/// on the same line).
-fn has_trailing_semicolon(node: tree_sitter::Node, source: &str) -> bool {
-    // Strategy 1: Check next named/unnamed siblings for ";"
-    let mut sibling = node.next_sibling();
-    while let Some(sib) = sibling {
-        let kind = sib.kind();
-        // Skip over comment nodes that might appear between statement and semicolon
-        if kind == "comment" || kind == "line_continuation" {
-            sibling = sib.next_sibling();
-            continue;
-        }
-        // If the next meaningful sibling is ";", the statement is terminated.
-        if kind == ";" {
-            return true;
-        }
-        // Any other sibling means no semicolon follows.
-        break;
+/// Whether a separator in a statement sequence is extra: it repeats the one
+/// before it on the same line, or it closes a block statement (`end;`).
+fn follows_extra_context(token: Node, source: &str) -> bool {
+    let Some(prev) = token.prev_sibling() else {
+        return false;
+    };
+    if prev.kind() == ";" {
+        let gap = &source[prev.end_byte()..token.start_byte()];
+        return gap.chars().all(|c| c == ' ' || c == '\t');
     }
+    // `end; z = 3` needs its `;`: without it `end z = 3` is not a statement.
+    prev.is_named() && END_CLOSED.contains(&prev.kind()) && ends_its_line(source, token.end_byte())
+}
 
-    // Strategy 2: Fallback — scan the source text after the node end.
-    // This handles cases where the semicolon might not be a separate node.
-    let after = &source[node.end_byte()..];
-    for ch in after.chars() {
-        match ch {
-            ';' => return true,
-            // Stop at newline — semicolon must be on the same line.
-            '\n' | '\r' => return false,
-            // Skip inline whitespace.
-            ' ' | '\t' => continue,
-            // Any other character means something else follows.
-            _ => return false,
-        }
+/// Whether nothing but blanks or a comment follows `pos` on its line.
+fn ends_its_line(source: &str, pos: usize) -> bool {
+    let rest = source[pos..].split('\n').next().unwrap_or("").trim();
+    rest.is_empty() || rest.starts_with('%')
+}
+
+fn diagnostic(token: Node, source: &str) -> Diagnostic {
+    // Take the blanks in front of the `;` along: `end ;` becomes `end`.
+    let bytes = source.as_bytes();
+    let mut start = token.start_byte();
+    while start > 0 && matches!(bytes[start - 1], b' ' | b'\t') {
+        start -= 1;
     }
-
-    false
+    let pos = token.start_position();
+    Diagnostic {
+        rule_id: "NOSEMI",
+        message: "Extra semicolon is unnecessary.".to_string(),
+        severity: Severity::Info,
+        byte_range: token.start_byte()..token.end_byte(),
+        line: pos.row + 1,
+        column: pos.column + 1,
+        fix: Some(Fix::new(start..token.end_byte(), "")),
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -252,132 +236,87 @@ inventory::submit!(crate::RuleRegistration::new("NOSEMI", Nosemi::from_config));
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_util::{has_id, lint_nodes};
-    use malt_core::Config;
+    use crate::test_util::lint_nodes;
+    use malt_core::{apply_fixes, Config};
 
     fn engine() -> Box<dyn Rule> {
         Nosemi::from_config(&Config::default())
     }
 
-    // -- assignment ----------------------------------------------------------
+    fn nosemi(source: &str) -> Vec<Diagnostic> {
+        lint_nodes(&*engine(), source)
+            .into_iter()
+            .filter(|d| d.rule_id == "NOSEMI")
+            .collect()
+    }
 
-    #[test]
-    fn assignment_without_semicolon_fires() {
-        let diags = lint_nodes(&*engine(), "x = 5\n");
-        assert!(has_id(&diags, "NOSEMI"), "got: {diags:?}");
+    fn fixed(source: &str) -> String {
+        apply_fixes(source, &nosemi(source))
     }
 
     #[test]
-    fn assignment_with_semicolon_ok() {
-        let diags = lint_nodes(&*engine(), "x = 5;\n");
-        assert!(!has_id(&diags, "NOSEMI"), "got: {diags:?}");
+    fn flags_repeated_semicolons() {
+        let d = nosemi("x = 1;;\n");
+        assert_eq!(d.len(), 1);
+        assert_eq!((d[0].line, d[0].column), (1, 7));
+        assert_eq!(nosemi("x = 1;;;\n").len(), 2);
+        assert_eq!(nosemi("x = 1; ;\n").len(), 1);
+        assert_eq!(nosemi("x = 1;; y = 2;\n").len(), 1);
     }
 
     #[test]
-    fn assignment_in_function_without_semicolon_fires() {
-        let source = "function f()\n    x = compute_value()\nend\n";
-        let diags = lint_nodes(&*engine(), source);
-        assert!(has_id(&diags, "NOSEMI"), "got: {diags:?}");
-    }
-
-    #[test]
-    fn assignment_in_function_with_semicolon_ok() {
-        let source = "function f()\n    x = compute_value();\nend\n";
-        let diags = lint_nodes(&*engine(), source);
-        assert!(!has_id(&diags, "NOSEMI"), "got: {diags:?}");
-    }
-
-    // -- function_call -------------------------------------------------------
-
-    #[test]
-    fn function_call_without_semicolon_fires() {
-        let diags = lint_nodes(&*engine(), "compute_value()\n");
-        assert!(has_id(&diags, "NOSEMI"), "got: {diags:?}");
-    }
-
-    #[test]
-    fn function_call_with_semicolon_ok() {
-        let diags = lint_nodes(&*engine(), "compute_value();\n");
-        assert!(!has_id(&diags, "NOSEMI"), "got: {diags:?}");
-    }
-
-    #[test]
-    fn subexpression_call_not_flagged() {
-        let diags = lint_nodes(&*engine(), "x = compute_value(helper(1));\n");
-        assert!(!has_id(&diags, "NOSEMI"), "got: {diags:?}");
-    }
-
-    // -- command -------------------------------------------------------------
-
-    #[test]
-    fn command_without_semicolon_fires() {
-        let diags = lint_nodes(&*engine(), "disp hello\n");
-        assert!(has_id(&diags, "NOSEMI"), "got: {diags:?}");
-    }
-
-    // -- fix -----------------------------------------------------------------
-
-    #[test]
-    fn diagnostic_carries_semicolon_insertion_fix() {
-        let diags = lint_nodes(&*engine(), "x = 5\n");
-        let diag = diags
-            .iter()
-            .find(|d| d.rule_id == "NOSEMI")
-            .expect("NOSEMI should fire");
-        let fix = diag.fix.as_ref().expect("NOSEMI should carry an auto-fix");
-        assert_eq!(fix.replacement, ";");
+    fn flags_semicolons_after_end_and_headers() {
+        // `if x;`, `end;`
+        assert_eq!(nosemi("if x;\n  y = 1;\nend;\n").len(), 2);
+        assert_eq!(nosemi("function f;\nend;\n").len(), 2);
+        assert_eq!(nosemi("for i = 1:3;\n  disp(i);\nend\n").len(), 1);
+        assert_eq!(nosemi("if x\n  a = 1;\nelse;\n  a = 2;\nend\n").len(), 1);
         assert_eq!(
-            fix.byte_range.start, fix.byte_range.end,
-            "insertion must be zero-width"
+            nosemi("end_marker = 1;\nwhile k;\n  k = 0;\nend % done\n").len(),
+            1
         );
     }
 
     #[test]
-    fn fix_applied_result_has_semicolon() {
-        let source = "x = 5\n";
-        let diags = lint_nodes(&*engine(), source);
-        let diag = diags
-            .iter()
-            .find(|d| d.rule_id == "NOSEMI")
-            .expect("NOSEMI should fire");
-        let fix = diag.fix.as_ref().unwrap();
-        let mut fixed = String::from(source);
-        fixed.replace_range(fix.byte_range.clone(), &fix.replacement);
-        assert!(fixed.ends_with(";\n"), "got: {fixed:?}");
-    }
-
-    // -- ignore_functions config ---------------------------------------------
-
-    #[test]
-    fn ignored_function_call_not_flagged() {
-        let config = Config::from_toml(
-            "[lint.rules.NOSEMI]\nseverity = \"info\"\nignore_functions = [\"disp\", \"fprintf\"]\n",
-        )
-        .expect("valid config");
-        let rule = Nosemi::from_config(&config);
-        let diags = lint_nodes(&*rule, "disp('hello')\n");
-        assert!(!has_id(&diags, "NOSEMI"), "got: {diags:?}");
+    fn a_missing_semicolon_is_not_this_rules_business() {
+        // That is NOPTS / NOPRT / PRTCAL. NOSEMI used to flag it, with this
+        // very message, and inserted a second `;` next to theirs.
+        assert!(nosemi("x = 1\n").is_empty());
+        assert!(nosemi("disp(1)\n").is_empty());
     }
 
     #[test]
-    fn ignored_function_command_not_flagged() {
-        let config = Config::from_toml(
-            "[lint.rules.NOSEMI]\nseverity = \"info\"\nignore_functions = [\"disp\", \"fprintf\"]\n",
-        )
-        .expect("valid config");
-        let rule = Nosemi::from_config(&config);
-        let diags = lint_nodes(&*rule, "disp hello\n");
-        assert!(!has_id(&diags, "NOSEMI"), "got: {diags:?}");
+    fn leaves_needed_semicolons_alone() {
+        for src in [
+            "x = 1;\n",
+            "x = 1; y = 2;\n",
+            // the only separator between the condition and the body
+            "if x; y = 1; end\n",
+            "if x, y = 1; end\n",
+            "while k; k = 0; end\n",
+            // `end` followed by another statement on the line
+            "if a, b; end; z = 3;\n",
+            // a shell escape owns its semicolon: it is part of the command
+            "!ls;\n",
+            "x = 1;\n!echo hi;\n",
+        ] {
+            assert!(nosemi(src).is_empty(), "{src:?} got: {:?}", nosemi(src));
+        }
     }
 
     #[test]
-    fn non_ignored_function_still_flagged() {
-        let config = Config::from_toml(
-            "[lint.rules.NOSEMI]\nseverity = \"info\"\nignore_functions = [\"disp\", \"fprintf\"]\n",
-        )
-        .expect("valid config");
-        let rule = Nosemi::from_config(&config);
-        let diags = lint_nodes(&*rule, "disp('hello')\ncompute_value()\n");
-        assert!(has_id(&diags, "NOSEMI"), "got: {diags:?}");
+    fn fix_deletes_the_semicolon_and_converges() {
+        for (src, expected) in [
+            ("x = 1;;\n", "x = 1;\n"),
+            ("x = 1; ;\n", "x = 1;\n"),
+            ("x = 1;;; y = 2;\n", "x = 1; y = 2;\n"),
+            ("if x;\n  y = 1;\nend;\n", "if x\n  y = 1;\nend\n"),
+            ("if x ; % c\n  y = 1;\nend ;\n", "if x % c\n  y = 1;\nend\n"),
+            ("function f;\nend;\n", "function f\nend\n"),
+        ] {
+            let once = fixed(src);
+            assert_eq!(once, expected, "{src:?}");
+            assert!(nosemi(&once).is_empty(), "{once:?} must be clean");
+        }
     }
 }

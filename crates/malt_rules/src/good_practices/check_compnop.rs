@@ -27,10 +27,8 @@ impl GoodPracticesEngine {
             byte_range: node.start_byte()..node.end_byte(),
             line: pos.row + 1,
             column: pos.column + 1,
-            fix: Some(Fix::new(
-                node.start_byte()..node.end_byte(),
-                call_text,
-            )),
+            // `f(x) == true` is `f(x)` only when f returns a logical.
+            fix: Some(Fix::new(node.start_byte()..node.end_byte(), call_text).unsafe_fix()),
         }]
     }
 }

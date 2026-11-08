@@ -22,7 +22,7 @@ impl PerformanceEngine {
             diags.push(make_diag_with_fix(
                 "AND2",
                 node,
-                fix_replace_operator(node, source, "&", "&&"),
+                fix_replace_operator(node, source, "&", "&&").map(|f| f.unsafe_fix()),
             ));
         }
 
@@ -31,7 +31,7 @@ impl PerformanceEngine {
             diags.push(make_diag_with_fix(
                 "OR2",
                 node,
-                fix_replace_operator(node, source, "|", "||"),
+                fix_replace_operator(node, source, "|", "||").map(|f| f.unsafe_fix()),
             ));
         }
 

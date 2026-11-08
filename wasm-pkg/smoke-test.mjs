@@ -11,9 +11,9 @@ await mod.default({ module_or_path: fs.readFileSync(path.join(pkg, 'malt_lib_bg.
 
 const ids = (linter) => JSON.parse(linter.check('x = 1\n', null)).map((w) => w.rule_id)
 
-assert.ok(ids(new mod.Linter({})).includes('NOSEMI'), 'NOSEMI fires by default')
+assert.ok(ids(new mod.Linter({})).includes('NOPTS'), 'NOPTS fires by default')
 assert.ok(
-  !ids(mod.Linter.from_toml('[lint]\npreset = "recommended"\n')).includes('NOSEMI'),
+  !ids(mod.Linter.from_toml('[lint]\npreset = "recommended"\n')).includes('NOPTS'),
   'the recommended preset disables formatting',
 )
 assert.ok(ids(mod.Linter.from_toml('[lint]\npreset = "all"\n')).includes('EMSCR'), 'the all preset enables codegen')

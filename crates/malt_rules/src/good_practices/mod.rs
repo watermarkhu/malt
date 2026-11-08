@@ -1037,55 +1037,6 @@ pub(crate) fn find_element_wise_boolean_in_condition(
     }
 }
 
-/// Collect statements grouped by line number (for SEPEX).
-pub(crate) fn collect_statements_by_line(
-    node: Node,
-    line_statements: &mut std::collections::HashMap<usize, Vec<(usize, usize)>>,
-) {
-    let kind = node.kind();
-
-    // Only collect at statement level in source_file or block.
-    if kind == "source_file" || kind == "block" {
-        let mut cursor = node.walk();
-        for child in node.children(&mut cursor) {
-            let ck = child.kind();
-            if ck == ";"
-                || ck == ","
-                || ck == "comment"
-                || ck == "end"
-                || ck == "line_continuation"
-                || !child.is_named()
-            {
-                continue;
-            }
-            let line = child.start_position().row + 1;
-            line_statements
-                .entry(line)
-                .or_default()
-                .push((child.start_byte(), child.end_byte()));
-        }
-    }
-
-    // Recurse into structural nodes.
-    let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        let ck = child.kind();
-        if ck == "block"
-            || ck == "function_definition"
-            || ck == "if_statement"
-            || ck == "for_statement"
-            || ck == "while_statement"
-            || ck == "switch_statement"
-            || ck == "try_statement"
-            || ck == "catch_clause"
-            || ck == "methods"
-            || ck == "class_definition"
-        {
-            collect_statements_by_line(child, line_statements);
-        }
-    }
-}
-
 /// Find `end` used as an index argument (FNCOLND).
 pub(crate) fn find_end_as_index(node: Node, diagnostics: &mut Vec<Diagnostic>) {
     if node.kind() == "end" {
@@ -1154,20 +1105,6 @@ pub(crate) fn count_named_children(node: Node) -> usize {
 pub(crate) fn find_iterator_range(node: Node) -> Option<Node> {
     let iter = find_child_of_kind(node, "iterator")?;
     find_child_of_kind(iter, "range")
-}
-
-/// Get the last named child of a node (including `end`).
-pub(crate) fn last_named_child(node: Node) -> Option<Node> {
-    let mut result = None;
-    let count = node.child_count();
-    for i in 0..count {
-        if let Some(child) = node.child(i) {
-            if child.is_named() {
-                result = Some(child);
-            }
-        }
-    }
-    result
 }
 
 /// Extract the parfor index variable name.

@@ -25,9 +25,9 @@ use crate::Severity;
 ///
 /// # Severity Overrides
 ///
-/// Diagnostics emitted by rules carry the rule's default severity. The linter
-/// stamps the effective severity from the registry (which resolves config
-/// overrides) onto each diagnostic before returning.
+/// Each diagnostic carries the severity its check assigned. When the user
+/// configured a severity for the rule (per rule or per category), the linter
+/// stamps that override onto the rule's diagnostics before returning.
 ///
 /// # Inline Suppression
 ///
@@ -38,7 +38,17 @@ pub struct Linter {
     registry: RuleRegistry,
     parser: Parser,
     inline_suppression: bool,
+    max_tree_depth: usize,
 }
+
+/// The deepest syntax tree the analyzer works on by default.
+///
+/// Rules recurse over the tree, so a deep one costs stack, and some analyses
+/// get slower than linearly with depth (500 nested `if`s, about 1,000 levels,
+/// take seconds even in a release build). Real code stays far below it: every
+/// nested statement adds two or three levels. Deeper input is reported, not
+/// analyzed, instead of crashing the process or hanging it.
+pub const DEFAULT_MAX_TREE_DEPTH: usize = 1_000;
 
 /// Errors that can occur during linting.
 #[derive(Debug, thiserror::Error)]
@@ -63,7 +73,15 @@ impl Linter {
             registry,
             parser,
             inline_suppression: true,
+            max_tree_depth: DEFAULT_MAX_TREE_DEPTH,
         }
+    }
+
+    /// Set the deepest syntax tree that is analyzed (default
+    /// [`DEFAULT_MAX_TREE_DEPTH`]). Hosts with a small stack, such as
+    /// WebAssembly, lower it.
+    pub fn set_max_tree_depth(&mut self, depth: usize) {
+        self.max_tree_depth = depth;
     }
 
     /// Enable or disable inline suppression directives (`%#ok<...>`).
@@ -92,6 +110,16 @@ impl Linter {
             .parse(source, None)
             .ok_or(LintError::ParseFailed)?;
 
+        // Too deep to analyze safely: say so instead of crashing or hanging.
+        let depth = tree_depth(&tree);
+        if depth > self.max_tree_depth {
+            return Ok(vec![Self::too_deep_diagnostic(
+                source,
+                depth,
+                self.max_tree_depth,
+            )]);
+        }
+
         // Step 2: Single-pass DFS traversal using TreeCursor
         // Steps 2-3 are wrapped in a panic guard: if any rule panics (an
         // internal analyzer error), the analysis is considered incomplete and a
@@ -108,10 +136,11 @@ impl Linter {
             for &idx in self.registry.file_check_rules() {
                 let rule = self.registry.get_rule(idx);
                 let mut file_diags = rule.check_file(&file_ctx);
-                // Stamp effective severity on file-level diagnostics.
-                let effective_severity = self.registry.effective_severity(idx);
-                for diag in &mut file_diags {
-                    diag.severity = effective_severity;
+                // Apply the configured severity override, if any.
+                if let Some(severity) = self.registry.severity_override(idx) {
+                    for diag in &mut file_diags {
+                        diag.severity = severity;
+                    }
                 }
                 diagnostics.extend(file_diags);
             }
@@ -136,6 +165,22 @@ impl Linter {
         diagnostics.sort_by(|a, b| a.line.cmp(&b.line).then(a.column.cmp(&b.column)));
 
         Ok(diagnostics)
+    }
+
+    /// The QUIT diagnostic for code nested beyond the analyzer's depth limit.
+    fn too_deep_diagnostic(source: &str, depth: usize, limit: usize) -> Diagnostic {
+        Diagnostic {
+            rule_id: "QUIT",
+            message: format!(
+                "Code analysis did not complete. The code is nested too deeply \
+                 ({depth} levels; the analyzer stops at {limit})."
+            ),
+            severity: Severity::Error,
+            byte_range: 0..source.len().min(1),
+            line: 1,
+            column: 1,
+            fix: None,
+        }
     }
 
     /// Build the QUIT diagnostic ("Code analysis did not complete...").
@@ -189,10 +234,12 @@ impl Linter {
                 for &idx in rule_indices {
                     let rule = self.registry.get_rule(idx);
                     let mut rule_diags = rule.check(&node_ctx);
-                    // Stamp effective severity from config onto each diagnostic.
-                    let effective_severity = self.registry.effective_severity(idx);
-                    for diag in &mut rule_diags {
-                        diag.severity = effective_severity;
+                    // Apply the configured severity override, if any; otherwise
+                    // the diagnostic keeps the severity its check assigned.
+                    if let Some(severity) = self.registry.severity_override(idx) {
+                        for diag in &mut rule_diags {
+                            diag.severity = severity;
+                        }
                     }
                     diagnostics.extend(rule_diags);
                 }
@@ -216,6 +263,29 @@ impl Linter {
                     break;
                 }
             }
+        }
+    }
+}
+
+/// Depth of the deepest node of `tree` (the root is level 0). Iterative, so
+/// measuring a pathological tree cannot overflow the stack either.
+fn tree_depth(tree: &tree_sitter::Tree) -> usize {
+    let mut cursor = tree.walk();
+    let (mut depth, mut deepest) = (0usize, 0usize);
+    loop {
+        if cursor.goto_first_child() {
+            depth += 1;
+            deepest = deepest.max(depth);
+            continue;
+        }
+        loop {
+            if cursor.goto_next_sibling() {
+                break;
+            }
+            if !cursor.goto_parent() {
+                return deepest;
+            }
+            depth -= 1;
         }
     }
 }
@@ -415,5 +485,54 @@ mod tests {
         assert_eq!(diags.len(), 2, "got: {diags:?}");
         assert!(diags.iter().any(|d| d.rule_id == "RULEA"));
         assert!(diags.iter().any(|d| d.rule_id == "RULEB"));
+    }
+
+    // -- depth limit -----------------------------------------------------------
+
+    fn empty_linter() -> Linter {
+        Linter::new(RuleRegistry::new(Vec::new(), &Config::default()))
+    }
+
+    fn nested_ifs(depth: usize) -> String {
+        format!(
+            "{}y = 1;\n{}",
+            "if x\n".repeat(depth),
+            "end\n".repeat(depth)
+        )
+    }
+
+    #[test]
+    fn code_nested_beyond_the_limit_is_reported_not_analyzed() {
+        let mut linter = empty_linter();
+        let diags = linter
+            .lint(&nested_ifs(2_000), Path::new("deep.m"))
+            .unwrap();
+        assert_eq!(diags.len(), 1, "got: {diags:?}");
+        assert_eq!(diags[0].rule_id, "QUIT");
+        assert!(
+            diags[0].message.contains("nested too deeply"),
+            "{}",
+            diags[0].message
+        );
+    }
+
+    #[test]
+    fn ordinary_nesting_is_analyzed() {
+        let mut linter = empty_linter();
+        let diags = linter.lint(&nested_ifs(50), Path::new("ok.m")).unwrap();
+        assert!(diags.is_empty(), "got: {diags:?}");
+    }
+
+    #[test]
+    fn the_limit_can_be_lowered_and_raised() {
+        let source = nested_ifs(20);
+        let mut linter = empty_linter();
+        linter.set_max_tree_depth(10);
+        assert_eq!(
+            linter.lint(&source, Path::new("a.m")).unwrap()[0].rule_id,
+            "QUIT"
+        );
+        linter.set_max_tree_depth(DEFAULT_MAX_TREE_DEPTH);
+        assert!(linter.lint(&source, Path::new("a.m")).unwrap().is_empty());
     }
 }

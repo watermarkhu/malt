@@ -18,9 +18,11 @@ use crate::rule::Rule;
 pub struct RuleRegistry {
     /// All registered rules, owned.
     rules: Vec<Box<dyn Rule>>,
-    /// Effective severity per rule (index-aligned with `rules`).
-    /// Resolved at construction: config override takes precedence over rule default.
-    severities: Vec<Severity>,
+    /// Severity override per rule from the config (index-aligned with `rules`):
+    /// per-rule > per-category, `None` when the user configured nothing.
+    overrides: Vec<Option<Severity>>,
+    /// Default severity per rule (index-aligned with `rules`).
+    defaults: Vec<Severity>,
     /// Maps tree-sitter node type string → indices into `rules`.
     /// Multiple rules may subscribe to the same node type.
     node_type_index: HashMap<&'static str, Vec<usize>>,
@@ -36,15 +38,16 @@ impl RuleRegistry {
     /// config override (per-rule or per-category) takes precedence over rule default.
     pub fn new(rules: Vec<Box<dyn Rule>>, config: &Config) -> Self {
         let mut node_type_index: HashMap<&'static str, Vec<usize>> = HashMap::new();
-        let mut severities = Vec::with_capacity(rules.len());
+        let mut overrides = Vec::with_capacity(rules.len());
+        let mut defaults = Vec::with_capacity(rules.len());
         let mut file_check_indices = Vec::new();
 
         for (idx, rule) in rules.iter().enumerate() {
-            // Resolve effective severity: per-rule > per-category > rule default.
-            let effective_severity = config
-                .effective_severity(rule.id(), rule.category())
-                .unwrap_or_else(|| rule.severity());
-            severities.push(effective_severity);
+            // Config override: per-rule > per-category. Without one, a diagnostic
+            // keeps the severity its check assigned (an engine bundles many checks
+            // with different severities, so one engine-wide default cannot apply).
+            overrides.push(config.effective_severity(rule.id(), rule.category()));
+            defaults.push(rule.severity());
 
             for &node_type in rule.target_node_types() {
                 node_type_index.entry(node_type).or_default().push(idx);
@@ -57,7 +60,8 @@ impl RuleRegistry {
 
         Self {
             rules,
-            severities,
+            overrides,
+            defaults,
             node_type_index,
             file_check_indices,
         }
@@ -87,12 +91,19 @@ impl RuleRegistry {
         &*self.rules[index]
     }
 
-    /// Get the effective severity for a rule by its index.
-    ///
-    /// This is the config-resolved severity (override if present, else rule default).
+    /// Get the severity the user configured for a rule (per-rule or
+    /// per-category), if any. The linter stamps it onto the rule's diagnostics;
+    /// without an override each diagnostic keeps the severity of its own check.
+    #[inline]
+    pub fn severity_override(&self, index: usize) -> Option<Severity> {
+        self.overrides[index]
+    }
+
+    /// Get the effective severity for a rule by its index: the config override
+    /// if present, else the rule's default severity.
     #[inline]
     pub fn effective_severity(&self, index: usize) -> Severity {
-        self.severities[index]
+        self.overrides[index].unwrap_or(self.defaults[index])
     }
 
     /// Iterate over all registered rules.

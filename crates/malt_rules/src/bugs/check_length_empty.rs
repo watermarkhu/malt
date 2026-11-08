@@ -28,7 +28,6 @@ impl BugsEngine {
         );
 
         if is_logical {
-            let arg_text = node_text(first_arg, source);
             let pos = node.start_position();
             vec![Diagnostic {
                 rule_id: "LOGEMP",
@@ -37,10 +36,9 @@ impl BugsEngine {
                 byte_range: node.start_byte()..node.end_byte(),
                 line: pos.row + 1,
                 column: pos.column + 1,
-                fix: Some(Fix::new(
-                    node.start_byte()..node.end_byte(),
-                    format!("~any({arg_text}, \"all\")"),
-                )),
+                // `~any(x, "all")` is true when no element is set; `isempty(x)` is true
+                // only when x has no elements at all. No equivalent rewrite exists.
+                fix: None,
             }]
         } else {
             Vec::new()

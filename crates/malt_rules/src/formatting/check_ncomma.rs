@@ -27,7 +27,13 @@ impl FormattingEngine {
                 continue;
             }
             let pos = pair[1].start_position();
-            let insert_pos = pair[1].start_byte();
+            // Replace the whitespace gap by `, `: `[a b]` becomes `[a, b]`, not
+            // `[a , b]`. A gap holding anything else (a comment, a continuation)
+            // is reported but left alone.
+            let fix = gap
+                .chars()
+                .all(|c| c == ' ' || c == '\t')
+                .then(|| Fix::new(pair[0].end_byte()..pair[1].start_byte(), ", "));
             diagnostics.push(Diagnostic {
                 rule_id: "NCOMMA",
                 message: "Best practice is to separate output variables with commas.".to_string(),
@@ -35,7 +41,7 @@ impl FormattingEngine {
                 byte_range: pair[0].end_byte()..pair[1].start_byte(),
                 line: pos.row + 1,
                 column: pos.column + 1,
-                fix: Some(Fix::insert(insert_pos, ", ")),
+                fix,
             });
         }
     }

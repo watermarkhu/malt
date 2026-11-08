@@ -31,7 +31,6 @@ impl ReadabilityEngine {
         }
 
         let fmt_text = &source[named_children[0].start_byte()..named_children[0].end_byte()];
-        let var_text = &source[named_children[1].start_byte()..named_children[1].end_byte()];
 
         // Check for simple numeric format specifiers
         let fmt_stripped = fmt_text
@@ -45,10 +44,8 @@ impl ReadabilityEngine {
                 "SPRINTFN",
                 "For readability, consider using the 'newline' function instead of 'sprintf('\\n')'.",
                 node,
-                Some(Fix::new(
-                    node.start_byte()..node.end_byte(),
-                    format!("num2str({var_text})"),
-                )),
+                // num2str formats differently from sprintf: not a replacement.
+                None,
             ));
         }
     }

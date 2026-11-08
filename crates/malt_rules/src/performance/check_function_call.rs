@@ -36,7 +36,9 @@ impl PerformanceEngine {
             diags.push(make_diag_with_fix(
                 "ST2NM",
                 node,
-                Some(fix_rename_func(node, source, "str2double")),
+                // str2num evaluates expressions and returns arrays, str2double
+                // returns NaN for them: a suggestion, not a safe rewrite.
+                Some(fix_rename_func(node, source, "str2double").unsafe_fix()),
             ));
         }
 
@@ -45,7 +47,9 @@ impl PerformanceEngine {
             diags.push(make_diag_with_fix(
                 "FLPST",
                 node,
-                Some(fix_rename_func(node, source, "flip")),
+                // flip works along the first non-singleton dimension, fliplr/flipud
+                // along a fixed one: the two differ for matrices.
+                Some(fix_rename_func(node, source, "flip").unsafe_fix()),
             ));
         }
 
@@ -108,9 +112,8 @@ impl PerformanceEngine {
         // MRPBW: im2bw
         if self.is_enabled("MRPBW") && func_name == "im2bw" {
             diags.push(make_diag_with_fix(
-                "MRPBW",
-                node,
-                Some(fix_rename_func(node, source, "imbinarize")),
+                "MRPBW", node,
+                None, // im2bw and imbinarize take different arguments and thresholds
             ));
         }
 
@@ -140,18 +143,15 @@ impl PerformanceEngine {
         // TRIM1: deblank → strtrim
         if self.is_enabled("TRIM1") && func_name == "deblank" {
             diags.push(make_diag_with_fix(
-                "TRIM1",
-                node,
-                Some(fix_rename_func(node, source, "strtrim")),
+                "TRIM1", node,
+                None, // strtrim also removes leading whitespace; deblank does not
             ));
         }
 
         // TRIM2: strtrim → strip
         if self.is_enabled("TRIM2") && func_name == "strtrim" {
             diags.push(make_diag_with_fix(
-                "TRIM2",
-                node,
-                Some(fix_rename_func(node, source, "strip")),
+                "TRIM2", node, None, // strip is not equivalent to strtrim
             ));
         }
 
@@ -163,9 +163,7 @@ impl PerformanceEngine {
         // FNDSB: findstr
         if self.is_enabled("FNDSB") && func_name == "findstr" {
             diags.push(make_diag_with_fix(
-                "FNDSB",
-                node,
-                Some(fix_rename_func(node, source, "contains")),
+                "FNDSB", node, None, // findstr returns indices, contains a logical
             ));
         }
 

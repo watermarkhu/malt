@@ -18,9 +18,16 @@ impl ReadabilityEngine {
             return;
         }
 
-        // Get the comparison operator text
-        let node_text = &source[node.start_byte()..node.end_byte()];
-        if !node_text.contains("==") {
+        // Only `==`. Look at the operator token: searching the text of the whole
+        // comparison finds the `==` inside `size(x == 1, 1) ~= 1` as well.
+        let is_equality = {
+            let mut cursor = node.walk();
+            let found = node
+                .children(&mut cursor)
+                .any(|c| !c.is_named() && &source[c.start_byte()..c.end_byte()] == "==");
+            found
+        };
+        if !is_equality {
             return;
         }
 

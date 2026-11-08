@@ -34,6 +34,16 @@ impl BugsEngine {
         }
 
         let pos = node.start_position();
+        // Swap the operator token itself: replacing the first `|`/`&` in the text
+        // of the expression could hit a string or a nested operand. `&&` and
+        // `||` error on non-scalar operands, so the swap is unsafe.
+        let operator_fix = {
+            let mut cursor = node.walk();
+            let operator = node
+                .children(&mut cursor)
+                .find(|child| !child.is_named() && node_text(*child, source) == wrong_op);
+            operator.map(|op| Fix::new(op.start_byte()..op.end_byte(), correct_op).unsafe_fix())
+        };
         vec![Diagnostic {
             rule_id,
             message,
@@ -41,10 +51,7 @@ impl BugsEngine {
             byte_range: node.start_byte()..node.end_byte(),
             line: pos.row + 1,
             column: pos.column + 1,
-            fix: Some(Fix::new(
-                node.start_byte()..node.end_byte(),
-                node_text(node, source).replacen(wrong_op, correct_op, 1),
-            )),
+            fix: operator_fix,
         }]
     }
 }

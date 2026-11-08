@@ -18,6 +18,21 @@ impl std::fmt::Display for Severity {
     }
 }
 
+/// How far a [`Fix`] can be trusted to preserve the meaning of the program.
+///
+/// `--fix` applies only [`Applicability::Safe`] fixes. [`Applicability::Unsafe`]
+/// fixes may change behaviour in some situations (different output class,
+/// different handling of empty or non-scalar input, ...) and are applied only
+/// when explicitly requested (`--unsafe-fixes`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub enum Applicability {
+    /// The rewrite is behaviour-preserving; applied by `--fix`.
+    #[default]
+    Safe,
+    /// The rewrite is a suggestion that may change behaviour; opt-in only.
+    Unsafe,
+}
+
 /// A single atomic text edit: replace `byte_range` with `replacement`.
 ///
 /// Following rumdl's model, a `Fix` may carry `additional_edits` that must be
@@ -31,6 +46,9 @@ pub struct Fix {
     pub replacement: String,
     /// Additional edits that must be applied together with this one.
     pub additional_edits: Vec<Fix>,
+    /// Whether the fix is safe to apply automatically. Only the applicability
+    /// of the primary fix counts; additional edits share its fate.
+    pub applicability: Applicability,
 }
 
 impl Fix {
@@ -40,6 +58,7 @@ impl Fix {
             byte_range,
             replacement: replacement.into(),
             additional_edits: Vec::new(),
+            applicability: Applicability::Safe,
         }
     }
 
@@ -53,7 +72,21 @@ impl Fix {
             byte_range,
             replacement: replacement.into(),
             additional_edits: additional,
+            applicability: Applicability::Safe,
         }
+    }
+
+    /// Mark this fix as [`Applicability::Unsafe`]: it is reported, but only
+    /// applied with `--unsafe-fixes`.
+    #[must_use]
+    pub fn unsafe_fix(mut self) -> Self {
+        self.applicability = Applicability::Unsafe;
+        self
+    }
+
+    /// Whether `--fix` (without `--unsafe-fixes`) may apply this fix.
+    pub fn is_safe(&self) -> bool {
+        self.applicability == Applicability::Safe
     }
 
     /// Convenience: create an insertion (zero-width replacement) at `offset`.
