@@ -12,10 +12,9 @@ interface Warning {
   fix?: unknown
 }
 
-// Load the locally-built wasm when present (after `mise run serve-local-wasm`),
-// otherwise fall back to the published CDN build.
-const CDN_URL = 'https://cdn.jsdelivr.net/npm/malt-wasm/malt_lib.js'
-const LOCAL_URL = withBase('/assets/malt-wasm/malt_lib.js')
+// The WebAssembly package is built from the same commit and embedded in the site
+// (`mise run build-wasm && mise run serve-local-wasm`, done by the Docs workflow).
+const WASM_URL = withBase('/assets/malt-wasm/malt_lib.js')
 
 const EXAMPLES: Record<string, string> = {
   common: `x = 1
@@ -110,9 +109,11 @@ const nativeImport = new Function('url', 'return import(url)') as (
 
 async function loadWasm(): Promise<Record<string, any>> {
   try {
-    return await nativeImport(LOCAL_URL)
+    return await nativeImport(WASM_URL)
   } catch (e) {
-    return await nativeImport(CDN_URL)
+    throw new Error(
+      `${WASM_URL} is missing. Build it with "mise run build-wasm && mise run serve-local-wasm".`,
+    )
   }
 }
 
@@ -127,7 +128,7 @@ async function main(): Promise<void> {
     lint()
     loading.value = false
   } catch (err) {
-    loadError.value = `Failed to load malt-wasm: ${(err as Error).message}`
+    loadError.value = `Failed to load the WebAssembly module: ${(err as Error).message}`
     loading.value = false
   }
 }

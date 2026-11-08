@@ -66,14 +66,13 @@ long-lived token; provenance is attached automatically). See
 
 ## Local docs build
 
-The [Playground](../playground.md) page loads `malt-wasm` from the jsDelivr CDN
-by default. To use a locally-built copy instead (e.g. for offline docs or while
-developing):
+The [Playground](../playground.md) runs the WebAssembly build that ships inside the
+site: the Docs workflow builds it from the same commit as the documentation, so the
+playground always matches the rules documented next to it. To preview the docs
+locally, build it once:
 
 ```bash
 mise run build-wasm
 mise run serve-local-wasm   # copies crates/malt_wasm/pkg -> docs/public/assets/malt-wasm
+bun run docs:dev
 ```
-
-The page tries `assets/malt-wasm/malt_lib.js` first and falls back to the CDN, so
-the same page works with and without a local build.

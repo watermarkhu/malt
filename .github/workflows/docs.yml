@@ -35,6 +35,14 @@ jobs:
       - name: Check generated docs are current
         run: bun docs/scripts/gen_rules_docs.ts --check
 
+      # The playground runs the linter in the browser: build the WebAssembly
+      # package from this very commit and ship it inside the site.
+      - name: Build the WebAssembly package
+        uses: ./.github/actions/build-wasm
+
+      - name: Embed the WebAssembly package in the site
+        run: mise run serve-local-wasm
+
       - name: Build VitePress site
         run: bun run docs:build
 

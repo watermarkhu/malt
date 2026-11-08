@@ -162,34 +162,20 @@ jobs:
         if: env.VERSION != ''
         run: sed -i "s/\"0\.0\.0\"/\"${VERSION}\"/g" Cargo.toml
 
-      - name: Setup Rust
-        uses: actions-rust-lang/setup-rust-toolchain@a188e68d0fd2bd36ad51dccb2b07ba6e75105f30 # v2.0.1
-        with:
-          target: wasm32-unknown-unknown
+      - name: Build the WebAssembly package
+        uses: ./.github/actions/build-wasm
 
-      - name: Setup mise
-        uses: jdx/mise-action@b44d12e7d0d8ee7461bb893e1b1993500433185b # v5.2.7
-        with:
-          experimental: true
-          install: true
-          install_args: "cargo:wasm-pack node"
-
-      - name: Download WASI SDK
-        run: mise run setup-wasi
-
-      - name: Build WASM
-        run: mise run build-wasm
-
-      - name: Prepare package
+      # What gets published is exactly the contents of the package directory:
+      # the npm page is empty without a README.
+      - name: Verify package contents
+        working-directory: crates/malt_wasm/pkg
         run: |
-          cp wasm-pkg/README.md crates/malt_wasm/pkg/
-          cp LICENSE crates/malt_wasm/pkg/
-          jq -s '.[0] * .[1]' crates/malt_wasm/pkg/package.json wasm-pkg/package.json.tmpl > crates/malt_wasm/pkg/package.json.new
-          mv crates/malt_wasm/pkg/package.json.new crates/malt_wasm/pkg/package.json
-          jq '{name, version}' crates/malt_wasm/pkg/package.json
-          # wasm-pack names its raw output after the crate (`malt_wasm`); the npm
-          # package is `malt-wasm`, set by wasm-pkg/package.json.tmpl.
-          test "$(jq -r .name crates/malt_wasm/pkg/package.json)" = "malt-wasm"
+          jq '{name, version}' package.json
+          test "$(jq -r .name package.json)" = "malt-wasm"
+          npm pack --dry-run --json | jq -r '.[0].files[].path' | sort | tee /tmp/files.txt
+          for f in README.md LICENSE package.json malt_lib.js malt_lib_bg.wasm; do
+            grep -qx "$f" /tmp/files.txt || { echo "::error::$f is missing from the npm package"; exit 1; }
+          done
 
       - name: Smoke test in Node.js
         run: mise x -- node wasm-pkg/smoke-test.mjs crates/malt_wasm/pkg
