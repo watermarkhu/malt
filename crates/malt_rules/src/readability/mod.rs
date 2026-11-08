@@ -636,9 +636,11 @@ pub(crate) fn check_one_mfamb(
     if BUILTIN_DENYLIST.contains(&name) {
         return;
     }
-    // Primary gate: name is a variable (non-function) in this scope or an
-    // enclosing scope.
-    if !is_variable_in_scope(name, name_node.start_byte(), table) {
+    // Ambiguous only when the name becomes a variable later in the scope but
+    // is not one yet at this call: `h(1); ... h = 3;`. A name already defined
+    // is plain indexing; a name never defined is a function.
+    let at = name_node.start_byte();
+    if is_variable_defined_before(name, at, table) || !is_variable_in_scope(name, at, table) {
         return;
     }
     let pos = name_node.start_position();
@@ -653,6 +655,21 @@ pub(crate) fn check_one_mfamb(
         column: pos.column + 1,
         fix: None,
     });
+}
+
+/// Whether a variable `name` is already in effect at `byte_offset`, in its scope
+/// or an enclosing one.
+fn is_variable_defined_before(name: &str, byte_offset: usize, table: &SymbolTable) -> bool {
+    let mut current = table.scope_at(byte_offset);
+    while let Some(scope) = current {
+        if scope.defs.iter().any(|d| {
+            d.name == name && d.kind != DefKind::NestedFunction && d.effect_start <= byte_offset
+        }) {
+            return true;
+        }
+        current = scope.parent.and_then(|idx| table.scopes.get(idx));
+    }
+    false
 }
 
 /// Check whether `name` is defined as a variable (not a nested function) in
@@ -698,9 +715,17 @@ mod tests {
     // -- MFAMB ---------------------------------------------------------------
 
     #[test]
-    fn mfamb_fires_when_name_assigned_and_called() {
-        let diags = lint_file(&*engine(), "somevar = 5;\ny = somevar(1);\n");
+    fn mfamb_fires_when_name_is_called_before_it_becomes_a_variable() {
+        let diags = lint_file(&*engine(), "y = somevar(1);\nsomevar = 5;\n");
         assert!(has_id(&diags, "MFAMB"), "got: {diags:?}");
+    }
+
+    #[test]
+    fn mfamb_does_not_fire_for_plain_indexing() {
+        let diags = lint_file(&*engine(), "somevar = 5;\ny = somevar(1);\n");
+        assert!(!has_id(&diags, "MFAMB"), "got: {diags:?}");
+        let diags = lint_file(&*engine(), "h = @(x) x;\nz = h(1);\n");
+        assert!(!has_id(&diags, "MFAMB"), "got: {diags:?}");
     }
 
     #[test]
@@ -733,7 +758,7 @@ mod tests {
             Config::from_toml("[lint.rules.READABILITY_ENGINE]\ndisabled_checks = [\"MFAMB\"]\n")
                 .expect("valid config");
         let rule = ReadabilityEngine::from_config(&config);
-        let diags = lint_file(&*rule, "somevar = 5;\ny = somevar(1);\n");
+        let diags = lint_file(&*rule, "y = somevar(1);\nsomevar = 5;\n");
         assert!(!has_id(&diags, "MFAMB"), "got: {diags:?}");
     }
 
