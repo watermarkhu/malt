@@ -105,12 +105,6 @@ Severity: **warning** · Auto-fix: **no**
 
 Input argument might be unused. Consider replacing the argument with ~, or make this method Static instead.
 
-### VUNUS
-
-Severity: **warning** · Auto-fix: **no**
-
-VAR_OPERATOR produces a value that might be unused.
-
 ### MSNU
 
 Severity: **warning** · Auto-fix: **no**

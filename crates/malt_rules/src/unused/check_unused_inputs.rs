@@ -1,6 +1,7 @@
 //! INUSA/INUSD checks: input arguments that are never used.
 
 use super::*;
+use malt_core::Fix;
 
 impl UnusedEngine {
     /// Run INUSA/INUSD checks: input arguments that are never used.
@@ -9,15 +10,14 @@ impl UnusedEngine {
         table: &SymbolTable,
         diagnostics: &mut Vec<Diagnostic>,
     ) {
-        let inusa_disabled = self.is_check_disabled("INUSA");
-        let inusd_disabled = self.is_check_disabled("INUSD");
-
-        if inusa_disabled && inusd_disabled {
+        // INUSA is about inputs declared in an `arguments` block, which the
+        // symbol table does not track; signature inputs are INUSD's.
+        if self.is_check_disabled("INUSD") {
             return;
         }
+        let manu_enabled = !self.is_check_disabled("MANU");
 
         for scope in &table.scopes {
-            // Only check function scopes (not scripts or lambdas).
             if !matches!(
                 scope.kind,
                 ScopeKind::Function
@@ -27,43 +27,34 @@ impl UnusedEngine {
             ) {
                 continue;
             }
+            // MANU reports unused method inputs, with advice that fits methods.
+            if scope.kind == ScopeKind::Method && manu_enabled {
+                continue;
+            }
 
             for def in &scope.defs {
                 if def.kind != DefKind::InputArg {
                     continue;
                 }
                 let name = &def.name;
-
-                if self.should_ignore_name(name) {
+                // VANUS owns varargin.
+                if name == "varargin" || self.should_ignore_name(name) {
                     continue;
                 }
 
                 if !scope.is_used(name) {
-                    // INUSA: input argument not used in function.
-                    if !inusa_disabled {
-                        diagnostics.push(Diagnostic {
-                            rule_id: "INUSA",
-                            message: "Input argument might be unused after the function arguments block(s).".to_string(),
-                            severity: Severity::Warning,
-                            byte_range: def.byte_range.clone(),
-                            line: def.line,
-                            column: def.column,
-                            fix: None,
-                        });
-                    }
-
-                    // INUSD: input argument could be replaced with ~.
-                    if !inusd_disabled {
-                        diagnostics.push(Diagnostic {
-                            rule_id: "INUSD",
-                            message: "Input argument might be unused. Consider replacing the argument with ~ instead.".to_string(),
-                            severity: Severity::Warning,
-                            byte_range: def.byte_range.clone(),
-                            line: def.line,
-                            column: def.column,
-                            fix: None,
-                        });
-                    }
+                    diagnostics.push(Diagnostic {
+                        rule_id: "INUSD",
+                        message: format!(
+                            "Input argument '{name}' might be unused. Consider replacing the argument with ~ instead."
+                        ),
+                        severity: Severity::Warning,
+                        byte_range: def.byte_range.clone(),
+                        line: def.line,
+                        column: def.column,
+                        // Unsafe: eval/evalin/inputname can still see the name.
+                        fix: Some(Fix::new(def.byte_range.clone(), "~").unsafe_fix()),
+                    });
                 }
             }
         }
@@ -83,9 +74,10 @@ mod tests {
     // -- INUSA / INUSD: unused input arguments ----------------------
 
     #[test]
-    fn inusa_fires_on_unused_input() {
+    fn signature_inputs_are_inusd_not_inusa() {
         let diags = lint_file(&*engine(), "function foo(x)\nend\n");
-        assert!(has_id(&diags, "INUSA"), "got: {diags:?}");
+        assert!(!has_id(&diags, "INUSA"), "got: {diags:?}");
+        assert!(has_id(&diags, "INUSD"), "got: {diags:?}");
     }
 
     #[test]

@@ -37,7 +37,6 @@
 //! | DEFNU | warning | no | Function might be unused. |
 //! | UNRCH | warning | no | This statement (and possibly following ones) cannot be reached. |
 //! | MANU | warning | no | Input argument might be unused. Consider replacing the argument with ~, or make this method Static instead. |
-//! | VUNUS | warning | no | VAR_OPERATOR produces a value that might be unused. |
 //! | MSNU | warning | no | A Code Analyzer message was once suppressed here, but the message is no longer generated. |
 //! | MSNE | info | no | No Code Analyzer check is found for this check ID. |
 //!
@@ -100,7 +99,6 @@ mod check_setnu;
 mod check_unrch;
 mod check_unused_inputs;
 mod check_vanus;
-mod check_vunus;
 
 // ---------------------------------------------------------------------------
 // Rule-specific configuration
@@ -404,7 +402,6 @@ impl Rule for UnusedEngine {
         self.check_vanus(&table, &mut diagnostics);
         self.check_defnu(&table, &mut diagnostics);
         self.check_manu(&table, &mut diagnostics);
-        self.check_vunus(&table, &mut diagnostics);
 
         // 3. Run tree-walk checks.
         self.check_unrch(ctx, &mut diagnostics);

@@ -20,7 +20,8 @@ impl UnusedEngine {
 
         for scope in &table.scopes {
             for def in &scope.defs {
-                if !matches!(def.kind, DefKind::Global | DefKind::Persistent) {
+                // Persistent variables are PUSE's.
+                if def.kind != DefKind::Global {
                     continue;
                 }
                 let name = &def.name;
@@ -64,9 +65,10 @@ mod tests {
     }
 
     #[test]
-    fn nused_fires_on_unused_persistent() {
+    fn nused_leaves_persistent_to_puse() {
         let diags = lint_file(&*engine(), "function foo()\n    persistent p;\nend\n");
-        assert!(has_id(&diags, "NUSED"), "got: {diags:?}");
+        assert!(!has_id(&diags, "NUSED"), "got: {diags:?}");
+        assert!(has_id(&diags, "PUSE"), "got: {diags:?}");
     }
 
     #[test]
