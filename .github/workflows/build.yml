@@ -86,6 +86,9 @@ jobs:
           path: dist/*.tar.gz
           if-no-files-found: error
 
+  # Every wheel that is built is also installed and run once, natively where
+  # possible, so a wheel that builds but does not run (wrong libc or architecture)
+  # fails the pipeline before it can be published.
   test-wheels:
     name: Test wheel ${{ matrix.platform.name }}
     needs: wheels
@@ -95,7 +98,14 @@ jobs:
       matrix:
         platform:
           - { name: linux-x86_64, runner: ubuntu-latest }
+          - { name: linux-aarch64, runner: ubuntu-24.04-arm }
+          # musl wheels run in Alpine containers on the matching native runner.
+          - { name: musllinux-x86_64, runner: ubuntu-latest, image: 'alpine:3.20' }
+          - { name: musllinux-aarch64, runner: ubuntu-24.04-arm, image: 'alpine:3.20' }
           - { name: macos-aarch64, runner: macos-latest }
+          # Intel Mac runners are retired: run the x86_64 wheel on the arm64
+          # runner with an x86_64 Python, under Rosetta.
+          - { name: macos-x86_64, runner: macos-latest, python: cpython-3.13-macos-x86_64 }
           - { name: windows-x64, runner: windows-latest }
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -108,14 +118,31 @@ jobs:
           path: dist
 
       - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        if: ${{ !matrix.platform.image }}
 
       - name: Install wheel and run the Python smoke tests
+        if: ${{ !matrix.platform.image }}
         shell: bash
+        env:
+          PYTHON: ${{ matrix.platform.python || '3.13' }}
         run: |
-          uv venv --python 3.13
+          uv venv --python "${PYTHON}"
           uv pip install --no-index --find-links dist malt
           uv pip install pytest
           uv run --no-project pytest python/tests -v
+
+      - name: Install wheel and run the Python smoke tests (Alpine)
+        if: ${{ matrix.platform.image }}
+        env:
+          IMAGE: ${{ matrix.platform.image }}
+        run: |
+          docker run --rm -v "$PWD:/work:ro" -w /work "${IMAGE}" sh -euxc '
+            apk add --no-cache python3 py3-pip
+            python3 -m venv /tmp/venv
+            /tmp/venv/bin/pip install --no-index --find-links dist malt
+            /tmp/venv/bin/pip install pytest
+            /tmp/venv/bin/python -m pytest -p no:cacheprovider python/tests -v
+          '
 
   wasm:
     name: WebAssembly package
