@@ -9,7 +9,7 @@ Every channel installs the same `malt` command-line tool.
 ## From PyPI (recommended)
 
 The `malt` wheels bundle a prebuilt binary for Linux (glibc and musl, x86_64 and
-aarch64), macOS (Intel and Apple silicon), and Windows (x64), so no Rust
+aarch64), macOS (Apple silicon), and Windows (x64), so no Rust
 toolchain is needed:
 
 ```bash

@@ -34,7 +34,6 @@ jobs:
           - { name: linux-aarch64, runner: ubuntu-latest, target: aarch64, manylinux: 2_28 }
           - { name: musllinux-x86_64, runner: ubuntu-latest, target: x86_64-unknown-linux-musl, manylinux: musllinux_1_2 }
           - { name: musllinux-aarch64, runner: ubuntu-latest, target: aarch64-unknown-linux-musl, manylinux: musllinux_1_2 }
-          - { name: macos-x86_64, runner: macos-latest, target: x86_64-apple-darwin }
           - { name: macos-aarch64, runner: macos-latest, target: aarch64-apple-darwin }
           - { name: windows-x64, runner: windows-latest, target: x64 }
     steps:
@@ -103,9 +102,6 @@ jobs:
           - { name: musllinux-x86_64, runner: ubuntu-latest, image: 'alpine:3.20' }
           - { name: musllinux-aarch64, runner: ubuntu-24.04-arm, image: 'alpine:3.20' }
           - { name: macos-aarch64, runner: macos-latest }
-          # Intel Mac runners are retired: run the x86_64 wheel on the arm64
-          # runner with an x86_64 Python, under Rosetta.
-          - { name: macos-x86_64, runner: macos-latest, python: cpython-3.13-macos-x86_64 }
           - { name: windows-x64, runner: windows-latest }
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -123,10 +119,8 @@ jobs:
       - name: Install wheel and run the Python smoke tests
         if: ${{ !matrix.platform.image }}
         shell: bash
-        env:
-          PYTHON: ${{ matrix.platform.python || '3.13' }}
         run: |
-          uv venv --python "${PYTHON}"
+          uv venv --python 3.13
           uv pip install --no-index --find-links dist malt
           uv pip install pytest
           uv run --no-project pytest python/tests -v
