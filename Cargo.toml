@@ -10,7 +10,7 @@ members = [
 [workspace.package]
 # Placeholder: the release workflow stamps the semantic version here (and in the
 # internal dependencies below) right before building and publishing.
-version = "0.0.0"
+version = "0.1.0"
 edition = "2021"
 license = "MIT"
 authors = ["Mark Shui Hu"]
@@ -22,8 +22,8 @@ categories = ["development-tools", "command-line-utilities"]
 [workspace.dependencies]
 # Internal crates, published to crates.io as `malt-core`, `malt-rules` and
 # `malt-cli` (the bare `malt` crate name belongs to an unrelated project).
-malt-core = { path = "crates/malt_core", version = "0.0.0" }
-malt-rules = { path = "crates/malt_rules", version = "0.0.0" }
+malt-core = { path = "crates/malt_core", version = "0.1.0" }
+malt-rules = { path = "crates/malt_rules", version = "0.1.0" }
 tree-sitter = "0.25"
 tree-sitter-language = "0.1"
 tree-sitter-matlab = "1.3"
