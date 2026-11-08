@@ -85,7 +85,7 @@ export default defineConfig({
                 { text: 'Performance Improvements', link: '/rules/performance' },
                 { text: 'Custom Checks', link: '/rules/custom-checks' },
                 { text: 'Naming Checks', link: '/rules/naming' },
-                { text: 'NOSEMI - Trailing Semicolon Missing', link: '/rules/nosemi' },
+                { text: 'NOSEMI - Extra Semicolon', link: '/rules/nosemi' },
               ],
             },
             {

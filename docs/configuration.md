@@ -75,9 +75,9 @@ NOSEMI = "warn"                # Shorthand: just set severity
 AGROW = "off"                  # Disable a rule
 COMPAT = "error"               # Escalate to error
 
-[lint.rules.NOSEMI]            # Full table: severity + rule parameters
-severity = "error"
-ignore_functions = ["disp", "fprintf"]
+[lint.rules.NO4LP]             # Full table: severity + rule parameters
+severity = "warn"
+indent_size = 2
 ```
 
 ## `[lint]` Section
@@ -180,16 +180,16 @@ CUSTOM_CHECKS = "off" # Disable the rule entirely
 For rules that accept parameters, use a full TOML table:
 
 ```toml
-[lint.rules.NOSEMI]
-severity = "error"
-ignore_functions = ["disp", "fprintf", "warning", "error"]
+[lint.rules.NO4LP]
+severity = "warn"
+indent_size = 2
 ```
 
 Or equivalently as an inline table:
 
 ```toml
 [lint.rules]
-NOSEMI = { severity = "error", ignore_functions = ["disp", "fprintf"] }
+NO4LP = { severity = "warn", indent_size = 2 }
 ```
 
 The `severity` key is always optional in a full table. If omitted, the rule uses its default severity.
@@ -262,7 +262,6 @@ disabled_checks = ["PFEVC", "PFANSLP"]   # Turn off specific checks
 | `UNSUPPORTED_ENGINE` | unsupported | `skip_checks` |
 | `SYSTEM_OBJECTS_ENGINE` | system-objects | `skip_checks` |
 | `CONFIG_ISSUES_ENGINE` | configuration-issues | `disabled_checks` |
-| `NOSEMI` | formatting | `ignore_functions` (calls after which a missing semicolon is tolerated) |
 | `NO4LP` | formatting | `indent_size` (indent width expected for loop bodies) |
 | `SUGGESTED_IMPROVEMENTS` | suggested-improvements | *(data-driven lookup; no params)* |
 
@@ -286,10 +285,9 @@ performance = "info"
 formatting = "info"
 
 [lint.rules]
-# Escalate missing semicolons to errors in production code
-[lint.rules.NOSEMI]
+# Escalate statements that print their result (a missing semicolon) to errors
+[lint.rules.NOPTS]
 severity = "error"
-ignore_functions = ["disp", "fprintf", "warning", "error", "assert"]
 
 # Turn off a noisy sub-check of the language-spec engine
 [lint.rules.LANGUAGE_SPEC_ENGINE]

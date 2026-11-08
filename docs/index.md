@@ -47,8 +47,8 @@ malt --fix path/to/file.m
 ## Example Output
 
 ```text
-src/compute.m:2:5 [W] M001: Statement without trailing semicolon may produce unintended console output
-src/compute.m:4:5 [W] M001: Statement without trailing semicolon may produce unintended console output
+src/compute.m:2:5 [I] NOPTS: Add a semicolon after the statement to hide the output (in a script).
+src/compute.m:4:5 [I] NOPTS: Add a semicolon after the statement to hide the output (in a script).
 
 Found 2 issues in 1 file.
 ```

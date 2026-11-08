@@ -34,7 +34,7 @@ Create a `.malt.toml` file in your project root to customize behavior:
 exclude = ["vendor/**", "test/fixtures/**"]
 
 [lint.rules]
-M001 = "warn"
+NOPTS = "warn"
 ```
 
 malt automatically discovers `.malt.toml` in the current working directory. You can also specify a config file explicitly:
@@ -52,12 +52,12 @@ exclude = ["vendor/**", "third_party/**"]
 
 [lint.rules]
 # Set severity per rule
-M001 = "error"
+NOPTS = "error"
 
-[lint.rules.M001]
+[lint.rules.NO4LP]
 # Rule-specific parameters
 severity = "warn"
-ignore_functions = ["disp", "fprintf", "warning", "error"]
+indent_size = 2
 ```
 
 ## Understanding Output
@@ -65,8 +65,8 @@ ignore_functions = ["disp", "fprintf", "warning", "error"]
 malt outputs diagnostics in a clear, grep-friendly format:
 
 ```text
-src/compute.m:2:5 [W] M001: Statement without trailing semicolon may produce unintended console output
-src/compute.m:4:5 [W] M001: Statement without trailing semicolon may produce unintended console output
+src/compute.m:2:5 [I] NOPTS: Add a semicolon after the statement to hide the output (in a script).
+src/compute.m:4:5 [I] NOPTS: Add a semicolon after the statement to hide the output (in a script).
 
 Found 2 issues in 1 file.
 ```
@@ -75,7 +75,7 @@ Each line shows:
 
 - **File path** and **line:column** position
 - **Severity** in brackets (`[E]` error, `[W]` warning, `[I]` info)
-- **Rule ID** (e.g., M001)
+- **Rule ID** (e.g., NOPTS)
 - **Description** of the issue
 
 ## Exit Codes
