@@ -36,6 +36,8 @@ jobs:
           - { name: musllinux-aarch64, runner: ubuntu-latest, target: aarch64-unknown-linux-musl, manylinux: musllinux_1_2 }
           - { name: macos-aarch64, runner: macos-latest, target: aarch64-apple-darwin }
           - { name: windows-x64, runner: windows-latest, target: x64 }
+          # Built natively on GitHub's Windows ARM64 runner.
+          - { name: windows-arm64, runner: windows-11-arm, target: aarch64-pc-windows-msvc }
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -45,6 +47,15 @@ jobs:
         if: env.VERSION != ''
         shell: bash
         run: sed -i.bak "s/\"0\.0\.0\"/\"${VERSION}\"/g" Cargo.toml && rm Cargo.toml.bak
+
+      # The Windows ARM64 image does not ship a Rust toolchain.
+      - name: Setup Rust
+        if: matrix.platform.name == 'windows-arm64'
+        uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1.17.0
+        with:
+          target: aarch64-pc-windows-msvc
+          rustflags: ""
+          cache: false
 
       - name: Build wheel
         uses: PyO3/maturin-action@86b9d133d34bc1b40018696f782949dac11bd380 # v1.49.4
@@ -103,6 +114,7 @@ jobs:
           - { name: musllinux-aarch64, runner: ubuntu-24.04-arm, image: 'alpine:3.20' }
           - { name: macos-aarch64, runner: macos-latest }
           - { name: windows-x64, runner: windows-latest }
+          - { name: windows-arm64, runner: windows-11-arm }
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -153,7 +165,7 @@ jobs:
       - name: Setup Rust
         uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1.17.0
         with:
-          targets: wasm32-unknown-unknown
+          target: wasm32-unknown-unknown
 
       - name: Setup mise
         uses: jdx/mise-action@7e36c90d9ab29c415a2384db3006f3ec8a8cc654 # v4.2.4
