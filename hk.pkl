@@ -33,7 +33,18 @@ local hygiene = new Mapping<String, Step> {
 
 /// GitHub Actions + docs checks shared by pre-commit and `hk check`.
 local ci_and_docs = new Mapping<String, Step> {
-    ["actionlint"] = Builtins.actionlint
+    // Workflows and composite actions; configured in .github/jactionlint.yaml.
+    ["jactionlint"] {
+        glob = List(
+            ".github/workflows/*.yml",
+            ".github/workflows/*.yaml",
+            ".github/actions/**/action.yml",
+            ".github/actions/**/action.yaml"
+        )
+        batch = true
+        check = "jactionlint {{files}}"
+        fix = "jactionlint --fix {{files}}"
+    }
     ["rumdl"] = (Builtins.rumdl) {
         // Lint the site docs only (VitePress flavor, configured in .rumdl.toml).
         // Developer-facing markdown (.agents/) is intentionally

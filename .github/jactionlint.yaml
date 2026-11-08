@@ -1,0 +1,23 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/jdx/jactionlint/main/schema/jactionlint-config.json
+#
+# jactionlint = actionlint plus security and policy rules (pinned actions,
+# permissions, timeouts, cache poisoning, trusted publishing, ...).
+# https://jactionlint.jdx.dev/config
+profile: default
+
+rules:
+  missing-timeout:
+    # `jactionlint --fix` adds this to jobs without `timeout-minutes`. Generous
+    # enough for the slowest jobs (wheel builds, the docs build with wasm).
+    default-minutes: 30
+
+ignores:
+  # crates.io trusted publishing needs the crates to exist first, so the very
+  # first release authenticates with an API token. Now that 0.1.0 is out: add the
+  # trusted publisher to malt-core, malt-rules and malt-cli, then delete the
+  # CARGO_REGISTRY_TOKEN secret and the fallback in release.yml. This ignore
+  # expires to make sure that happens.
+  - rule: use-trusted-publishing
+    file: .github/workflows/release.yml
+    reason: bootstrap token until trusted publishers are configured on crates.io
+    expires: "2026-12-06"

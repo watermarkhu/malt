@@ -26,6 +26,7 @@ jobs:
   version:
     name: Semantic version
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     permissions:
       contents: write
       pull-requests: write # Required for adding the labels to the PR
@@ -55,6 +56,7 @@ jobs:
     needs: [version, build]
     if: needs.version.outputs.release == 'true' && github.event.pull_request.merged
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     environment: release
     permissions:
       contents: write
@@ -66,8 +68,10 @@ jobs:
       - uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
         id: app-token
         with:
-          app-id: ${{ vars.APP_ID }}
+          client-id: ${{ vars.APP_CLIENT_ID }}
           private-key: ${{ secrets.APP_PRIVATE_KEY }}
+          # Only what this job does with the token: push the tag, create the release.
+          permission-contents: write
 
       - name: Checkout merge commit
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -86,6 +90,8 @@ jobs:
 
       - name: Setup Rust
         uses: actions-rust-lang/setup-rust-toolchain@a188e68d0fd2bd36ad51dccb2b07ba6e75105f30 # v2.0.1
+        with:
+          cache: false # this job publishes: never restore a cache into it
 
       - name: Stamp version
         run: |
@@ -114,8 +120,15 @@ jobs:
           path: wasm-pkg/pkg
 
       # --- crates.io --------------------------------------------------------
-      # Trusted publishing (OIDC) once it is configured for the crates; the
-      # CARGO_REGISTRY_TOKEN secret covers the very first publish.
+      # Trusted publishing (https://crates.io/docs/trusted-publishing): the action
+      # exchanges this job's OIDC identity for a 30-minute token. crates.io only
+      # issues one for crates that already exist AND have a trusted publisher
+      # configured (workflow release.yml, environment release), so the very first
+      # release falls back to the CARGO_REGISTRY_TOKEN secret (scopes publish-new
+      # and publish-update, crate pattern `malt-*`).
+      # After that release: add the trusted publisher to malt-core, malt-rules and
+      # malt-cli, delete the secret, and drop `continue-on-error` and the
+      # `|| secrets.CARGO_REGISTRY_TOKEN` fallback below.
       - name: Authenticate with crates.io
         id: crates-auth
         uses: rust-lang/crates-io-auth-action@3268eb413133e2960fa4ae0e963ca76380c54cd9 # v1.0.6
@@ -151,8 +164,9 @@ jobs:
       # Pinned, not @latest: npm 12.0.0 ships a provenance path that fails with
       # "Cannot find module 'sigstore'", so `npm publish --provenance` aborts.
       # 11.18.0 is the last 11.x and supports the OIDC publishing this needs.
+      # A global tool install cannot use a lock file; the exact version is the pin.
       - name: Upgrade npm for OIDC support
-        run: npm install -g npm@11.18.0
+        run: npm install -g npm@11.18.0 # jactionlint ignore=adhoc-packages
 
       # npm trusted publishing (https://docs.npmjs.com/trusted-publishers): the
       # npm CLI exchanges this job's OIDC identity for a short-lived publish

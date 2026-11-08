@@ -11,6 +11,8 @@ node = "24.19.0"
 bun = "latest"
 # uv for the Python wrapper (PyPI package `malt`, built with maturin).
 uv = "latest"
+# jq assembles the npm package.json (see the build-wasm task).
+jq = "latest"
 # Clang C compiler — required to compile the tree-sitter-matlab C parser for
 # the wasm32 target (the `cc` crate uses it as `CC` when building wasm).
 clang = "22.1.8"
@@ -18,10 +20,12 @@ pinact = "latest"
 # Git hooks via hk (pinned; Renovate updates). Runs through `mise x` so every
 # contributor gets the pinned tools on PATH without activating mise.
 hk = "1.54.1"
-# Markdown linter for the docs (VitePress flavor) and GitHub Actions linter,
-# used by the hk pre-commit hooks.
+# Markdown linter for the docs (VitePress flavor) and GitHub Actions linter
+# (jactionlint, a security-aware fork of actionlint), used by the hk pre-commit
+# hooks. jactionlint runs shellcheck on the `run:` scripts of the workflows.
 rumdl = "latest"
-actionlint = "latest"
+jactionlint = "latest"
+shellcheck = "latest"
 
 [env]
 # Ensure the wasm build uses clang for the tree-sitter C parser and finds the
@@ -40,7 +44,7 @@ description = "Run hk pre-commit hooks (same as the git hook)"
 run = "hk run pre-commit"
 
 [tasks.build-wasm]
-description = "Build the browser/npm wasm package"
+description = "Build the browser/npm wasm package (crates/malt_wasm/pkg), ready to publish"
 run = """
 rustup target add wasm32-unknown-unknown 2>/dev/null || true
 export WASI_SDK="$PWD/${WASI_SDK}"
@@ -54,6 +58,14 @@ export CFLAGS_wasm32_unknown_unknown="-isystem $WASI_SDK/share/wasi-sysroot/incl
 # scripts do not receive it.
 export RUSTFLAGS="${RUSTFLAGS:-} -C link-arg=--allow-undefined"
 wasm-pack build crates/malt_wasm --target web --no-default-features --features wasm
+
+# wasm-pack's raw output is named after the crate (`malt_wasm`) and ships without
+# a README or LICENSE. Complete it here, so that CI and a local build produce
+# exactly the same package: the npm name `malt-wasm` comes from the template.
+cp wasm-pkg/README.md LICENSE crates/malt_wasm/pkg/
+jq -s '.[0] * .[1]' crates/malt_wasm/pkg/package.json wasm-pkg/package.json.tmpl > crates/malt_wasm/pkg/package.json.new
+mv crates/malt_wasm/pkg/package.json.new crates/malt_wasm/pkg/package.json
+test "$(jq -r .name crates/malt_wasm/pkg/package.json)" = "malt-wasm"
 """
 
 [tasks.setup-wasi]
@@ -77,5 +89,6 @@ description = "Copy the local wasm build into docs/public so the playground load
 run = """
 rm -rf docs/public/assets/malt-wasm
 mkdir -p docs/public/assets/malt-wasm
-cp -r crates/malt_wasm/pkg/. docs/public/assets/malt-wasm/
+# Only what the playground loads: a README.md here would be picked up by VitePress as a page.
+cp crates/malt_wasm/pkg/malt_lib.js crates/malt_wasm/pkg/malt_lib_bg.wasm docs/public/assets/malt-wasm/
 """

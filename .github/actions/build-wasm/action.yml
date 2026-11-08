@@ -1,0 +1,28 @@
+name: Build WebAssembly package
+description: >-
+  Builds the malt-wasm npm package into crates/malt_wasm/pkg (wasm-pack output
+  plus README, LICENSE and the package.json template). Shared by the Build
+  workflow (npm package) and the Docs workflow (playground).
+
+runs:
+  using: composite
+  steps:
+    - name: Setup Rust
+      uses: actions-rust-lang/setup-rust-toolchain@a188e68d0fd2bd36ad51dccb2b07ba6e75105f30 # v2.0.1
+      with:
+        target: wasm32-unknown-unknown
+
+    - name: Setup mise
+      uses: jdx/mise-action@b44d12e7d0d8ee7461bb893e1b1993500433185b # v5.2.7
+      with:
+        experimental: true
+        install: true
+        install_args: "cargo:wasm-pack node"
+
+    - name: Download WASI SDK
+      shell: bash
+      run: mise run setup-wasi
+
+    - name: Build WASM
+      shell: bash
+      run: mise run build-wasm

@@ -26,6 +26,7 @@ jobs:
   lint:
     name: Lint (hk check)
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     env:
       # Run hk steps directly; the job installs only the tools they need.
       HK_MISE: 0
@@ -44,12 +45,12 @@ jobs:
         with:
           experimental: true
           install: true
-          install_args: "hk rumdl actionlint bun"
+          install_args: "hk rumdl jactionlint shellcheck bun"
 
       - name: Install docs dependencies
         run: bun install --frozen-lockfile
 
-      # fmt, clippy (-D warnings), rumdl, actionlint, generated-docs freshness,
+      # fmt, clippy (-D warnings), rumdl, jactionlint, generated-docs freshness,
       # whitespace and other file hygiene checks (see hk.pkl).
       - name: Run hk checks
         run: hk check --all
@@ -57,6 +58,7 @@ jobs:
   test:
     name: Test (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -78,6 +80,7 @@ jobs:
   python:
     name: Python wrapper (ruff, ty)
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -114,6 +117,7 @@ jobs:
     if: always()
     needs: [lint, test, python, build, docs]
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - name: Check all jobs
         env:

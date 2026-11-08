@@ -17,7 +17,7 @@ uv sync              # Python wrapper (maturin, pytest, ruff, ty)
 ## 2. Checks and tests
 
 ```sh
-hk check --all                     # fmt, clippy, rumdl, actionlint, docs freshness, ...
+hk check --all                     # fmt, clippy, rumdl, jactionlint, docs freshness, ...
 cargo test --workspace             # Rust tests
 mise run test-wasm                 # WebAssembly binding tests
 uv run pytest                      # Python wrapper tests (builds the wheel)
