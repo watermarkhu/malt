@@ -146,6 +146,7 @@ jobs:
         with:
           node-version: '24'
           registry-url: 'https://registry.npmjs.org'
+          package-manager-cache: false # never use caching in release builds
 
       # Pinned, not @latest: npm 12.0.0 ships a provenance path that fails with
       # "Cannot find module 'sigstore'", so `npm publish --provenance` aborts.
@@ -153,9 +154,12 @@ jobs:
       - name: Upgrade npm for OIDC support
         run: npm install -g npm@11.18.0
 
+      # npm trusted publishing (https://docs.npmjs.com/trusted-publishers): the
+      # npm CLI exchanges this job's OIDC identity for a short-lived publish
+      # token, so no NODE_AUTH_TOKEN / NPM_TOKEN secret is involved. The trusted
+      # publisher configured for `mlt-wasm` on npmjs.com must name this exact
+      # workflow file (release.yml) and the `release` environment.
       - name: Publish WASM to npm
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           cd wasm-pkg/pkg
           if ! output=$(npm publish --provenance --access public 2>&1); then

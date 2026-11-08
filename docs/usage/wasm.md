@@ -59,7 +59,9 @@ mise run test-wasm    # run the host-side binding tests
 
 The built package lands in `crates/mlt_wasm/pkg/`. Releases are published
 automatically: when a pull request into `main` is merged, `release.yml` stamps the
-version, builds the package, and runs `npm publish --provenance`. See
+version, builds the package, and publishes it with `npm publish` through
+[npm trusted publishing](https://docs.npmjs.com/trusted-publishers) (OIDC, no
+long-lived token; provenance is attached automatically). See
 [CONTRIBUTING](https://github.com/watermarkhu/mlt/blob/main/.github/CONTRIBUTING.md).
 
 ## Local docs build
