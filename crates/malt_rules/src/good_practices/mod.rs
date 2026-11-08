@@ -51,7 +51,7 @@
 //! | SEPEX | info | no | Consider using newline, semicolon, or comma before this statement for readability. |
 //! | NBRAK1 | info | yes | If you intend to specify expression precedence, use parentheses () instead of brackets []. |
 //! | LNGNM | warning | no | Names longer than VAR_NUMBER characters are not supported. This name has been truncated to VAR_NUMBER characters. |
-//! | CHAIN | info | no | Expressions like a VAR_NAME b VAR_NAME c are interpreted as (a VAR_NAME b) VAR_NAME c. Typically, to test a VAR_NAME b VAR_NAME c mathematically, if all arguments are numeric scalars, use (a VAR_NAME b) && (b VAR_NAME c), otherwise use (a VAR_NAME b) & (b VAR_NAME c). |
+//! | CHAIN | info | no | Expressions like a < b < c are interpreted as (a < b) < c. Use (a < b) && (b < c) instead. |
 //! | DISPLAY | warning | no | Overloading DISPLAY is not recommended. |
 //! | FNDEF | warning | no | Function name VAR_NAME is known to MATLAB by its file name: VAR_FILE. |
 //! | NOIN | info | no | Method VAR_NAME should either be a static method or have at least one input argument. |
@@ -965,19 +965,6 @@ pub(crate) fn args_has_function_call(args_node: Node, source: &str, target_name:
         }
     }
     false
-}
-
-/// Count the depth of a field_expression chain (for CHAIN).
-pub(crate) fn field_chain_depth(node: Node) -> usize {
-    if node.kind() != "field_expression" {
-        return 0;
-    }
-    // The object child of a field_expression may itself be a field_expression.
-    let mut depth = 1;
-    if let Some(obj) = node.child_by_field_name("object").or_else(|| node.child(0)) {
-        depth += field_chain_depth(obj);
-    }
-    depth
 }
 
 /// Check if a node is inside a matrix or cell context (for SHOCIRAA).

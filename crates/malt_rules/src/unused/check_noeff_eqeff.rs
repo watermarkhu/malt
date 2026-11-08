@@ -15,6 +15,7 @@ impl UnusedEngine {
         // Walk the tree looking for expression nodes at statement level.
         walk_for_no_effect(
             ctx.tree.root_node(),
+            ctx.source,
             diagnostics,
             noeff_disabled,
             eqeff_disabled,
@@ -37,6 +38,7 @@ fn comparison_is_equality(node: Node) -> bool {
 /// Recursively walk tree to find statement-level expressions with no effect.
 pub(crate) fn walk_for_no_effect(
     node: Node,
+    source: &str,
     diagnostics: &mut Vec<Diagnostic>,
     noeff_disabled: bool,
     eqeff_disabled: bool,
@@ -69,8 +71,10 @@ pub(crate) fn walk_for_no_effect(
             let pos = node.start_position();
             diagnostics.push(Diagnostic {
                 rule_id: "NOEFF",
-                message: "The operation or expression VAR_OPERATOR has no evident effect."
-                    .to_string(),
+                message: format!(
+                    "The operation or expression {} has no evident effect.",
+                    operator_or_text(node, source)
+                ),
                 severity: Severity::Warning,
                 byte_range: node.start_byte()..node.end_byte(),
                 line: pos.row + 1,
@@ -84,9 +88,19 @@ pub(crate) fn walk_for_no_effect(
     let count = node.child_count();
     for i in 0..count {
         if let Some(child) = node.child(i) {
-            walk_for_no_effect(child, diagnostics, noeff_disabled, eqeff_disabled);
+            walk_for_no_effect(child, source, diagnostics, noeff_disabled, eqeff_disabled);
         }
     }
+}
+
+/// The operator of an operator expression, else the start of its text.
+fn operator_or_text(node: tree_sitter::Node, source: &str) -> String {
+    let mut cursor = node.walk();
+    let op = node
+        .children(&mut cursor)
+        .find(|c| !c.is_named())
+        .map(|c| source[c.byte_range()].to_string());
+    op.unwrap_or_else(|| source[node.byte_range()].chars().take(40).collect())
 }
 
 #[cfg(test)]

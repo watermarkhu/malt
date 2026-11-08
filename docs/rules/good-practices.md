@@ -158,7 +158,7 @@ Names longer than VAR_NUMBER characters are not supported. This name has been tr
 
 Severity: **info** · Auto-fix: **no**
 
-Expressions like a VAR_NAME b VAR_NAME c are interpreted as (a VAR_NAME b) VAR_NAME c. Typically, to test a VAR_NAME b VAR_NAME c mathematically, if all arguments are numeric scalars, use (a VAR_NAME b) && (b VAR_NAME c), otherwise use (a VAR_NAME b) & (b VAR_NAME c).
+Expressions like a < b < c are interpreted as (a < b) < c. Use (a < b) && (b < c) instead.
 
 ### DISPLAY
 

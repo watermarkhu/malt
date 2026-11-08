@@ -118,8 +118,7 @@ impl SyntaxErrorsEngine {
                 } else {
                     diagnostics.push(Diagnostic {
                         rule_id: "ENDCT",
-                        message: "An END might be missing, possibly matching VAR_RESERVED_WORD."
-                            .to_string(),
+                        message: endct_message(text),
                         severity: Severity::Error,
                         byte_range: start..end,
                         line: pos.row + 1,
@@ -130,8 +129,7 @@ impl SyntaxErrorsEngine {
             } else if self.is_check_enabled("ENDCT") && Self::looks_like_missing_end(text, &node) {
                 diagnostics.push(Diagnostic {
                     rule_id: "ENDCT",
-                    message: "An END might be missing, possibly matching VAR_RESERVED_WORD."
-                        .to_string(),
+                    message: endct_message(text),
                     severity: Severity::Error,
                     byte_range: start..end,
                     line: pos.row + 1,
@@ -148,7 +146,10 @@ impl SyntaxErrorsEngine {
             {
                 diagnostics.push(Diagnostic {
                     rule_id: "FVSYN",
-                    message: "Invalid function argument syntax at VAR_RESERVED_WORD.".to_string(),
+                    message: format!(
+                        "Invalid function argument syntax at {}.",
+                        text.chars().take(40).collect::<String>().trim()
+                    ),
                     severity: Severity::Error,
                     byte_range: start..end,
                     line: pos.row + 1,
@@ -162,8 +163,7 @@ impl SyntaxErrorsEngine {
             {
                 let snippet: String = text.chars().take(40).collect();
                 let msg = if snippet.is_empty() {
-                    "Parse error at VAR_RESERVED_WORD: usage might be invalid MATLAB syntax."
-                        .to_string()
+                    "Parse error: usage might be invalid MATLAB syntax.".to_string()
                 } else {
                     format!("Parse error at {snippet}: usage might be invalid MATLAB syntax.")
                 };
@@ -250,6 +250,20 @@ impl SyntaxErrorsEngine {
         for child in node.children(&mut cursor) {
             self.walk_error_nodes(child, source, last, diagnostics);
         }
+    }
+}
+
+/// The message for a missing END, naming the block keyword it probably closes.
+fn endct_message(text: &str) -> String {
+    const KEYWORDS: &[&str] = &[
+        "function", "if", "for", "parfor", "while", "switch", "try", "spmd",
+    ];
+    let keyword = text
+        .split(|c: char| !c.is_alphanumeric())
+        .find(|w| KEYWORDS.contains(w));
+    match keyword {
+        Some(k) => format!("An END might be missing, possibly matching {k}."),
+        None => "An END might be missing.".to_string(),
     }
 }
 

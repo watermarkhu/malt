@@ -34,8 +34,10 @@ impl SyntaxErrorsEngine {
                 if self.is_check_enabled("UNSET") && OPERATOR_LHS_KINDS.contains(&lhs.kind()) {
                     diagnostics.push(Diagnostic {
                         rule_id: "UNSET",
-                        message: "Invalid use of VAR_OPERATOR on the left side of an assignment."
-                            .to_string(),
+                        message: format!(
+                            "Invalid use of {} on the left side of an assignment.",
+                            operator_text(lhs, source)
+                        ),
                         severity: Severity::Error,
                         byte_range: lhs.byte_range(),
                         line: pos.row + 1,
@@ -75,9 +77,10 @@ impl SyntaxErrorsEngine {
                         let pos = prev.start_position();
                         diagnostics.push(Diagnostic {
                             rule_id: "UNSET",
-                            message:
-                                "Invalid use of VAR_OPERATOR on the left side of an assignment."
-                                    .to_string(),
+                            message: format!(
+                                "Invalid use of {} on the left side of an assignment.",
+                                operator_text(prev, source)
+                            ),
                             severity: Severity::Error,
                             byte_range: prev.byte_range(),
                             line: pos.row + 1,
@@ -94,6 +97,17 @@ impl SyntaxErrorsEngine {
             self.walk_assignment_lhs(child, source, diagnostics);
         }
     }
+}
+
+/// The operator of an operator expression (`+` in `a + b`), or the node's
+/// own text when it has none.
+fn operator_text(node: tree_sitter::Node, source: &str) -> String {
+    let mut cursor = node.walk();
+    let op = node
+        .children(&mut cursor)
+        .find(|c| !c.is_named())
+        .map(|c| source[c.byte_range()].to_string());
+    op.unwrap_or_else(|| source[node.byte_range()].chars().take(40).collect())
 }
 
 #[cfg(test)]
