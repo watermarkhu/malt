@@ -49,4 +49,5 @@ When such a pull request is merged, the workflow:
 3. publishes `malt-core`, `malt-rules` and `malt-cli` to crates.io,
    `malt` to PyPI, and `malt-wasm` to npm,
 4. creates a GitHub release with the wheels, sdist and npm tarball attached,
-5. deploys the documentation to GitHub Pages.
+5. (separately) the **Pages** workflow deploys the documentation to GitHub Pages
+   from `main` on every push, through the `github-pages` environment.

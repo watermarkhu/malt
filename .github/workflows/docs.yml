@@ -1,13 +1,12 @@
 name: Docs
 
 # Builds the VitePress site; deploys it to GitHub Pages when `push` is true.
+# Deployment goes through the `github-pages` environment and only ever runs from
+# the main branch (the caller is qualify.yml with push=false, or pages.yml on a
+# push to main).
 on:
   workflow_call:
     inputs:
-      ref:
-        description: The ref to check out and build the docs from
-        type: string
-        default: ""
       push:
         description: Deploy the built site to GitHub Pages
         type: boolean
@@ -25,7 +24,6 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ inputs.ref }}
           persist-credentials: false
 
       - name: Setup bun
@@ -55,13 +53,15 @@ jobs:
   deploy:
     name: Deploy to GitHub Pages
     needs: build
-    if: inputs.push
+    # Belt and braces next to the environment's own branch policy.
+    if: inputs.push && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     concurrency:
       group: pages
       cancel-in-progress: false
-    # No `environment: github-pages`: releases run on pull_request events
-    # (ref refs/pull/N/merge), which its default branch policy would reject.
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - name: Deploy to GitHub Pages
         id: deployment
