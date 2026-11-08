@@ -80,10 +80,27 @@ release needs a bootstrap:
    `publish-new` and `publish-update` scopes and the crate pattern `malt-*`. The first
    release publishes with it. Then add the trusted publisher to all three crates,
    delete the secret, and remove the fallback marked in `release.yml`.
-2. **npm:** publish a `0.0.0` placeholder of `malt-wasm` once from your machine
-   (`mise run build-wasm`, then `npm publish --access public` in
-   `crates/malt_wasm/pkg`), then add the trusted publisher. A new npm trusted
-   publisher expires if it has no successful publish within 2 days.
+2. **npm:** publish an empty `0.0.0` placeholder of `malt-wasm` once from your
+   machine, then add the trusted publisher (allow `npm publish`). Without an
+   existing package CI cannot authenticate, and npm answers the publish with a
+   misleading `404`:
+
+   ```sh
+   mkdir /tmp/malt-wasm-placeholder && cd /tmp/malt-wasm-placeholder
+   cat > package.json <<'JSON'
+   {
+     "name": "malt-wasm",
+     "version": "0.0.0",
+     "description": "Placeholder; releases are published from GitHub Actions",
+     "license": "MIT",
+     "repository": { "type": "git", "url": "git+https://github.com/watermarkhu/malt.git" }
+   }
+   JSON
+   npm publish --access public
+   ```
+
+   A new npm trusted publisher expires if it has no successful publish within 2
+   days, so add it right before the release.
 3. **PyPI:** nothing to bootstrap.
 
 Afterwards, set the npm package's Publishing access to "Require two-factor
