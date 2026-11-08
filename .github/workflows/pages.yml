@@ -1,0 +1,28 @@
+name: Pages
+
+# Deploys the documentation to GitHub Pages. Runs only for the main branch: on
+# every push to main (including the merge of a release pull request) and on
+# demand. The deploy job uses the `github-pages` environment, whose deployment
+# branch policy must allow `main` only.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  docs:
+    name: Deploy documentation
+    uses: ./.github/workflows/docs.yml
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    with:
+      push: true

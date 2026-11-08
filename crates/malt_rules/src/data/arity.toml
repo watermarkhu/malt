@@ -1,0 +1,413 @@
+# Arity table for common MATLAB built-in functions used by the GTARG / LTARG
+# checks. Each entry declares the minimum and maximum number of arguments a
+# call to the function is expected to take.
+#
+# Rules of thumb:
+#   - Fixed-arity functions (e.g. sin) have min_args = max_args.
+#   - Functions with optional arguments (e.g. round, sort) widen the range.
+#   - Variadic functions (fprintf, sprintf, char, reshape) use a large max.
+#   - Functions that accept zero arguments (rand, randn) have min_args = 0.
+#
+# The checks only fire on calls whose argument count falls outside the range;
+# calls to functions not listed here (or not defined in the same file) are
+# skipped entirely.
+
+[[functions]]
+name = "sin"
+min_args = 1
+max_args = 1
+
+[[functions]]
+name = "cos"
+min_args = 1
+max_args = 1
+
+[[functions]]
+name = "tan"
+min_args = 1
+max_args = 1
+
+[[functions]]
+name = "sqrt"
+min_args = 1
+max_args = 1
+
+[[functions]]
+name = "abs"
+min_args = 1
+max_args = 1
+
+[[functions]]
+name = "exp"
+min_args = 1
+max_args = 1
+
+[[functions]]
+name = "log"
+min_args = 1
+max_args = 1
+
+[[functions]]
+name = "log10"
+min_args = 1
+max_args = 1
+
+[[functions]]
+name = "floor"
+min_args = 1
+max_args = 1
+
+[[functions]]
+name = "ceil"
+min_args = 1
+max_args = 1
+
+[[functions]]
+name = "round"
+min_args = 1
+max_args = 3
+
+[[functions]]
+name = "sign"
+min_args = 1
+max_args = 1
+
+[[functions]]
+name = "sum"
+min_args = 1
+max_args = 3
+
+[[functions]]
+name = "mean"
+min_args = 1
+max_args = 3
+
+[[functions]]
+name = "median"
+min_args = 1
+max_args = 2
+
+[[functions]]
+name = "std"
+min_args = 1
+max_args = 3
+
+[[functions]]
+name = "var"
+min_args = 1
+max_args = 3
+
+[[functions]]
+name = "min"
+min_args = 1
+max_args = 3
+
+[[functions]]
+name = "max"
+min_args = 1
+max_args = 3
+
+[[functions]]
+name = "prod"
+min_args = 1
+max_args = 3
+
+[[functions]]
+name = "numel"
+min_args = 1
+max_args = 1
+
+[[functions]]
+name = "length"
+min_args = 1
+max_args = 1
+
+[[functions]]
+name = "size"
+min_args = 1
+max_args = 2
+
+[[functions]]
+name = "ndims"
+min_args = 1
+max_args = 1
+
+[[functions]]
+name = "isempty"
+min_args = 1
+max_args = 1
+
+[[functions]]
+name = "isequal"
+min_args = 1
+max_args = 99
+
+[[functions]]
+name = "isnan"
+min_args = 1
+max_args = 1
+
+[[functions]]
+name = "isinf"
+min_args = 1
+max_args = 1
+
+[[functions]]
+name = "isfinite"
+min_args = 1
+max_args = 1
+
+[[functions]]
+name = "islogical"
+min_args = 1
+max_args = 1
+
+[[functions]]
+name = "isnumeric"
+min_args = 1
+max_args = 1
+
+[[functions]]
+name = "ischar"
+min_args = 1
+max_args = 1
+
+[[functions]]
+name = "isstring"
+min_args = 1
+max_args = 1
+
+[[functions]]
+name = "iscell"
+min_args = 1
+max_args = 1
+
+[[functions]]
+name = "isstruct"
+min_args = 1
+max_args = 1
+
+[[functions]]
+name = "isscalar"
+min_args = 1
+max_args = 1
+
+[[functions]]
+name = "isvector"
+min_args = 1
+max_args = 1
+
+[[functions]]
+name = "ismatrix"
+min_args = 1
+max_args = 1
+
+[[functions]]
+name = "zeros"
+min_args = 1
+max_args = 3
+
+[[functions]]
+name = "ones"
+min_args = 1
+max_args = 3
+
+[[functions]]
+name = "eye"
+min_args = 1
+max_args = 3
+
+[[functions]]
+name = "rand"
+min_args = 0
+max_args = 3
+
+[[functions]]
+name = "randn"
+min_args = 0
+max_args = 3
+
+[[functions]]
+name = "reshape"
+min_args = 2
+max_args = 99
+
+[[functions]]
+name = "repmat"
+min_args = 2
+max_args = 3
+
+[[functions]]
+name = "sort"
+min_args = 1
+max_args = 3
+
+[[functions]]
+name = "unique"
+min_args = 1
+max_args = 3
+
+[[functions]]
+name = "flip"
+min_args = 1
+max_args = 2
+
+[[functions]]
+name = "flipud"
+min_args = 1
+max_args = 1
+
+[[functions]]
+name = "fliplr"
+min_args = 1
+max_args = 1
+
+[[functions]]
+name = "rot90"
+min_args = 1
+max_args = 2
+
+[[functions]]
+name = "transpose"
+min_args = 1
+max_args = 1
+
+[[functions]]
+name = "ctranspose"
+min_args = 1
+max_args = 1
+
+[[functions]]
+name = "char"
+min_args = 1
+max_args = 99
+
+[[functions]]
+name = "double"
+min_args = 1
+max_args = 1
+
+[[functions]]
+name = "single"
+min_args = 1
+max_args = 1
+
+[[functions]]
+name = "int8"
+min_args = 1
+max_args = 1
+
+[[functions]]
+name = "int16"
+min_args = 1
+max_args = 1
+
+[[functions]]
+name = "int32"
+min_args = 1
+max_args = 1
+
+[[functions]]
+name = "int64"
+min_args = 1
+max_args = 1
+
+[[functions]]
+name = "uint8"
+min_args = 1
+max_args = 1
+
+[[functions]]
+name = "uint16"
+min_args = 1
+max_args = 1
+
+[[functions]]
+name = "uint32"
+min_args = 1
+max_args = 1
+
+[[functions]]
+name = "uint64"
+min_args = 1
+max_args = 1
+
+[[functions]]
+name = "logical"
+min_args = 1
+max_args = 1
+
+[[functions]]
+name = "find"
+min_args = 1
+max_args = 3
+
+[[functions]]
+name = "diff"
+min_args = 1
+max_args = 3
+
+[[functions]]
+name = "cumsum"
+min_args = 1
+max_args = 3
+
+[[functions]]
+name = "cumprod"
+min_args = 1
+max_args = 3
+
+[[functions]]
+name = "linspace"
+min_args = 2
+max_args = 3
+
+[[functions]]
+name = "logspace"
+min_args = 2
+max_args = 3
+
+[[functions]]
+name = "disp"
+min_args = 1
+max_args = 1
+
+[[functions]]
+name = "fprintf"
+min_args = 1
+max_args = 99
+
+[[functions]]
+name = "sprintf"
+min_args = 1
+max_args = 99
+
+[[functions]]
+name = "strcmp"
+min_args = 2
+max_args = 2
+
+[[functions]]
+name = "strcmpi"
+min_args = 2
+max_args = 2
+
+[[functions]]
+name = "lower"
+min_args = 1
+max_args = 1
+
+[[functions]]
+name = "upper"
+min_args = 1
+max_args = 1
+
+[[functions]]
+name = "strtrim"
+min_args = 1
+max_args = 1
+
+[[functions]]
+name = "deblank"
+min_args = 1
+max_args = 1

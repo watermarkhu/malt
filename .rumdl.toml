@@ -1,0 +1,41 @@
+# rumdl configuration for malt docs
+#
+# The docs site is built with VitePress. The `standard` flavor (CommonMark +
+# GFM extensions) matches VitePress markdown. The defaults are relaxed for
+# patterns that are intentional in these docs: long generated rule tables,
+# repeated section headings across rule pages, the inline HTML/CSS/JS in the
+# playground page, and `../` links from the nested docs/rules/ tree (which
+# resolve in the site build but rumdl reports as missing).
+
+[global]
+flavor = "standard"
+# - MD013: generated rule tables and prose exceed 80 chars by design.
+# - MD024: repeated section headings across rule pages is a deliberate pattern.
+# - MD025: the hand-written rule pages (e.g. language-spec.md) use one `#`
+#   heading per rule.
+# - MD033: the playground page uses intentional inline HTML/CSS/JS.
+# - MD057: relative-link existence is unreliable for the nested docs/rules/
+#   tree; broken links are caught by `vitepress build`.
+disable = ["MD013", "MD024", "MD025", "MD033", "MD057"]
+respect_gitignore = true
+exclude = [
+    ".git",
+    "node_modules",
+    "docs/.vitepress",
+    "site",
+    "target",
+    ".tools",
+    "wasm-pkg",
+    ".agents",
+]
+
+# - docs/index.md is a VitePress `layout: home` page with no H1.
+# - docs/playground.md uses intentional inline HTML/CSS/JS.
+[per-file-ignores]
+"docs/index.md" = ["MD041"]
+"docs/playground.md" = ["MD033"]
+
+[MD013]
+line_length = 120
+code_blocks = false
+tables = false

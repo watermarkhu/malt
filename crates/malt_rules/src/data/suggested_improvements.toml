@@ -1,0 +1,1473 @@
+# Suggested Improvements checks data file for malt.
+#
+# Each [[checks]] entry represents one MATLAB Code Analyzer suggested improvement
+# check. The engine uses this to recommend modern replacements for deprecated or
+# not-recommended functions, syntaxes, and patterns.
+#
+# Fields:
+#   id            - Check ID matching MATLAB Code Analyzer (e.g., "CSVRD")
+#   function_name - The function/class name to match against (empty for generic)
+#   message       - Human-readable diagnostic message
+#   replacement   - Recommended replacement function/syntax
+
+# =============================================================================
+# Suggested Improvements (243 checks)
+# =============================================================================
+
+[[checks]]
+id = "IMPORTDYN"
+function_name = "import"
+message = "Using function syntax to call 'import' is not recommended. With appropriate code changes, use command syntax instead."
+replacement = ""
+
+[[checks]]
+id = "LERR"
+function_name = "lasterr"
+message = "LASTERR and LASTERROR are not recommended. Use an identifier on the CATCH block instead."
+replacement = ""
+
+[[checks]]
+id = "EVLC"
+function_name = "evalc"
+message = "Using 'evalc' with two arguments is not recommended. Use try/catch statements instead to make code more clear and efficient."
+replacement = ""
+
+[[checks]]
+id = "RAND"
+function_name = "rand"
+message = "RAND or RANDN with the 'seed', 'state', or 'twister' inputs is not recommended. Use RNG instead."
+replacement = "rng"
+
+[[checks]]
+id = "HOUGH"
+function_name = "hough"
+message = "HOUGH(BW,'ThetaResolution',VAL) is not recommended. Use HOUGH(BW,'Theta',-90:VAL:(90-VAL) ) instead."
+replacement = ""
+
+[[checks]]
+id = "THOUR"
+function_name = "hour"
+message = "'hour' with serial date number or text inputs is not recommended. With appropriate code changes, use 'datetime' as input instead."
+replacement = "datetime"
+
+[[checks]]
+id = "TMNTH"
+function_name = "month"
+message = "'month' with serial date number or text inputs is not recommended. With appropriate code changes, use 'datetime' as input instead."
+replacement = "datetime"
+
+[[checks]]
+id = "TMNUT"
+function_name = "minute"
+message = "'minute' with serial date number or text inputs is not recommended. With appropriate code changes, use 'datetime' as input instead."
+replacement = "datetime"
+
+[[checks]]
+id = "TNDAY"
+function_name = "day"
+message = "'day' with serial date number or text inputs is not recommended. With appropriate code changes, use 'datetime' as input instead."
+replacement = "datetime"
+
+[[checks]]
+id = "TSCND"
+function_name = "second"
+message = "'second' with serial date number or text inputs is not recommended. With appropriate code changes, use 'datetime' as input instead."
+replacement = "datetime"
+
+[[checks]]
+id = "TQURT"
+function_name = "quarter"
+message = "'quarter' with serial date number or text inputs is not recommended. With appropriate code changes, use 'datetime' as input instead."
+replacement = "datetime"
+
+[[checks]]
+id = "TYEAR"
+function_name = "year"
+message = "'year' with serial date number or text inputs is not recommended. With appropriate code changes, use 'datetime' as input instead."
+replacement = "datetime"
+
+[[checks]]
+id = "TDTVEC"
+function_name = "datevec"
+message = "'datevec' with serial date number or text inputs is not recommended. With appropriate code changes, use 'datetime' instead."
+replacement = "datetime"
+
+[[checks]]
+id = "TNOW1"
+function_name = "now"
+message = "'now' is not recommended. With appropriate code changes, use 'datetime(\"now\")' instead."
+replacement = "datetime"
+
+[[checks]]
+id = "TNOW2"
+function_name = "datetime"
+message = "'datetime(now, 'ConvertFrom', 'datenum')' is not recommended. Use 'datetime(\"now\")' instead, which is a direct replacement."
+replacement = "datetime"
+
+[[checks]]
+id = "TTDAY1"
+function_name = "today"
+message = "'today' is not recommended. With appropriate code changes, use 'datetime(\"today\")' instead."
+replacement = "datetime"
+
+[[checks]]
+id = "TTDAY2"
+function_name = "datetime"
+message = "'datetime(today, 'ConvertFrom', 'datenum')' is not recommended. Use 'datetime(\"today\")' instead, which is a direct replacement."
+replacement = "datetime"
+
+[[checks]]
+id = "MATCH2"
+function_name = "strmatch"
+message = "STRMATCH is not recommended. Use STRNCMP or VALIDATESTRING instead."
+replacement = "strncmp"
+
+[[checks]]
+id = "IMGDT"
+function_name = "imageInputLayer"
+message = "Using 'DataAugmentation' in function 'imageInputLayer' is not recommended. Use function 'augmentedImageDatastore' instead."
+replacement = "augmentedImageDatastore"
+
+[[checks]]
+id = "MATCH3"
+function_name = "strmatch"
+message = "STRMATCH is not recommended. Use STRCMP instead."
+replacement = "strcmp"
+
+[[checks]]
+id = "MTFA1"
+function_name = "maketform"
+message = "MAKETFORM('AFFINE',A) is not recommended. Use AFFINE2D or AFFINE3D instead."
+replacement = "affine2d"
+
+[[checks]]
+id = "MTFA2"
+function_name = "maketform"
+message = "MAKETFORM('AFFINE',U,X) is not recommended. Use FITGEOTRANS instead."
+replacement = "fitgeotrans"
+
+[[checks]]
+id = "MTFP1"
+function_name = "maketform"
+message = "MAKETFORM('PROJECTIVE',A) is not recommended. Use PROJECTIVE2D instead."
+replacement = "projective2d"
+
+[[checks]]
+id = "MTFP2"
+function_name = "maketform"
+message = "MAKETFORM('PROJECTIVE',U,X) is not recommended. Use FITGEOTRANS instead."
+replacement = "fitgeotrans"
+
+[[checks]]
+id = "MTFB"
+function_name = "maketform"
+message = "MAKETFORM('BOX',...) is not recommended. Use IMREF2D or IMREF3D instead."
+replacement = "imref2d"
+
+[[checks]]
+id = "OOPS"
+function_name = ""
+message = "Defining a class using 'function' syntax is not recommended. With appropriate code changes, use 'classdef' syntax instead."
+replacement = "classdef"
+
+[[checks]]
+id = "PMTMCONF"
+function_name = "pmtm"
+message = "When using PMTM with three output arguments, the 'ConfidenceLevel' input argument is recommended."
+replacement = ""
+
+[[checks]]
+id = "NCHKI"
+function_name = "nargchk"
+message = "NARGCHK is not recommended. Use NARGINCHK instead."
+replacement = "narginchk"
+
+[[checks]]
+id = "NCHKO"
+function_name = "nargchk"
+message = "Using NARGCHK with NARGOUT is not recommended. Use NARGOUTCHK instead."
+replacement = "nargoutchk"
+
+[[checks]]
+id = "NCHKN"
+function_name = "nargchk"
+message = "NARGCHK is not recommended. Use NARGINCHK without ERROR instead."
+replacement = "narginchk"
+
+[[checks]]
+id = "NCHKM"
+function_name = "nargchk"
+message = "NARGCHK is not recommended. Use NARGOUTCHK without ERROR instead."
+replacement = "nargoutchk"
+
+[[checks]]
+id = "ISCLSTR"
+function_name = "iscellstr"
+message = "To support string in addition to cellstr, include a call to 'isstring'."
+replacement = "isstring"
+
+[[checks]]
+id = "EMTAG"
+function_name = "eml"
+message = "The compilation directive (or pragma) 'eml' is not recommended. Use 'codegen' instead."
+replacement = "codegen"
+
+[[checks]]
+id = "EMXTR"
+function_name = "eml"
+message = "The 'eml' namespace is not recommended. Use 'codegen' instead."
+replacement = "codegen"
+
+[[checks]]
+id = "NVREPLA"
+function_name = "addParamValue"
+message = "'addParamValue' is not recommended. Use 'addParameter' instead."
+replacement = "addParameter"
+
+[[checks]]
+id = "NVREPLM"
+function_name = "risetime"
+message = "'MidPctRef' is not recommended. Use 'MidPercentReferenceLevel' instead."
+replacement = "MidPercentReferenceLevel"
+
+[[checks]]
+id = "NVREPLP"
+function_name = "risetime"
+message = "'PctRefLevels' is not recommended. Use 'PercentReferenceLevels' instead."
+replacement = "PercentReferenceLevels"
+
+[[checks]]
+id = "VIDREAD"
+function_name = "VideoReader"
+message = "'NumberOfFrames' is not recommended. Use 'NumFrames' instead."
+replacement = "NumFrames"
+
+[[checks]]
+id = "CRNR"
+function_name = "corner"
+message = "CORNER is not recommended. Use detectHarrisFeatures or detectMinEigenFeatures in Computer Vision Toolbox instead."
+replacement = "detectHarrisFeatures"
+
+[[checks]]
+id = "CRNRM"
+function_name = "cornermetric"
+message = "CORNERMETRIC is not recommended. Use detectHarrisFeatures or detectMinEigenFeatures and the cornerPoints class in Computer Vision Toolbox instead."
+replacement = "detectHarrisFeatures"
+
+[[checks]]
+id = "MDFLT1"
+function_name = "medfilt1"
+message = "BLKSZ is required for backward compatibility and is ignored. Use [] instead."
+replacement = ""
+
+[[checks]]
+id = "INTRPP"
+function_name = "interp1"
+message = "'pp' is not recommended. Use the griddedInterpolant class instead."
+replacement = "griddedInterpolant"
+
+[[checks]]
+id = "DISPLAYPROG"
+function_name = "display"
+message = "Programmatic use of DISPLAY is not recommended. Use DISP or FPRINTF instead."
+replacement = "disp"
+
+[[checks]]
+id = "HGSTGT"
+function_name = "hgsetget"
+message = "hgsetget is not recommended. Use matlab.mixin.SetGet or matlab.mixin.SetGetExactNames instead."
+replacement = "matlab.mixin.SetGet"
+
+[[checks]]
+id = "LEGACYMD"
+function_name = ""
+message = "Setting LegacyMode to true is not recommended. Set LegacyMode to false instead."
+replacement = ""
+
+[[checks]]
+id = "LEGACYTRD"
+function_name = ""
+message = "'DetectorMethod' is applicable only when LegacyMode is set to true. However, setting LegacyMode to true is not recommended."
+replacement = ""
+
+[[checks]]
+id = "LEGACYTRL"
+function_name = ""
+message = "'LoopMethod' is applicable only when LegacyMode is set to true. However, setting LegacyMode to true is not recommended."
+replacement = ""
+
+[[checks]]
+id = "LEGACYTRU"
+function_name = ""
+message = "'UpdatePeriod' is applicable only when LegacyMode is set to true. However, setting LegacyMode to true is not recommended."
+replacement = ""
+
+[[checks]]
+id = "LEGACYTRS"
+function_name = ""
+message = "'StepSize' is applicable only when LegacyMode is set to true. However, setting LegacyMode to true is not recommended."
+replacement = ""
+
+[[checks]]
+id = "LEGACYTRG"
+function_name = ""
+message = "'GainOutputPort' is applicable only when LegacyMode is set to true. However, setting LegacyMode to true is not recommended."
+replacement = ""
+
+[[checks]]
+id = "EZPLT"
+function_name = "ezplot"
+message = "EZPLOT is not recommended. Use FPLOT or FIMPLICIT instead."
+replacement = "fplot"
+
+[[checks]]
+id = "EZGRPH3"
+function_name = "ezgraph3"
+message = "EZGRAPH3 is not recommended. Use FCONTOUR, FMESH, FPLOT, FPLOT3 or FSURF instead."
+replacement = "fsurf"
+
+[[checks]]
+id = "EZCNTRF"
+function_name = "ezcontourf"
+message = "EZCONTOURF is not recommended. Use FCONTOUR instead, and set the 'Fill' value to 'on'."
+replacement = "fcontour"
+
+[[checks]]
+id = "EZMSHC"
+function_name = "ezmeshc"
+message = "EZMESHC is not recommended. Use FMESH instead, and set the 'ShowContours' value to 'on'."
+replacement = "fmesh"
+
+[[checks]]
+id = "EZSRFC"
+function_name = "ezsurfc"
+message = "EZSURFC is not recommended. Use FSURF instead, and set the 'ShowContours' value to 'on'."
+replacement = "fsurf"
+
+[[checks]]
+id = "FISADR"
+function_name = "addrule"
+message = "'addrule' is not recommended. Use 'addRule' instead."
+replacement = "addRule"
+
+[[checks]]
+id = "STRQUOT"
+function_name = "string"
+message = "string('...') is not recommended. Use \"...\" instead."
+replacement = ""
+
+[[checks]]
+id = "STRCLQT"
+function_name = "string"
+message = "'string({'str1', 'str2'})' is not recommended. Use '[\"str1\", \"str2\"]' instead."
+replacement = ""
+
+[[checks]]
+id = "SIM"
+function_name = "sim"
+message = "'sim' in parfor loop is not recommended. Replace the parfor loop with 'parsim'."
+replacement = "parsim"
+
+[[checks]]
+id = "NUMCH"
+function_name = "audioread"
+message = "'NumberOfChannels' is not recommended. Use 'NumChannels' instead."
+replacement = "NumChannels"
+
+[[checks]]
+id = "GTRED"
+function_name = "geotiffread"
+message = "'geotiffread' is not recommended, except when reading a GeoTIFF file from a URL. With appropriate code changes, use 'readgeoraster' instead."
+replacement = "readgeoraster"
+
+[[checks]]
+id = "GETFSP"
+function_name = "get"
+message = "Using get for retrieving values of line spacing is not recommended. With appropriate code changes, use 'settings' object instead."
+replacement = "settings"
+
+[[checks]]
+id = "SETFMT"
+function_name = "set"
+message = "Using set for assigning values of numeric display format is not recommended. With appropriate code changes, use 'settings' object instead."
+replacement = "settings"
+
+[[checks]]
+id = "SETFSP"
+function_name = "set"
+message = "Using set for assigning values of line spacing is not recommended. With appropriate code changes, use 'settings' object instead."
+replacement = "settings"
+
+[[checks]]
+id = "GETFMT"
+function_name = "get"
+message = "Using get for retrieving values of numeric display format is not recommended. With appropriate code changes, use 'settings' object instead."
+replacement = "settings"
+
+[[checks]]
+id = "EV2IN"
+function_name = "eval"
+message = "Using 'eval' with two arguments is not recommended. Use try/catch statements instead to make code more clear and efficient."
+replacement = ""
+
+[[checks]]
+id = "EV3IN"
+function_name = "evalin"
+message = "Using 'evalin' with three arguments is not recommended. Use try/catch statements instead to make code more clear and efficient."
+replacement = ""
+
+[[checks]]
+id = "PRTOG"
+function_name = "print"
+message = "'-opengl' is not recommended. Use '-image' instead, which is a direct replacement."
+replacement = ""
+
+[[checks]]
+id = "PRTPT"
+function_name = "print"
+message = "'-painters' is not recommended. Use '-vector' instead, which is a direct replacement."
+replacement = ""
+
+[[checks]]
+id = "FORMATNOI"
+function_name = "format"
+message = "'format' with no input or output arguments is not recommended. Use 'format(\"default\")' instead."
+replacement = ""
+
+[[checks]]
+id = "XFRWSB"
+function_name = "batchsim"
+message = "The 'TransferBaseWorkspaceVariables' option is not recommended for 'batchsim'. With appropriate code changes, consider using project startup scripts or the 'SetupFcn' option instead."
+replacement = ""
+
+[[checks]]
+id = "XFRWSP"
+function_name = "parsim"
+message = "The 'TransferBaseWorkspaceVariables' option is not recommended for 'parsim'. With appropriate code changes, consider using project startup scripts or the 'SetupFcn' option instead."
+replacement = ""
+
+[[checks]]
+id = "OLDSIM"
+function_name = "sim"
+message = "This syntax of the 'sim' command which returns multiple arguments is not recommended. With appropriate code changes, turn on 'ReturnWorkspaceOutputs' and return simulation results using the single-output format instead."
+replacement = ""
+
+[[checks]]
+id = "INSTHWI"
+function_name = "instrhwinfo"
+message = "'instrhwinfo('ivi')' is not recommended. With appropriate code changes, use 'ividriverlist' or 'ividevlist' instead."
+replacement = "ividriverlist"
+
+[[checks]]
+id = "INWVX"
+function_name = "instrhwinfo"
+message = "'instrhwinfo('vxipnp')' is not recommended. With appropriate code changes, use 'ividriverlist' or 'ividevlist' instead."
+replacement = "ividriverlist"
+
+[[checks]]
+id = "VERMATLAB"
+function_name = "ver"
+message = "ver('matlab') is not recommended. With appropriate code changes, use 'matlabRelease' instead."
+replacement = "matlabRelease"
+
+[[checks]]
+id = "VERLESSMATLAB"
+function_name = "verLessThan"
+message = "verLessThan('matlab', ...) is not recommended. With appropriate code changes, use 'isMATLABReleaseOlderThan' instead."
+replacement = "isMATLABReleaseOlderThan"
+
+[[checks]]
+id = "RISKLMM"
+function_name = ""
+message = "'Model' property of 'risk.credit.pd.LifetimePDModel' class is not recommended. Use 'UnderlyingModel' property of 'risk.credit.pd.LifetimePDModel' class instead."
+replacement = "UnderlyingModel"
+
+[[checks]]
+id = "RISKLMA"
+function_name = ""
+message = "'modelAccuracy' method of 'risk.credit.pd.LifetimePDModel' class is not recommended. Use 'modelCalibration' method of 'risk.credit.pd.LifetimePDModel' class instead."
+replacement = "modelCalibration"
+
+[[checks]]
+id = "RISKLMAP"
+function_name = ""
+message = "'modelAccuracyPlot' method of 'risk.credit.pd.LifetimePDModel' class is not recommended. Use 'modelCalibrationPlot' method of 'risk.credit.pd.LifetimePDModel' class instead."
+replacement = "modelCalibrationPlot"
+
+[[checks]]
+id = "RISKLGDMA"
+function_name = ""
+message = "'modelAccuracy' method of 'risk.credit.lgd.LGDModel' class is not recommended. Use 'modelCalibration' method of 'risk.credit.lgd.LGDModel' class instead."
+replacement = "modelCalibration"
+
+[[checks]]
+id = "RISKLGDMAP"
+function_name = ""
+message = "'modelAccuracyPlot' method of 'risk.credit.lgd.LGDModel' class is not recommended. Use 'modelCalibrationPlot' method of 'risk.credit.lgd.LGDModel' class instead."
+replacement = "modelCalibrationPlot"
+
+[[checks]]
+id = "RISKEADMA"
+function_name = ""
+message = "'modelAccuracy' method of 'risk.credit.ead.EADModel' class is not recommended. Use 'modelCalibration' method of 'risk.credit.ead.EADModel' class instead."
+replacement = "modelCalibration"
+
+[[checks]]
+id = "RISKEADMAP"
+function_name = ""
+message = "'modelAccuracyPlot' method of 'risk.credit.ead.EADModel' class is not recommended. Use 'modelCalibrationPlot' method of 'risk.credit.ead.EADModel' class instead."
+replacement = "modelCalibrationPlot"
+
+[[checks]]
+id = "HOLDALL"
+function_name = "hold"
+message = "'hold('all')' is not recommended. Use 'hold('on')' instead, which is a direct replacement."
+replacement = ""
+
+[[checks]]
+id = "MASSO"
+function_name = ""
+message = "'MasterSolverOptions' is not recommended. Use 'MainSolverOptions' instead, which is a direct replacement."
+replacement = "MainSolverOptions"
+
+[[checks]]
+id = "IMSSO"
+function_name = ""
+message = "'IntMasterSolverOptions' is not recommended. Use 'IntMainSolverOptions' instead, which is a direct replacement."
+replacement = "IntMainSolverOptions"
+
+[[checks]]
+id = "CDFEPOCH2DATE"
+function_name = "cdfread"
+message = "'ConvertEpochToDatenum' is not recommended. With appropriate code changes, use the 'DatetimeType' parameter of 'cdfread' instead."
+replacement = ""
+
+[[checks]]
+id = "FEATGPID"
+function_name = "feature"
+message = "'feature('getpid')' is unsupported and not recommended. With appropriate code changes, use the function 'matlabProcessID' instead."
+replacement = "matlabProcessID"
+
+[[checks]]
+id = "DTRIREP"
+function_name = "TriRep"
+message = "'TriRep' is not recommended. With appropriate code changes, use 'triangulation' instead."
+replacement = "triangulation"
+
+[[checks]]
+id = "DDELTRI"
+function_name = "DelaunayTri"
+message = "'DelaunayTri' is not recommended. With appropriate code changes, use 'delaunayTriangulation' instead."
+replacement = "delaunayTriangulation"
+
+[[checks]]
+id = "DTRIINT"
+function_name = "TriScatteredInterp"
+message = "'TriScatteredInterp' is not recommended. With appropriate code changes, use 'scatteredInterpolant' instead."
+replacement = "scatteredInterpolant"
+
+[[checks]]
+id = "DAPPLUT"
+function_name = "applylut"
+message = "'applylut' is not recommended. With appropriate code changes, use 'bwlookup' instead."
+replacement = "bwlookup"
+
+[[checks]]
+id = "DBLKPRC"
+function_name = "blkproc"
+message = "'blkproc' is not recommended. With appropriate code changes, use 'blockproc' instead."
+replacement = "blockproc"
+
+[[checks]]
+id = "CAXIS"
+function_name = "caxis"
+message = "'caxis' is not recommended. Use 'clim' instead, which is a direct replacement."
+replacement = "clim"
+
+[[checks]]
+id = "CDFEPOCH"
+function_name = "cdfepoch"
+message = "'cdfepoch' is not recommended. With appropriate code changes, use 'cdflib' low-level functions instead."
+replacement = "cdflib"
+
+[[checks]]
+id = "TODATENUM"
+function_name = "todatenum"
+message = "'todatenum' is not recommended. With appropriate code changes, use the 'DatetimeType' parameter of 'cdfread' instead."
+replacement = ""
+
+[[checks]]
+id = "COMMPAMM"
+function_name = "comm.PAMModulator"
+message = "'comm.PAMModulator' is not recommended. With appropriate code changes, use 'pammod' instead."
+replacement = "pammod"
+
+[[checks]]
+id = "COMMPAMD"
+function_name = "comm.PAMDemodulator"
+message = "'comm.PAMDemodulator' is not recommended. With appropriate code changes, use 'pamdemod' instead."
+replacement = "pamdemod"
+
+[[checks]]
+id = "COMMSRC"
+function_name = "commsrc.pn"
+message = "'commsrc.pn' is not recommended. With appropriate code changes, use 'comm.PNSequence' instead."
+replacement = "comm.PNSequence"
+
+[[checks]]
+id = "DCPTF"
+function_name = "cp2tform"
+message = "'cp2tform' is not recommended. With appropriate code changes, use 'fitgeotrans' instead."
+replacement = "fitgeotrans"
+
+[[checks]]
+id = "DATNM"
+function_name = "datenum"
+message = "'datenum' is not recommended. With appropriate code changes, use 'datetime' instead."
+replacement = "datetime"
+
+[[checks]]
+id = "DATST"
+function_name = "datestr"
+message = "'datestr' is not recommended. With appropriate code changes, use 'datetime' instead."
+replacement = "datetime"
+
+[[checks]]
+id = "DETIM"
+function_name = "etime"
+message = "'etime' is not recommended. With appropriate code changes, use 'datetime' and the minus operator instead."
+replacement = "datetime"
+
+[[checks]]
+id = "DATOD"
+function_name = "addtodate"
+message = "'addtodate' is not recommended. With appropriate code changes, use 'datetime', 'duration', and the plus operator instead."
+replacement = "datetime"
+
+[[checks]]
+id = "CLOCK"
+function_name = "clock"
+message = "'clock' is not recommended. With appropriate code changes, use 'datetime(\"now\")' instead."
+replacement = "datetime"
+
+[[checks]]
+id = "DATE"
+function_name = "date"
+message = "'date' is not recommended. With appropriate code changes, use 'datetime(\"today\")' instead."
+replacement = "datetime"
+
+[[checks]]
+id = "DATIC"
+function_name = "datetick"
+message = "'datetick' is not recommended. With appropriate code changes, use datetime and duration arrays directly in charts. Modify display using 'xtickformat', 'ytickformat', or 'ztickformat'."
+replacement = "datetime"
+
+[[checks]]
+id = "WKNUM"
+function_name = "weeknum"
+message = "'weeknum' is not recommended. With appropriate code changes, use 'week' with a 'datetime' input instead."
+replacement = "week"
+
+[[checks]]
+id = "EMDATE"
+function_name = "eomdate"
+message = "'eomdate' is not recommended. With appropriate code changes, use 'dateshift' with a 'datetime' input instead."
+replacement = "dateshift"
+
+[[checks]]
+id = "XMDATE"
+function_name = "x2mdate"
+message = "'x2mdate' is not recommended. With appropriate code changes, use 'datetime(..., \"ConvertFrom\", \"excel\")' instead."
+replacement = "datetime"
+
+[[checks]]
+id = "MXDATE"
+function_name = "m2xdate"
+message = "'m2xdate' is not recommended. With appropriate code changes, use 'exceltime' with a 'datetime' input instead."
+replacement = "exceltime"
+
+[[checks]]
+id = "MNTHS"
+function_name = "months"
+message = "'months' is not recommended. With appropriate code changes, use 'between' with a 'datetime' input instead."
+replacement = "between"
+
+[[checks]]
+id = "DGTORD"
+function_name = "degtorad"
+message = "'degtorad' is not recommended. Use 'deg2rad' instead, which is a direct replacement."
+replacement = "deg2rad"
+
+[[checks]]
+id = "RDTODG"
+function_name = "radtodeg"
+message = "'radtodeg' is not recommended. Use 'rad2deg' instead, which is a direct replacement."
+replacement = "rad2deg"
+
+[[checks]]
+id = "EZCONTR"
+function_name = "ezcontour"
+message = "'ezcontour' is not recommended. With appropriate code changes, use 'fcontour' instead."
+replacement = "fcontour"
+
+[[checks]]
+id = "EZMESH"
+function_name = "ezmesh"
+message = "'ezmesh' is not recommended. With appropriate code changes, use 'fmesh' instead."
+replacement = "fmesh"
+
+[[checks]]
+id = "EZPLT3"
+function_name = "ezplot3"
+message = "'ezplot3' is not recommended. With appropriate code changes, use 'fplot3' instead."
+replacement = "fplot3"
+
+[[checks]]
+id = "EZSURF"
+function_name = "ezsurf"
+message = "'ezsurf' is not recommended. With appropriate code changes, use 'fsurf' instead."
+replacement = "fsurf"
+
+[[checks]]
+id = "EZPOLAR"
+function_name = "ezpolar"
+message = "'ezpolar' is not recommended. With appropriate code changes, use 'fpolarplot' instead."
+replacement = "fpolarplot"
+
+[[checks]]
+id = "COMPASS"
+function_name = "compass"
+message = "'compass' is not recommended. With appropriate code changes, use 'compassplot' instead."
+replacement = "compassplot"
+
+[[checks]]
+id = "DFLIPDIM"
+function_name = "flipdim"
+message = "'flipdim' is not recommended. With appropriate code changes, use 'flip' instead."
+replacement = "flip"
+
+[[checks]]
+id = "DSTRMT"
+function_name = "str2mat"
+message = "'str2mat' is not recommended. With appropriate code changes, use 'char' instead."
+replacement = "char"
+
+[[checks]]
+id = "DSTSTR"
+function_name = "setstr"
+message = "'setstr' is not recommended. With appropriate code changes, use 'char' instead."
+replacement = "char"
+
+[[checks]]
+id = "DSTRVCT"
+function_name = "strvcat"
+message = "'strvcat' is not recommended. With appropriate code changes, use 'char' instead."
+replacement = "char"
+
+[[checks]]
+id = "DISSTR"
+function_name = "isstr"
+message = "'isstr' is not recommended. With appropriate code changes, use 'ischar' instead."
+replacement = "ischar"
+
+[[checks]]
+id = "DFTSMTX"
+function_name = "fts2mtx"
+message = "'fts2mtx' is not recommended. With appropriate code changes, use 'fts2mat' instead."
+replacement = "fts2mat"
+
+[[checks]]
+id = "FISWRT"
+function_name = "writefis"
+message = "'writefis' is not recommended. Use 'writeFIS' instead, which is a direct replacement."
+replacement = "writeFIS"
+
+[[checks]]
+id = "FISADM"
+function_name = "addmf"
+message = "'addmf' is not recommended. With appropriate code changes, use 'addMF' instead."
+replacement = "addMF"
+
+[[checks]]
+id = "HIST"
+function_name = "hist"
+message = "'hist' is not recommended. With appropriate code changes, use 'histogram' instead."
+replacement = "histogram"
+
+[[checks]]
+id = "HISTC"
+function_name = "histc"
+message = "'histc' is not recommended. With appropriate code changes, use 'histcounts' instead."
+replacement = "histcounts"
+
+[[checks]]
+id = "ROSE"
+function_name = "rose"
+message = "'rose' is not recommended. With appropriate code changes, use 'polarhistogram' instead."
+replacement = "polarhistogram"
+
+[[checks]]
+id = "H5CLS"
+function_name = "H5.close"
+message = "'H5.close' is not recommended and no longer has any effect. There is no simple replacement for this."
+replacement = ""
+
+[[checks]]
+id = "H5OPN"
+function_name = "H5.open"
+message = "'H5.open' is not recommended and no longer has any effect. There is no simple replacement for this."
+replacement = ""
+
+[[checks]]
+id = "HDFI"
+function_name = "hdf5info"
+message = "'hdf5info' is not recommended. With appropriate code changes, use 'h5info' instead."
+replacement = "h5info"
+
+[[checks]]
+id = "HDFW"
+function_name = "hdf5write"
+message = "'hdf5write' is not recommended. With appropriate code changes, use 'h5write' instead."
+replacement = "h5write"
+
+[[checks]]
+id = "HDFR"
+function_name = "hdf5read"
+message = "'hdf5read' is not recommended. With appropriate code changes, use 'h5read' instead."
+replacement = "h5read"
+
+[[checks]]
+id = "IM2BW"
+function_name = "im2bw"
+message = "'im2bw' is not recommended. With appropriate code changes, use 'imbinarize' instead."
+replacement = "imbinarize"
+
+[[checks]]
+id = "ISPIX"
+function_name = "pixelLabelImageSource"
+message = "'pixelLabelImageSource' is not recommended. Use 'pixelLabelImageDatastore' instead, which is a direct replacement."
+replacement = "pixelLabelImageDatastore"
+
+[[checks]]
+id = "ISAUG"
+function_name = "augmentedImageSource"
+message = "'augmentedImageSource' is not recommended. Use 'augmentedImageDatastore' instead, which is a direct replacement."
+replacement = "augmentedImageDatastore"
+
+[[checks]]
+id = "ISDNS"
+function_name = "denoisingImageSource"
+message = "'denoisingImageSource' is not recommended. Use 'denoisingImageDatastore' instead, which is a direct replacement."
+replacement = "denoisingImageDatastore"
+
+[[checks]]
+id = "IMFREEH"
+function_name = "imfreehand"
+message = "'imfreehand' is not recommended. With appropriate code changes, use 'drawfreehand' instead."
+replacement = "drawfreehand"
+
+[[checks]]
+id = "IMRECT"
+function_name = "imrect"
+message = "'imrect' is not recommended. With appropriate code changes, use 'drawrectangle' instead."
+replacement = "drawrectangle"
+
+[[checks]]
+id = "IMLINE"
+function_name = "imline"
+message = "'imline' is not recommended. With appropriate code changes, use 'drawline' instead."
+replacement = "drawline"
+
+[[checks]]
+id = "IMPNT"
+function_name = "impoint"
+message = "'impoint' is not recommended. With appropriate code changes, use 'drawpoint' instead."
+replacement = "drawpoint"
+
+[[checks]]
+id = "IMPOLY"
+function_name = "impoly"
+message = "'impoly' is not recommended. With appropriate code changes, use 'drawpolygon' or 'drawpolyline' instead."
+replacement = "drawpolygon"
+
+[[checks]]
+id = "IMELLPS"
+function_name = "imellipse"
+message = "'imellipse' is not recommended. With appropriate code changes, use 'drawellipse' or 'drawcircle' instead."
+replacement = "drawellipse"
+
+[[checks]]
+id = "DIMTRNS"
+function_name = "imtransform"
+message = "'imtransform' is not recommended. With appropriate code changes, use 'imwarp' instead."
+replacement = "imwarp"
+
+[[checks]]
+id = "FILEATTRIB"
+function_name = "fileattrib"
+message = "'fileattrib' is not recommended. With appropriate code changes, use 'filePermissions' instead."
+replacement = "filePermissions"
+
+[[checks]]
+id = "CSVRD"
+function_name = "csvread"
+message = "'csvread' is not recommended. With appropriate code changes, use 'readtable' or 'readmatrix' instead."
+replacement = "readmatrix"
+
+[[checks]]
+id = "DLMRD"
+function_name = "dlmread"
+message = "'dlmread' is not recommended. With appropriate code changes, use 'readtable' or 'readmatrix' instead."
+replacement = "readmatrix"
+
+[[checks]]
+id = "CSVWT"
+function_name = "csvwrite"
+message = "'csvwrite' is not recommended. With appropriate code changes, use 'writematrix' instead."
+replacement = "writematrix"
+
+[[checks]]
+id = "DLMWT"
+function_name = "dlmwrite"
+message = "'dlmwrite' is not recommended. With appropriate code changes, use 'writematrix' instead."
+replacement = "writematrix"
+
+[[checks]]
+id = "XLSRD"
+function_name = "xlsread"
+message = "'xlsread' is not recommended. With appropriate code changes, use 'readtable', 'readmatrix' or 'readcell' instead."
+replacement = "readmatrix"
+
+[[checks]]
+id = "XLSWT"
+function_name = "xlswrite"
+message = "'xlswrite' is not recommended. With appropriate code changes, use 'writematrix' or 'writecell' instead."
+replacement = "writematrix"
+
+[[checks]]
+id = "ISDIR"
+function_name = "isdir"
+message = "'isdir' is not recommended. Use 'isfolder' instead, which is a direct replacement."
+replacement = "isfolder"
+
+[[checks]]
+id = "DISEQN"
+function_name = "isequalwithequalnans"
+message = "'isequalwithequalnans' is not recommended. With appropriate code changes, use 'isequaln' instead."
+replacement = "isequaln"
+
+[[checks]]
+id = "DGCAT"
+function_name = "gcat"
+message = "'gcat' is not recommended. Use 'spmdCat' instead, which is a direct replacement."
+replacement = "spmdCat"
+
+[[checks]]
+id = "DGOP"
+function_name = "gop"
+message = "'gop' is not recommended. Use 'spmdReduce' instead, which is a direct replacement."
+replacement = "spmdReduce"
+
+[[checks]]
+id = "DGPLUS"
+function_name = "gplus"
+message = "'gplus' is not recommended. Use 'spmdPlus' instead, which is a direct replacement."
+replacement = "spmdPlus"
+
+[[checks]]
+id = "DLABBARRIER"
+function_name = "labBarrier"
+message = "'labBarrier' is not recommended. Use 'spmdBarrier' instead, which is a direct replacement."
+replacement = "spmdBarrier"
+
+[[checks]]
+id = "DLABBROADCAST"
+function_name = "labBroadcast"
+message = "'labBroadcast' is not recommended. Use 'spmdBroadcast' instead, which is a direct replacement."
+replacement = "spmdBroadcast"
+
+[[checks]]
+id = "DLABINDEX"
+function_name = "labindex"
+message = "'labindex' is not recommended. Use 'spmdIndex' instead, which is a direct replacement."
+replacement = "spmdIndex"
+
+[[checks]]
+id = "DLABPROBE"
+function_name = "labProbe"
+message = "'labProbe' is not recommended. Use 'spmdProbe' instead, which is a direct replacement."
+replacement = "spmdProbe"
+
+[[checks]]
+id = "DLABRECEIVE"
+function_name = "labReceive"
+message = "'labReceive' is not recommended. Use 'spmdReceive' instead, which is a direct replacement."
+replacement = "spmdReceive"
+
+[[checks]]
+id = "DLABSEND"
+function_name = "labSend"
+message = "'labSend' is not recommended. Use 'spmdSend' instead, which is a direct replacement."
+replacement = "spmdSend"
+
+[[checks]]
+id = "DLABSENDRECEIVE"
+function_name = "labSendReceive"
+message = "'labSendReceive' is not recommended. Use 'spmdSendReceive' instead, which is a direct replacement."
+replacement = "spmdSendReceive"
+
+[[checks]]
+id = "DNUMLABS"
+function_name = "numlabs"
+message = "'numlabs' is not recommended. Use 'spmdSize' instead, which is a direct replacement."
+replacement = "spmdSize"
+
+[[checks]]
+id = "AGRED"
+function_name = "arcgridread"
+message = "'arcgridread' is not recommended. With appropriate code changes, use 'readgeoraster' instead."
+replacement = "readgeoraster"
+
+[[checks]]
+id = "MDFOBJ"
+function_name = "mdf"
+message = "'mdf' is not recommended. With appropriate code changes, use 'mdfInfo', 'mdfChannelGroupInfo' or 'mdfChannelInfo' instead."
+replacement = "mdfInfo"
+
+[[checks]]
+id = "DDBMEX"
+function_name = "mexdebug"
+message = "'mexdebug' is not recommended. With appropriate code changes, use 'dbmex' instead."
+replacement = "dbmex"
+
+[[checks]]
+id = "MLNT"
+function_name = "mlint"
+message = "'mlint' is not recommended. Use 'checkcode' instead, which is a direct replacement."
+replacement = "checkcode"
+
+[[checks]]
+id = "MNRFIT"
+function_name = "mnrfit"
+message = "'mnrfit' is not recommended. With appropriate code changes, use 'fitmnr' instead."
+replacement = "fitmnr"
+
+[[checks]]
+id = "MNRVAL"
+function_name = "mnrval"
+message = "'mnrval' is not recommended. With appropriate code changes, use 'MultinomialRegression.predict' instead."
+replacement = "MultinomialRegression.predict"
+
+[[checks]]
+id = "MUSTINRANGE"
+function_name = "mustBeInRange"
+message = "'mustBeInRange' is not recommended. With appropriate code changes, use 'mustBeBetween' instead."
+replacement = "mustBeBetween"
+
+[[checks]]
+id = "DEPNOE"
+function_name = "numberofelements"
+message = "'numberofelements' is not recommended. With appropriate code changes, use 'numel' instead."
+replacement = "numel"
+
+[[checks]]
+id = "GAOPT"
+function_name = "gaoptimset"
+message = "'gaoptimset' is not recommended. With appropriate code changes, use 'optimoptions' instead."
+replacement = "optimoptions"
+
+[[checks]]
+id = "PSOPT"
+function_name = "psoptimset"
+message = "'psoptimset' is not recommended. With appropriate code changes, use 'optimoptions' instead."
+replacement = "optimoptions"
+
+[[checks]]
+id = "SAOPT"
+function_name = "saoptimset"
+message = "'saoptimset' is not recommended. With appropriate code changes, use 'optimoptions' instead."
+replacement = "optimoptions"
+
+[[checks]]
+id = "PLOTYY"
+function_name = "plotyy"
+message = "'plotyy' is not recommended. With appropriate code changes, use 'yyaxis' instead."
+replacement = "yyaxis"
+
+[[checks]]
+id = "POLAR"
+function_name = "polar"
+message = "'polar' (MATLAB) is not recommended. Use 'polarplot' instead."
+replacement = "polarplot"
+
+[[checks]]
+id = "PLBL"
+function_name = "polybool"
+message = "'polybool' is not recommended. With appropriate code changes, use 'polyshape' instead."
+replacement = "polyshape"
+
+[[checks]]
+id = "PYVER"
+function_name = "pyversion"
+message = "'pyversion' is not recommended. With appropriate code changes, use 'pyenv' instead."
+replacement = "pyenv"
+
+[[checks]]
+id = "DQUAD"
+function_name = "quad"
+message = "'quad' is not recommended. With appropriate code changes, use 'integral' instead."
+replacement = "integral"
+
+[[checks]]
+id = "DQUADL"
+function_name = "quadl"
+message = "'quadl' is not recommended. With appropriate code changes, use 'integral' instead."
+replacement = "integral"
+
+[[checks]]
+id = "DQUADV"
+function_name = "quadv"
+message = "'quadv' is not recommended. With appropriate code changes, use 'integral' instead."
+replacement = "integral"
+
+[[checks]]
+id = "DDBLQD"
+function_name = "dblquad"
+message = "'dblquad' is not recommended. With appropriate code changes, use 'integral2' instead."
+replacement = "integral2"
+
+[[checks]]
+id = "DTRIQD"
+function_name = "triplequad"
+message = "'triplequad' is not recommended. With appropriate code changes, use 'integral3' instead."
+replacement = "integral3"
+
+[[checks]]
+id = "DFIRRCOS"
+function_name = "firrcos"
+message = "'firrcos' is not recommended. With appropriate code changes, use 'rcosdesign' instead."
+replacement = "rcosdesign"
+
+[[checks]]
+id = "DFIRGAUSS"
+function_name = "firgauss"
+message = "'firgauss' is not recommended. With appropriate code changes, use 'gaussdesign' instead."
+replacement = "gaussdesign"
+
+[[checks]]
+id = "DGAUSSFIR"
+function_name = "gaussfir"
+message = "'gaussfir' is not recommended. With appropriate code changes, use 'gaussdesign' instead."
+replacement = "gaussdesign"
+
+[[checks]]
+id = "ROIFILL"
+function_name = "roifill"
+message = "'roifill' is not recommended. With appropriate code changes, use 'regionfill' instead."
+replacement = "regionfill"
+
+[[checks]]
+id = "DEPBART"
+function_name = "sigwin.barthannwin"
+message = "'sigwin.barthannwin' is not recommended. With appropriate code changes, use 'barthannwin' instead."
+replacement = "barthannwin"
+
+[[checks]]
+id = "DEPLETT"
+function_name = "sigwin.bartlett"
+message = "'sigwin.bartlett' is not recommended. With appropriate code changes, use 'bartlett' instead."
+replacement = "bartlett"
+
+[[checks]]
+id = "DBLKMN"
+function_name = "sigwin.blackman"
+message = "'sigwin.blackman' is not recommended. With appropriate code changes, use 'blackman' instead."
+replacement = "blackman"
+
+[[checks]]
+id = "DBHRRS"
+function_name = "sigwin.blackmanharris"
+message = "'sigwin.blackmanharris' is not recommended. With appropriate code changes, use 'blackmanharris' instead."
+replacement = "blackmanharris"
+
+[[checks]]
+id = "DBHMNWN"
+function_name = "sigwin.bohmanwin"
+message = "'sigwin.bohmanwin' is not recommended. With appropriate code changes, use 'bohmanwin' instead."
+replacement = "bohmanwin"
+
+[[checks]]
+id = "DCHBWN"
+function_name = "sigwin.chebwin"
+message = "'sigwin.chebwin' is not recommended. With appropriate code changes, use 'chebwin' instead."
+replacement = "chebwin"
+
+[[checks]]
+id = "DFLTTPWN"
+function_name = "sigwin.flattopwin"
+message = "'sigwin.flattopwin' is not recommended. With appropriate code changes, use 'flattopwin' instead."
+replacement = "flattopwin"
+
+[[checks]]
+id = "DGSWIN"
+function_name = "sigwin.gausswin"
+message = "'sigwin.gausswin' is not recommended. With appropriate code changes, use 'gausswin' instead."
+replacement = "gausswin"
+
+[[checks]]
+id = "DHMMNG"
+function_name = "sigwin.hamming"
+message = "'sigwin.hamming' is not recommended. With appropriate code changes, use 'hamming' instead."
+replacement = "hamming"
+
+[[checks]]
+id = "DHANN"
+function_name = "sigwin.hann"
+message = "'sigwin.hann' is not recommended. With appropriate code changes, use 'hann' instead."
+replacement = "hann"
+
+[[checks]]
+id = "DKSER"
+function_name = "sigwin.kaiser"
+message = "'sigwin.kaiser' is not recommended. With appropriate code changes, use 'kaiser' instead."
+replacement = "kaiser"
+
+[[checks]]
+id = "DNLWN"
+function_name = "sigwin.nuttallwin"
+message = "'sigwin.nuttallwin' is not recommended. With appropriate code changes, use 'nuttallwin' instead."
+replacement = "nuttallwin"
+
+[[checks]]
+id = "DPNWN"
+function_name = "sigwin.parzenwin"
+message = "'sigwin.parzenwin' is not recommended. With appropriate code changes, use 'parzenwin' instead."
+replacement = "parzenwin"
+
+[[checks]]
+id = "DRCTWN"
+function_name = "sigwin.rectwin"
+message = "'sigwin.rectwin' is not recommended. With appropriate code changes, use 'rectwin' instead."
+replacement = "rectwin"
+
+[[checks]]
+id = "DTYLRWN"
+function_name = "sigwin.taylorwin"
+message = "'sigwin.taylorwin' is not recommended. With appropriate code changes, use 'taylorwin' instead."
+replacement = "taylorwin"
+
+[[checks]]
+id = "DTRNG"
+function_name = "sigwin.triang"
+message = "'sigwin.triang' is not recommended. With appropriate code changes, use 'triang' instead."
+replacement = "triang"
+
+[[checks]]
+id = "DTKYWN"
+function_name = "sigwin.tukeywin"
+message = "'sigwin.tukeywin' is not recommended. With appropriate code changes, use 'tukeywin' instead."
+replacement = "tukeywin"
+
+[[checks]]
+id = "DBURG"
+function_name = "spectrum.burg"
+message = "'spectrum.burg' is not recommended. With appropriate code changes, use 'pburg' instead."
+replacement = "pburg"
+
+[[checks]]
+id = "DCOV"
+function_name = "spectrum.cov"
+message = "'spectrum.cov' is not recommended. With appropriate code changes, use 'pcov' instead."
+replacement = "pcov"
+
+[[checks]]
+id = "DEVCTR"
+function_name = "spectrum.eigenvector"
+message = "'spectrum.eigenvector' is not recommended. With appropriate code changes, use 'peig' instead."
+replacement = "peig"
+
+[[checks]]
+id = "DMCOV"
+function_name = "spectrum.mcov"
+message = "'spectrum.mcov' is not recommended. With appropriate code changes, use 'pmcov' instead."
+replacement = "pmcov"
+
+[[checks]]
+id = "DMTM"
+function_name = "spectrum.mtm"
+message = "'spectrum.mtm' is not recommended. With appropriate code changes, use 'pmtm' instead."
+replacement = "pmtm"
+
+[[checks]]
+id = "DMUSIC"
+function_name = "spectrum.music"
+message = "'spectrum.music' is not recommended. With appropriate code changes, use 'pmusic' instead."
+replacement = "pmusic"
+
+[[checks]]
+id = "DPRDGRM"
+function_name = "spectrum.periodogram"
+message = "'spectrum.periodogram' is not recommended. With appropriate code changes, use 'periodogram' instead."
+replacement = "periodogram"
+
+[[checks]]
+id = "DWELCH"
+function_name = "spectrum.welch"
+message = "'spectrum.welch' is not recommended. With appropriate code changes, use 'pwelch' instead."
+replacement = "pwelch"
+
+[[checks]]
+id = "DYULEAR"
+function_name = "spectrum.yulear"
+message = "'spectrum.yulear' is not recommended. With appropriate code changes, use 'pyulear' instead."
+replacement = "pyulear"
+
+[[checks]]
+id = "SIMVARIANT"
+function_name = "Simulink.Variant"
+message = "'Simulink.Variant' is not recommended. Use 'Simulink.VariantExpression' instead, which is a direct replacement."
+replacement = "Simulink.VariantExpression"
+
+[[checks]]
+id = "COMBNK"
+function_name = "combnk"
+message = "'combnk' is not recommended. With appropriate code changes, use 'nchoosek' instead."
+replacement = "nchoosek"
+
+[[checks]]
+id = "NANMEAN"
+function_name = "nanmean"
+message = "'nanmean' is not recommended. With appropriate code changes, use 'mean' instead."
+replacement = "mean"
+
+[[checks]]
+id = "NANMEDIAN"
+function_name = "nanmedian"
+message = "'nanmedian' is not recommended. With appropriate code changes, use 'median' instead."
+replacement = "median"
+
+[[checks]]
+id = "NANMAX"
+function_name = "nanmax"
+message = "'nanmax' is not recommended. With appropriate code changes, use 'max' instead."
+replacement = "max"
+
+[[checks]]
+id = "NANMIN"
+function_name = "nanmin"
+message = "'nanmin' is not recommended. With appropriate code changes, use 'min' instead."
+replacement = "min"
+
+[[checks]]
+id = "NANSTD"
+function_name = "nanstd"
+message = "'nanstd' is not recommended. With appropriate code changes, use 'std' instead."
+replacement = "std"
+
+[[checks]]
+id = "NANVAR"
+function_name = "nanvar"
+message = "'nanvar' is not recommended. With appropriate code changes, use 'var' instead."
+replacement = "var"
+
+[[checks]]
+id = "NANCOV"
+function_name = "nancov"
+message = "'nancov' is not recommended. With appropriate code changes, use 'cov' instead."
+replacement = "cov"
+
+[[checks]]
+id = "NANSUM"
+function_name = "nansum"
+message = "'nansum' is not recommended. With appropriate code changes, use 'sum' instead."
+replacement = "sum"
+
+[[checks]]
+id = "CELLDTSET"
+function_name = "cell2dataset"
+message = "'cell2dataset' is not recommended. With appropriate code changes, use 'cell2table' instead."
+replacement = "cell2table"
+
+[[checks]]
+id = "DTSET"
+function_name = "dataset"
+message = "'dataset' is not recommended. With appropriate code changes, use 'table' instead."
+replacement = "table"
+
+[[checks]]
+id = "MATDTSET"
+function_name = "mat2dataset"
+message = "'mat2dataset' is not recommended. With appropriate code changes, use 'array2table' instead."
+replacement = "array2table"
+
+[[checks]]
+id = "STRUCTDTSET"
+function_name = "struct2dataset"
+message = "'struct2dataset' is not recommended. With appropriate code changes, use 'struct2table' instead."
+replacement = "struct2table"
+
+[[checks]]
+id = "FSTR"
+function_name = "findstr"
+message = "'findstr' is not recommended. With appropriate code changes, use 'strfind' instead."
+replacement = "strfind"
+
+[[checks]]
+id = "DSTRRD"
+function_name = "strread"
+message = "'strread' is not recommended. With appropriate code changes, use 'textscan' instead."
+replacement = "textscan"
+
+[[checks]]
+id = "DTXTRD"
+function_name = "textread"
+message = "'textread' is not recommended. With appropriate code changes, use 'textscan' instead."
+replacement = "textscan"
+
+[[checks]]
+id = "SUBIMGNR"
+function_name = "subimage"
+message = "'subimage' is not recommended. With appropriate code changes, use 'imshow' instead."
+replacement = "imshow"
+
+[[checks]]
+id = "URLWR"
+function_name = "urlwrite"
+message = "'urlwrite' is not recommended. With appropriate code changes, use 'websave' instead."
+replacement = "websave"
+
+[[checks]]
+id = "URLRD"
+function_name = "urlread"
+message = "'urlread' is not recommended. With appropriate code changes, use 'webread' or 'webwrite' instead."
+replacement = "webread"
+
+[[checks]]
+id = "VEMAT"
+function_name = "vec2mat"
+message = "'vec2mat' is not recommended. With appropriate code changes, use 'reshape' instead."
+replacement = "reshape"
+
+[[checks]]
+id = "MDFRD"
+function_name = "mdf"
+message = "'read' method of 'mdf' class is not recommended. With appropriate code changes, use 'mdfRead' function instead."
+replacement = "mdfRead"
+
+[[checks]]
+id = "MDFCHL"
+function_name = "mdf"
+message = "'channelList' method of 'mdf' class is not recommended. With appropriate code changes, use 'mdfChannelInfo' function instead."
+replacement = "mdfChannelInfo"
+
+[[checks]]
+id = "MDFSVA"
+function_name = "mdf"
+message = "'saveAttachment' method of 'mdf' class is not recommended. With appropriate code changes, use 'mdfSaveAttachment' function instead."
+replacement = "mdfSaveAttachment"
+
+[[checks]]
+id = "MINELV"
+function_name = ""
+message = "'MinElevationAngle' is not recommended. Use 'MaskElevationAngle' instead, which is a direct replacement when specified as scalar values. Row vector values must be transposed."
+replacement = "MaskElevationAngle"

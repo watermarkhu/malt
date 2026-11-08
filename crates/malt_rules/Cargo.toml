@@ -1,0 +1,23 @@
+[package]
+name = "malt-rules"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+keywords.workspace = true
+categories.workspace = true
+readme = "../../README.md"
+description = "Lint rule implementations for malt"
+
+[dependencies]
+malt-core.workspace = true
+tree-sitter.workspace = true
+serde.workspace = true
+toml.workspace = true
+inventory.workspace = true
+regex.workspace = true
+
+[dev-dependencies]
+tree-sitter-matlab.workspace = true

@@ -1,0 +1,12 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:recommended"],
+  "enabledManagers": ["bun", "cargo", "mise", "npm"],
+  "packageRules": [
+    {
+      "matchManagers": ["mise"],
+      "groupName": "mise tools",
+      "commitMessageTopic": "mise tools"
+    }
+  ]
+}

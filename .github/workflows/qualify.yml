@@ -1,0 +1,128 @@
+name: Qualify
+
+on:
+  merge_group:
+  push:
+    branches: [main]
+  pull_request:
+    types:
+      - opened
+      - reopened
+      - synchronize
+      - edited
+    branches: [main, dev]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  lint:
+    name: Lint (hk check)
+    runs-on: ubuntu-latest
+    env:
+      # Run hk steps directly; the job installs only the tools they need.
+      HK_MISE: 0
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Setup Rust
+        uses: actions-rust-lang/setup-rust-toolchain@a188e68d0fd2bd36ad51dccb2b07ba6e75105f30 # v2.0.1
+        with:
+          components: clippy, rustfmt
+
+      - name: Setup mise
+        uses: jdx/mise-action@b44d12e7d0d8ee7461bb893e1b1993500433185b # v5.2.7
+        with:
+          experimental: true
+          install: true
+          install_args: "hk rumdl actionlint bun"
+
+      - name: Install docs dependencies
+        run: bun install --frozen-lockfile
+
+      # fmt, clippy (-D warnings), rumdl, actionlint, generated-docs freshness,
+      # whitespace and other file hygiene checks (see hk.pkl).
+      - name: Run hk checks
+        run: hk check --all
+
+  test:
+    name: Test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Setup Rust
+        uses: actions-rust-lang/setup-rust-toolchain@a188e68d0fd2bd36ad51dccb2b07ba6e75105f30 # v2.0.1
+
+      - name: Run tests
+        run: cargo test --workspace --locked
+
+      - name: Run WASM binding host tests
+        run: cargo test --locked -p malt_wasm --features wasm
+
+  python:
+    name: Python wrapper (ruff, ty)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+
+      - name: Ruff lint
+        run: uvx ruff check --output-format=github python
+
+      - name: Ruff format
+        run: uvx ruff format --check python
+
+      - name: Ty type check
+        run: uvx ty check python
+
+  build:
+    name: Build distributions
+    uses: ./.github/workflows/build.yml
+
+  docs:
+    name: Build documentation
+    uses: ./.github/workflows/docs.yml
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    with:
+      push: false
+
+  # Single required status check for branch protection.
+  qualified:
+    name: Qualified
+    if: always()
+    needs: [lint, test, python, build, docs]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check all jobs
+        env:
+          RESULTS: ${{ toJSON(needs.*.result) }}
+        run: |
+          echo "## Qualify summary" >> "$GITHUB_STEP_SUMMARY"
+          echo "Job results: ${RESULTS}" >> "$GITHUB_STEP_SUMMARY"
+          if echo "${RESULTS}" | grep -qE '"(failure|cancelled)"'; then
+            echo "❌ Some checks failed" >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+          echo "✅ All checks passed" >> "$GITHUB_STEP_SUMMARY"

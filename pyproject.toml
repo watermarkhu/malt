@@ -1,0 +1,64 @@
+[build-system]
+requires = ["maturin>=1.9,<2"]
+build-backend = "maturin"
+
+[project]
+name = "malt"
+description = "An ultra-fast MATLAB linter with MATLAB Code Analyzer-compatible checks, written in Rust"
+authors = [{ name = "Mark Shui Hu", email = "watermarkhu@gmail.com" }]
+license = "MIT"
+license-files = ["LICENSE"]
+readme = "README.md"
+requires-python = ">=3.10"
+# The version comes from the Cargo workspace (stamped by the release workflow).
+dynamic = ["version"]
+keywords = ["matlab", "linter", "lint", "static-analysis", "code-analyzer"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Programming Language :: Rust",
+    "Topic :: Software Development :: Quality Assurance",
+]
+
+[project.urls]
+Homepage = "https://watermarkhu.nl/malt"
+Documentation = "https://watermarkhu.nl/malt"
+Repository = "https://github.com/watermarkhu/malt"
+Changelog = "https://github.com/watermarkhu/malt/releases"
+
+[dependency-groups]
+dev = [
+    "maturin>=1.9,<2",
+    "pytest>=8",
+    "ruff>=0.14",
+    "ty>=0.0.1a0",
+]
+
+[tool.maturin]
+# Ship the `malt` CLI binary in the wheel (like ruff), plus the small
+# `python -m malt` shim from python/malt.
+bindings = "bin"
+manifest-path = "crates/malt_cli/Cargo.toml"
+module-name = "malt"
+python-source = "python"
+strip = true
+
+[tool.pytest.ini_options]
+testpaths = ["python/tests"]
+
+[tool.ruff]
+src = ["python"]
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]

@@ -1,0 +1,81 @@
+# mise configuration for malt development environment
+# This file manages development tools and project tasks.
+
+[tools]
+# WASM toolchain for the browser/npm wasm package (pinned; Renovate updates).
+# 0.15.0 requires rustc >= 1.91; 0.13.1 builds on the current 1.90 toolchain.
+"cargo:wasm-pack" = "0.13.1"
+# Node.js used for npm publishing and local tooling (pinned; Renovate updates).
+node = "24.19.0"
+# Bun for the VitePress docs project (install, `bun run docs:*` scripts).
+bun = "latest"
+# uv for the Python wrapper (PyPI package `malt`, built with maturin).
+uv = "latest"
+# Clang C compiler — required to compile the tree-sitter-matlab C parser for
+# the wasm32 target (the `cc` crate uses it as `CC` when building wasm).
+clang = "22.1.8"
+pinact = "latest"
+# Git hooks via hk (pinned; Renovate updates). Runs through `mise x` so every
+# contributor gets the pinned tools on PATH without activating mise.
+hk = "1.54.1"
+# Markdown linter for the docs (VitePress flavor) and GitHub Actions linter,
+# used by the hk pre-commit hooks.
+rumdl = "latest"
+actionlint = "latest"
+
+[env]
+# Ensure the wasm build uses clang for the tree-sitter C parser and finds the
+# wasi sysroot headers. tree-sitter's C runtime is guarded by `__wasi__`, so we
+# define it for the wasm32-unknown-unknown target to skip the `dup` branch.
+WASI_SDK = ".tools/wasi-sdk-33.0-x86_64-linux"
+# Wrap hk hooks with `mise x` so tools are on PATH for everyone.
+HK_MISE = 1
+
+[hooks]
+# Automatically install/update hk hooks when tools are installed.
+postinstall = "hk install --mise"
+
+[tasks.pre-commit]
+description = "Run hk pre-commit hooks (same as the git hook)"
+run = "hk run pre-commit"
+
+[tasks.build-wasm]
+description = "Build the browser/npm wasm package"
+run = """
+rustup target add wasm32-unknown-unknown 2>/dev/null || true
+export WASI_SDK="$PWD/${WASI_SDK}"
+export CC_wasm32_unknown_unknown="$WASI_SDK/bin/clang"
+export CFLAGS_wasm32_unknown_unknown="-isystem $WASI_SDK/share/wasi-sysroot/include/wasm32-wasip1 -D__wasi__"
+# Newer rustc no longer passes --allow-undefined to the wasm linker. tree-sitter's
+# C runtime references libc symbols (stderr, clock_gettime) on code paths the
+# linter never reaches; they are dropped by the time wasm-bindgen runs.
+# Appended to RUSTFLAGS (not CARGO_TARGET_*_RUSTFLAGS, which a set RUSTFLAGS such
+# as CI's "-D warnings" overrides). wasm-pack passes --target, so host build
+# scripts do not receive it.
+export RUSTFLAGS="${RUSTFLAGS:-} -C link-arg=--allow-undefined"
+wasm-pack build crates/malt_wasm --target web --no-default-features --features wasm
+"""
+
+[tasks.setup-wasi]
+description = "Download the WASI SDK (needed to compile the tree-sitter C parser for wasm32)"
+run = """
+mkdir -p .tools
+if [ ! -d .tools/wasi-sdk-33.0-x86_64-linux ]; then
+  curl -sL -o .tools/wasi-sdk.tar.gz https://github.com/WebAssembly/wasi-sdk/releases/download/wasi-sdk-33/wasi-sdk-33.0-x86_64-linux.tar.gz
+  tar xzf .tools/wasi-sdk.tar.gz -C .tools
+  rm .tools/wasi-sdk.tar.gz
+fi
+echo "wasi-sdk ready at .tools/wasi-sdk-33.0-x86_64-linux"
+"""
+
+[tasks.test-wasm]
+description = "Run the wasm binding host tests"
+run = "cargo test --features wasm -p malt_wasm"
+
+[tasks.serve-local-wasm]
+description = "Copy the local wasm build into docs/public so the playground loads it locally"
+run = """
+rm -rf docs/public/assets/malt-wasm
+mkdir -p docs/public/assets/malt-wasm
+cp -r crates/malt_wasm/pkg/. docs/public/assets/malt-wasm/
+"""

@@ -1,0 +1,91 @@
+amends "package://github.com/jdx/hk/releases/download/v1.54.1/hk@1.54.1#/Config.pkl"
+import "package://github.com/jdx/hk/releases/download/v1.54.1/hk@1.54.1#/Builtins.pkl"
+
+min_hk_version = "1.0.0"
+
+/// Rust workspace steps (cargo fmt + clippy), scoped to the root Cargo.toml.
+local rust = new Group {
+    workspace_indicator = "Cargo.toml"
+    steps {
+        ["cargo-fmt"] = (Builtins.cargo_fmt) {
+            check_first = true
+        }
+        ["cargo-clippy"] = (Builtins.cargo_clippy) {
+            check_first = true
+            check = "cargo clippy --all-targets --manifest-path {{workspace_indicator}} -- -D warnings"
+            fix = "cargo clippy --all-targets --fix --allow-dirty --allow-staged --manifest-path {{workspace_indicator}} -- -D warnings"
+        }
+    }
+}
+
+/// Basic repository hygiene steps shared by pre-commit and `hk fix`.
+local hygiene = new Mapping<String, Step> {
+    ["trailing-whitespace"] = Builtins.trailing_whitespace
+    ["end-of-file-fixer"] = Builtins.newlines
+    ["check-merge-conflict"] = Builtins.check_merge_conflict
+    ["check-added-large-files"] = (Builtins.check_added_large_files) {
+        // The rule data tables are intentionally large (500KB+); exclude them.
+        exclude = List("crates/malt_rules/src/data/*.toml")
+    }
+    ["check-case-conflict"] = Builtins.check_case_conflict
+    ["detect-private-key"] = Builtins.detect_private_key
+}
+
+/// GitHub Actions + docs checks shared by pre-commit and `hk check`.
+local ci_and_docs = new Mapping<String, Step> {
+    ["actionlint"] = Builtins.actionlint
+    ["rumdl"] = (Builtins.rumdl) {
+        // Lint the site docs only (VitePress flavor, configured in .rumdl.toml).
+        // Developer-facing markdown (.agents/) is intentionally
+        // excluded.
+        glob = List("docs/**/*.md", "wasm-pkg/README.md")
+        check = "rumdl check --diff {{files}}"
+        fix = "rumdl check --fix {{files}}"
+    }
+    // Regenerated docs (docs/rules.md data tables, docs/rules/*.md rule pages)
+    // must match the rule docstring schema in the sources; fails if
+    // `bun run docs:gen` would change anything.
+    ["docs-gen"] {
+        glob = List("docs/**/*.md", "docs/scripts/gen_rules_docs.ts", "docs/scripts/SCHEMA.md", "crates/malt_rules/src/**/*.rs", "crates/malt_rules/src/data/*.toml")
+        check = "bun docs/scripts/gen_rules_docs.ts --check"
+    }
+}
+
+hooks {
+    ["pre-commit"] {
+        fix = true
+        stash = "git"
+        steps {
+            ...hygiene
+            ...ci_and_docs
+            ["rust"] = rust
+        }
+    }
+    ["commit-msg"] {
+        steps {
+            ["check-conventional-commit"] = Builtins.check_conventional_commit
+        }
+    }
+    ["pre-push"] {
+        steps {
+            ["cargo-test"] {
+                workspace_indicator = "Cargo.toml"
+                check = "cargo test --manifest-path {{workspace_indicator}} --workspace"
+            }
+        }
+    }
+    ["fix"] {
+        fix = true
+        steps {
+            ...hygiene
+            ["rust"] = rust
+        }
+    }
+    ["check"] {
+        steps {
+            ...hygiene
+            ...ci_and_docs
+            ["rust"] = rust
+        }
+    }
+}
