@@ -17,7 +17,7 @@
 //! line, as in `if ready; go(); end`, is not extra and is left alone.
 //!
 //! A statement that is *missing* its semicolon is a different finding: see
-//! NOPTS, NOPRT and PRTCAL.
+//! NOPTS and NOPRT.
 //!
 //! ## Fix
 //!
@@ -279,7 +279,7 @@ mod tests {
 
     #[test]
     fn a_missing_semicolon_is_not_this_rules_business() {
-        // That is NOPTS / NOPRT / PRTCAL. NOSEMI used to flag it, with this
+        // That is NOPTS / NOPRT. NOSEMI used to flag it, with this
         // very message, and inserted a second `;` next to theirs.
         assert!(nosemi("x = 1\n").is_empty());
         assert!(nosemi("disp(1)\n").is_empty());

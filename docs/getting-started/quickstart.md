@@ -54,10 +54,10 @@ exclude = ["vendor/**", "third_party/**"]
 # Set severity per rule
 NOPTS = "error"
 
-[lint.rules.NO4LP]
+[lint.rules.GOOD_PRACTICES_ENGINE]
 # Rule-specific parameters
 severity = "warn"
-indent_size = 2
+max_variable_name_length = 32
 ```
 
 ## Understanding Output

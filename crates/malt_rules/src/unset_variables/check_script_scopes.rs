@@ -47,7 +47,9 @@ impl UnsetVariablesEngine {
                     // of the base workspace. SVNODEF proper (defined only on some
                     // paths) needs flow analysis of scripts and is not reported yet.
                     None => {}
-                    Some(def) if var_use.byte_range.start < def.effect_start => {
+                    Some(def)
+                        if self.script_checks_on && var_use.byte_range.start < def.effect_start =>
+                    {
                         // Variable is used before its first definition → SUSENS.
                         reported.insert(var_use.name.clone());
                         diagnostics.push(Diagnostic {
@@ -81,7 +83,9 @@ mod tests {
     use malt_core::Config;
 
     fn engine() -> Box<dyn Rule> {
-        UnsetVariablesEngine::from_config(&Config::default())
+        UnsetVariablesEngine::from_config(
+            &Config::from_toml("[lint]\npreset = \"all\"\n").expect("valid config"),
+        )
     }
 
     // -- SVNODEF / SUSENS tests (script scope) ------------------------------

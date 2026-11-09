@@ -40,7 +40,9 @@ mod tests {
     use malt_core::Config;
 
     fn engine() -> Box<dyn Rule> {
-        UnusedEngine::from_config(&Config::default())
+        UnusedEngine::from_config(
+            &Config::from_toml("[lint]\npreset = \"all\"\n").expect("valid config"),
+        )
     }
 
     // -- VANUS: unused `varargin` input argument -----------------------------

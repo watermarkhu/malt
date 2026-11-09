@@ -51,7 +51,19 @@ impl UnsetVariablesEngine {
             }
 
             // Emit NODEF/USENS for possibly-unset variables.
-            self.emit_possibly_unset_diagnostics(&da, &mut diagnostics);
+            // NODEF needs a definition later in the scope and none before the use.
+            let nodef_applies = |name: &str, use_start: usize| {
+                let assigns: Vec<usize> = scope
+                    .defs
+                    .iter()
+                    .filter(|d| {
+                        d.name == name && d.kind == crate::analysis::symbols::DefKind::Assignment
+                    })
+                    .map(|d| d.byte_range.start)
+                    .collect();
+                !assigns.is_empty() && assigns.iter().all(|&start| start > use_start)
+            };
+            self.emit_possibly_unset_diagnostics(&da, nodef_applies, &mut diagnostics);
 
             // Check output arguments: STOUT.
             self.check_output_args(scope, &da, &mut diagnostics);
@@ -64,6 +76,7 @@ impl UnsetVariablesEngine {
     fn emit_possibly_unset_diagnostics(
         &self,
         da: &DefiniteAssignment,
+        nodef_applies: impl Fn(&str, usize) -> bool,
         diagnostics: &mut Vec<Diagnostic>,
     ) {
         // Track which variable names have already been reported to avoid duplicates.
@@ -81,6 +94,11 @@ impl UnsetVariablesEngine {
             // If the variable is in the definitely-assigned set at function end
             // but was used before that point, it's USENS (used but not set in
             // all paths). Otherwise it's NODEF (never defined at all on some paths).
+            if !da.definitely_assigned.contains(&unset_var.name)
+                && !nodef_applies(&unset_var.name, unset_var.use_byte_range.start)
+            {
+                continue;
+            }
             let (rule_id, message) = if da.definitely_assigned.contains(&unset_var.name) {
                 (
                     "USENS",
@@ -202,13 +220,13 @@ function y = foo(x)
 end
 ";
         let diags = lint_file(&*engine(), source);
-        // z is assigned later on one path but used before being definitely assigned.
+        // MATLAB is silent on a conditional definition followed by a use (probe q16).
         let has_relevant = diags
             .iter()
             .any(|d| d.rule_id == "NODEF" || d.rule_id == "USENS");
         assert!(
-            has_relevant,
-            "expected NODEF or USENS for 'z', got: {diags:?}"
+            !has_relevant,
+            "expected no NODEF or USENS for 'z', got: {diags:?}"
         );
     }
 

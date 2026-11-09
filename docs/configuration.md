@@ -75,9 +75,9 @@ NOSEMI = "warn"                # Shorthand: just set severity
 AGROW = "off"                  # Disable a rule
 COMPAT = "error"               # Escalate to error
 
-[lint.rules.NO4LP]             # Full table: severity + rule parameters
+[lint.rules.GOOD_PRACTICES_ENGINE]   # Full table: severity + rule parameters
 severity = "warn"
-indent_size = 2
+max_variable_name_length = 32
 ```
 
 ## `[lint]` Section
@@ -179,16 +179,16 @@ CUSTOM_CHECKS = "off" # Disable the rule entirely
 For rules that accept parameters, use a full TOML table:
 
 ```toml
-[lint.rules.NO4LP]
+[lint.rules.GOOD_PRACTICES_ENGINE]
 severity = "warn"
-indent_size = 2
+max_variable_name_length = 32
 ```
 
 Or equivalently as an inline table:
 
 ```toml
 [lint.rules]
-NO4LP = { severity = "warn", indent_size = 2 }
+GOOD_PRACTICES_ENGINE = { severity = "warn", max_variable_name_length = 32 }
 ```
 
 The `severity` key is always optional in a full table. If omitted, the rule uses its default severity.
@@ -253,13 +253,12 @@ disabled_checks = ["PFEVC", "PFANSLP"]   # Turn off specific checks
 | `UNSET_VARIABLES_ENGINE` | unset-variables | `ignore` (variable names to ignore) |
 | `UNUSED_ENGINE` | unused-constructions | `disabled_checks`, `ignore_patterns` |
 | `READABILITY_ENGINE` | readability | `disabled_checks` |
-| `FORMATTING_ENGINE` | formatting | `indent_size` (used by NO4LP) |
+| `FORMATTING_ENGINE` | formatting | *(no params)* |
 | `PERFORMANCE_ENGINE` | performance | `skip_checks` |
 | `CODEGEN_ENGINE` | code-generation | `skip_checks` |
 | `DEPLOYMENT_ENGINE` | deployment | `skip_checks` |
 | `UNSUPPORTED_ENGINE` | unsupported | `skip_checks` |
 | `SYSTEM_OBJECTS_ENGINE` | system-objects | `skip_checks` |
-| `NO4LP` | formatting | `indent_size` (indent width expected for loop bodies) |
 | `SUGGESTED_IMPROVEMENTS` | suggested-improvements | *(data-driven lookup; no params)* |
 
 ## Complete Example

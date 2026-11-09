@@ -55,7 +55,7 @@ impl BugsEngine {
                     let pos = node.start_position();
                     diagnostics.push(Diagnostic {
                         rule_id: "MOCUP",
-                        message: format!("Variable {v} may be cleared before the cleanup function that references {v} executes, resulting in an undefined variable error."),
+                        message: format!("Variable '{v}' may be cleared before the cleanup function that references '{v}' executes, resulting in an undefined variable error."),
                         severity: Severity::Error,
                         byte_range: node.start_byte()..node.end_byte(),
                         line: pos.row + 1,
@@ -193,7 +193,7 @@ mod mocup_tests {
         let diags = file_diags(src);
         let d = diags.iter().find(|d| d.rule_id == "MOCUP").expect("MOCUP");
         assert!(
-            d.message.starts_with("Variable fid may be cleared"),
+            d.message.starts_with("Variable 'fid' may be cleared"),
             "got: {}",
             d.message
         );

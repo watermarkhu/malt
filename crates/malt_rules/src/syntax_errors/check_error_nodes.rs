@@ -140,6 +140,7 @@ impl SyntaxErrorsEngine {
             // SYNER: Generic syntax error.
             else if self.is_check_enabled("SYNER")
                 && !(Self::is_in_function_call_args(&node) && text.contains('='))
+                && !Self::is_known_valid_error(&node, source)
             {
                 let snippet: String = text.chars().take(40).collect();
                 let msg = if snippet.is_empty() {
@@ -169,7 +170,8 @@ impl SyntaxErrorsEngine {
                             diagnostics.push(Diagnostic {
                                     rule_id: "ENDPAR",
                                     message: format!(
-                                        "A {bracket} might be missing a closing {bracket}, causing invalid syntax at end of file."
+                                        "A '{bracket}' might be missing a closing '{closer}', causing invalid syntax at end of file.",
+                                        closer = node.kind()
                                     ),
                                     severity: Severity::Error,
                                     byte_range: start..end,
@@ -183,7 +185,8 @@ impl SyntaxErrorsEngine {
                             diagnostics.push(Diagnostic {
                                     rule_id: "EOLPAR",
                                     message: format!(
-                                        "A {bracket} might be missing a closing {bracket}, causing invalid syntax at end of line."
+                                        "A '{bracket}' might be missing a closing '{closer}', causing invalid syntax at end of line.",
+                                        closer = node.kind()
                                     ),
                                     severity: Severity::Error,
                                     byte_range: start..end,
@@ -192,6 +195,19 @@ impl SyntaxErrorsEngine {
                                     fix: None,
                                 });
                         }
+                    } else if let Some((open, token)) = self.nopar_opener(node, source, bracket) {
+                        diagnostics.push(Diagnostic {
+                            rule_id: "NOPAR",
+                            message: format!(
+                                "A '{bracket}' might be missing a closing '{closer}', causing invalid syntax at '{token}'.",
+                                closer = node.kind()
+                            ),
+                            severity: Severity::Error,
+                            byte_range: open..open + 1,
+                            line: pos.row + 1,
+                            column: open + 1 - source[..open].rfind('\n').map_or(0, |i| i + 1),
+                            fix: None,
+                        });
                     } else if self.is_check_enabled("NOPAR2") {
                         diagnostics.push(Diagnostic {
                                 rule_id: "NOPAR2",
@@ -207,7 +223,11 @@ impl SyntaxErrorsEngine {
                             });
                     }
                 }
-            } else if self.is_check_enabled("SYNER") {
+            } else if self.is_check_enabled("SYNER")
+                // MATLAB does not report a missing `,` or `;` as a syntax error
+                // (probe: `x = 1; 2` with no final newline gets no SYNER).
+                && !matches!(node.kind(), "," | ";")
+            {
                 let start = node.start_byte();
                 let end = node.end_byte().max(start + 1);
                 let pos = node.start_position();
@@ -230,6 +250,78 @@ impl SyntaxErrorsEngine {
         for child in node.children(&mut cursor) {
             self.walk_error_nodes(child, source, last, diagnostics);
         }
+    }
+}
+
+impl SyntaxErrorsEngine {
+    /// True for an ERROR node that MATLAB accepts. Tree-sitter does not parse
+    /// these, so SYNER would be a false positive. Probed against R2026b:
+    /// - validation syntax inside an `arguments` block (`x (1,2) double`,
+    ///   `x {@(v) v > 0}`, `arguments (Input = true)`, `opts.?cls = 1`);
+    /// - colon chains such as `1:2:3:4` (MATLAB reports M3COL instead);
+    /// - `spmd (1, 2, 3)` (MATLAB reports SPDEC3 instead).
+    ///
+    /// NOPAR: an unclosed `(` or `{` whose closer is missing on the opener's
+    /// line, so the offending token is on that line too. Returns the opener's
+    /// byte offset and the offending token. Probed against R2026b: a later line
+    /// gives NOPAR2, the end of the line EOLPAR, and `[` is not covered.
+    fn nopar_opener(&self, node: Node, source: &str, bracket: &str) -> Option<(usize, String)> {
+        if !self.is_check_enabled("NOPAR") || !matches!(bracket, "(" | "{") {
+            return None;
+        }
+        let at = node.start_byte();
+        let line_start = source[..at].rfind('\n').map_or(0, |i| i + 1);
+        let open = line_start + source[line_start..at].find(bracket)?;
+        let rest = &source[at..];
+        let token: String = if rest.starts_with(|c: char| c.is_alphanumeric() || c == '_') {
+            rest.chars()
+                .take_while(|c| c.is_alphanumeric() || *c == '_')
+                .collect()
+        } else {
+            rest.chars().take(1).collect()
+        };
+        if token.is_empty() || token.starts_with(char::is_whitespace) {
+            return None;
+        }
+        Some((open, token))
+    }
+
+    fn is_known_valid_error(node: &Node, source: &str) -> bool {
+        let mut current = node.parent();
+        while let Some(ancestor) = current {
+            if ancestor.kind() == "arguments_statement" {
+                return true;
+            }
+            current = ancestor.parent();
+        }
+        if Self::is_colon_chain(node, source) {
+            return true;
+        }
+        let line_start = source[..node.start_byte()].rfind('\n').map_or(0, |i| i + 1);
+        let line = source[line_start..]
+            .lines()
+            .next()
+            .unwrap_or("")
+            .trim_start();
+        line.strip_prefix("spmd")
+            .is_some_and(|rest| rest.starts_with([' ', '\t', '(']))
+    }
+
+    /// True when the error token sits in a colon chain of plain operands, such
+    /// as `1:2:3:4` (the error token is `:4`), or `:3:4:5` at the start of a range.
+    fn is_colon_chain(node: &Node, source: &str) -> bool {
+        let is_operand_char = |c: char| c.is_ascii_alphanumeric() || matches!(c, '_' | '.' | ':');
+        let start = source[..node.start_byte()]
+            .char_indices()
+            .rev()
+            .take_while(|(_, c)| is_operand_char(*c))
+            .last()
+            .map_or(node.start_byte(), |(i, _)| i);
+        let end = source[node.start_byte()..]
+            .find(|c: char| !is_operand_char(c))
+            .map_or(source.len(), |i| node.start_byte() + i);
+        let run = &source[start..end];
+        run.matches(':').count() >= 2 && !run.contains("::") && !run.ends_with(':')
     }
 }
 
@@ -284,6 +376,46 @@ mod tests {
         assert!(!has_id(&diags, "SYNER"), "got: {diags:?}");
     }
 
+    #[test]
+    fn syner_ok_on_forms_that_matlab_accepts() {
+        // Probed against MATLAB R2026b: none of these gets SYNER. The colon
+        // chain is M3COL, `spmd (...)` is SPDEC3, and a missing final newline
+        // after `2` is not reported.
+        for source in [
+            "a = 1:2:3:4:5;\n",
+            "b = a(1:2:3:4);\n",
+            "spmd (1, 2, 3)\nend\n",
+            "x = 1; 2",
+            "function r = f(x)\narguments\n    x (-1,2)\n    y {@(v) v > 0}\nend\nr = x;\nend\n",
+            "function r = f(x)\narguments (Input = true)\n    x (1,:) double\nend\nr = x;\nend\n",
+        ] {
+            let diags = lint_file(&*engine(), source);
+            assert!(!has_id(&diags, "SYNER"), "{source:?}: got: {diags:?}");
+        }
+    }
+
+    #[test]
+    fn syner_silent_where_a_lexical_check_names_the_error() {
+        // MATLAB reports BADNE and TWOCM here, not a parse error. (`0xZ1` is
+        // BADHBH in MATLAB, but malt does not emit BADHBH for it yet, so it is
+        // not covered by this test.)
+        for source in ["x = 1 != 2;\n", "x = [1,,2];\n"] {
+            let diags = lint_file(&*engine(), source);
+            assert!(!has_id(&diags, "SYNER"), "{source:?}: got: {diags:?}");
+        }
+        let diags = lint_file(&*engine(), "x = 1 != 2;\n");
+        assert!(has_id(&diags, "BADNE"), "got: {diags:?}");
+    }
+
+    #[test]
+    fn syner_not_reported_after_unterminated_string() {
+        // MATLAB reports only STRIN for this file (probe); the parse error on the
+        // next line is a cascade from the unterminated quote.
+        let diags = lint_file(&*engine(), "x = 'abc\nc = \"q\";\n");
+        assert!(has_id(&diags, "STRIN"), "got: {diags:?}");
+        assert!(!has_id(&diags, "SYNER"), "got: {diags:?}");
+    }
+
     // -- NOPAR2: missing closing bracket (mid-file) --------------------------
 
     #[test]
@@ -295,10 +427,12 @@ mod tests {
     }
 
     #[test]
-    fn nopar2_fires_on_missing_bracket_not_at_line_end() {
+    fn nopar_fires_on_missing_paren_before_semicolon() {
+        // MATLAB reports the `;` on the opener's line as the offending token: NOPAR.
         let diags = lint_file(&*engine(), "x = f(1;\ny = 2;\n");
+        assert!(has_id(&diags, "NOPAR"), "got: {diags:?}");
         assert!(!has_id(&diags, "NOPAR2"), "got: {diags:?}");
-        assert!(has_id(&diags, "EOLPAR"), "got: {diags:?}");
+        assert!(!has_id(&diags, "EOLPAR"), "got: {diags:?}");
         assert!(!has_id(&diags, "ENDPAR"), "got: {diags:?}");
     }
 
@@ -313,22 +447,15 @@ mod tests {
     // -- EOLPAR: missing closing bracket at end of line ----------------------
 
     #[test]
-    fn eolpar_fires_on_missing_paren_at_line_end() {
-        let diags = lint_file(
-            &*engine(),
-            "function foo()\n    x = f(1;\n    y = 2;\nend\n",
-        );
-        assert!(has_id(&diags, "EOLPAR"), "got: {diags:?}");
-        assert!(!has_id(&diags, "NOPAR2"), "got: {diags:?}");
-        assert!(!has_id(&diags, "ENDPAR"), "got: {diags:?}");
+    fn missing_paren_before_newline_is_not_nopar() {
+        let diags = lint_file(&*engine(), "function foo()\n    x = f(1\n    y = 2;\nend\n");
+        assert!(!has_id(&diags, "NOPAR"), "got: {diags:?}");
     }
 
     #[test]
-    fn eolpar_fires_on_top_level_missing_paren_at_line_end() {
-        let diags = lint_file(&*engine(), "x = f(1;\ny = 2;\n");
-        assert!(has_id(&diags, "EOLPAR"), "got: {diags:?}");
-        assert!(!has_id(&diags, "NOPAR2"), "got: {diags:?}");
-        assert!(!has_id(&diags, "ENDPAR"), "got: {diags:?}");
+    fn missing_paren_before_newline_at_top_level_is_not_nopar() {
+        let diags = lint_file(&*engine(), "x = f(1\ny = 2;\n");
+        assert!(!has_id(&diags, "NOPAR"), "got: {diags:?}");
     }
 
     #[test]
@@ -367,7 +494,7 @@ mod tests {
             &*engine(),
             "x = f(1;\nfunction foo()\n    x = f(1;\n    y = 2;\nend\nx = f(1 + 2;\n",
         );
-        assert!(has_id(&diags, "EOLPAR"), "got: {diags:?}");
+        assert!(has_id(&diags, "NOPAR"), "got: {diags:?}");
         assert!(has_id(&diags, "ENDPAR"), "got: {diags:?}");
     }
 
@@ -380,9 +507,9 @@ mod tests {
     }
 
     #[test]
-    fn eolpar_fires_on_unclosed_call() {
+    fn nopar_fires_on_unclosed_call() {
         let diags = lint_file(&*engine(), "x = f(1;\ny = 1; 2");
-        assert!(has_id(&diags, "EOLPAR"), "got: {diags:?}");
+        assert!(has_id(&diags, "NOPAR"), "got: {diags:?}");
     }
 
     #[test]

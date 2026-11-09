@@ -39,6 +39,7 @@
 //! | FNDOT | error | no | Function name can only contain dots if it is a class method. |
 //! | FNSWA | error | no | Function name must start with alphabetic character. |
 //! | NOPAR2 | error | no | A VAR_NAME might be missing a closing VAR_NAME, causing invalid syntax at VAR_NAME on line VAR_NUMBER. |
+//! | NOPAR | error | no | A VAR_NAME might be missing a closing VAR_NAME, causing invalid syntax at VAR_NAME. |
 //! | EOLPAR | error | no | A VAR_NAME might be missing a closing VAR_NAME, causing invalid syntax at end of line. |
 //! | ENDPAR | error | no | A VAR_NAME might be missing a closing VAR_NAME, causing invalid syntax at end of file. |
 //! | ENDCT | error | no | An END might be missing, possibly matching VAR_RESERVED_WORD. |
@@ -51,6 +52,7 @@
 //! | BADCT | error | no | Unicode explicit directional formatting characters are not supported. |
 //! | REDEF | error | no | The current use of VAR_NAME is inconsistent with its previous use or definition (line VAR_NUMBER). |
 //! | SEPEXR | error | yes | Use a newline, semicolon, or comma before this statement. |
+//! | SEPEXC | error | no | Use comma to separate between input arguments. |
 //! | SBTMP | error | no | Invalid array indexing or function call. Chaining outputs after parenthesis is not supported. |
 //! | FVSYN | error | no | Invalid function argument syntax at VAR_RESERVED_WORD. |
 //! | FVACI | error | no | Use of name-value arguments in cell indexing is not supported. |
@@ -131,6 +133,7 @@ mod check_function_names;
 mod check_name_value;
 mod check_number_literals;
 mod check_reserved_and_not;
+mod check_sepexc;
 mod check_statements;
 mod check_unterminated;
 mod check_validation_order;
@@ -312,13 +315,14 @@ impl SyntaxErrorsEngine {
             .all(|b| matches!(b, b'\n' | b'\r' | b' ' | b'\t' | b';' | b','))
     }
 
-    /// whitespace, `;`, or `,` follow it up to the next newline).
+    /// whitespace follows it up to the next newline). A `;` or `,` does not end
+    /// the line: MATLAB reports `x = f(1;` as NOPAR at the `;`, not EOLPAR.
     pub(crate) fn is_line_ending(node: Node, source: &str) -> bool {
         let rest = &source[node.end_byte()..];
         let line_end = rest.find('\n').unwrap_or(rest.len());
         rest[..line_end]
             .bytes()
-            .all(|b| matches!(b, b'\r' | b' ' | b'\t' | b';' | b','))
+            .all(|b| matches!(b, b'\r' | b' ' | b'\t'))
     }
 
     /// Heuristic: does this error look like a missing `end`?
@@ -872,6 +876,12 @@ impl Rule for SyntaxErrorsEngine {
         // 5. Tree ERROR/MISSING node analysis (SYNER, NOPAR2, EOLPAR, ENDPAR, ENDCT).
         diagnostics.extend(self.check_error_nodes(root, source));
 
+        // 5b. SEPEXC: whitespace-separated input names in a function header. MATLAB
+        //     reports these instead of the generic SYNER on the same line.
+        let sepexc = self.check_sepexc(source);
+        diagnostics.retain(|d| !(d.rule_id == "SYNER" && sepexc.iter().any(|s| s.line == d.line)));
+        diagnostics.extend(sepexc);
+
         // 6. Number literal validation (BADFP, BADHBH, BADHBB, BADHBHT,
         //     BADHBBT, HEXTOOLONG, BINARYTOOLONG).
         diagnostics.extend(self.check_number_literals(root, source));
@@ -901,9 +911,51 @@ impl Rule for SyntaxErrorsEngine {
         // 14. Argument validation order (VTPOD).
         diagnostics.extend(self.check_validation_order(root, source));
 
+        // 15. A generic SYNER inside a token that a lexical check already reports
+        //     is a duplicate: MATLAB names the specific check (`1 != 2` is BADNE,
+        //     `[1,,2]` is TWOCM, `0xZ1` is BADHBH), not a parse error.
+        let specific: Vec<Range<usize>> = diagnostics
+            .iter()
+            .filter(|d| LEXICAL_CHECKS.contains(&d.rule_id))
+            .map(|d| d.byte_range.clone())
+            .collect();
+        // An unterminated string makes tree-sitter misread the rest of the file.
+        // MATLAB reports only the STRIN, so SYNER after it is a cascade.
+        let unterminated = diagnostics
+            .iter()
+            .filter(|d| matches!(d.rule_id, "STRIN" | "DOUQT"))
+            .map(|d| d.byte_range.start)
+            .min();
+        diagnostics.retain(|d| {
+            d.rule_id != "SYNER"
+                || (unterminated.is_none_or(|s| d.byte_range.start < s)
+                    && !specific
+                        .iter()
+                        .any(|r| r.start < d.byte_range.end && d.byte_range.start < r.end))
+        });
+
         diagnostics
     }
 }
+
+/// Checks that report a specific lexical error. A SYNER on the same token is a duplicate.
+const LEXICAL_CHECKS: &[&str] = &[
+    "BADNE",
+    "TWOCM",
+    "BADCH",
+    "BADSP",
+    "BADCT",
+    "BADFP",
+    "BADHBH",
+    "BADHBB",
+    "BADHBHT",
+    "BADHBBT",
+    "HEXTOOLONG",
+    "BINARYTOOLONG",
+    "STRIN",
+    "DOUQT",
+    "LHROW",
+];
 
 // ---------------------------------------------------------------------------
 // Auto-registration

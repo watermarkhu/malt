@@ -153,18 +153,41 @@ static COMPAT_TABLE: LazyLock<HashMap<&'static str, Vec<&'static CompatEntry>>> 
 ///
 /// This is registered once with inventory. Each emitted diagnostic carries the
 /// specific check ID from the data file (e.g., "DPSD"), not a generic ID.
-pub struct CompatibilityEngine;
+pub struct CompatibilityEngine {
+    /// The forward-compatibility version gates (`FC*`) that are switched on.
+    /// MATLAB's factory configuration leaves them off, so they are off here
+    /// unless the preset, the category or the rule itself turns them on.
+    forward_gates: Vec<&'static str>,
+}
+
+/// The forward-compatibility version-gate checks (MATLAB's "Forward
+/// Compatibility Considerations" group).
+const FORWARD_GATE_IDS: &[&str] = &[
+    "FCLEN", "FCCPV", "FCDQS", "FCFAV", "FCHBL", "FCLFS", "FCNVA",
+];
 
 /// Target node types for the compatibility engine.
 const TARGET_NODES: &[&str] = &["function_call", "command"];
 
 impl CompatibilityEngine {
     /// Factory constructor called by the rule registry.
-    pub fn from_config(_config: &Config) -> Box<dyn Rule> {
+    pub fn from_config(config: &Config) -> Box<dyn Rule> {
         // Force initialization of static data at construction time so that any
         // parse errors surface early rather than on first lint invocation.
         let _ = &*COMPAT_TABLE;
-        Box::new(Self)
+        let group_on = match config.categories.get(&Category::ForwardCompatibility) {
+            Some(severity) => severity.is_some(),
+            None => config.preset.enables_default_off,
+        };
+        let forward_gates = FORWARD_GATE_IDS
+            .iter()
+            .copied()
+            .filter(|id| match config.rules.get(*id) {
+                Some(rule) => rule.enabled,
+                None => group_on,
+            })
+            .collect();
+        Box::new(Self { forward_gates })
     }
 
     /// Run the generic (AST-pattern) compatibility checks over a file.
@@ -235,7 +258,11 @@ impl Rule for CompatibilityEngine {
     }
 
     fn check_file(&self, ctx: &FileContext) -> Vec<Diagnostic> {
-        self.check_generic(ctx.tree, ctx.source)
+        let mut diagnostics = self.check_generic(ctx.tree, ctx.source);
+        diagnostics.retain(|d| {
+            !FORWARD_GATE_IDS.contains(&d.rule_id) || self.forward_gates.contains(&d.rule_id)
+        });
+        diagnostics
     }
 
     fn check(&self, ctx: &NodeContext) -> Vec<Diagnostic> {

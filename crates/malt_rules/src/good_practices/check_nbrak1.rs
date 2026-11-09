@@ -3,9 +3,9 @@ use super::*;
 impl GoodPracticesEngine {
     /// NBRAK1: square brackets used to group an expression for precedence.
     ///
-    /// `[...]` concatenates into a matrix; when a single non-literal expression
-    /// is wrapped in brackets the intent is usually precedence grouping, which
-    /// should use parentheses instead.
+    /// MATLAB reports this only when the single-element brackets are an operand
+    /// of a larger expression (`[x]+1`, `2*[x]`, `[x]'`). Brackets that are the
+    /// whole right-hand side or a function argument are NBRAK2 instead.
     pub(crate) fn check_nbrak1(&self, node: Node, source: &str) -> Vec<Diagnostic> {
         if !self.is_check_enabled("NBRAK1") || node.kind() != "matrix" {
             return Vec::new();
@@ -17,6 +17,23 @@ impl GoodPracticesEngine {
 
         // `[5]` or `['abc']` are legitimate 1x1 array literals.
         if element.kind() == "number" || element.kind() == "string" {
+            return Vec::new();
+        }
+        // `[c{:}]` and `[s.f]` are comma-separated lists, not precedence groups.
+        if element.kind() == "field_expression" || source[element.byte_range()].contains('{') {
+            return Vec::new();
+        }
+        let operand = node.parent().is_some_and(|p| {
+            matches!(
+                p.kind(),
+                "binary_operator"
+                    | "comparison_operator"
+                    | "boolean_operator"
+                    | "unary_operator"
+                    | "postfix_operator"
+            )
+        });
+        if !operand {
             return Vec::new();
         }
 
@@ -97,7 +114,7 @@ mod tests {
 
     #[test]
     fn test_nbrak1_fires_on_single_expression_in_brackets() {
-        let source = "x = [a + b];\n";
+        let source = "x = [a + b] * 2;\n";
         let tree = parse(source);
         let root = tree.root_node();
         let eng = engine();
@@ -110,7 +127,7 @@ mod tests {
 
     #[test]
     fn test_nbrak1_fires_on_single_identifier_in_brackets() {
-        let source = "x = [a];\n";
+        let source = "x = [a] + 1;\n";
         let tree = parse(source);
         let root = tree.root_node();
         let eng = engine();
@@ -119,6 +136,27 @@ mod tests {
         let diags = eng.check_nbrak1(matrix, source);
         assert_eq!(diags.len(), 1);
         assert_eq!(diags[0].rule_id, "NBRAK1");
+    }
+
+    #[test]
+    fn test_nbrak1_silent_on_whole_right_hand_side() {
+        // MATLAB R2026b reports `x = [a];` and `x = [a + b];` as NBRAK2 (probe),
+        // so NBRAK1 must not fire on a bracket that is not an operand.
+        for source in ["x = [a];\n", "x = [a + b];\n", "disp([a]);\n"] {
+            let tree = parse(source);
+            let matrix = find_descendant_of_kind(tree.root_node(), "matrix").unwrap();
+            assert!(engine().check_nbrak1(matrix, source).is_empty(), "{source}");
+        }
+    }
+
+    #[test]
+    fn test_nbrak1_silent_on_comma_separated_list_operand() {
+        // `[c{1}]` and `[s.f]` are lists, not precedence groups (probe: silent).
+        for source in ["y = [c{1}] + 1;\n", "y = [s.f] + 1;\n"] {
+            let tree = parse(source);
+            let matrix = find_descendant_of_kind(tree.root_node(), "matrix").unwrap();
+            assert!(engine().check_nbrak1(matrix, source).is_empty(), "{source}");
+        }
     }
 
     #[test]
@@ -158,9 +196,9 @@ mod fix_tests {
 
     #[test]
     fn rewrites_plain_expressions_only() {
-        let d = nbrak1("x = [a + b];\n");
+        let d = nbrak1("x = [a + b] * 2;\n");
         assert!(d[0].fix.is_some());
-        let d = nbrak1("x = [a'];\n");
+        let d = nbrak1("x = [a]' + 1;\n");
         assert!(d[0].fix.is_some());
     }
 
@@ -169,11 +207,11 @@ mod fix_tests {
         // `(c{:})` would no longer concatenate the list; the rest would become
         // invalid or mean something else in parentheses.
         for source in [
-            "x = [c{:}];\n",
-            "x = [s.f];\n",
-            "x = [@sin];\n",
-            "x = [a;];\n",
-            "x = [a,];\n",
+            "x = [c{:}] + 1;\n",
+            "x = [s.f] + 1;\n",
+            "x = [@sin] + 1;\n",
+            "x = [a;] + 1;\n",
+            "x = [a,] + 1;\n",
         ] {
             for d in nbrak1(source) {
                 assert!(d.fix.is_none(), "{source:?} must not be rewritten");

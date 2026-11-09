@@ -363,6 +363,18 @@ Severity: **error** · Auto-fix: **no**
 
 VAR_RESERVED_WORD statement cannot be used inside an SPMD block.
 
+### SPBRK
+
+Severity: **error** · Auto-fix: **no**
+
+The loop containing the BREAK or CONTINUE must be completely contained in the SPMD block.
+
+### DUPNAMEARG
+
+Severity: **warning** · Auto-fix: **no**
+
+This named argument was already provided. If this function does not allow or ignores repeated named arguments, remove one of the duplicated named arguments.
+
 ### SPGP
 
 Severity: **error** · Auto-fix: **no**

@@ -47,7 +47,7 @@ mod tests {
     use crate::language_spec::tests::{check_source, filter_by_id};
 
     #[test]
-    fn test_fvniv_fires_not_an_input() {
+    fn test_fvniv_silent_under_mathworks() {
         let source = "\
 function f(a)
     arguments
@@ -57,7 +57,7 @@ end
 ";
         let diags = check_source(source, "f.m");
         assert!(
-            !filter_by_id(&diags, "FVNIV").is_empty(),
+            filter_by_id(&diags, "FVNIV").is_empty(),
             "FVNIV should fire for an argument that is not a function input"
         );
     }

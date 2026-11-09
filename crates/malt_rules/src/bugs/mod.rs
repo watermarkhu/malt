@@ -23,38 +23,38 @@
 //! | Check ID | Severity | Fix | Description |
 //! | --- | --- | --- | --- |
 //! | IFBDUP | error | no | This condition has no effect because all blocks in this if statement are identical. This indicates a bug in the code. Remove the condition or change the code blocks. |
-//! | IFCDUP | error | no | The statements under this elseif condition cannot be reached because it is a duplicate of the if/elseif condition on line N. This indicates a bug in the code. Remove or change the condition. |
-//! | CTRUE | error | no | This logical comparison always returns true. Did you mean to use F to evaluate function argument: F(...A<=1...)? A comparison of a logical-valued function such as `any(A)` against a numeric literal that every logical value satisfies. |
-//! | CFALSE | error | no | This logical comparison always returns false. Did you mean to use F to evaluate function argument: F(...A>1...)? A comparison of a logical-valued function such as `any(A)` against a numeric literal that no logical value satisfies. |
-//! | SHOCIRT | error | no | The && operator is unexpected because isscalar(A && B) always returns true. (`isscalar`, `islogical`, `isreal` applied to `&&` or `||`.) |
-//! | SHOCIRF | error | no | The || operator is unexpected because isempty(A || B) always returns false. (`isempty`, `isnan`, `ischar`, `isnumeric`, … applied to `&&` or `||`.) |
-//! | DEBUGFUN | error | no | Debug functions (`dbcont`, `dbquit`, `dbup`, `dbdown`, `dbstep`) are intended to be used at the command line. At runtime, they will generate an error. Remove the debug function. |
-//! | INCR | error | yes (unsafe) | `++x` does not increment the value of x. To increase the value by 1, use x = x + 1. |
-//! | DECR | error | yes (unsafe) | `--x` does not decrement the value of x. To decrease the value by 1, use x = x - 1. |
-//! | CMDAND | error | yes (unsafe) | Command-syntax statement `a &b`: use 'A && B' or 'A & B' to test whether A and B are both true in MATLAB. |
-//! | CMDOR | error | yes (unsafe) | Command-syntax statement `a |b`: use 'A || B' or 'A | B' to test whether either A or B is true in MATLAB. |
+//! | IFCDUP | error | no | The statements under this <reserved word> condition cannot be reached because it is a duplicate of the <reserved word> condition on line <number>. This indicates a bug in the code. Remove or change the condition. |
+//! | CTRUE | error | no | This logical comparison always returns true. Did you mean to use <name> to evaluate function argument: <name>(...<name>...)? |
+//! | CFALSE | error | no | This logical comparison always returns false. Did you mean to use <name> to evaluate function argument: <name>(...<name>...)? |
+//! | SHOCIRT | error | no | The <name> operator is unexpected because <name>(A <name> B) always returns true. |
+//! | SHOCIRF | error | no | The <name> operator is unexpected because <name>(A <name> B) always returns false. |
+//! | DEBUGFUN | error | no | Debug functions are intended to be used at the command line. At runtime, they will generate an error. Remove the debug function. |
+//! | INCR | error | yes (unsafe) | ++x operation does not increment the value of x. To increase the value by 1, use x = x + 1. |
+//! | DECR | error | yes (unsafe) | --x operation does not decrement the value of x. To decrease the value by 1, use x = x - 1. |
+//! | CMDAND | error | yes (unsafe) | Use 'A && B' or 'A & B' to test whether A and B are both true in MATLAB. |
+//! | CMDOR | error | yes (unsafe) | Use 'A || B' or 'A | B' to test whether either A or B is true in MATLAB. |
 //! | RHSFN | error | no | The expression cannot be assigned to multiple values. |
-//! | FNAN | error | yes (unsafe) | Use ISNAN when comparing values to NaN (`x == NaN`, `x ~= NaN`). |
+//! | FNAN | error | yes (unsafe) | Use ISNAN when comparing values to NaN. |
 //! | LOGEMP | error | no | Using 'isempty' on a logical expression creates incorrect results. To determine if all the conditions are false, use '~any(..., "all")' instead. |
 //! | STCUL | error | no | The comparison will likely fail due to case mismatch. |
-//! | LBODUP | error | no | Since both operands are identical, the second operand has no effect on the && operation (`A && A`, `A | A`, …). This indicates a bug in the code. Change one of the operands or remove the operation. |
-//! | FUNFUN | error | no | The first input argument must be a function handle. Did you mean '@name'? (A function name passed as a string to `arrayfun`, `structfun`, `bsxfun`, …; legacy `cellfun('isempty', …)` names are allowed.) |
+//! | LBODUP | error | no | Since both operands are identical, the second operand has no effect on the <reserved word> operation. This indicates a bug in the code. Change one of the operands or remove the <reserved word> operation. |
+//! | FUNFUN | error | no | The first input argument must be a function handle. Did you mean '@<name>'? |
 //! | DEFSIZE | error | no | Do not overload 'size' for fundamental data types. |
 //! | VARARG | error | no | Initialize VARARGOUT with a CELL. |
 //! | STRCMPCSTR | error | no | 'strcmp' always returns false for string elements of a cell array. Use ["str1", "str2"] instead of {"str1", "str2"}. |
 //! | ASSRT | error | no | The first input argument to 'assert' must be a condition. To always throw an error, use 'error(msg)' instead. |
-//! | BDSCA2 | error | no | Operands to '\|\|' and '&&' must be scalar values (matrix literal, range or sized `zeros`/`ones`/… operand). Use 'all' or 'any' to convert this value into a scalar value or use the element-wise operators '\|' or '&' instead. |
+//! | BDSCA2 | error | no | Operands to '\|\|' and '&&' must be scalar values.  Use 'all' or 'any' to convert this value into a scalar value or use the element-wise operators '\|' or '&' instead. |
 //! | NOPRC | error | no | A line break terminates the statement so it may be incomplete. Use ellipsis (...) to continue the statement. Or add a semicolon to hide the output. |
-//! | MOCUP | error | no | Variable X may be cleared before the cleanup function that references X executes, resulting in an undefined variable error. |
-//! | MDUPC | error | no | The case value X is a duplicate of one on line N. |
-//! | MNANC | error | no | NaN never compares equal to any value, so this case will never be matched (`case NaN`). |
+//! | MOCUP | error | no | Variable <name> may be cleared before the cleanup function that references <name> executes, resulting in an undefined variable error. |
+//! | MDUPC | error | no | The case value <name> is a duplicate of one on line <number>. |
+//! | MNANC | error | no | NaN never compares equal to any value, so this case will never be matched. |
 //! | MULCC | error | no | This case cannot be matched due to a call to UPPER or LOWER on the SWITCH value. |
-//! | MEXCEP | error | no | To report an MException as a warning (`warning(E.message)`), use a format specifier to ensure the message is printed correctly. For example, 'warning(E.identifier, "%s", E.message)'. |
-//! | PFUIXE | error | no | The index variable X might be used after the PARFOR loop on line N, but it is unavailable after the loop. |
+//! | MEXCEP | error | no | To report an MException as a warning, use a format specifier to ensure the message is printed correctly. For example, 'warning(E.identifier, "%s", E.message)'. |
+//! | PFUIXE | error | no | The index variable <name> might be used after the PARFOR loop on line <number>, but it is unavailable after the loop. |
 //! | PFBFN | error | no | Use of this function is invalid inside a PARFOR loop because it accesses or modifies the workspace in a non-transparent way. |
 //! | PFWHOS | error | no | Using "who" or "whos" without "-file" is invalid inside a PARFOR loop because it accesses the workspace in a non-transparent way. |
-//! | PFTUSE | error | no | The temporary variable X is used after the PARFOR loop on line N, but its value is not available after the loop. |
-//! | PFRNC | error | no | Parfor reduction variable X must be used in the same position in each assignment statement when using non-commutative reduction operations '*', '[,]', or '[;]'. |
+//! | PFTUSE | error | no | The temporary variable <name> is used after the PARFOR loop on line <number>, but its value is not available after the loop. |
+//! | PFRNC | error | no | Parfor reduction variable <name> must be used in the same position in each assignment statement when using non-commutative reduction operations '*', '[,]', or '[;]'. |
 //!
 //! ## Fix
 //!
@@ -349,7 +349,7 @@ impl BugsEngine {
                             diagnostics.push(Diagnostic {
                                 rule_id: "MDUPC",
                                 message: format!(
-                                    "The case value {} is a duplicate of one on line {}.",
+                                    "The case value '{}' is a duplicate of one on line {}.",
                                     case_text, first_line
                                 ),
                                 severity: Severity::Error,
@@ -1260,5 +1260,17 @@ end
             let tree = parse(src);
             assert!(!tree.root_node().has_error(), "parse error for: {src:?}");
         }
+    }
+
+    #[test]
+    fn mdupc_message_quotes_the_case_value() {
+        // MATLAB: "The case value '3' is a duplicate of one on line 2."
+        let diags =
+            file_diags("switch x\n    case 3\n        disp(1)\n    case 3\n        disp(2)\nend\n");
+        let d = diags.iter().find(|d| d.rule_id == "MDUPC").expect("MDUPC");
+        assert_eq!(
+            d.message,
+            "The case value '3' is a duplicate of one on line 2."
+        );
     }
 }

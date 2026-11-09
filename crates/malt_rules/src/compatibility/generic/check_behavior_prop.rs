@@ -391,7 +391,10 @@ mod tests {
     use crate::test_util::{has_id, lint_file};
 
     fn diags(source: &str) -> Vec<Diagnostic> {
-        lint_file(&CompatibilityEngine, source)
+        lint_file(
+            CompatibilityEngine::from_config(&malt_core::Config::default()).as_ref(),
+            source,
+        )
     }
 
     fn fires(source: &str, id: &str) {

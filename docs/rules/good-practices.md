@@ -152,7 +152,7 @@ Names longer than VAR_NUMBER characters are not supported. This name has been tr
 
 Severity: **warning** · Auto-fix: **no**
 
-Expressions like a < b < c are interpreted as (a < b) < c. Use (a < b) && (b < c) instead.
+Expressions like a &lt;name&gt; b &lt;name&gt; c are interpreted as (a &lt;name&gt; b) &lt;name&gt; c. Typically, to test a &lt;name&gt; b &lt;name&gt; c mathematically, if all arguments are numeric scalars, use (a &lt;name&gt; b) && (b &lt;name&gt; c), otherwise use (a &lt;name&gt; b) & (b &lt;name&gt; c).
 
 ### DISPLAY
 
@@ -244,11 +244,41 @@ Severity: **warning** · Auto-fix: **no**
 
 Using the VAR_NAME operator in the expression VAR_NAME(A VAR_NAME B) is probably unintended.
 
+### FXSETL
+
+Severity: **warning** · Auto-fix: **no**
+
+&lt;name&gt; is also the loop variable for an outer loop. Rename this variable, so this loop does not affect the outer loop variable.
+
+### ISEQ
+
+Severity: **warning** · Auto-fix: **no**
+
+The context surrounding this expression expects a scalar value. Consider using 'isequal', which returns a scalar value, instead of '==' or '~='.
+
+### BDSCA1
+
+Severity: **warning** · Auto-fix: **no**
+
+Unexpected use of non-scalar value in a context which expects a scalar value. Use 'all' or 'any' to convert this value into a scalar value.
+
+### SUBSASGN
+
+Severity: **warning** · Auto-fix: **no**
+
+Output of 'subsasgn' should be assigned to a variable.
+
+### XPORD
+
+Severity: **warning** · Auto-fix: **no**
+
+Use parentheses to clarify the evaluation order of chained exponents.
+
 ### UNRPWR
 
 Severity: **warning** · Auto-fix: **no**
 
-Consider using parentheses to explicitly specify operator precedence.
+Combining exponentiation operators with unary operators (such as logical negation) without parentheses will not be supported in a future release. Use parentheses to clarify the evaluation order.
 
 ### ADAPPREF
 
@@ -530,7 +560,7 @@ The format might not agree with the argument count.
 
 Severity: **warning** · Auto-fix: **no**
 
-Loop index variable is changed inside of a `for` loop
+Assigning a value to a loop variable within the loop statements is confusing and may not have an effect. The value of &lt;name&gt; will be reset on the next iteration of the loop.
 
 ### SIMPT
 

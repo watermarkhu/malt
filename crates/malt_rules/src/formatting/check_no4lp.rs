@@ -1,140 +1,71 @@
-//! NO4LP check: use 4-space indentation in loop/conditional bodies.
+//! NO4LP check: parentheses around the iterator of a `for` statement.
 
 use super::*;
 
 // ---------------------------------------------------------------------------
-// NO4LP: Use 4-space indentation in loop/conditional bodies
+// NO4LP: Parentheses are not needed in a FOR statement
 // ---------------------------------------------------------------------------
 
 impl FormattingEngine {
-    /// For `for_statement`, `while_statement`, `if_statement`, and
-    /// `switch_statement`, check that the `block` body is indented by
-    /// `indent_size` spaces relative to the parent keyword.
+    /// Flag `for (i = 1:n)`: the parentheses around the loop header are
+    /// redundant. `parfor` is left alone (its parentheses also delimit the
+    /// worker options).
+    ///
+    /// The diagnostic sits on the opening parenthesis. The fix removes both
+    /// parentheses, but only when what follows the closing one cannot be
+    /// glued onto the header (`for (i = 1:3) disp(i), end` is left unfixed).
     pub(crate) fn check_no4lp(&self, node: Node, source: &str, diagnostics: &mut Vec<Diagnostic>) {
-        // Where the keyword *will* be once the statements around it are
-        // indented, not where it is now: a nested statement is re-indented in
-        // the same pass as its parent, and measuring from the old column would
-        // move one nesting level per pass.
-        let indent = self.no4lp_config.indent_size;
-        let parent_col = target_column(node, indent);
-        let expected_indent = parent_col + indent;
-
-        // Find all `block` children (there may be multiple in if/switch).
-        let child_count = node.child_count();
-        for i in 0..child_count {
+        if node.child(0).map(|c| c.kind()) != Some("for") {
+            return;
+        }
+        let mut open = None;
+        let mut close = None;
+        for i in 0..node.child_count() {
             let Some(child) = node.child(i) else {
                 continue;
             };
             match child.kind() {
-                "block" => {
-                    self.check_block_indentation(child, expected_indent, source, diagnostics);
-                }
-                // elseif_clause and else_clause also contain blocks.
-                "elseif_clause" | "else_clause" | "case_clause" | "otherwise_clause" => {
-                    // A `case` body hangs off the `case` line, which this check
-                    // leaves where it is; `elseif`/`else` bodies follow the `if`.
-                    let expected_indent =
-                        if matches!(child.kind(), "case_clause" | "otherwise_clause")
-                            && line_prefix_is_blank(source, child)
-                        {
-                            child.start_position().column + indent
-                        } else {
-                            expected_indent
-                        };
-                    let inner_count = child.child_count();
-                    for j in 0..inner_count {
-                        if let Some(inner) = child.child(j) {
-                            if inner.kind() == "block" {
-                                self.check_block_indentation(
-                                    inner,
-                                    expected_indent,
-                                    source,
-                                    diagnostics,
-                                );
-                            }
-                        }
-                    }
-                }
+                "(" if open.is_none() => open = Some(child),
+                ")" if open.is_some() && close.is_none() => close = Some(child),
+                "block" | "end" => break,
                 _ => {}
             }
         }
-    }
+        let (Some(open), Some(close)) = (open, close) else {
+            return;
+        };
 
-    /// Check that each statement in a block starts at the expected column.
-    fn check_block_indentation(
-        &self,
-        block: Node,
-        expected_indent: usize,
-        source: &str,
-        diagnostics: &mut Vec<Diagnostic>,
-    ) {
-        let child_count = block.child_count();
-        for i in 0..child_count {
-            let Some(stmt) = block.child(i) else {
-                continue;
-            };
-            // Skip non-statement nodes (e.g., semicolons, newlines).
-            if is_punctuation(stmt.kind()) || stmt.kind() == "comment" {
-                continue;
-            }
+        let pos = open.start_position();
+        let rest = &source[close.end_byte()..];
+        let line_rest = rest.split(['\n', '\r']).next().unwrap_or("").trim_start();
+        let separable = line_rest.is_empty() || line_rest.starts_with(['%', ';', ',']);
+        // `for(i = 1:3)`: the keyword and the header need a blank between them.
+        let glued = source[..open.start_byte()]
+            .chars()
+            .next_back()
+            .is_some_and(|c| !c.is_whitespace());
 
-            let actual_col = stmt.start_position().column;
-            if actual_col != expected_indent {
-                // Only flag if the line starts with spaces (not tabs or mixed).
-                let line_start = line_start_byte(source, stmt.start_byte());
-                let prefix = &source[line_start..stmt.start_byte()];
-                if prefix.chars().all(|c| c == ' ') {
-                    let pos = stmt.start_position();
-                    diagnostics.push(Diagnostic {
-                        rule_id: "NO4LP",
-                        message: "Parentheses are not needed in a FOR statement.".to_string(),
-                        severity: Severity::Info,
-                        byte_range: line_start..stmt.start_byte(),
-                        line: pos.row + 1,
-                        column: 1,
-                        fix: Some(Fix::new(
-                            line_start..stmt.start_byte(),
-                            " ".repeat(expected_indent),
-                        )),
-                    });
-                }
-            }
-        }
-    }
-}
-
-/// Whether only blanks precede `node` on its line.
-fn line_prefix_is_blank(source: &str, node: Node) -> bool {
-    let start = line_start_byte(source, node.start_byte());
-    source[start..node.start_byte()].trim().is_empty()
-}
-
-/// The column a control statement ends up at: one level in from the statement
-/// whose body it sits in, or where it is when it sits in no such body.
-fn target_column(node: Node, indent: usize) -> usize {
-    let owner = node
-        .parent()
-        .filter(|p| p.kind() == "block")
-        .and_then(|block| block.parent())
-        .map(|o| {
-            if matches!(
-                o.kind(),
-                "elseif_clause" | "else_clause" | "case_clause" | "otherwise_clause"
-            ) {
-                o.parent().unwrap_or(o)
-            } else {
-                o
-            }
-        })
-        .filter(|o| {
-            matches!(
-                o.kind(),
-                "for_statement" | "while_statement" | "if_statement" | "switch_statement"
+        let fix = separable.then(|| {
+            let (primary_replacement, close_fix) = (
+                if glued { " " } else { "" },
+                Fix::new(close.start_byte()..close.end_byte(), ""),
+            );
+            Fix::with_additional(
+                open.start_byte()..open.end_byte(),
+                primary_replacement,
+                vec![close_fix],
             )
         });
-    match owner {
-        Some(owner) => target_column(owner, indent) + indent,
-        None => node.start_position().column,
+
+        diagnostics.push(Diagnostic {
+            rule_id: "NO4LP",
+            message: "Parentheses are not needed in a FOR statement.".to_string(),
+            severity: Severity::Info,
+            byte_range: open.start_byte()..close.end_byte(),
+            line: pos.row + 1,
+            column: pos.column + 1,
+            fix,
+        });
     }
 }
 
@@ -145,34 +76,7 @@ mod tests {
 
     // -- NO4LP ---------------------------------------------------------------
 
-    #[test]
-    fn no4lp_loop_body_unindented() {
-        let source = "\
-function f()
-for i = 1:10
-x = i;
-end
-end
-";
-        let diags = lint(source);
-        assert!(has_id(&diags, "NO4LP"), "got: {diags:?}");
-    }
-
-    #[test]
-    fn no4lp_loop_body_indented() {
-        let source = "\
-function f()
-    for i = 1:10
-        x = i;
-    end
-end
-";
-        let diags = lint(source);
-        assert!(!has_id(&diags, "NO4LP"), "got: {diags:?}");
-    }
-
-    /// Apply the fixes of one pass.
-    fn fix_once(source: &str) -> String {
+    fn fix_no4lp(source: &str) -> String {
         let diags: Vec<_> = lint(source)
             .into_iter()
             .filter(|d| d.rule_id == "NO4LP")
@@ -181,31 +85,54 @@ end
     }
 
     #[test]
-    fn no4lp_deep_nesting_is_fixed_in_one_pass() {
-        // Each level used to move one pass at a time and never settled within the
-        // pass limit for deep nesting.
-        let depth = 14;
-        let source = format!(
-            "{}y = 1;\n{}",
-            "if x\n".repeat(depth),
-            "end\n".repeat(depth)
-        );
-        let once = fix_once(&source);
-        assert_eq!(fix_once(&once), once, "a second pass must change nothing");
-        let deepest = once.lines().find(|l| l.trim() == "y = 1;").unwrap();
-        assert_eq!(deepest.len() - deepest.trim_start().len(), depth * 4);
+    fn no4lp_parenthesised_for_header() {
+        let diags = lint("for (i = 1:3)\n    disp(i);\nend\n");
+        let d = diags.iter().find(|d| d.rule_id == "NO4LP").expect("NO4LP");
+        assert_eq!((d.line, d.column), (1, 5), "got: {diags:?}");
     }
 
     #[test]
-    fn no4lp_case_bodies_hang_off_the_case_line() {
-        let source = "switch x\n    case 1\n        a = 1;\n    otherwise\n        a = 2;\nend\n";
-        let diags = lint(source);
+    fn no4lp_plain_for_header_is_fine() {
+        let diags = lint("for i = 1:3\n    disp(i);\nend\n");
         assert!(!has_id(&diags, "NO4LP"), "got: {diags:?}");
+    }
 
-        let flat = "switch x\n    case 1\n    a = 1;\nend\n";
+    #[test]
+    fn no4lp_parentheses_inside_the_range_are_fine() {
+        let diags = lint("for i = (1:3)\n    disp(i);\nend\n");
+        assert!(!has_id(&diags, "NO4LP"), "got: {diags:?}");
+    }
+
+    #[test]
+    fn no4lp_indentation_is_not_this_check() {
+        // NO4LP used to be an indentation check; MATLAB has no such check.
+        let diags = lint("function f()\nfor i = 1:10\nx = i;\nend\nend\n");
+        assert!(!has_id(&diags, "NO4LP"), "got: {diags:?}");
+    }
+
+    #[test]
+    fn no4lp_parfor_is_left_alone() {
+        let diags = lint("parfor (i = 1:3, 4)\n    disp(i);\nend\n");
+        assert!(!has_id(&diags, "NO4LP"), "got: {diags:?}");
+    }
+
+    #[test]
+    fn no4lp_fix_removes_the_parentheses() {
         assert_eq!(
-            fix_once(flat),
-            "switch x\n    case 1\n        a = 1;\nend\n"
+            fix_no4lp("for (i = 1:3)\n    disp(i);\nend\n"),
+            "for i = 1:3\n    disp(i);\nend\n"
         );
+        assert_eq!(
+            fix_no4lp("for(i = 1:3)\n    disp(i);\nend\n"),
+            "for i = 1:3\n    disp(i);\nend\n"
+        );
+    }
+
+    #[test]
+    fn no4lp_no_fix_when_the_body_shares_the_line() {
+        let source = "for (i = 1:3) disp(i), end\n";
+        let diags = lint(source);
+        let d = diags.iter().find(|d| d.rule_id == "NO4LP").expect("NO4LP");
+        assert!(d.fix.is_none(), "got: {d:?}");
     }
 }

@@ -19,7 +19,7 @@ impl BugsEngine {
         let pos = bad.start_position();
         vec![Diagnostic {
             rule_id: "BDSCA2",
-            message: "Operands to '||' and '&&' must be scalar values. Use 'all' or 'any' to convert this value into a scalar value or use the element-wise operators '|' or '&' instead.".to_string(),
+            message: "Operands to '||' and '&&' must be scalar values.  Use 'all' or 'any' to convert this value into a scalar value or use the element-wise operators '|' or '&' instead.".to_string(),
             severity: Severity::Error,
             byte_range: bad.start_byte()..bad.end_byte(),
             line: pos.row + 1,
@@ -54,5 +54,18 @@ mod tests {
     fn bdsca2_no_fire_on_scalars() {
         let diags = node_diags("A = x && y;\nB = [1] || zeros(1);\nC = a * [1 2];\n");
         assert!(!has_id(&diags, "BDSCA2"), "got: {diags:?}");
+    }
+
+    #[test]
+    fn bdsca2_message_is_matlab_text() {
+        let diags = node_diags("y = [1 2] && 3;\n");
+        let d = diags
+            .iter()
+            .find(|d| d.rule_id == "BDSCA2")
+            .expect("BDSCA2");
+        assert_eq!(
+            d.message,
+            "Operands to '||' and '&&' must be scalar values.  Use 'all' or 'any' to convert this value into a scalar value or use the element-wise operators '|' or '&' instead."
+        );
     }
 }

@@ -14,7 +14,7 @@ icon: lucide/list-checks
 | [`COMPAT`](rules/compatibility.md) | Compatibility | Deprecated or removed function usage | Warning | No |
 | [`CUSTOM_CHECKS`](rules/custom-checks.md) | Custom Checks | Code complexity and style metrics | Warning | No |
 | [`DEPLOYMENT_ENGINE`](rules/deployment.md) | Deployment | MATLAB Compiler deployment constraint checks | Warning | No |
-| [`FORMATTING_ENGINE`](rules/formatting.md) | Formatting | Formatting suggestion checks (NOCOMMA, NO4LP, ALIGN, NOPTS, NOPRT, PRTCAL, NCOMMA) | Info | Yes |
+| [`FORMATTING_ENGINE`](rules/formatting.md) | Formatting | Formatting suggestion checks (NOCOMMA, NO4LP, ALIGN, NOPTS, NOPRT, NCOMMA) | Info | Yes |
 | [`GOOD_PRACTICES_ENGINE`](rules/good-practices.md) | Good Practices | Common best-practice checks for MATLAB code | Warning | Yes |
 | [`INCOMPLETE_ANALYSIS`](rules/incomplete-analysis.md) | Incomplete Analysis | Internal linter limits and analysis integrity checks | Error | No |
 | [`LANGUAGE_SPEC_ENGINE`](rules/language-spec.md) | Language Specification | Language specification constraint violation | Error | No |

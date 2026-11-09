@@ -92,13 +92,6 @@ impl BugsEngine {
             return Vec::new();
         }
 
-        let args = collect_call_args(call, source).join(", ");
-        let other = node_text(if call_on_left { right } else { left }, source).trim();
-        let inner = if call_on_left {
-            format!("{args}{op}{other}")
-        } else {
-            format!("{other}{op}{args}")
-        };
         let (rule_id, word) = if r0 {
             ("CTRUE", "true")
         } else {
@@ -108,7 +101,7 @@ impl BugsEngine {
         vec![Diagnostic {
             rule_id,
             message: format!(
-                "This logical comparison always returns {word}. Did you mean to use {name} to evaluate function argument: {name}(...{inner}...)?"
+                "This logical comparison always returns {word}. Did you mean to use {op} to evaluate function argument: {name}(...{op}...)?"
             ),
             severity: Severity::Error,
             byte_range: node.start_byte()..node.end_byte(),
@@ -129,7 +122,8 @@ mod tests {
         let diags = node_diags("B = any(A) <= 1;\n");
         assert!(has_id(&diags, "CTRUE"), "got: {diags:?}");
         let msg = &diags.iter().find(|d| d.rule_id == "CTRUE").unwrap().message;
-        assert!(msg.contains("any(...A<=1...)"), "got: {msg}");
+        // MATLAB prints the operator, not the argument: "any(...<=...)".
+        assert!(msg.contains("any(...<=...)"), "got: {msg}");
         assert!(!msg.contains("VAR_"), "got: {msg}");
     }
 
@@ -169,6 +163,17 @@ mod tests {
         assert!(
             !has_id(&diags, "CTRUE") && !has_id(&diags, "CFALSE"),
             "got: {diags:?}"
+        );
+    }
+
+    #[test]
+    fn ctrue_message_names_operator_and_function() {
+        // MATLAB: "... Did you mean to use >= to evaluate function argument: any(...>=...)?"
+        let diags = node_diags("B = any(A) >= 0;\n");
+        let d = diags.iter().find(|d| d.rule_id == "CTRUE").expect("CTRUE");
+        assert_eq!(
+            d.message,
+            "This logical comparison always returns true. Did you mean to use >= to evaluate function argument: any(...>=...)?"
         );
     }
 }

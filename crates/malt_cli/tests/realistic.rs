@@ -38,19 +38,26 @@ fn function_file_is_clean() {
 }
 
 #[test]
-fn class_file_only_has_release_gate_findings() {
-    assert_eq!(ids("cls1.m"), vec!["FCDQS", "FCFAV", "FVINR"]);
+fn class_file_only_has_the_arguments_block_finding() {
+    // The FC* release gates are off by default, as in MATLAB's factory
+    // configuration (checked against checkcode in R2026b).
+    // FVINR needs an `arguments (Output)` block next to the unattributed one;
+    // a lone block is silent in MATLAB (probe fv1).
+    assert_eq!(ids("cls1.m"), Vec::<&str>::new());
 }
 
 #[test]
 fn function_with_arguments_block_parfor_and_switch() {
     // PFNF is right: `helper` is a nested function called inside parfor.
-    assert_eq!(ids("func2.m"), vec!["FCDQS", "FCFAV", "FVINR", "PFNF"]);
+    // FVINR is silent: the arguments block is the only one (probe fv1).
+    assert_eq!(ids("func2.m"), vec!["PFNF"]);
 }
 
 #[test]
-fn script_findings_are_real_dead_stores_and_a_missing_semicolon() {
-    assert_eq!(ids("script2.m"), vec!["NASGU", "PRTCAL"]);
+fn script_workspace_variables_are_not_dead_stores() {
+    // The values a script leaves in the workspace are its results: MATLAB
+    // reports no NASGU for them.
+    assert_eq!(ids("script2.m"), Vec::<&str>::new());
 }
 
 #[test]
@@ -60,14 +67,19 @@ fn unit_test_class_is_clean() {
 
 #[test]
 fn guide_file_has_only_unused_callback_arguments_and_callback() {
-    assert_eq!(ids("gui1.m"), vec!["DEFNU", "INUSD", "VANUS"]);
+    // No DEFNU: gui1.m calls str2func, and MATLAB reports no DEFNU in a file
+    // that calls eval, feval or str2func (probed; the callbacks are not reported).
+    // VANUS is off under the mathworks preset: MATLAB never reports it.
+    assert_eq!(ids("gui1.m"), vec!["INUSD"]);
 }
 
 #[test]
 fn legacy_globals_nargin_varargin_and_eval() {
     // No VALST (varargin is last), no FVAL (no feval), no STRNU on the global,
     // no TLEV on a top-level eval.
-    assert_eq!(ids("legacy1.m"), vec!["AGROW", "ERTAG", "EVLCS", "PRTCAL"]);
+    // `out = eval(expr)` and the two-argument eval are not EVLCS in MATLAB.
+    // ERTAG is off under the mathworks preset: MATLAB never reports it.
+    assert_eq!(ids("legacy1.m"), vec!["AGROW"]);
 }
 
 #[test]
@@ -83,9 +95,9 @@ fn numeric_solver_has_no_hermitian_false_positive() {
 
 #[test]
 fn numeric_script_findings_are_real() {
-    // rand(N, 2) is not the 'seed' form (RAND), and the table field assignment
-    // is reported as the dead store it is.
-    assert_eq!(ids("num2.m"), vec!["LOGSUM", "NASGU", "STRNU"]);
+    // rand(N, 2) is not the 'seed' form (RAND); the script's workspace values
+    // are not dead stores.
+    assert_eq!(ids("num2.m"), vec!["LOGSUM", "STRNU"]);
 }
 
 #[test]

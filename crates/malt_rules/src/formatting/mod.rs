@@ -12,7 +12,7 @@
 //!
 //! ## Rule
 //!
-//! Suggests formatting improvements for MATLAB code. All 7 checks share a
+//! Suggests formatting improvements for MATLAB code. All 6 checks share a
 //! single `FormattingEngine` that runs as a file-level rule, walking the whole
 //! tree once and applying every enabled check per node. Each diagnostic
 //! carries the specific check ID (e.g. `NOCOMMA`, `NO4LP`). Individual checks
@@ -28,26 +28,24 @@
 //! | ALIGN | info | yes | This keyword might not be aligned with its matching END on line VAR_NUMBER. |
 //! | NOPTS | info | yes | Add a semicolon after the statement to hide the output (in a script). |
 //! | NOPRT | info | yes | Add a semicolon after the statement to hide the output (in a function). |
-//! | PRTCAL | info | yes | Add a semicolon after the function call to hide the output. |
 //! | NCOMMA | info | yes | Best practice is to separate output variables with commas. |
 //!
 //! ## Fix
 //!
 //! Each check rewrites the flagged construct directly:
 //!
-//! - NOCOMMA inserts a comma between space-separated row elements (`[1 2 3]` → `[1, 2, 3]`).
+//! - NOCOMMA removes a comma that repeats a separator (`x = 1;,` → `x = 1;`).
 //! - NCOMMA inserts a comma between space-separated function arguments.
-//! - NO4LP rewrites the indentation prefix of misindented statements.
+//! - NO4LP removes the parentheses around the `for` header (`for (i = 1:n)` → `for i = 1:n`).
 //! - ALIGN re-indents `elseif`/`else` clauses to the column of their `if`.
 //! - NOPTS and NOPRT strip unnecessary parentheses (`(x)` → `x`).
-//! - PRTCAL rewrites a string-only call to command syntax (`disp('hello')` → `disp hello`).
 //!
 //! ## Examples
 //!
 //! ### Incorrect
 //!
 //! ```matlab
-//! x = [1, 2,];          % NOCOMMA: extra comma
+//! x = 1;,                % NOCOMMA: extra comma
 //! [a b] = f();          % NCOMMA: separate outputs with commas
 //! function g()
 //!     y = compute()     % NOPRT: semicolon to hide output (in a function)
@@ -85,10 +83,6 @@
 //!
 //! [lint.rules.NO4LP]
 //! severity = "info"
-//! indent_size = 4
-//!
-//! [lint.rules.PRTCAL]
-//! severity = "off"
 //! ```
 
 mod check_align;
@@ -97,10 +91,8 @@ mod check_no4lp;
 mod check_nocomma;
 mod check_noprt;
 mod check_nopts;
-mod check_prtcal;
 
 use malt_core::{Category, Config, Diagnostic, FileContext, Fix, Rule, Severity};
-use serde::Deserialize;
 use tree_sitter::Node;
 
 // ---------------------------------------------------------------------------
@@ -108,34 +100,11 @@ use tree_sitter::Node;
 // ---------------------------------------------------------------------------
 
 /// All formatting check IDs handled by this engine.
-pub(crate) const CHECK_IDS: &[&str] = &[
-    "NOCOMMA", "NO4LP", "ALIGN", "NOPTS", "NOPRT", "PRTCAL", "NCOMMA",
-];
+pub(crate) const CHECK_IDS: &[&str] = &["NOCOMMA", "NO4LP", "ALIGN", "NOPTS", "NOPRT", "NCOMMA"];
 
 // ---------------------------------------------------------------------------
 // Per-check configuration
 // ---------------------------------------------------------------------------
-
-/// Configuration for the NO4LP indentation check.
-#[derive(Debug, Clone, Deserialize)]
-pub struct No4lpConfig {
-    /// Expected indentation size in spaces.
-    #[serde(default = "default_indent_size")]
-    pub indent_size: usize,
-}
-
-impl Default for No4lpConfig {
-    fn default() -> Self {
-        Self {
-            indent_size: default_indent_size(),
-        }
-    }
-}
-
-/// Default indentation size (4 spaces).
-pub(crate) fn default_indent_size() -> usize {
-    4
-}
 
 /// Parent node types that indicate statement-level context.
 pub(crate) const STATEMENT_PARENTS: &[&str] = &["source_file", "block"];
@@ -151,17 +120,15 @@ struct EnabledChecks {
     align: bool,
     nopts: bool,
     noprt: bool,
-    prtcal: bool,
     ncomma: bool,
 }
 
-/// The formatting suggestions engine that handles all 7 formatting checks.
+/// The formatting suggestions engine that handles all 6 formatting checks.
 ///
 /// Registered as `"FORMATTING_ENGINE"` with inventory. Uses file-level
 /// analysis to walk the tree once and apply all enabled formatting checks.
 pub struct FormattingEngine {
     enabled: EnabledChecks,
-    no4lp_config: No4lpConfig,
 }
 
 impl FormattingEngine {
@@ -173,14 +140,9 @@ impl FormattingEngine {
             align: config.is_rule_enabled("ALIGN"),
             nopts: config.is_rule_enabled("NOPTS"),
             noprt: config.is_rule_enabled("NOPRT"),
-            prtcal: config.is_rule_enabled("PRTCAL"),
             ncomma: config.is_rule_enabled("NCOMMA"),
         };
-        let no4lp_config: No4lpConfig = config.rule_params("NO4LP");
-        Box::new(Self {
-            enabled,
-            no4lp_config,
-        })
+        Box::new(Self { enabled })
     }
 
     /// Returns true if any sub-check is enabled.
@@ -190,7 +152,6 @@ impl FormattingEngine {
             || self.enabled.align
             || self.enabled.nopts
             || self.enabled.noprt
-            || self.enabled.prtcal
             || self.enabled.ncomma
     }
 }
@@ -201,7 +162,7 @@ impl Rule for FormattingEngine {
     }
 
     fn description(&self) -> &'static str {
-        "Formatting suggestion checks (NOCOMMA, NO4LP, ALIGN, NOPTS, NOPRT, PRTCAL, NCOMMA)"
+        "Formatting suggestion checks (NOCOMMA, NO4LP, ALIGN, NOPTS, NOPRT, NCOMMA)"
     }
 
     fn severity(&self) -> Severity {
@@ -248,17 +209,13 @@ impl FormattingEngine {
         // Note: multiple checks can apply to the same node type, so dispatch
         // each independently rather than using mutually-exclusive match arms.
 
-        // NOCOMMA: extra/trailing comma in matrix/cell rows
-        if (kind == "matrix" || kind == "cell") && self.enabled.nocomma {
-            self.check_nocomma(node, diagnostics);
+        // NOCOMMA: a comma that repeats a statement separator
+        if kind == "," && self.enabled.nocomma {
+            self.check_nocomma(node, source, diagnostics);
         }
 
-        // NO4LP: indentation in loop/conditional bodies
-        if matches!(
-            kind,
-            "for_statement" | "while_statement" | "if_statement" | "switch_statement"
-        ) && self.enabled.no4lp
-        {
+        // NO4LP: parentheses around a `for` header
+        if kind == "for_statement" && self.enabled.no4lp {
             self.check_no4lp(node, source, diagnostics);
         }
 
@@ -275,11 +232,6 @@ impl FormattingEngine {
         // NOPRT: statement in a function that produces output without a semicolon
         if kind == "assignment" && self.enabled.noprt {
             self.check_noprt(node, source, diagnostics);
-        }
-
-        // PRTCAL: bare function call statement without a semicolon
-        if kind == "function_call" && self.enabled.prtcal {
-            self.check_prtcal(node, source, diagnostics);
         }
 
         // NCOMMA: output variables not separated by commas
@@ -300,11 +252,6 @@ impl FormattingEngine {
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-/// Returns `true` if the node kind is bracket/punctuation that should be skipped.
-pub(crate) fn is_punctuation(kind: &str) -> bool {
-    matches!(kind, "[" | "]" | "{" | "}" | "(" | ")" | ";" | "," | "...")
-}
 
 /// Returns `true` if a node is inside a `function_definition` (i.e., in a
 /// function/method body) as opposed to at script level.

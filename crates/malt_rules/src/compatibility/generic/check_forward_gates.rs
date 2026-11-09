@@ -502,8 +502,10 @@ mod tests {
     use crate::test_util::{has_id, lint_file};
     use malt_core::Config;
 
+    /// The forward-compatibility gates are off by default (as in MATLAB), so
+    /// these tests run under the `all` preset.
     fn engine() -> Box<dyn malt_core::Rule> {
-        CompatibilityEngine::from_config(&Config::default())
+        CompatibilityEngine::from_config(&Config::from_toml("[lint]\npreset = \"all\"\n").unwrap())
     }
 
     #[test]
@@ -637,8 +639,10 @@ mod scope_tests {
     use crate::test_util::{has_id, lint_file};
     use malt_core::Config;
 
+    /// The forward-compatibility gates are off by default (as in MATLAB), so
+    /// these tests run under the `all` preset.
     fn engine() -> Box<dyn malt_core::Rule> {
-        CompatibilityEngine::from_config(&Config::default())
+        CompatibilityEngine::from_config(&Config::from_toml("[lint]\npreset = \"all\"\n").unwrap())
     }
 
     #[test]
@@ -706,5 +710,26 @@ mod scope_tests {
             "function p(x)\n function n(a)\n  global a;\n end\nend\n",
         );
         assert!(has_id(&d, "REDEFGI"), "got: {d:?}");
+    }
+
+    #[test]
+    fn forward_gates_are_off_by_default() {
+        let default = CompatibilityEngine::from_config(&Config::default());
+        let source = "x = \"text\";\n";
+        assert!(!has_id(&lint_file(default.as_ref(), source), "FCDQS"));
+        assert!(has_id(&lint_file(engine().as_ref(), source), "FCDQS"));
+    }
+
+    #[test]
+    fn forward_gates_follow_category_and_rule_config() {
+        let source = "x = \"text\";\n";
+        let category =
+            Config::from_toml("[lint.categories]\nforward-compatibility = \"warn\"\n").unwrap();
+        let by_category = CompatibilityEngine::from_config(&category);
+        assert!(has_id(&lint_file(by_category.as_ref(), source), "FCDQS"));
+
+        let rule = Config::from_toml("[lint.rules]\nFCDQS = \"warn\"\n").unwrap();
+        let by_rule = CompatibilityEngine::from_config(&rule);
+        assert!(has_id(&lint_file(by_rule.as_ref(), source), "FCDQS"));
     }
 }

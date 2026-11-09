@@ -80,7 +80,7 @@ impl BugsEngine {
         vec![Diagnostic {
             rule_id: "LBODUP",
             message: format!(
-                "Since both operands are identical, the second operand has no effect on the {op} operation. This indicates a bug in the code. Change one of the operands or remove the {op} operation."
+                "Since both operands are identical, the second operand has no effect on the '{op}' operation. This indicates a bug in the code. Change one of the operands or remove the '{op}' operation."
             ),
             severity: Severity::Error,
             byte_range: node.start_byte()..node.end_byte(),
@@ -132,12 +132,28 @@ mod tests {
             2,
             "got: {diags:?}"
         );
-        assert!(diags[0].message.contains("&& operation"), "got: {diags:?}");
+        assert!(
+            diags[0].message.contains("'&&' operation"),
+            "got: {diags:?}"
+        );
     }
 
     #[test]
     fn lbodup_no_fire_on_distinct_operands() {
         let diags = node_diags("y = a && b;\n");
         assert!(!has_id(&diags, "LBODUP"), "got: {diags:?}");
+    }
+
+    #[test]
+    fn lbodup_message_quotes_the_operator() {
+        let diags = node_diags("x = a && a;\n");
+        let d = diags
+            .iter()
+            .find(|d| d.rule_id == "LBODUP")
+            .expect("LBODUP");
+        assert_eq!(
+            d.message,
+            "Since both operands are identical, the second operand has no effect on the '&&' operation. This indicates a bug in the code. Change one of the operands or remove the '&&' operation."
+        );
     }
 }

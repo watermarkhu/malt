@@ -44,6 +44,21 @@ impl GoodPracticesEngine {
             }];
         }
 
+        // MATLAB reports EVLCS only for `eval(...)` used as a statement with a
+        // single argument: `out = eval(expr)` has no direct replacement, and the
+        // two-argument form is the EV2IN suggestion instead.
+        let statement_level = node
+            .parent()
+            .is_some_and(|p| STATEMENT_PARENTS.contains(&p.kind()));
+        let two_arguments = find_child_of_kind(node, "arguments").is_some_and(|args| {
+            let mut cursor = args.walk();
+            let named = args.children(&mut cursor).filter(|c| c.is_named()).count();
+            named > 1
+        });
+        if !statement_level || two_arguments {
+            return Vec::new();
+        }
+
         // Determine which eval sub-check to fire based on argument patterns.
         let args_text = get_arguments_text(node, source);
 
@@ -188,7 +203,10 @@ mod tests {
         };
         // Constant statements and variables: plain EVLCS.
         assert_eq!(ids("eval('tmp = 2;');\n"), vec!["EVLCS"]);
-        assert_eq!(ids("out = eval(expr);\n"), vec!["EVLCS"]);
+        // MATLAB does not flag eval with an output (no direct replacement) or the
+        // two-argument form (the EV2IN suggestion).
+        assert!(ids("out = eval(expr);\n").is_empty());
+        assert!(ids("eval('a = 1;', 'a = 0;');\n").is_empty());
         // A variable called `s` is not a field access.
         assert_eq!(ids("eval(s);\n"), vec!["EVLCS"]);
         // Built assignments and field names.

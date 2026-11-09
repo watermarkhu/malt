@@ -1,54 +1,67 @@
-//! NOCOMMA check: extra (trailing) comma in a matrix/cell row.
+//! NOCOMMA check: an extra comma between statements.
 
 use super::*;
 
 impl FormattingEngine {
-    /// For `matrix` and `cell` nodes, flag a trailing comma in a `row`
-    /// (e.g., `[1, 2,]`) as unnecessary.
-    pub(crate) fn check_nocomma(&self, node: Node, diagnostics: &mut Vec<Diagnostic>) {
-        let child_count = node.child_count();
-        for i in 0..child_count {
-            let Some(child) = node.child(i) else {
-                continue;
-            };
-            if child.kind() == "row" {
-                self.check_row_trailing_comma(child, diagnostics);
-            }
-        }
-    }
-
-    /// Flag a `row` whose last element is a real (non-zero-width) comma.
+    /// Flag a comma token that only repeats a separator. MATLAB reports the
+    /// second comma of `,,` and a comma after `;` or `,` (`x = 1;,`), and a comma
+    /// right after `try` (`try, a = 1;`). A comma after an expression
+    /// (`if x, disp(1), end`) or after `catch` is a normal separator.
     ///
-    /// A zero-width comma is a missing separator inserted by the grammar for
-    /// space-separated elements; a real comma at the end of a row is an extra
-    /// trailing comma the user typed.
-    fn check_row_trailing_comma(&self, row: Node, diagnostics: &mut Vec<Diagnostic>) {
-        let count = row.child_count();
-        if count == 0 {
+    /// Commas inside matrices, cells and argument lists are left alone: a
+    /// doubled comma there is a different error (TWOCM).
+    pub(crate) fn check_nocomma(
+        &self,
+        node: Node,
+        source: &str,
+        diagnostics: &mut Vec<Diagnostic>,
+    ) {
+        // A zero-width comma is a separator the parser inserted, not one the user typed.
+        if node.start_byte() >= node.end_byte() || Self::inside_bracket_or_call(node) {
             return;
         }
-        let Some(last) = row.child(count - 1) else {
-            return;
-        };
-        if last.kind() != "," {
-            return;
-        }
-        // Zero-width commas are "missing" separators, not extra commas.
-        if last.start_byte() >= last.end_byte() {
+        let before = source[..node.start_byte()].trim_end_matches([' ', '\t']);
+        let extra = before.ends_with(';') || before.ends_with(',') || ends_with_word(before, "try");
+        if !extra {
             return;
         }
 
-        let pos = last.start_position();
+        let pos = node.start_position();
         diagnostics.push(Diagnostic {
             rule_id: "NOCOMMA",
             message: "Extra comma is unnecessary.".to_string(),
             severity: Severity::Info,
-            byte_range: last.start_byte()..last.end_byte(),
+            byte_range: node.start_byte()..node.end_byte(),
             line: pos.row + 1,
             column: pos.column + 1,
-            fix: Some(Fix::new(last.start_byte()..last.end_byte(), String::new())),
+            fix: Some(Fix::new(node.start_byte()..node.end_byte(), String::new())),
         });
     }
+
+    /// True when the comma sits inside `[]`, `{}`, `()` of a call or an arguments block.
+    fn inside_bracket_or_call(node: Node) -> bool {
+        let mut current = node.parent();
+        while let Some(ancestor) = current {
+            if matches!(
+                ancestor.kind(),
+                "matrix" | "cell" | "function_call" | "arguments" | "arguments_statement"
+            ) {
+                return true;
+            }
+            current = ancestor.parent();
+        }
+        false
+    }
+}
+
+/// True when `text` ends with the keyword `word` as a whole word.
+fn ends_with_word(text: &str, word: &str) -> bool {
+    text.strip_suffix(word).is_some_and(|rest| {
+        !rest
+            .chars()
+            .next_back()
+            .is_some_and(|c| c.is_alphanumeric() || c == '_')
+    })
 }
 
 #[cfg(test)]
@@ -59,30 +72,54 @@ mod tests {
     // -- NOCOMMA -------------------------------------------------------------
 
     #[test]
-    fn nocomma_trailing_comma_in_matrix() {
-        let source = "x = [1, 2,];\n";
+    fn nocomma_doubled_comma_after_semicolon() {
+        // MATLAB R2026b reports the comma after `;` (column 7).
+        let source = "x = 1;,\n";
         let diags = lint(source);
         assert!(has_id(&diags, "NOCOMMA"), "got: {diags:?}");
     }
 
     #[test]
-    fn nocomma_trailing_comma_in_cell() {
-        let source = "c = {1, 2,};\n";
+    fn nocomma_second_of_two_commas() {
+        // MATLAB reports the second comma of `,,` (column 7).
+        let source = "x = 1,, y = 2;\n";
+        let diags = lint(source);
+        assert_eq!(diags.iter().filter(|d| d.rule_id == "NOCOMMA").count(), 1);
+    }
+
+    #[test]
+    fn nocomma_comma_after_try() {
+        // MATLAB reports `try,` but not the comma after `catch`.
+        let source = "try, a = 1; catch, b = 2; end\n";
+        let diags = lint(source);
+        let nocomma: Vec<_> = diags.iter().filter(|d| d.rule_id == "NOCOMMA").collect();
+        assert_eq!(nocomma.len(), 1, "got: {diags:?}");
+        assert_eq!(nocomma[0].column, 4);
+    }
+
+    #[test]
+    fn nocomma_comma_after_semicolon_in_control_block() {
+        let source = "x = 1;\nwhile k < 3, k = k + 1;, end\n";
         let diags = lint(source);
         assert!(has_id(&diags, "NOCOMMA"), "got: {diags:?}");
     }
 
     #[test]
-    fn nocomma_ok_without_trailing_comma() {
-        let source = "x = [1, 2, 3];\n";
-        let diags = lint(source);
-        assert!(!has_id(&diags, "NOCOMMA"), "got: {diags:?}");
+    fn nocomma_ok_for_separator_commas() {
+        assert!(!has_id(&lint("if x, disp(1), end\n"), "NOCOMMA"));
+        assert!(!has_id(&lint("x = 1, y = 2\n"), "NOCOMMA"));
+        assert!(!has_id(&lint("for k=1:3, disp(k), end\n"), "NOCOMMA"));
+    }
+
+    #[test]
+    fn nocomma_ok_for_trailing_comma_in_matrix_and_cell() {
+        // MATLAB R2026b does not report `[1, 2,]` or `{1, 2,}` as NOCOMMA.
+        assert!(!has_id(&lint("x = [1, 2,];\n"), "NOCOMMA"));
+        assert!(!has_id(&lint("c = {1, 2,};\n"), "NOCOMMA"));
     }
 
     #[test]
     fn nocomma_ok_space_separated() {
-        let source = "x = [1 2 3];\n";
-        let diags = lint(source);
-        assert!(!has_id(&diags, "NOCOMMA"), "got: {diags:?}");
+        assert!(!has_id(&lint("x = [1 2 3];\n"), "NOCOMMA"));
     }
 }

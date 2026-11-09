@@ -135,6 +135,9 @@ pub struct UnsetVariablesEngine {
     _config: UnsetVariablesConfig,
     /// Precomputed set of ignored names (builtins + user-configured).
     ignore_set: HashSet<String>,
+    /// Whether SUSENS runs. MATLAB never reports it with its default
+    /// configuration, so it is off under the `mathworks` preset.
+    script_checks_on: bool,
 }
 
 impl UnsetVariablesEngine {
@@ -149,6 +152,7 @@ impl UnsetVariablesEngine {
         Box::new(Self {
             _config: rule_config,
             ignore_set,
+            script_checks_on: config.preset.enables_default_off,
         })
     }
 
@@ -323,6 +327,7 @@ end
         let engine = UnsetVariablesEngine {
             _config: rule_config,
             ignore_set,
+            script_checks_on: true,
         };
 
         let ctx = FileContext {

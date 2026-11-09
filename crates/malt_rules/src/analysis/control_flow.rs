@@ -174,7 +174,7 @@ pub fn find_unreachable(tree: &Tree, source: &str) -> Vec<UnreachableSpan> {
 /// DFS helper that visits every node and, for `block` nodes, checks for
 /// unreachable code after terminating statements.
 fn collect_unreachable_dfs(node: Node, source: &str, spans: &mut Vec<UnreachableSpan>) {
-    if node.kind() == "block" {
+    if node.kind() == "block" || is_script_body(node) {
         check_block_unreachable(node, source, spans);
     }
 
@@ -186,11 +186,25 @@ fn collect_unreachable_dfs(node: Node, source: &str, spans: &mut Vec<Unreachable
     }
 }
 
+/// `true` for a script's body: a file with no function definitions and no
+/// syntax errors, whose top-level statements are direct children of the file.
+/// Probes: MATLAB flags statements after `return` and `error` at script level,
+/// but not after a top-level `break` (a syntax error outside a loop).
+pub fn is_script_body(node: Node) -> bool {
+    if node.kind() != "source_file" || node.has_error() {
+        return false;
+    }
+    !named_children(node)
+        .iter()
+        .any(|c| c.kind() == "function_definition")
+}
+
 /// For a single `block` node, find the first terminating statement and mark
 /// all subsequent named siblings as unreachable.
 fn check_block_unreachable(block: Node, source: &str, spans: &mut Vec<UnreachableSpan>) {
     let children = named_children(block);
     let mut terminator_found: Option<&'static str> = None;
+    let script = block.kind() == "source_file";
 
     for child in &children {
         if let Some(cause) = terminator_found {
@@ -198,6 +212,8 @@ fn check_block_unreachable(block: Node, source: &str, spans: &mut Vec<Unreachabl
             if child.kind() == "comment" {
                 continue;
             }
+            // MATLAB reports only the first statement of an unreachable run:
+            // its message reads "this statement (and possibly following ones)".
             let pos = child.start_position();
             spans.push(UnreachableSpan {
                 byte_range: child.start_byte()..child.end_byte(),
@@ -205,7 +221,12 @@ fn check_block_unreachable(block: Node, source: &str, spans: &mut Vec<Unreachabl
                 column: pos.column + 1,
                 cause,
             });
+            break;
         } else if let Some(cause) = termination_cause(child.kind()) {
+            // `break` and `continue` outside a loop are syntax errors.
+            if script && matches!(cause, "break" | "continue") {
+                continue;
+            }
             terminator_found = Some(cause);
         }
     }
@@ -1048,15 +1069,16 @@ end
         let tree = parse(source);
         let spans = find_unreachable(&tree, source);
 
-        // Two unreachable statements: `y = 2;` and `disp(y);`
+        // MATLAB reports only the first statement of an unreachable run (`y = 2;`),
+        // not each statement after it (checked against checkcode in R2026b).
         assert_eq!(
             spans.len(),
-            2,
-            "expected 2 unreachable spans, got {:?}",
+            1,
+            "expected 1 unreachable span, got {:?}",
             spans
         );
         assert_eq!(spans[0].cause, "return");
-        assert_eq!(spans[1].cause, "return");
+        assert_eq!(spans[0].line, 4);
 
         // Verify they point to the right code.
         let first_text = &source[spans[0].byte_range.clone()];

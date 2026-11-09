@@ -2,6 +2,9 @@
 
 use super::*;
 
+/// Calls that reach functions by name at run time.
+const DYNAMIC_CALLS: &[&str] = &["eval", "feval", "str2func"];
+
 impl UnusedEngine {
     /// Run DEFNU check: local function defined but never called.
     pub(crate) fn check_defnu(&self, table: &SymbolTable, diagnostics: &mut Vec<Diagnostic>) {
@@ -15,6 +18,12 @@ impl UnusedEngine {
             .iter()
             .flat_map(|s| s.uses.iter().map(|u| u.name.as_str()))
             .collect();
+
+        // Probe: once the file calls eval, feval or str2func, MATLAB cannot tell
+        // which local function is reached, and reports no DEFNU in the file.
+        if DYNAMIC_CALLS.iter().any(|c| all_uses.contains(c)) {
+            return;
+        }
 
         for scope in &table.scopes {
             if scope.kind != ScopeKind::LocalFunction {
@@ -70,5 +79,37 @@ mod tests {
             "function main()\n    helper();\nend\n\nfunction helper()\n    disp(2);\nend\n",
         );
         assert!(!has_id(&diags, "DEFNU"), "got: {diags:?}");
+    }
+
+    #[test]
+    fn defnu_ok_when_function_handle_taken() {
+        // Probe: a function handle counts as a use.
+        let diags = lint_file(
+            &*engine(),
+            "function main()\n    h = @helper;\n    h();\nend\n\nfunction helper()\n    disp(2);\nend\n",
+        );
+        assert!(!has_id(&diags, "DEFNU"), "got: {diags:?}");
+    }
+
+    #[test]
+    fn defnu_silent_when_file_calls_feval() {
+        // Probe: `dead` is not reported once the file calls feval, even though
+        // the feval argument is a handle or a variable.
+        let diags = lint_file(
+            &*engine(),
+            "function r = main(name)\n    r = feval(name);\nend\n\nfunction r = dead()\n    r = 2;\nend\n",
+        );
+        assert!(!has_id(&diags, "DEFNU"), "got: {diags:?}");
+    }
+
+    #[test]
+    fn defnu_silent_when_file_calls_eval_or_str2func() {
+        // Probe: the same holds for eval and str2func.
+        for call in ["eval('x = 1;');", "g = str2func('helper');"] {
+            let src =
+                format!("function main()\n    {call}\nend\n\nfunction dead()\n    disp(3);\nend\n");
+            let diags = lint_file(&*engine(), &src);
+            assert!(!has_id(&diags, "DEFNU"), "{call}: got: {diags:?}");
+        }
     }
 }

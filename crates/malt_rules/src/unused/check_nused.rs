@@ -5,14 +5,10 @@ use super::*;
 impl UnusedEngine {
     /// Run NUSED check: global or persistent variables declared but never used.
     ///
-    /// # Limitations
-    ///
-    /// NUSED covers both global AND persistent variables, per the MathWorks
-    /// message. An unused `persistent` variable therefore also matches the
-    /// narrower PUSE check ("Persistent variable might be unused") and will be
-    /// reported by both. This overlap is intentional — it follows the two
-    /// messages verbatim — but means a single unused persistent declaration can
-    /// emit two diagnostics.
+    /// MATLAB reports a declaration only when the name is never referenced in
+    /// its scope. An assignment counts as a reference: `global g; g = 1;` and
+    /// `persistent p; p = 1;` are silent (probes q11, nu1). PUSE may report the
+    /// same persistent declaration.
     pub(crate) fn check_nused(&self, table: &SymbolTable, diagnostics: &mut Vec<Diagnostic>) {
         if self.is_check_disabled("NUSED") {
             return;
@@ -20,8 +16,7 @@ impl UnusedEngine {
 
         for scope in &table.scopes {
             for def in &scope.defs {
-                // Persistent variables are PUSE's.
-                if def.kind != DefKind::Global {
+                if !matches!(def.kind, DefKind::Global | DefKind::Persistent) {
                     continue;
                 }
                 let name = &def.name;
@@ -30,7 +25,10 @@ impl UnusedEngine {
                     continue;
                 }
 
-                if !scope.is_used(name) {
+                let assigned = scope.defs.iter().any(|d| {
+                    d.name == *name && !matches!(d.kind, DefKind::Global | DefKind::Persistent)
+                });
+                if !scope.is_used(name) && !assigned {
                     diagnostics.push(Diagnostic {
                         rule_id: "NUSED",
                         message: "Global or persistent variable might be unused or unset in this function or script.".to_string(),
@@ -59,16 +57,26 @@ mod tests {
     // -- NUSED: global/persistent declared but never used --------------------
 
     #[test]
+    fn nused_silent_when_global_is_assigned() {
+        // An assignment counts as a reference (probe q11).
+        let diags = lint_file(
+            &*engine(),
+            "function foo()\n    global g;\n    g = 1;\nend\n",
+        );
+        assert!(!has_id(&diags, "NUSED"), "got: {diags:?}");
+    }
+
+    #[test]
     fn nused_fires_on_unused_global() {
         let diags = lint_file(&*engine(), "function foo()\n    global g;\nend\n");
         assert!(has_id(&diags, "NUSED"), "got: {diags:?}");
     }
 
     #[test]
-    fn nused_leaves_persistent_to_puse() {
+    fn nused_fires_on_unused_persistent() {
         let diags = lint_file(&*engine(), "function foo()\n    persistent p;\nend\n");
-        assert!(!has_id(&diags, "NUSED"), "got: {diags:?}");
-        assert!(has_id(&diags, "PUSE"), "got: {diags:?}");
+        // MATLAB reports an unreferenced persistent under NUSED (probe nu5).
+        assert!(has_id(&diags, "NUSED"), "got: {diags:?}");
     }
 
     #[test]

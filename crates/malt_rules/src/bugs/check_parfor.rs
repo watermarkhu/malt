@@ -3,16 +3,7 @@ use std::collections::HashMap;
 
 /// Functions that access or modify the workspace non-transparently, which is
 /// invalid inside a `parfor` body.
-const NON_TRANSPARENT: &[&str] = &[
-    "assignin",
-    "evalin",
-    "eval",
-    "evalc",
-    "save",
-    "clear",
-    "clearvars",
-    "inputname",
-];
+const NON_TRANSPARENT: &[&str] = &["eval", "evalc", "save", "clear", "clearvars", "inputname"];
 
 /// Call `f` for `node` and every descendant, skipping nothing.
 fn visit<'a>(node: Node<'a>, f: &mut impl FnMut(Node<'a>)) {
@@ -165,7 +156,6 @@ impl BugsEngine {
 
     fn check_parfor(parfor: Node, source: &str, diagnostics: &mut Vec<Diagnostic>) {
         let loop_var = extract_for_variable(parfor, source);
-        let line = parfor.start_position().row + 1;
         let Some(body) = find_block_child(parfor) else {
             return;
         };
@@ -176,7 +166,7 @@ impl BugsEngine {
                 diagnostics.push(diag(
                     "PFUIXE",
                     use_node,
-                    format!("The index variable {lv} might be used after the PARFOR loop on line {line}, but it is unavailable after the loop."),
+                    format!("The index variable '{lv}' might be used after the PARFOR loop on line {}, but it is unavailable after the loop.", use_node.start_position().row + 1),
                 ));
             }
         }
@@ -199,9 +189,7 @@ impl BugsEngine {
                     if !has_file {
                         calls.push(diag("PFWHOS", node, PFWHOS_MSG.to_string()));
                     }
-                } else if NON_TRANSPARENT.contains(&name)
-                    || (name == "load" && !node.parent().is_some_and(|p| p.kind() == "assignment"))
-                {
+                } else if NON_TRANSPARENT.contains(&name) {
                     calls.push(diag("PFBFN", node, PFBFN_MSG.to_string()));
                 }
             }
@@ -212,7 +200,7 @@ impl BugsEngine {
                     if !text.contains("-file") {
                         calls.push(diag("PFWHOS", node, PFWHOS_MSG.to_string()));
                     }
-                } else if NON_TRANSPARENT.contains(&first) || first == "load" {
+                } else if NON_TRANSPARENT.contains(&first) {
                     calls.push(diag("PFBFN", node, PFBFN_MSG.to_string()));
                 }
             }
@@ -258,7 +246,7 @@ impl BugsEngine {
                 diagnostics.push(diag(
                     "PFTUSE",
                     use_node,
-                    format!("The temporary variable {var} is used after the PARFOR loop on line {line}, but its value is not available after the loop."),
+                    format!("The temporary variable '{var}' is used after the PARFOR loop on line {}, but its value is not available after the loop.", use_node.start_position().row + 1),
                 ));
             }
         }
@@ -268,7 +256,7 @@ impl BugsEngine {
             diagnostics.push(diag(
                 "PFRNC",
                 node,
-                format!("Parfor reduction variable {var} must be used in the same position in each assignment statement when using non-commutative reduction operations '*', '[,]', or '[;]'."),
+                format!("Parfor reduction variable '{var}' must be used in the same position in each assignment statement when using non-commutative reduction operations '*', '[,]', or '[;]'."),
             ));
         }
     }
@@ -290,7 +278,11 @@ mod tests {
             .iter()
             .find(|d| d.rule_id == "PFUIXE")
             .expect("PFUIXE");
-        assert!(d.message.contains("index variable i"), "got: {}", d.message);
+        assert!(
+            d.message.contains("index variable 'i'"),
+            "got: {}",
+            d.message
+        );
         assert_eq!(d.line, 4);
     }
 
@@ -356,7 +348,7 @@ mod tests {
             .find(|d| d.rule_id == "PFTUSE")
             .expect("PFTUSE");
         assert!(
-            d.message.contains("temporary variable t"),
+            d.message.contains("temporary variable 't'"),
             "got: {}",
             d.message
         );
@@ -377,7 +369,7 @@ mod tests {
         let diags = file_diags(src);
         let d = diags.iter().find(|d| d.rule_id == "PFRNC").expect("PFRNC");
         assert!(
-            d.message.contains("reduction variable p"),
+            d.message.contains("reduction variable 'p'"),
             "got: {}",
             d.message
         );
@@ -395,5 +387,42 @@ mod tests {
         let src = "p = 1;\nparfor i = 1:10\n    p = p * i;\n    p = p * 2;\nend\n";
         let diags = file_diags(src);
         assert!(!has_id(&diags, "PFRNC"), "got: {diags:?}");
+    }
+
+    #[test]
+    fn pfuixe_message_quotes_index_and_gives_use_line() {
+        // MATLAB: "The index variable 'i' might be used after the PARFOR loop on line 4, ..."
+        let diags = file_diags("parfor i = 1:3\n    x = i;\nend\ndisp(i)\n");
+        let d = diags
+            .iter()
+            .find(|d| d.rule_id == "PFUIXE")
+            .expect("PFUIXE");
+        assert_eq!(
+            d.message,
+            "The index variable 'i' might be used after the PARFOR loop on line 4, but it is unavailable after the loop."
+        );
+    }
+
+    #[test]
+    fn pftuse_message_quotes_temporary_and_gives_use_line() {
+        let diags = file_diags("parfor i = 1:3\n    t = i;\nend\ndisp(t)\n");
+        let d = diags
+            .iter()
+            .find(|d| d.rule_id == "PFTUSE")
+            .expect("PFTUSE");
+        assert_eq!(
+            d.message,
+            "The temporary variable 't' is used after the PARFOR loop on line 4, but its value is not available after the loop."
+        );
+    }
+
+    #[test]
+    fn pfrnc_message_quotes_the_reduction_variable() {
+        let diags = file_diags("x = [];\nparfor m = 1:3\n    x = [x m];\n    x = [m x];\nend\n");
+        let d = diags.iter().find(|d| d.rule_id == "PFRNC").expect("PFRNC");
+        assert_eq!(
+            d.message,
+            "Parfor reduction variable 'x' must be used in the same position in each assignment statement when using non-commutative reduction operations '*', '[,]', or '[;]'."
+        );
     }
 }

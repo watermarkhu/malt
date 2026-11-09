@@ -50,7 +50,7 @@
 //! | SEPEX | warning | no | Consider using newline, semicolon, or comma before this statement for readability. |
 //! | NBRAK1 | warning | yes | If you intend to specify expression precedence, use parentheses () instead of brackets []. |
 //! | LNGNM | warning | no | Names longer than VAR_NUMBER characters are not supported. This name has been truncated to VAR_NUMBER characters. |
-//! | CHAIN | warning | no | Expressions like a < b < c are interpreted as (a < b) < c. Use (a < b) && (b < c) instead. |
+//! | CHAIN | warning | no | Expressions like a <name> b <name> c are interpreted as (a <name> b) <name> c. Typically, to test a <name> b <name> c mathematically, if all arguments are numeric scalars, use (a <name> b) && (b <name> c), otherwise use (a <name> b) & (b <name> c). |
 //! | DISPLAY | warning | no | Overloading DISPLAY is not recommended. |
 //! | FNDEF | warning | no | Function name VAR_NAME is known to MATLAB by its file name: VAR_FILE. |
 //! | NOIN | warning | no | Method VAR_NAME should either be a static method or have at least one input argument. |
@@ -66,7 +66,12 @@
 //! | LOGMAX | warning | no | Using 'max' on a logical expression is hard to understand and might be incorrect. Consider using 'any' instead. |
 //! | ELARLOG | warning | no | The VAR_NAME operator in the expression VAR_NAME(A VAR_NAME B) is unexpected. Should this be VAR_NAME(A) VAR_NAME B? |
 //! | SHOCIRAA | warning | no | Using the VAR_NAME operator in the expression VAR_NAME(A VAR_NAME B) is probably unintended. |
-//! | UNRPWR | warning | no | Consider using parentheses to explicitly specify operator precedence. |
+//! | FXSETL | warning | no | <name> is also the loop variable for an outer loop. Rename this variable, so this loop does not affect the outer loop variable. |
+//! | ISEQ | warning | no | The context surrounding this expression expects a scalar value. Consider using 'isequal', which returns a scalar value, instead of '==' or '~='. |
+//! | BDSCA1 | warning | no | Unexpected use of non-scalar value in a context which expects a scalar value. Use 'all' or 'any' to convert this value into a scalar value. |
+//! | SUBSASGN | warning | no | Output of 'subsasgn' should be assigned to a variable. |
+//! | XPORD | warning | no | Use parentheses to clarify the evaluation order of chained exponents. |
+//! | UNRPWR | warning | no | Combining exponentiation operators with unary operators (such as logical negation) without parentheses will not be supported in a future release. Use parentheses to clarify the evaluation order. |
 //! | ADAPPREF | warning | no | Use app as the first argument for VAR_NAME. |
 //! | KEYBOARDFUN | warning | no | Consider removing 'keyboard' function once you have finished debugging. This function may have security implications. |
 //! | GVMIS | warning | no | Global variables are inefficient and make errors difficult to diagnose. Use a function with input variables instead. |
@@ -113,7 +118,7 @@
 //! | GTARG | warning | no | Function might be called with too many arguments. |
 //! | LTARG | warning | no | Function might be called with too few arguments. |
 //! | CTPCT | warning | no | The format might not agree with the argument count. |
-//! | FXSETA | warning | no | Loop index variable is changed inside of a `for` loop |
+//! | FXSETA | warning | no | Assigning a value to a loop variable within the loop statements is confusing and may not have an effect. The value of <name> will be reset on the next iteration of the loop. |
 //! | SIMPT | warning | no | This import statement runs before any other code in function VAR_NAME. Consider placing it at the top of the function body. |
 //! | TLEV | warning | no | VAR_NAME could be very inefficient unless it is a top-level statement in its function. |
 //! | UNONC | warning | no | Assign the onCleanup output argument to a variable. Do not use the tilde operator (~) in place of a variable. |
@@ -198,6 +203,7 @@ use crate::analysis::symbols::SymbolTable;
 mod check_app_designer;
 mod check_arity;
 mod check_attf_attof;
+mod check_bdsca1;
 mod check_chain;
 mod check_comnc;
 mod check_comnot;
@@ -215,8 +221,10 @@ mod check_fncolnd;
 mod check_fndef;
 mod check_fval;
 mod check_fxset;
+mod check_fxsetl;
 mod check_gvmis;
 mod check_handle_defaults;
+mod check_iseq;
 mod check_iters;
 mod check_lngnm;
 mod check_load;
@@ -257,12 +265,14 @@ mod check_stcmp;
 mod check_stisa;
 mod check_strnu;
 mod check_strsz;
+mod check_subsasgn;
 mod check_tlev;
 mod check_trync;
 mod check_unonc;
 mod check_unrpwr;
 mod check_valst;
 mod check_warning_error_tag;
+mod check_xpord;
 
 // ---------------------------------------------------------------------------
 // Default configuration values
@@ -355,7 +365,13 @@ pub struct GoodPracticesEngine {
 impl GoodPracticesEngine {
     /// Factory constructor. Reads rule-specific params from config.
     pub fn from_config(config: &Config) -> Box<dyn Rule> {
-        let rule_config: GoodPracticesConfig = config.rule_params("GOOD_PRACTICES_ENGINE");
+        let mut rule_config: GoodPracticesConfig = config.rule_params("GOOD_PRACTICES_ENGINE");
+        rule_config
+            .disabled_checks
+            .extend(crate::off_under_mathworks(
+                config,
+                &["ERTAG", "WNTAG", "CTCH", "BDLOG2"],
+            ));
         Box::new(Self {
             config: rule_config,
         })
@@ -494,19 +510,16 @@ impl GoodPracticesEngine {
                 }
             }
 
-            // PFOUS / PFTUSW: simple-identifier assignments in the body and
-            // whether the variable is used after the loop.
-            let need_assignments =
-                self.is_check_enabled("PFOUS") || self.is_check_enabled("PFTUSW");
-            if need_assignments {
+            // PFOUS: a sliced output (`v(i) = ...`) that is not read after the
+            // loop. A plain scalar assignment (`t = i`) is not reported.
+            if self.is_check_enabled("PFOUS") {
                 if let Some(body_node) = body {
-                    let assigned = collect_simple_lhs_assignments(body_node, source);
-                    for (name, lhs_node) in assigned {
+                    for (name, lhs_node) in collect_indexed_lhs_assignments(body_node, source) {
                         if idx_var.as_deref() == Some(name.as_str()) {
                             continue;
                         }
                         let uses = uses_after_parfor(&sym, &name, parfor.end_byte(), tree, false);
-                        if self.is_check_enabled("PFOUS") && uses.is_empty() {
+                        if uses.is_empty() {
                             let pos = lhs_node.start_position();
                             diagnostics.push(Diagnostic {
                                 rule_id: "PFOUS",
@@ -520,6 +533,22 @@ impl GoodPracticesEngine {
                                 fix: None,
                             });
                         }
+                    }
+                }
+            }
+
+            // PFTUSW: simple-identifier assignments in the body and whether the
+            // variable is used after the loop.
+            let need_assignments =
+                self.is_check_enabled("PFOUS") || self.is_check_enabled("PFTUSW");
+            if need_assignments {
+                if let Some(body_node) = body {
+                    let assigned = collect_simple_lhs_assignments(body_node, source);
+                    for (name, lhs_node) in assigned {
+                        if idx_var.as_deref() == Some(name.as_str()) {
+                            continue;
+                        }
+                        let uses = uses_after_parfor(&sym, &name, parfor.end_byte(), tree, false);
                         if self.is_check_enabled("PFTUSW") {
                             if let Some(line) = uses.first() {
                                 let pos = lhs_node.start_position();
@@ -645,16 +674,19 @@ impl Rule for GoodPracticesEngine {
         diagnostics.extend(self.check_logical_aggregation(node, source));
         diagnostics.extend(self.check_shociraa(node, source));
         diagnostics.extend(self.check_unrpwr(node, source));
+        diagnostics.extend(self.check_xpord(node, source));
         diagnostics.extend(self.check_discouraged_functions(node, source));
         diagnostics.extend(self.check_chain(node, source));
 
         // Function-call convention checks.
         diagnostics.extend(self.check_ctpct(node, source));
         diagnostics.extend(self.check_fxset(node, source));
+        diagnostics.extend(self.check_fxsetl(node, source));
         diagnostics.extend(self.check_simpt(node, source));
         diagnostics.extend(self.check_tlev(node, source));
         diagnostics.extend(self.check_unonc(node, source));
         diagnostics.extend(self.check_mipc1(node, source));
+        diagnostics.extend(self.check_subsasgn(node, source));
 
         // Structure / string / misc checks.
         diagnostics.extend(self.check_rmfld(node, source));
@@ -667,6 +699,8 @@ impl Rule for GoodPracticesEngine {
         diagnostics.extend(self.check_compnop(node, source));
         diagnostics.extend(self.check_comnot(node, source));
         diagnostics.extend(self.check_m3col(node, source));
+        diagnostics.extend(self.check_iseq(node, source));
+        diagnostics.extend(self.check_bdsca1(node, source));
 
         // OOP / class / property checks.
         diagnostics.extend(self.check_mherm(node, source));
@@ -1409,6 +1443,28 @@ pub(crate) fn collect_simple_lhs_assignments<'a>(
     out
 }
 
+/// Indexed assignments `v(...) = ...` inside a node, as (variable name, `v` node).
+pub(crate) fn collect_indexed_lhs_assignments<'a>(
+    node: Node<'a>,
+    source: &str,
+) -> Vec<(String, Node<'a>)> {
+    let mut out = Vec::new();
+    let mut assignments = Vec::new();
+    collect_nodes_of_kind(node, "assignment", &mut assignments);
+    for assign in assignments {
+        if let Some(lhs) = assign.child_by_field_name("left") {
+            if lhs.kind() == "function_call" {
+                if let Some(base) = lhs.named_child(0) {
+                    if base.kind() == "identifier" {
+                        out.push((node_text(base, source).to_string(), base));
+                    }
+                }
+            }
+        }
+    }
+    out
+}
+
 /// Check whether a variable is assigned anywhere inside a node.
 pub(crate) fn is_assigned_in_body(node: Node, name: &str, source: &str) -> bool {
     collect_simple_lhs_assignments(node, source)
@@ -1576,7 +1632,7 @@ pub(crate) fn collect_loop_assignments(
                 let pos = node.start_position();
                 diagnostics.push(Diagnostic {
                     rule_id: "FXSETA",
-                    message: format!("Loop index {var_name} is changed inside of a FOR loop."),
+                    message: format!("Assigning a value to a loop variable within the loop statements is confusing and may not have an effect. The value of '{var_name}' will be reset on the next iteration of the loop."),
                     severity: Severity::Warning,
                     byte_range: node.start_byte()..node.end_byte(),
                     line: pos.row + 1,
@@ -2091,7 +2147,8 @@ z = f(eval(x + y));\nonCleanup(@f);\n[~] = onCleanup(@f);\nc = computer('arch');
 
     #[test]
     fn test_pfous_fires_on_output_not_used_after() {
-        let source = "parfor i = 1:10\n    q = i;\nend\n";
+        // Sliced output: `q(i) = i` is reported, a plain `q = i` is not (probes pfo1, pfo5).
+        let source = "parfor i = 1:10\n    q(i) = i;\nend\n";
         let tree = parse(source);
         let eng = engine();
 
@@ -2198,10 +2255,12 @@ z = f(eval(x + y));\nonCleanup(@f);\n[~] = onCleanup(@f);\nc = computer('arch');
         let source = "parfor i = 1:10\n    evalin('caller','x');\n    x(i) = i;\nend\ny = zeros(1,10);\nparfor i = 1:10\n    x(i) = y(i);\nend\nd = distributed(zeros(100));\nspmd\n    work_with(d);\nend\n";
         let tree = parse(source);
         let ids = g2_collect_ids(&eng, &tree, source);
+        // PFOUS is not a false positive here: `x(i) = ...` is sliced and never read after
+        // the loop, which MATLAB reports too (probe pfo1). The other G2 IDs must stay silent.
         let g2_fired: Vec<&str> = ids
             .iter()
             .copied()
-            .filter(|id| G2_IDS.contains(id))
+            .filter(|id| G2_IDS.contains(id) && *id != "PFOUS")
             .collect();
         assert!(g2_fired.is_empty(), "unexpected G2 fires: {g2_fired:?}");
     }

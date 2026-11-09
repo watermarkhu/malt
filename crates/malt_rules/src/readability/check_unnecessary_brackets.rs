@@ -1,7 +1,8 @@
 //! # NBRAK2: unnecessary brackets around a scalar expression
 //!
-//! `check_unnecessary_brackets` flags `[x]` where `x` is a scalar
-//! identifier, number, or string literal.
+//! `check_unnecessary_brackets` flags `[x]` where `x` is a single expression
+//! (identifier, literal, operator expression, or call), when the brackets are
+//! not an operand of a larger expression (that case is NBRAK1).
 
 use super::*;
 
@@ -29,13 +30,42 @@ impl ReadabilityEngine {
             None => return,
         };
 
+        // An operand of a larger expression (`[x]+1`) is NBRAK1, and an indexed
+        // bracket (`[x](1)`) is not redundant. MATLAB reports neither as NBRAK2.
+        let operand_or_indexed = node.parent().is_some_and(|p| {
+            matches!(
+                p.kind(),
+                "binary_operator"
+                    | "comparison_operator"
+                    | "boolean_operator"
+                    | "unary_operator"
+                    | "postfix_operator"
+            )
+        }) || source[node.end_byte()..].starts_with('(');
+
         // The row should have exactly one named child (the scalar expression)
-        if row.kind() == "row" && row.named_child_count() == 1 {
+        if row.kind() == "row" && row.named_child_count() == 1 && !operand_or_indexed {
             if let Some(inner) = row.named_child(0) {
-                // Don't flag complex expressions or function calls that might
-                // rely on concatenation behavior
-                if matches!(inner.kind(), "identifier" | "number" | "string") {
-                    let inner_text = &source[inner.start_byte()..inner.end_byte()];
+                let inner_text = &source[inner.start_byte()..inner.end_byte()];
+                // Comma-separated lists (`[s.f]`, `[c{:}]`) can yield several
+                // values, so the brackets are not redundant.
+                let list_like = inner.kind() == "field_expression" || inner_text.contains('{');
+                // Probed against MATLAB R2026b: single identifiers, literals,
+                // operator expressions, calls and ranges are all reported.
+                let scalar = matches!(
+                    inner.kind(),
+                    "identifier"
+                        | "number"
+                        | "string"
+                        | "binary_operator"
+                        | "unary_operator"
+                        | "comparison_operator"
+                        | "boolean_operator"
+                        | "postfix_operator"
+                        | "function_call"
+                        | "range"
+                );
+                if scalar && !list_like {
                     results.push(self.diag(
                         "NBRAK2",
                         "Use of brackets [] is unnecessary.",
@@ -79,5 +109,38 @@ mod tests {
     fn nbrak2_multi_element_matrix_does_not_fire() {
         let diags = lint_nodes(&*engine(), "x = [1 2];\n");
         assert!(!has_id(&diags, "NBRAK2"), "got: {diags:?}");
+    }
+
+    // Probed against MATLAB R2026b: each of these is NBRAK2.
+    #[test]
+    fn nbrak2_fires_on_whole_expression_and_call_argument() {
+        for source in [
+            "x = [a + b];\n",
+            "x = [-x];\n",
+            "x = [a == b];\n",
+            "x = [f(x)];\n",
+            "x = [1:3];\n",
+            "x = [a,];\n",
+            "disp([x]);\n",
+        ] {
+            let diags = lint_nodes(&*engine(), source);
+            assert!(has_id(&diags, "NBRAK2"), "{source}: got: {diags:?}");
+        }
+    }
+
+    // Probed against MATLAB R2026b: these are not NBRAK2. `[x] + 1` is NBRAK1
+    // (operand of an operator), and the rest are lists or indexed brackets.
+    #[test]
+    fn nbrak2_silent_on_operand_list_and_indexed_brackets() {
+        for source in [
+            "y = [x] + 1;\n",
+            "y = 2 * [x];\n",
+            "y = [s.f];\n",
+            "y = [c{:}];\n",
+            "y = [x](1);\n",
+        ] {
+            let diags = lint_nodes(&*engine(), source);
+            assert!(!has_id(&diags, "NBRAK2"), "{source}: got: {diags:?}");
+        }
     }
 }

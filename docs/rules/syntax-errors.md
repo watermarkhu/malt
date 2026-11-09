@@ -97,6 +97,12 @@ Severity: **error** · Auto-fix: **no**
 
 A VAR_NAME might be missing a closing VAR_NAME, causing invalid syntax at VAR_NAME on line VAR_NUMBER.
 
+### NOPAR
+
+Severity: **error** · Auto-fix: **no**
+
+A VAR_NAME might be missing a closing VAR_NAME, causing invalid syntax at VAR_NAME.
+
 ### EOLPAR
 
 Severity: **error** · Auto-fix: **no**
@@ -168,6 +174,12 @@ The current use of VAR_NAME is inconsistent with its previous use or definition 
 Severity: **error** · Auto-fix: **yes**
 
 Use a newline, semicolon, or comma before this statement.
+
+### SEPEXC
+
+Severity: **error** · Auto-fix: **no**
+
+Use comma to separate between input arguments.
 
 ### SBTMP
 

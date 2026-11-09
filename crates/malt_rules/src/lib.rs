@@ -47,6 +47,19 @@ use malt_core::{Config, Rule};
 /// Type alias for a rule factory function.
 pub type RuleFactory = fn(&Config) -> Box<dyn Rule>;
 
+/// Check IDs that MATLAB's Code Analyzer never reports with its default
+/// configuration: none in the 209-file corpus, none in clean probes, and none
+/// with `checkcode -all`. Under the `mathworks` preset they are disabled so the
+/// default output matches MATLAB; the `all` preset keeps them on. Engines pass
+/// their own IDs and add the result to their `disabled_checks`.
+pub(crate) fn off_under_mathworks(config: &Config, ids: &[&str]) -> Vec<String> {
+    if config.preset.enables_default_off {
+        Vec::new()
+    } else {
+        ids.iter().map(|id| (*id).to_string()).collect()
+    }
+}
+
 /// A self-registering rule entry collected via `inventory`.
 ///
 /// Each rule module submits one of these at link time using
@@ -197,5 +210,35 @@ mod tests {
     fn enabled_by_default_engine_can_be_disabled_per_category() {
         let config = Config::from_toml("[lint.categories]\nperformance = \"off\"\n").unwrap();
         assert!(!active_ids(&config).contains(&"PERFORMANCE_ENGINE".to_string()));
+    }
+
+    fn lint_ids(config: &Config, source: &str) -> Vec<&'static str> {
+        let registry = malt_core::RuleRegistry::new(active_rules(config), config);
+        let mut linter = malt_core::Linter::new(registry);
+        let mut ids: Vec<_> = linter
+            .lint(source, std::path::Path::new("probe.m"))
+            .unwrap()
+            .iter()
+            .map(|d| d.rule_id)
+            .collect();
+        ids.sort_unstable();
+        ids.dedup();
+        ids
+    }
+
+    #[test]
+    fn checks_that_matlab_leaves_off_are_off_under_the_default_preset() {
+        // MATLAB's factory configuration never reports these (probed with checkcode
+        // in R2026b); the `all` preset and explicit rule settings turn them back on.
+        let source = "function f(x)\nerror('plain message');\nwarning('plain');\ntry\n x = 1;\ncatch\nend\nend\n";
+        let default = lint_ids(&Config::default(), source);
+        let all = lint_ids(
+            &Config::from_toml("[lint]\npreset = \"all\"\n").unwrap(),
+            source,
+        );
+        for id in ["ERTAG", "WNTAG", "CTCH"] {
+            assert!(!default.contains(&id), "{id} on by default: {default:?}");
+            assert!(all.contains(&id), "{id} missing under `all`: {all:?}");
+        }
     }
 }

@@ -1,42 +1,43 @@
 use super::*;
 
+/// True for a binary `^` or `.^` node.
+fn is_power(node: Node, source: &str) -> bool {
+    if node.kind() != "binary_operator" {
+        return false;
+    }
+    (0..node.child_count())
+        .filter_map(|i| node.child(i))
+        .any(|c| !c.is_named() && matches!(node_text(c, source), "^" | ".^"))
+}
+
 impl GoodPracticesEngine {
-    /// UNRPWR: Power of negative base may produce complex result.
+    /// UNRPWR: a unary operator combined with a power without parentheses, as in
+    /// `2^-a^2` (parsed as `2^((-a)^2)`) or `2^~a^b`.
     pub(crate) fn check_unrpwr(&self, node: Node, source: &str) -> Vec<Diagnostic> {
-        if !self.is_check_enabled("UNRPWR") || node.kind() != "binary_operator" {
+        if !self.is_check_enabled("UNRPWR") || !is_power(node, source) {
             return Vec::new();
         }
-
-        let text = node_text(node, source);
-        if !text.contains('^') {
-            return Vec::new();
-        }
-
-        // Check if the left operand is a negative literal or unary negation.
-        let left = node.child_by_field_name("left").or_else(|| node.child(0));
-        let has_negative_base = left
-            .map(|l| {
-                if l.kind() == "unary_operator" {
-                    let lt = node_text(l, source);
-                    return lt.starts_with('-');
-                }
-                if l.kind() == "number" {
-                    let lt = node_text(l, source);
-                    return lt.starts_with('-');
-                }
-                false
-            })
-            .unwrap_or(false);
-
-        if !has_negative_base {
+        let unary_left = node
+            .child_by_field_name("left")
+            .is_some_and(|l| matches!(l.kind(), "unary_operator" | "not_operator"));
+        let right_of_power = node.parent().is_some_and(|p| {
+            is_power(p, source)
+                && p.child_by_field_name("right")
+                    .is_some_and(|r| r.id() == node.id())
+        });
+        // `2^~a^b` may parse as `2^(~(a^b))`: a unary right operand over a power.
+        let unary_over_power = node.child_by_field_name("right").is_some_and(|r| {
+            matches!(r.kind(), "unary_operator" | "not_operator")
+                && r.named_child(0).is_some_and(|o| is_power(o, source))
+        });
+        if !((unary_left && right_of_power) || unary_over_power) {
             return Vec::new();
         }
 
         let pos = node.start_position();
         vec![Diagnostic {
             rule_id: "UNRPWR",
-            message: "Consider using parentheses to explicitly specify operator precedence."
-                .to_string(),
+            message: "Combining exponentiation operators with unary operators (such as logical negation) without parentheses will not be supported in a future release. Use parentheses to clarify the evaluation order.".to_string(),
             severity: Severity::Warning,
             byte_range: node.start_byte()..node.end_byte(),
             line: pos.row + 1,
@@ -107,5 +108,50 @@ mod dump2_tests {
         dump("x = 1  y = 2\n");
         dump("x = 1 y = 2\n");
         dump("if x\n  a = 1  b = 2\nend\n");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::test_util::has_id;
+
+    /// Run UNRPWR on every node of `src`.
+    fn unrpwr_diags(src: &str) -> Vec<Diagnostic> {
+        let tree = parse(src);
+        let eng = engine();
+        let mut out = Vec::new();
+        let mut stack = vec![tree.root_node()];
+        while let Some(n) = stack.pop() {
+            out.extend(eng.check_unrpwr(n, src));
+            let mut c = n.walk();
+            stack.extend(n.children(&mut c));
+        }
+        out
+    }
+
+    #[test]
+    fn unrpwr_fires_on_unary_inside_chained_power() {
+        // MATLAB reports UNRPWR for these (probe): 2^-a^2, 2^~a^b, a.^-b.^c, 2^-3^2.
+        for src in [
+            "y = 2^-a^2;\n",
+            "y = 2^~a^b;\n",
+            "y = a.^-b.^c;\n",
+            "y = 2^-3^2;\n",
+        ] {
+            let diags = unrpwr_diags(src);
+            assert!(has_id(&diags, "UNRPWR"), "{src}: got {diags:?}");
+        }
+    }
+
+    #[test]
+    fn unrpwr_silent_without_chained_power() {
+        // MATLAB does not report these (probe): a single power with a unary operand,
+        // a leading unary operand that is not the right operand of a power, and a
+        // left-chained `~a^b^c` (XPORD only).
+        for src in ["y = 2^-a;\n", "y = -a^-b;\n", "y = ~a^b^c;\n"] {
+            let diags = unrpwr_diags(src);
+            assert!(!has_id(&diags, "UNRPWR"), "{src}: got {diags:?}");
+        }
     }
 }

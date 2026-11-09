@@ -95,6 +95,8 @@
 //! | VTPIN | error | no | Validation function must use the property as an input. |
 //! | SPNST | error | no | PARFOR or SPMD cannot be used inside an SPMD block. |
 //! | SPRET | error | no | VAR_RESERVED_WORD statement cannot be used inside an SPMD block. |
+//! | SPBRK | error | no | The loop containing the BREAK or CONTINUE must be completely contained in the SPMD block. |
+//! | DUPNAMEARG | warning | no | This named argument was already provided. If this function does not allow or ignores repeated named arguments, remove one of the duplicated named arguments. |
 //! | SPGP | error | no | Setting the GLOBAL or PERSISTENT variable VAR_NAME in an SPMD block might fail because the set happens on a worker machine. |
 //! | MCFIL | error | no | Class name VAR_NAME and file name do not agree: VAR_FILE. Update the class name and constructor, if defined, or change the file name to match the class name. |
 //! | MCDIR | error | no | Class name VAR_NAME and @directory name do not agree: VAR_FILE. |
@@ -373,7 +375,10 @@ pub struct LanguageSpecEngine {
 impl LanguageSpecEngine {
     /// Factory constructor. Reads rule-specific params from config.
     pub fn from_config(config: &Config) -> Box<dyn Rule> {
-        let rule_config: LanguageSpecConfig = config.rule_params("LANGUAGE_SPEC_ENGINE");
+        let mut rule_config: LanguageSpecConfig = config.rule_params("LANGUAGE_SPEC_ENGINE");
+        rule_config
+            .disabled_checks
+            .extend(crate::off_under_mathworks(config, &["FVNIV"]));
         Box::new(Self {
             config: rule_config,
         })
@@ -463,6 +468,9 @@ impl Rule for LanguageSpecEngine {
 
         // 11. END operator outside index expression
         self.check_end_operator(root, ctx.source, &mut diagnostics);
+
+        // 11b. Repeated name=value argument in one call (DUPNAMEARG)
+        self.check_dupnamearg(root, ctx.source, &mut diagnostics);
 
         // 12. Local function name same as file name
         self.check_local_function_name_conflict(&meta, ctx, &mut diagnostics);
@@ -663,9 +671,6 @@ impl LanguageSpecEngine {
             }
 
             "break_statement" => {
-                // SPBRK (break/continue whose loop is not fully contained in the spmd
-                // block) is subsumed by SPRET, which fires for every break/continue
-                // inside an spmd block.
                 // Check: PFBRK — break inside parfor
                 if current_context == LoopContext::Parfor {
                     let pos = node.start_position();
@@ -680,12 +685,12 @@ impl LanguageSpecEngine {
                         fix: None,
                     });
                 }
-                // Check: SPRET — break inside spmd
+                // Check: SPBRK — break inside spmd whose loop is outside the block
                 if current_context == LoopContext::Spmd {
                     let pos = node.start_position();
                     diagnostics.push(Diagnostic {
-                        rule_id: "SPRET",
-                        message: "break statement cannot be used inside an SPMD block.".to_string(),
+                        rule_id: "SPBRK",
+                        message: "The loop containing the BREAK or CONTINUE must be completely contained in the SPMD block.".to_string(),
                         severity: Severity::Error,
                         byte_range: node.start_byte()..node.end_byte(),
                         line: pos.row + 1,
@@ -696,11 +701,11 @@ impl LanguageSpecEngine {
             }
 
             "continue_statement" if current_context == LoopContext::Spmd => {
-                // Check: SPRET — continue inside spmd
+                // Check: SPBRK — continue inside spmd whose loop is outside the block
                 let pos = node.start_position();
                 diagnostics.push(Diagnostic {
-                    rule_id: "SPRET",
-                    message: "continue statement cannot be used inside an SPMD block.".to_string(),
+                    rule_id: "SPBRK",
+                    message: "The loop containing the BREAK or CONTINUE must be completely contained in the SPMD block.".to_string(),
                     severity: Severity::Error,
                     byte_range: node.start_byte()..node.end_byte(),
                     line: pos.row + 1,
@@ -3119,6 +3124,7 @@ mod check_class_attributes;
 mod check_class_file_rules;
 mod check_ctoine;
 mod check_ctoro;
+mod check_dupnamearg;
 mod check_end_operator;
 mod check_error_warning_message;
 mod check_fconv;
@@ -3657,27 +3663,37 @@ end
     // ===== C4: SPMD transparency checks =====
 
     #[test]
-    fn test_spbrk_covered_by_spret() {
-        // SPBRK (break/continue not fully contained in spmd) is subsumed by SPRET,
-        // which fires for every break/continue inside an spmd block.
+    fn test_spbrk_fires_for_break_whose_loop_is_outside_spmd() {
+        // Probed against R2026b: break/continue inside spmd whose loop encloses the
+        // spmd (or with no loop at all) is SPBRK, not SPRET.
         let source = "\
 function foo()
+for i = 1:3
     spmd
         break;
     end
 end
+end
 ";
         let diags = check_source(source, "foo.m");
-        let spret = filter_by_id(&diags, "SPRET");
-        assert!(
-            !spret.is_empty(),
-            "SPRET should fire for break inside spmd (covers SPBRK)"
-        );
-        let spbrk = filter_by_id(&diags, "SPBRK");
-        assert!(
-            spbrk.is_empty(),
-            "SPBRK is deferred — no separate diagnostic emitted"
-        );
+        assert_eq!(filter_by_id(&diags, "SPBRK").len(), 1, "got: {diags:?}");
+        assert!(filter_by_id(&diags, "SPRET").is_empty(), "got: {diags:?}");
+    }
+
+    #[test]
+    fn test_spbrk_ok_when_loop_is_inside_spmd() {
+        let source = "\
+function foo()
+    spmd
+        for i = 1:3
+            break;
+        end
+    end
+end
+";
+        let diags = check_source(source, "foo.m");
+        assert!(filter_by_id(&diags, "SPBRK").is_empty(), "got: {diags:?}");
+        assert!(filter_by_id(&diags, "SPRET").is_empty(), "got: {diags:?}");
     }
 
     // ===== C4: error/warning message checks =====

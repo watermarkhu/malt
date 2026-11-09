@@ -18,7 +18,7 @@ Flags a semicolon that does nothing: one that follows another semicolon
 line, as in `if ready; go(); end`, is not extra and is left alone.
 
 A statement that is *missing* its semicolon is a different finding: see
-NOPTS, NOPRT and PRTCAL.
+NOPTS and NOPRT.
 
 ## Automatic fixes
 

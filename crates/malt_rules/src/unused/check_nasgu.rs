@@ -10,6 +10,12 @@ impl UnusedEngine {
         }
 
         for scope in &table.scopes {
+            // The variables of a script stay in the workspace: their final values
+            // are its results, so MATLAB reports only stores that are overwritten
+            // before use (not detected here yet).
+            if scope.kind == ScopeKind::Script {
+                continue;
+            }
             // Collect output argument names for this scope (they are "used" externally).
             let output_args: HashSet<&str> = scope
                 .defs
@@ -67,6 +73,13 @@ mod tests {
     fn nasgu_fires_on_unused_assignment() {
         let diags = lint_file(&*engine(), "function foo()\n    x = 1;\nend\n");
         assert!(has_id(&diags, "NASGU"), "got: {diags:?}");
+    }
+
+    #[test]
+    fn nasgu_ignores_script_workspace_variables() {
+        // The values of a script remain in the workspace afterwards.
+        let diags = lint_file(&*engine(), "x = linspace(0, 1, 10);\ny = x * 2;\n");
+        assert!(!has_id(&diags, "NASGU"), "got: {diags:?}");
     }
 
     #[test]

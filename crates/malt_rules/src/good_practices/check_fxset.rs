@@ -68,4 +68,17 @@ mod tests {
         let diags = eng.check_fxset(for_node, source);
         assert!(diags.is_empty());
     }
+
+    #[test]
+    fn test_fxseta_message_is_matlab_text() {
+        let source = "for i = 1:10\n  i = 5;\nend\n";
+        let tree = parse(source);
+        let eng = engine();
+        let for_node = find_child_of_kind(tree.root_node(), "for_statement").unwrap();
+        let diags = eng.check_fxset(for_node, source);
+        assert_eq!(
+            diags[0].message,
+            "Assigning a value to a loop variable within the loop statements is confusing and may not have an effect. The value of 'i' will be reset on the next iteration of the loop."
+        );
+    }
 }

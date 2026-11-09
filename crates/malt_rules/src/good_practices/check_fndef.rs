@@ -16,9 +16,11 @@ impl GoodPracticesEngine {
         let Some(stem) = file_path.file_stem().and_then(|s| s.to_str()) else {
             return Vec::new();
         };
-        let Some(file_name) = file_path.file_name().and_then(|s| s.to_str()) else {
+        // MATLAB only names a file after a valid identifier. A file such as
+        // `my-file.m` gets BDFIL instead, and MATLAB reports no FNDEF for it.
+        if !is_identifier(stem) {
             return Vec::new();
-        };
+        }
 
         let meta = FileMeta::build(tree, source);
         let Some(main) = meta.main_function() else {
@@ -31,7 +33,7 @@ impl GoodPracticesEngine {
             rule_id: "FNDEF",
             message: format!(
                 "Function name {} is known to MATLAB by its file name: {}.",
-                main.name, file_name
+                main.name, stem
             ),
             severity: Severity::Warning,
             byte_range: main.byte_range.clone(),
@@ -40,6 +42,13 @@ impl GoodPracticesEngine {
             fix: None,
         }]
     }
+}
+
+/// True when `s` is a MATLAB identifier: a letter, then letters, digits or `_`.
+fn is_identifier(s: &str) -> bool {
+    let mut chars = s.chars();
+    chars.next().is_some_and(|c| c.is_ascii_alphabetic())
+        && chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
 }
 
 #[cfg(test)]
@@ -63,11 +72,25 @@ mod tests {
     fn fndef_fires_when_the_name_differs_from_the_file() {
         let d = fndef("function r = other(x)\n r = x;\nend\n", "mine.m");
         let m = d.iter().find(|d| d.rule_id == "FNDEF").expect("FNDEF");
+        // MATLAB names the file without its extension ('mine', not 'mine.m').
         assert!(
-            m.message.contains("other") && m.message.contains("mine.m"),
+            m.message.contains("other") && m.message.ends_with(": mine."),
             "{}",
             m.message
         );
+    }
+
+    #[test]
+    fn fndef_silent_when_file_name_is_not_an_identifier() {
+        // MATLAB reports BDFIL for `my-file.m` and no FNDEF (probe, R2026b).
+        assert!(!has_id(
+            &fndef("function r = other(x)\n r = x;\nend\n", "my-file.m"),
+            "FNDEF"
+        ));
+        assert!(!has_id(
+            &fndef("function r = other(x)\n r = x;\nend\n", "1fd.m"),
+            "FNDEF"
+        ));
     }
 
     #[test]

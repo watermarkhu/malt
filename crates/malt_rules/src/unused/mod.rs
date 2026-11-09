@@ -161,7 +161,10 @@ pub struct UnusedEngine {
 impl UnusedEngine {
     /// Factory constructor. Reads rule-specific params from config.
     pub fn from_config(config: &Config) -> Box<dyn Rule> {
-        let rule_config: UnusedConfig = config.rule_params("UNUSED_ENGINE");
+        let mut rule_config: UnusedConfig = config.rule_params("UNUSED_ENGINE");
+        rule_config
+            .disabled_checks
+            .extend(crate::off_under_mathworks(config, &["VANUS"]));
         Box::new(Self {
             config: rule_config,
         })
@@ -227,7 +230,7 @@ impl Rule for UnusedEngine {
 
         // 2. Run symbol-based checks.
         self.check_nasgu(&table, &mut diagnostics);
-        self.check_unused_inputs(&table, &mut diagnostics);
+        self.check_unused_inputs(&table, ctx.tree.root_node(), ctx.source, &mut diagnostics);
         self.check_asglu(&table, &mut diagnostics);
         self.check_nused(&table, &mut diagnostics);
         self.check_puse(&table, &mut diagnostics);
