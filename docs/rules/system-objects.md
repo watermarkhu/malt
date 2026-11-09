@@ -16,10 +16,10 @@ Validates MATLAB System object usage. System objects (classes inheriting
 from `matlab.System`) have specific lifecycle constraints that static
 analysis can partially verify. Since full type information is not available
 to a static linter, these checks use pattern-based heuristics — detecting
-System object patterns by class inheritance, lifecycle method calls
-(`step`, `setup`, `release`, `reset`), and property access conventions.
-All 9 checks share a single `SystemObjectsEngine` that dispatches node-level
-checks on `function_call` nodes plus file-level class analysis; each
+System object classes by their `matlab.System` superclass and inspecting
+their `properties` blocks and `stepImpl` / `resetImpl` methods.
+All 9 checks share a single `SystemObjectsEngine` that performs
+checks over `matlab.System` class definitions (file-level analysis); each
 diagnostic carries the specific check ID (e.g. `SONUMIN`, `SOTUNPROP3`).
 
 ## Check IDs
@@ -85,31 +85,42 @@ Tunable properties on MATLAB System blocks must be numeric. VAR_NAME property is
 ```matlab
 classdef MySystem < matlab.System
     properties
-        Gain = rand();      % SODFLTVAL: function-call default value
-        Flag logical = false % SOTUNPROP1: logical tunable property
+        Flag logical = false    % SOTUNPROP1: logical tunable property
+        Label char = 'x'         % SOTUNPROP3: char tunable property
     end
-    methods
-        function step(obj)   % SORSRVDNM: reserved method name
+    properties (DiscreteState)
+        Count = 0;              % SODFLTVAL: DiscreteState default value
+    end
+    methods (Access = protected)
+        function y = stepImpl(obj, varargin)  % SONUMIN: no getNumInputsImpl
+            y = 1;
         end
     end
 end
-step(); % SONUMIN: step() called without inputs
 ```
 
 ### Correct
 
 ```matlab
 classdef MySystem < matlab.System
-    properties
-        Gain = 1;
-        Flag = false;
+    properties (Nontunable)
+        Label char = 'x'
     end
-    methods
-        function stepImpl(obj) % use the *Impl override, not 'step'
+    properties (DiscreteState)
+        Count
+    end
+    methods (Access = protected)
+        function y = stepImpl(obj, varargin)
+            y = 1;
+        end
+        function n = getNumInputsImpl(obj)
+            n = 2;
+        end
+        function resetImpl(obj)
+            obj.Count = 0;
         end
     end
 end
-step(obj, input); % pass the object and the input signal
 ```
 
 ## Configuration

@@ -12,7 +12,6 @@ icon: lucide/list-checks
 | [`BUGS_ENGINE`](rules/bugs.md) | Bugs | Bug detection checks for likely bugs and logic errors | Error | Yes |
 | [`CODEGEN_ENGINE`](rules/codegen.md) | Code Generation | MATLAB code generation constraint checks | Error | No |
 | [`COMPAT`](rules/compatibility.md) | Compatibility | Deprecated or removed function usage | Warning | No |
-| [`CONFIG_ISSUES_ENGINE`](rules/config-issues.md) | Configuration Issues | Detects configuration-related issues in MATLAB code | Error | No |
 | [`CUSTOM_CHECKS`](rules/custom-checks.md) | Custom Checks | Code complexity and style metrics | Warning | No |
 | [`DEPLOYMENT_ENGINE`](rules/deployment.md) | Deployment | MATLAB Compiler deployment constraint checks | Warning | No |
 | [`FORMATTING_ENGINE`](rules/formatting.md) | Formatting | Formatting suggestion checks (NOCOMMA, NO4LP, ALIGN, NOPTS, NOPRT, PRTCAL, NCOMMA) | Info | Yes |
@@ -2219,7 +2218,7 @@ behavior-changes = "off"
 ```
 
 The specialized engines `CODEGEN_ENGINE`, `DEPLOYMENT_ENGINE`,
-`SYSTEM_OBJECTS_ENGINE`, `CONFIG_ISSUES_ENGINE`, `SUGGESTED_IMPROVEMENTS`, and
+`SYSTEM_OBJECTS_ENGINE`, `SUGGESTED_IMPROVEMENTS`, and
 `UNSUPPORTED_ENGINE` are off by default, and the default `mathworks` preset also
 turns off `NAMING_ENGINE` and `CUSTOM_CHECKS`. Re-enable one per rule or per
 category (or use `preset = "all"` to turn everything on):

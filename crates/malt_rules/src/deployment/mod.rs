@@ -24,25 +24,25 @@
 //!
 //! | Check ID | Severity | Fix | Description |
 //! | --- | --- | --- | --- |
-//! | MCCD | error | no | MCC use of the CD function is problematic. |
+//! | MCCD | warning | no | MCC use of the CD function is problematic. |
 //! | MCPRD | error | no | MCC allows only one argument in the PRINTDLG function. |
-//! | MCHLP | warning | no | MCC does not permit the HELP function. |
-//! | MCKBD | warning | no | MCC does not permit the KEYBOARD function. |
-//! | MCSVP | warning | no | MCC does not permit the SAVEPATH function. |
+//! | MCHLP | error | no | MCC does not permit the HELP function. |
+//! | MCKBD | error | no | MCC does not permit the KEYBOARD function. |
+//! | MCSVP | error | no | MCC does not permit the SAVEPATH function. |
 //! | MCMLR | warning | no | MCC use of the MATLABROOT function is problematic. |
-//! | MCABF | error | no | MCC use of absolute file names is likely to fail. |
+//! | MCABF | warning | no | MCC use of absolute file names is likely to fail. |
 //! | MCMFL | warning | no | MCC allows writing .m files, but they cannot be executed by the deployed application. |
 //! | MCTBX | warning | no | MCC use of toolbox folder file names is likely to fail. |
-//! | MCLL | error | no | MCC does not allow C++ files to be read directly using LOADLIBRARY. |
+//! | MCLL | warning | no | MCC does not allow C++ files to be read directly using LOADLIBRARY. |
 //!
 //! ## Examples
 //!
 //! ### Incorrect
 //!
 //! ```matlab
-//! cd /tmp;              % MCCD
-//! addpath('/abs/path'); % MCABF
-//! doc plot;             % MCHLP
+//! cd /tmp;                  % MCCD
+//! fopen('/abs/data.bin');   % MCABF
+//! help plot;                % MCHLP
 //! ```
 //!
 //! ### Correct
@@ -95,7 +95,7 @@ struct CheckMeta {
 const CHECKS: &[CheckMeta] = &[
     CheckMeta {
         id: "MCCD",
-        severity: Severity::Error,
+        severity: Severity::Warning,
         description: "MCC use of the CD function is problematic.",
     },
     CheckMeta {
@@ -105,17 +105,17 @@ const CHECKS: &[CheckMeta] = &[
     },
     CheckMeta {
         id: "MCHLP",
-        severity: Severity::Warning,
+        severity: Severity::Error,
         description: "MCC does not permit the HELP function.",
     },
     CheckMeta {
         id: "MCKBD",
-        severity: Severity::Warning,
+        severity: Severity::Error,
         description: "MCC does not permit the KEYBOARD function.",
     },
     CheckMeta {
         id: "MCSVP",
-        severity: Severity::Warning,
+        severity: Severity::Error,
         description: "MCC does not permit the SAVEPATH function.",
     },
     CheckMeta {
@@ -125,7 +125,7 @@ const CHECKS: &[CheckMeta] = &[
     },
     CheckMeta {
         id: "MCABF",
-        severity: Severity::Error,
+        severity: Severity::Warning,
         description: "MCC use of absolute file names is likely to fail.",
     },
     CheckMeta {
@@ -141,70 +141,9 @@ const CHECKS: &[CheckMeta] = &[
     },
     CheckMeta {
         id: "MCLL",
-        severity: Severity::Error,
+        severity: Severity::Warning,
         description: "MCC does not allow C++ files to be read directly using LOADLIBRARY.",
     },
-];
-
-/// Common toolbox-specific functions that require special compilation support.
-const TOOLBOX_FUNCTIONS: &[&str] = &[
-    // Signal Processing Toolbox
-    "fft2",
-    "ifft2",
-    "fftshift",
-    "butter",
-    "cheby1",
-    "filter",
-    "filtfilt",
-    "spectrogram",
-    "pwelch",
-    // Image Processing Toolbox
-    "imread",
-    "imshow",
-    "imresize",
-    "imfilter",
-    "edge",
-    "regionprops",
-    "bwlabel",
-    "rgb2gray",
-    // Statistics and Machine Learning
-    "fitlm",
-    "predict",
-    "kmeans",
-    "pca",
-    "corr",
-    "ttest",
-    "anova1",
-    "normpdf",
-    "normcdf",
-    // Optimization Toolbox
-    "fmincon",
-    "linprog",
-    "quadprog",
-    "fsolve",
-    "lsqnonlin",
-    // Control System Toolbox
-    "tf",
-    "ss",
-    "zpk",
-    "bode",
-    "step",
-    "nyquist",
-    "margin",
-    // Curve Fitting Toolbox
-    "fit",
-    "cfit",
-    "fittype",
-    // Symbolic Math Toolbox (never deployable)
-    "sym",
-    "syms",
-    "simplify",
-    "expand",
-    "solve",
-    "diff",
-    "int",
-    "limit",
-    "taylor",
 ];
 
 /// Look up check metadata by ID.
@@ -349,32 +288,41 @@ pub(crate) fn extract_command_name<'a>(
 // Helper: pattern detection
 // ---------------------------------------------------------------------------
 
-/// Check if a function_call has an argument that looks like an absolute path.
-/// Detects strings starting with '/' (Unix) or drive letters like 'C:\' (Windows).
-pub(crate) fn has_absolute_path_arg(node: tree_sitter::Node, source: &str) -> bool {
-    let count = node.child_count();
-    for i in 0..count {
-        if let Some(child) = node.child(i) {
-            if child.kind() == "string" {
-                let text = node_text(child, source);
-                let inner = text.trim_matches('\'').trim_matches('"');
-                // Check for Unix absolute path or Windows drive letter
-                if inner.starts_with('/')
-                    || (inner.len() >= 3
-                        && inner.as_bytes()[0].is_ascii_alphabetic()
-                        && inner.as_bytes()[1] == b':'
-                        && (inner.as_bytes()[2] == b'\\' || inner.as_bytes()[2] == b'/'))
-                {
-                    return true;
-                }
-            }
-            // Recurse into arguments node
-            if child.kind() == "arguments" && has_absolute_path_arg(child, source) {
-                return true;
-            }
+/// Collect the named argument nodes of a `function_call`.
+pub(crate) fn call_args<'a>(node: tree_sitter::Node<'a>) -> Vec<tree_sitter::Node<'a>> {
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        if child.kind() == "arguments" {
+            let mut c2 = child.walk();
+            return child.children(&mut c2).filter(|n| n.is_named()).collect();
         }
     }
-    false
+    Vec::new()
+}
+
+/// The unquoted contents of a string-literal argument, if `node` is one.
+pub(crate) fn string_literal<'a>(node: tree_sitter::Node<'a>, source: &'a str) -> Option<&'a str> {
+    if node.kind() != "string" {
+        return None;
+    }
+    let text = node_text(node, source);
+    Some(text.trim_matches('\'').trim_matches('"'))
+}
+
+/// Whether `s` looks like an absolute path (Unix `/...` or Windows `C:\...`).
+pub(crate) fn is_absolute_path(s: &str) -> bool {
+    let b = s.as_bytes();
+    s.starts_with('/')
+        || (b.len() >= 3
+            && b[0].is_ascii_alphabetic()
+            && b[1] == b':'
+            && (b[2] == b'\\' || b[2] == b'/'))
+}
+
+/// Whether `s` refers to a file inside MATLAB's `toolbox` folder.
+pub(crate) fn is_toolbox_path(s: &str) -> bool {
+    let norm = s.replace('\\', "/").to_ascii_lowercase();
+    norm.starts_with("toolbox/") || norm.contains("/toolbox/")
 }
 
 // ---------------------------------------------------------------------------
@@ -412,7 +360,7 @@ mod tests {
             Config::from_toml("[lint.rules.DEPLOYMENT_ENGINE]\nskip_checks = [\"MCTBX\"]\n")
                 .expect("valid config");
         let rule = DeploymentEngine::from_config(&config);
-        let src = "y = fft2(x);\n";
+        let src = "x = load('toolbox/matlab/demos/a.mat');\n";
         let diags = lint_nodes(&*rule, src);
         assert!(!has_id(&diags, "MCTBX"), "got: {diags:?}");
     }

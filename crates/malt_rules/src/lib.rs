@@ -25,7 +25,6 @@ pub mod analysis;
 pub mod bugs;
 pub mod codegen;
 pub mod compatibility;
-pub mod config_issues;
 pub mod custom_checks;
 pub mod deployment;
 pub mod formatting;
@@ -120,7 +119,6 @@ mod tests {
             "CODEGEN_ENGINE",
             "DEPLOYMENT_ENGINE",
             "SYSTEM_OBJECTS_ENGINE",
-            "CONFIG_ISSUES_ENGINE",
             "SUGGESTED_IMPROVEMENTS",
             "UNSUPPORTED_ENGINE",
         ] {

@@ -24,7 +24,7 @@ own severity.
 
 ### MCCD
 
-Severity: **error** · Auto-fix: **no**
+Severity: **warning** · Auto-fix: **no**
 
 MCC use of the CD function is problematic.
 
@@ -36,19 +36,19 @@ MCC allows only one argument in the PRINTDLG function.
 
 ### MCHLP
 
-Severity: **warning** · Auto-fix: **no**
+Severity: **error** · Auto-fix: **no**
 
 MCC does not permit the HELP function.
 
 ### MCKBD
 
-Severity: **warning** · Auto-fix: **no**
+Severity: **error** · Auto-fix: **no**
 
 MCC does not permit the KEYBOARD function.
 
 ### MCSVP
 
-Severity: **warning** · Auto-fix: **no**
+Severity: **error** · Auto-fix: **no**
 
 MCC does not permit the SAVEPATH function.
 
@@ -60,7 +60,7 @@ MCC use of the MATLABROOT function is problematic.
 
 ### MCABF
 
-Severity: **error** · Auto-fix: **no**
+Severity: **warning** · Auto-fix: **no**
 
 MCC use of absolute file names is likely to fail.
 
@@ -78,7 +78,7 @@ MCC use of toolbox folder file names is likely to fail.
 
 ### MCLL
 
-Severity: **error** · Auto-fix: **no**
+Severity: **warning** · Auto-fix: **no**
 
 MCC does not allow C++ files to be read directly using LOADLIBRARY.
 
@@ -87,9 +87,9 @@ MCC does not allow C++ files to be read directly using LOADLIBRARY.
 ### Incorrect
 
 ```matlab
-cd /tmp;              % MCCD
-addpath('/abs/path'); % MCABF
-doc plot;             % MCHLP
+cd /tmp;                  % MCCD
+fopen('/abs/data.bin');   % MCABF
+help plot;                % MCHLP
 ```
 
 ### Correct

@@ -1,45 +1,63 @@
-//! SONUMIN: `step()` called with no arguments is suspicious for a System object.
+//! SONUMIN: `stepImpl` uses `varargin` but the class lacks `getNumInputsImpl`.
 
 use super::*;
 
 impl SystemObjectsEngine {
-    /// Check SONUMIN: `step()` called with no arguments.
+    /// Check SONUMIN: `stepImpl` declares `varargin` and the class does not define
+    /// a `getNumInputsImpl` method.
     pub(crate) fn check_sonumin(
         &self,
-        node: tree_sitter::Node,
-        func_name: &str,
-        method_name: &str,
-    ) -> Vec<Diagnostic> {
-        let mut diags = Vec::new();
-
-        // SONUMIN: Check argument count for step() method
-        // step() should have the System object + input signals
-        if self.is_enabled("SONUMIN") && method_name == "step" {
-            let arg_count = count_args(node);
-            // step() with no arguments is suspicious (should have at least input)
-            if arg_count == 0 && !func_name.contains('.') {
-                diags.push(make_diag("SONUMIN", node));
-            }
+        class_node: tree_sitter::Node,
+        source: &str,
+        diags: &mut Vec<Diagnostic>,
+    ) {
+        if !self.is_enabled("SONUMIN") {
+            return;
         }
-
-        diags
+        let Some(header) = method_header(class_node, "stepImpl", source) else {
+            return;
+        };
+        let Some(i) = header.find("stepImpl") else {
+            return;
+        };
+        let params = &header[i..];
+        let uses_varargs = params.contains("varargin");
+        if uses_varargs && !class_has_method(class_node, "getNumInputsImpl", source) {
+            diags.push(make_diag("SONUMIN", class_node));
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::super::test_support::engine;
-    use crate::test_util::{has_id, lint_nodes};
+    use super::super::test_support::{engine, system_class};
+    use crate::test_util::{has_id, lint_file};
+
+    const STEP: &str =
+        "    methods\n        function varargout = stepImpl(obj, varargin)\n        end\n";
 
     #[test]
-    fn sonumin_bare_step_no_args_fires() {
-        let diags = lint_nodes(&*engine(), "step();\n");
+    fn sonumin_varargs_without_getter_fires() {
+        let source = system_class(&format!("{STEP}    end"));
+        let diags = lint_file(&*engine(), &source);
         assert!(has_id(&diags, "SONUMIN"), "got: {diags:?}");
     }
 
     #[test]
-    fn sonumin_step_with_input_does_not_fire() {
-        let diags = lint_nodes(&*engine(), "step(input);\n");
+    fn sonumin_with_getter_does_not_fire() {
+        let source = system_class(&format!(
+            "{STEP}        function n = getNumInputsImpl(obj)\n            n = 1;\n        end\n    end"
+        ));
+        let diags = lint_file(&*engine(), &source);
+        assert!(!has_id(&diags, "SONUMIN"), "got: {diags:?}");
+    }
+
+    #[test]
+    fn sonumin_fixed_arity_does_not_fire() {
+        let source = system_class(
+            "    methods\n        function y = stepImpl(obj, u)\n            y = u;\n        end\n    end",
+        );
+        let diags = lint_file(&*engine(), &source);
         assert!(!has_id(&diags, "SONUMIN"), "got: {diags:?}");
     }
 }

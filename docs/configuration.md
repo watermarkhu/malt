@@ -146,7 +146,6 @@ formatting = "info"            # All formatting rules are informational
 | System Objects | `system-objects` | SONUMIN, SOTUNPROP\* … |
 | Unsupported | `unsupported` | MCADE, AWTIUD, FEATUD … |
 | Behavior Changes | `behavior-changes` | Version behavior-change checks |
-| Configuration Issues | `configuration-issues` | BDCFG, CFERR, BDOPT, CFIG |
 
 ## `[lint.rules]` Section
 
@@ -206,7 +205,6 @@ When no `.malt.toml` is present:
   - `CODEGEN_ENGINE` (`code-generation`) — MATLAB Coder constraints
   - `DEPLOYMENT_ENGINE` (`deployment`) — MATLAB Compiler constraints
   - `SYSTEM_OBJECTS_ENGINE` (`system-objects`) — `matlab.System` validation
-  - `CONFIG_ISSUES_ENGINE` (`configuration-issues`) — config-function misuse
   - `SUGGESTED_IMPROVEMENTS` (`suggested-improvements`) — replacement hints
   - `UNSUPPORTED_ENGINE` (`unsupported`) — platform-specific features
 - All other rules are **enabled** at their default severity
@@ -261,7 +259,6 @@ disabled_checks = ["PFEVC", "PFANSLP"]   # Turn off specific checks
 | `DEPLOYMENT_ENGINE` | deployment | `skip_checks` |
 | `UNSUPPORTED_ENGINE` | unsupported | `skip_checks` |
 | `SYSTEM_OBJECTS_ENGINE` | system-objects | `skip_checks` |
-| `CONFIG_ISSUES_ENGINE` | configuration-issues | `disabled_checks` |
 | `NO4LP` | formatting | `indent_size` (indent width expected for loop bodies) |
 | `SUGGESTED_IMPROVEMENTS` | suggested-improvements | *(data-driven lookup; no params)* |
 

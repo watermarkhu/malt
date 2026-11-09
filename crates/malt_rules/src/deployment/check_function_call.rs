@@ -1,7 +1,33 @@
-//! Function-call deployment checks: MCPRD, MCABF, MCHLP, MCKBD, MCSVP, MCMLR,
-//! MCMFL, MCTBX, MCLL.
+//! Function-call deployment checks: MCCD, MCPRD, MCHLP, MCKBD, MCSVP, MCMLR,
+//! MCABF, MCMFL, MCTBX, MCLL.
 
 use super::*;
+
+/// Functions that read or write files, for the absolute-path check (MCABF).
+const FILE_FUNCTIONS: &[&str] = &[
+    "addpath",
+    "fopen",
+    "load",
+    "save",
+    "fileread",
+    "imread",
+    "imwrite",
+    "readtable",
+    "writetable",
+    "readmatrix",
+    "csvread",
+    "dlmread",
+    "xlsread",
+    "importdata",
+    "textscan",
+    "audioread",
+    "matfile",
+];
+
+/// Whether a `fopen` permission string opens the file for writing/appending.
+fn permission_writes(perm: &str) -> bool {
+    perm.contains('w') || perm.contains('a') || perm.contains('+')
+}
 
 impl DeploymentEngine {
     /// Check a `function_call` node for deployment-restricted functions.
@@ -12,62 +38,67 @@ impl DeploymentEngine {
     ) -> Vec<Diagnostic> {
         let mut diags = Vec::new();
 
-        let func_name = match extract_func_name(node, source) {
-            Some(n) => n,
-            None => return diags,
+        let Some(func_name) = extract_func_name(node, source) else {
+            return diags;
         };
+        let args = call_args(node);
+        let strings: Vec<&str> = args
+            .iter()
+            .filter_map(|a| string_literal(*a, source))
+            .collect();
 
-        // MCPRD: addpath / rmpath / path modification
-        if self.is_enabled("MCPRD")
-            && (func_name == "addpath"
-                || func_name == "rmpath"
-                || func_name == "path"
-                || func_name == "pathtool"
-                || func_name == "restoredefaultpath")
-        {
-            diags.push(make_diag("MCPRD", node));
-
-            // MCABF: addpath with absolute path (additional check)
-            if self.is_enabled("MCABF")
-                && func_name == "addpath"
-                && has_absolute_path_arg(node, source)
-            {
-                diags.push(make_diag("MCABF", node));
+        let simple = match func_name {
+            "cd" => Some("MCCD"),
+            "help" => Some("MCHLP"),
+            "keyboard" => Some("MCKBD"),
+            "savepath" => Some("MCSVP"),
+            "matlabroot" => Some("MCMLR"),
+            _ => None,
+        };
+        if let Some(id) = simple {
+            if self.is_enabled(id) {
+                diags.push(make_diag(id, node));
             }
         }
 
-        // MCHLP: help / doc
-        if self.is_enabled("MCHLP") && (func_name == "help" || func_name == "doc") {
-            diags.push(make_diag("MCHLP", node));
+        // MCPRD: printdlg accepts exactly one argument.
+        if self.is_enabled("MCPRD") && func_name == "printdlg" && args.len() != 1 {
+            diags.push(make_diag("MCPRD", node));
         }
 
-        // MCKBD: keyboard
-        if self.is_enabled("MCKBD") && func_name == "keyboard" {
-            diags.push(make_diag("MCKBD", node));
+        // MCABF: absolute file name passed to a file-accessing function.
+        if self.is_enabled("MCABF")
+            && FILE_FUNCTIONS.contains(&func_name)
+            && strings.iter().any(|s| is_absolute_path(s))
+        {
+            diags.push(make_diag("MCABF", node));
         }
 
-        // MCSVP: savepath
-        if self.is_enabled("MCSVP") && func_name == "savepath" {
-            diags.push(make_diag("MCSVP", node));
-        }
-
-        // MCMLR: matlabroot
-        if self.is_enabled("MCMLR") && func_name == "matlabroot" {
-            diags.push(make_diag("MCMLR", node));
-        }
-
-        // MCMFL: mfilename
-        if self.is_enabled("MCMFL") && func_name == "mfilename" {
-            diags.push(make_diag("MCMFL", node));
-        }
-
-        // MCTBX: Toolbox functions
-        if self.is_enabled("MCTBX") && TOOLBOX_FUNCTIONS.contains(&func_name) {
+        // MCTBX: file in the MATLAB toolbox folder.
+        if self.is_enabled("MCTBX") && strings.iter().any(|s| is_toolbox_path(s)) {
             diags.push(make_diag("MCTBX", node));
         }
 
-        // MCLL: license check
-        if self.is_enabled("MCLL") && func_name == "license" {
+        // MCMFL: fopen of a .m file for writing.
+        if self.is_enabled("MCMFL")
+            && func_name == "fopen"
+            && strings.first().is_some_and(|f| f.ends_with(".m"))
+            && strings.get(1).is_some_and(|p| permission_writes(p))
+        {
+            diags.push(make_diag("MCMFL", node));
+        }
+
+        // MCLL: loadlibrary driven by a C/C++ header file.
+        if self.is_enabled("MCLL")
+            && func_name == "loadlibrary"
+            && strings.iter().any(|s| {
+                let l = s.to_ascii_lowercase();
+                l.ends_with(".h")
+                    || l.ends_with(".hpp")
+                    || l.ends_with(".hh")
+                    || l.ends_with(".hxx")
+            })
+        {
             diags.push(make_diag("MCLL", node));
         }
 
@@ -80,154 +111,78 @@ mod tests {
     use super::super::engine;
     use crate::test_util::{has_id, lint_nodes};
 
-    // -- MCPRD ---------------------------------------------------------------
-
-    #[test]
-    fn mcprd_fires_on_addpath_call() {
-        let src = "addpath('src');\n";
-        let diags = lint_nodes(&*engine(), src);
-        assert!(has_id(&diags, "MCPRD"), "got: {diags:?}");
+    fn ids(src: &str) -> Vec<&'static str> {
+        lint_nodes(&*engine(), src)
+            .iter()
+            .map(|d| d.rule_id)
+            .collect()
     }
 
     #[test]
-    fn mcprd_no_fire_on_regular_call() {
-        let src = "disp('hello');\n";
-        let diags = lint_nodes(&*engine(), src);
-        assert!(!has_id(&diags, "MCPRD"), "got: {diags:?}");
-    }
-
-    // -- MCHLP ---------------------------------------------------------------
-
-    #[test]
-    fn mchlp_fires_on_help_call() {
-        let src = "help('plot');\n";
-        let diags = lint_nodes(&*engine(), src);
-        assert!(has_id(&diags, "MCHLP"), "got: {diags:?}");
+    fn simple_function_checks() {
+        assert!(ids("cd('/x');\n").contains(&"MCCD"));
+        assert!(ids("help('plot');\n").contains(&"MCHLP"));
+        assert!(ids("keyboard();\n").contains(&"MCKBD"));
+        assert!(ids("savepath();\n").contains(&"MCSVP"));
+        assert!(ids("r = matlabroot();\n").contains(&"MCMLR"));
     }
 
     #[test]
-    fn mchlp_no_fire_on_regular_call() {
-        let src = "plot(x, y);\n";
-        let diags = lint_nodes(&*engine(), src);
-        assert!(!has_id(&diags, "MCHLP"), "got: {diags:?}");
-    }
-
-    // -- MCKBD ---------------------------------------------------------------
-
-    #[test]
-    fn mckbd_fires_on_keyboard_call() {
-        let src = "keyboard();\n";
-        let diags = lint_nodes(&*engine(), src);
-        assert!(has_id(&diags, "MCKBD"), "got: {diags:?}");
+    fn simple_function_checks_no_fire() {
+        for src in [
+            "disp('x');\n",
+            "plot(x, y);\n",
+            "r = pwd;\n",
+            "doc('plot');\n",
+        ] {
+            assert!(ids(src).is_empty(), "{src}: {:?}", ids(src));
+        }
     }
 
     #[test]
-    fn mckbd_no_fire_on_regular_call() {
-        let src = "disp('x');\n";
-        let diags = lint_nodes(&*engine(), src);
-        assert!(!has_id(&diags, "MCKBD"), "got: {diags:?}");
-    }
-
-    // -- MCSVP ---------------------------------------------------------------
-
-    #[test]
-    fn mcsvp_fires_on_savepath_call() {
-        let src = "savepath();\n";
-        let diags = lint_nodes(&*engine(), src);
-        assert!(has_id(&diags, "MCSVP"), "got: {diags:?}");
+    fn addpath_relative_not_flagged() {
+        assert!(ids("addpath('src');\n").is_empty());
+        assert!(ids("path(p);\n").is_empty());
     }
 
     #[test]
-    fn mcsvp_no_fire_on_regular_call() {
-        let src = "save('data.mat');\n";
-        let diags = lint_nodes(&*engine(), src);
-        assert!(!has_id(&diags, "MCSVP"), "got: {diags:?}");
-    }
-
-    // -- MCMLR ---------------------------------------------------------------
-
-    #[test]
-    fn mcmlr_fires_on_matlabroot_call() {
-        let src = "r = matlabroot();\n";
-        let diags = lint_nodes(&*engine(), src);
-        assert!(has_id(&diags, "MCMLR"), "got: {diags:?}");
+    fn mcprd_requires_exactly_one_argument() {
+        assert!(has_id(
+            &lint_nodes(&*engine(), "printdlg(h, 2);\n"),
+            "MCPRD"
+        ));
+        assert!(has_id(&lint_nodes(&*engine(), "printdlg();\n"), "MCPRD"));
+        assert!(!has_id(&lint_nodes(&*engine(), "printdlg(h);\n"), "MCPRD"));
     }
 
     #[test]
-    fn mcmlr_no_fire_on_regular_call() {
-        let src = "r = pwd;\n";
-        let diags = lint_nodes(&*engine(), src);
-        assert!(!has_id(&diags, "MCMLR"), "got: {diags:?}");
-    }
-
-    // -- MCABF ---------------------------------------------------------------
-
-    #[test]
-    fn mcabf_fires_on_absolute_path_addpath() {
-        let src = "addpath('/home/user/mytools');\n";
-        let diags = lint_nodes(&*engine(), src);
-        assert!(has_id(&diags, "MCABF"), "got: {diags:?}");
+    fn mcabf_fires_on_absolute_paths() {
+        assert!(ids("fid = fopen('/home/user/a.txt');\n").contains(&"MCABF"));
+        assert!(ids("addpath('C:\\mytools');\n").contains(&"MCABF"));
+        assert!(!ids("fid = fopen('data/a.txt');\n").contains(&"MCABF"));
+        assert!(!ids("disp('/not/a/file');\n").contains(&"MCABF"));
     }
 
     #[test]
-    fn mcabf_fires_on_windows_drive_addpath() {
-        let src = "addpath('C:\\mytools');\n";
-        let diags = lint_nodes(&*engine(), src);
-        assert!(has_id(&diags, "MCABF"), "got: {diags:?}");
+    fn mcmfl_fires_on_writing_m_file() {
+        assert!(ids("fid = fopen('gen.m', 'w');\n").contains(&"MCMFL"));
+        assert!(!ids("fid = fopen('gen.m', 'r');\n").contains(&"MCMFL"));
+        assert!(!ids("fid = fopen('gen.txt', 'w');\n").contains(&"MCMFL"));
+        assert!(!ids("name = mfilename();\n").contains(&"MCMFL"));
     }
 
     #[test]
-    fn mcabf_no_fire_on_relative_path_addpath() {
-        let src = "addpath('mytools');\n";
-        let diags = lint_nodes(&*engine(), src);
-        assert!(!has_id(&diags, "MCABF"), "got: {diags:?}");
-    }
-
-    // -- MCMFL ---------------------------------------------------------------
-
-    #[test]
-    fn mcmfl_fires_on_mfilename_call() {
-        let src = "name = mfilename();\n";
-        let diags = lint_nodes(&*engine(), src);
-        assert!(has_id(&diags, "MCMFL"), "got: {diags:?}");
+    fn mctbx_fires_on_toolbox_paths() {
+        assert!(ids("x = fileread('toolbox/matlab/a.txt');\n").contains(&"MCTBX"));
+        assert!(ids("x = fileread('/opt/matlab/toolbox/a.txt');\n").contains(&"MCTBX"));
+        assert!(!ids("y = fft2(x);\n").contains(&"MCTBX"));
+        assert!(!ids("x = fileread('mytoolboxes/a.txt');\n").contains(&"MCTBX"));
     }
 
     #[test]
-    fn mcmfl_no_fire_on_regular_call() {
-        let src = "name = mfile;\n";
-        let diags = lint_nodes(&*engine(), src);
-        assert!(!has_id(&diags, "MCMFL"), "got: {diags:?}");
-    }
-
-    // -- MCTBX ---------------------------------------------------------------
-
-    #[test]
-    fn mctbx_fires_on_toolbox_function() {
-        let src = "y = fft2(x);\n";
-        let diags = lint_nodes(&*engine(), src);
-        assert!(has_id(&diags, "MCTBX"), "got: {diags:?}");
-    }
-
-    #[test]
-    fn mctbx_no_fire_on_builtin_function() {
-        let src = "y = sin(x);\n";
-        let diags = lint_nodes(&*engine(), src);
-        assert!(!has_id(&diags, "MCTBX"), "got: {diags:?}");
-    }
-
-    // -- MCLL ----------------------------------------------------------------
-
-    #[test]
-    fn mcll_fires_on_license_call() {
-        let src = "license('checkout', 'Signal_Toolbox');\n";
-        let diags = lint_nodes(&*engine(), src);
-        assert!(has_id(&diags, "MCLL"), "got: {diags:?}");
-    }
-
-    #[test]
-    fn mcll_no_fire_on_regular_call() {
-        let src = "lic = 'abc';\n";
-        let diags = lint_nodes(&*engine(), src);
-        assert!(!has_id(&diags, "MCLL"), "got: {diags:?}");
+    fn mcll_fires_on_header_form_loadlibrary() {
+        assert!(ids("loadlibrary('lib', 'lib.h');\n").contains(&"MCLL"));
+        assert!(!ids("loadlibrary('lib', @libproto);\n").contains(&"MCLL"));
+        assert!(!ids("lic = license('test', 'x');\n").contains(&"MCLL"));
     }
 }

@@ -1,31 +1,30 @@
-//! SODFLTVAL: System object property default value issues.
+//! SODFLTVAL: DiscreteState properties must not be initialized with a default value.
 
 use super::*;
 
 impl SystemObjectsEngine {
-    /// Check property definitions for default value issues.
+    /// Check SODFLTVAL: a property in a `properties (DiscreteState)` block
+    /// that carries a default value (`Name = ...`). DiscreteState properties
+    /// must be initialized within `resetImpl` instead.
     pub(crate) fn check_sodfltval(
         &self,
         properties_node: tree_sitter::Node,
         source: &str,
         diags: &mut Vec<Diagnostic>,
     ) {
-        let count = properties_node.child_count();
-        for i in 0..count {
-            if let Some(child) = properties_node.child(i) {
-                if child.kind() == "property" {
-                    // Check for function call as default value (potentially problematic)
-                    let text = node_text(child, source);
-                    if text.contains('(') && text.contains(')') && text.contains('=') {
-                        // Heuristic: property with function call default value
-                        // e.g., `Prop = someFunction()`
-                        diags.push(make_diag_named(
-                            "SODFLTVAL",
-                            child,
-                            property_name(child, source),
-                        ));
-                    }
-                }
+        if !self.is_enabled("SODFLTVAL")
+            || !block_has_attr(properties_node, "DiscreteState", source)
+        {
+            return;
+        }
+        let mut cursor = properties_node.walk();
+        for child in properties_node.children(&mut cursor) {
+            if child.kind() == "property" && property_has_default(child, source) {
+                diags.push(make_diag_named(
+                    "SODFLTVAL",
+                    child,
+                    property_name(child, source),
+                ));
             }
         }
     }
@@ -37,22 +36,26 @@ mod tests {
     use crate::test_util::{has_id, lint_file};
 
     #[test]
-    fn sodfltval_function_call_default_fires() {
-        let source = system_class("    properties\n        Gain = rand();\n    end");
+    fn sodfltval_discretestate_default_fires_with_name() {
+        let source = system_class("    properties (DiscreteState)\n        Count = 0;\n    end");
         let diags = lint_file(&*engine(), &source);
-        assert!(has_id(&diags, "SODFLTVAL"), "got: {diags:?}");
+        let d = diags
+            .iter()
+            .find(|d| d.rule_id == "SODFLTVAL")
+            .expect("fires");
+        assert!(d.message.contains("property Count."), "got: {}", d.message);
     }
 
     #[test]
-    fn sodfltval_scalar_default_does_not_fire() {
-        let source = system_class("    properties\n        Gain = 5;\n    end");
+    fn sodfltval_regular_function_call_default_does_not_fire() {
+        let source = system_class("    properties\n        Gain = rand();\n    end");
         let diags = lint_file(&*engine(), &source);
         assert!(!has_id(&diags, "SODFLTVAL"), "got: {diags:?}");
     }
 
     #[test]
-    fn sodfltval_string_default_does_not_fire() {
-        let source = system_class("    properties\n        Name = 'rx';\n    end");
+    fn sodfltval_discretestate_without_default_does_not_fire() {
+        let source = system_class("    properties (DiscreteState)\n        Count\n    end");
         let diags = lint_file(&*engine(), &source);
         assert!(!has_id(&diags, "SODFLTVAL"), "got: {diags:?}");
     }

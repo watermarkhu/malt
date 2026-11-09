@@ -104,7 +104,6 @@ export default defineConfig({
                 { text: 'MATLAB Compiler (Deployment)', link: '/rules/deployment' },
                 { text: 'System Objects', link: '/rules/system-objects' },
                 { text: 'Unsupported Features', link: '/rules/unsupported' },
-                { text: 'Code Analyzer Configuration Issues', link: '/rules/config-issues' },
               ],
             },
           ],

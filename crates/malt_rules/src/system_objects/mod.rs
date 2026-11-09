@@ -16,10 +16,10 @@
 //! from `matlab.System`) have specific lifecycle constraints that static
 //! analysis can partially verify. Since full type information is not available
 //! to a static linter, these checks use pattern-based heuristics — detecting
-//! System object patterns by class inheritance, lifecycle method calls
-//! (`step`, `setup`, `release`, `reset`), and property access conventions.
-//! All 9 checks share a single `SystemObjectsEngine` that dispatches node-level
-//! checks on `function_call` nodes plus file-level class analysis; each
+//! System object classes by their `matlab.System` superclass and inspecting
+//! their `properties` blocks and `stepImpl` / `resetImpl` methods.
+//! All 9 checks share a single `SystemObjectsEngine` that performs
+//! checks over `matlab.System` class definitions (file-level analysis); each
 //! diagnostic carries the specific check ID (e.g. `SONUMIN`, `SOTUNPROP3`).
 //!
 //! ## Check IDs
@@ -43,31 +43,42 @@
 //! ```matlab
 //! classdef MySystem < matlab.System
 //!     properties
-//!         Gain = rand();      % SODFLTVAL: function-call default value
-//!         Flag logical = false % SOTUNPROP1: logical tunable property
+//!         Flag logical = false    % SOTUNPROP1: logical tunable property
+//!         Label char = 'x'         % SOTUNPROP3: char tunable property
 //!     end
-//!     methods
-//!         function step(obj)   % SORSRVDNM: reserved method name
+//!     properties (DiscreteState)
+//!         Count = 0;              % SODFLTVAL: DiscreteState default value
+//!     end
+//!     methods (Access = protected)
+//!         function y = stepImpl(obj, varargin)  % SONUMIN: no getNumInputsImpl
+//!             y = 1;
 //!         end
 //!     end
 //! end
-//! step(); % SONUMIN: step() called without inputs
 //! ```
 //!
 //! ### Correct
 //!
 //! ```matlab
 //! classdef MySystem < matlab.System
-//!     properties
-//!         Gain = 1;
-//!         Flag = false;
+//!     properties (Nontunable)
+//!         Label char = 'x'
 //!     end
-//!     methods
-//!         function stepImpl(obj) % use the *Impl override, not 'step'
+//!     properties (DiscreteState)
+//!         Count
+//!     end
+//!     methods (Access = protected)
+//!         function y = stepImpl(obj, varargin)
+//!             y = 1;
+//!         end
+//!         function n = getNumInputsImpl(obj)
+//!             n = 2;
+//!         end
+//!         function resetImpl(obj)
+//!             obj.Count = 0;
 //!         end
 //!     end
 //! end
-//! step(obj, input); % pass the object and the input signal
 //! ```
 //!
 //! ## Configuration
@@ -86,7 +97,7 @@ mod check_sonumout;
 mod check_sorsrvdnm;
 mod check_sotunprop;
 
-use malt_core::{Category, Config, Diagnostic, FileContext, NodeContext, Rule, Severity};
+use malt_core::{Category, Config, Diagnostic, FileContext, Rule, Severity};
 use serde::Deserialize;
 
 // ---------------------------------------------------------------------------
@@ -122,26 +133,12 @@ pub(crate) const CHECKS: &[CheckMeta] = &[
     CheckMeta { id: "SOINITPROP", severity: Severity::Warning, description: "Initialize DiscreteState property VAR_NAME within a 'resetImpl' method." },
     CheckMeta { id: "SODFLTVAL", severity: Severity::Error, description: "Invalid initialization of DiscreteState property VAR_NAME. Initialize property within a 'resetImpl' method." },
     CheckMeta { id: "SORSRVDNM", severity: Severity::Warning, description: "VAR_NAME property is a reserved name." },
-    CheckMeta { id: "SOINITPROP", severity: Severity::Warning, description: "Initialize DiscreteState property VAR_NAME within a 'resetImpl' method." },
     CheckMeta { id: "SOTUNPROP1", severity: Severity::Warning, description: "Logical attribute not supported for tunable properties on MATLAB System blocks. VAR_NAME property is made Nontunable on System block." },
     CheckMeta { id: "SOTUNPROP3", severity: Severity::Warning, description: "Tunable properties on MATLAB System blocks must be numeric. VAR_NAME property is made Nontunable on System block because it is a char." },
     CheckMeta { id: "SOTUNPROP4", severity: Severity::Warning, description: "Tunable properties on MATLAB System blocks must be numeric. VAR_NAME property is made Nontunable on System block because it is a string." },
 ];
 
-/// System object lifecycle methods.
-pub(crate) const SYSTEM_OBJECT_METHODS: &[&str] = &[
-    "step",
-    "setup",
-    "release",
-    "reset",
-    "isDone",
-    "isLocked",
-    "getNumInputs",
-    "getNumOutputs",
-    "clone",
-];
-
-/// Reserved System object method names that should not be overridden.
+/// Names reserved by `matlab.System` (lifecycle methods) that a property must not use.
 pub(crate) const RESERVED_NAMES: &[&str] = &[
     "step",
     "setup",
@@ -154,13 +151,6 @@ pub(crate) const RESERVED_NAMES: &[&str] = &[
     "clone",
     "processTunedPropertiesImpl",
     "infoImpl",
-];
-
-/// Deprecated System object properties and their replacements.
-pub(crate) const DEPRECATED_PROPERTIES: &[(&str, &str)] = &[
-    ("SampleRate", "use getSampleRate method"),
-    ("FrameLength", "set via input signal"),
-    ("NumChannels", "determined automatically from input"),
 ];
 
 /// Look up check metadata by ID.
@@ -189,14 +179,10 @@ pub(crate) fn check_severity(id: &str) -> Severity {
 /// Engine covering 9 system object validation checks.
 ///
 /// Uses pattern-based heuristics since full type information is not available.
-/// Node-level checks fire on `function_call` nodes. File-level checks
-/// analyze class definitions for property and method patterns.
+/// All checks run at file level and analyze class definitions for property and method patterns.
 pub struct SystemObjectsEngine {
     config: SystemObjectsEngineConfig,
 }
-
-/// Node types for node-level dispatch.
-const TARGET_NODES: &[&str] = &["function_call"];
 
 impl SystemObjectsEngine {
     /// Factory constructor called by the rule registry.
@@ -210,38 +196,6 @@ impl SystemObjectsEngine {
     /// Whether a check ID is enabled (not in `skip_checks`).
     pub(crate) fn is_enabled(&self, check_id: &str) -> bool {
         !self.config.skip_checks.iter().any(|s| s == check_id)
-    }
-
-    // -----------------------------------------------------------------------
-    // Node-level check dispatchers
-    // -----------------------------------------------------------------------
-
-    /// Check a `function_call` node for system object method patterns.
-    fn check_function_call<'a>(
-        &self,
-        node: tree_sitter::Node<'a>,
-        source: &'a str,
-    ) -> Vec<Diagnostic> {
-        let mut diags = Vec::new();
-
-        let func_name = match extract_func_name(node, source) {
-            Some(n) => n,
-            None => return diags,
-        };
-
-        // Detect method calls on objects: obj.step(), obj.setup(), etc.
-        // In tree-sitter-matlab, these may appear as field_expression function_calls
-        // where the name is like "obj.step"
-        if let Some(method_name) = func_name.rsplit('.').next() {
-            if SYSTEM_OBJECT_METHODS.contains(&method_name) {
-                diags.extend(self.check_sonumin(node, func_name, method_name));
-                diags.extend(self.check_sonumout(node, method_name));
-            }
-        }
-
-        diags.extend(self.check_sodeprop(node, func_name));
-
-        diags
     }
 
     // -----------------------------------------------------------------------
@@ -290,25 +244,18 @@ impl SystemObjectsEngine {
         let count = class_node.child_count();
         for i in 0..count {
             if let Some(child) = class_node.child(i) {
-                // SORSRVDNM: Check method names against reserved names
-                if self.is_enabled("SORSRVDNM") && child.kind() == "methods" {
-                    self.check_sorsrvdnm(child, source, diags);
-                }
-
-                // SODFLTVAL: Check properties for default value issues
-                if self.is_enabled("SODFLTVAL") && child.kind() == "properties" {
-                    self.check_sodfltval(child, source, diags);
-                }
-
-                // SOTUNPROP1/3/4: tunable property type constraints
                 if child.kind() == "properties" {
+                    self.check_sodeprop(child, source, diags);
+                    self.check_sodfltval(child, source, diags);
+                    self.check_sorsrvdnm(child, source, diags);
                     self.check_sotunprop(child, source, diags);
                 }
             }
         }
 
-        // SOINITPROP: DiscreteState properties need a resetImpl method.
         self.check_soinitprop(class_node, source, diags);
+        self.check_sonumin(class_node, source, diags);
+        self.check_sonumout(class_node, source, diags);
     }
 }
 
@@ -335,18 +282,11 @@ impl Rule for SystemObjectsEngine {
     }
 
     fn target_node_types(&self) -> &'static [&'static str] {
-        TARGET_NODES
+        &[]
     }
 
     fn has_file_check(&self) -> bool {
         true
-    }
-
-    fn check(&self, ctx: &NodeContext) -> Vec<Diagnostic> {
-        match ctx.node.kind() {
-            "function_call" => self.check_function_call(ctx.node, ctx.source),
-            _ => Vec::new(),
-        }
     }
 
     fn check_file(&self, ctx: &FileContext) -> Vec<Diagnostic> {
@@ -400,60 +340,63 @@ pub(crate) fn node_text<'a>(node: tree_sitter::Node<'a>, source: &'a str) -> &'a
     &source[node.start_byte()..node.end_byte()]
 }
 
-/// The name of a `property` node — the first whitespace-delimited token of its
-/// text (e.g. `Flag` for `Flag logical = false`).
+/// The name of a `property` node: its leading identifier (e.g. `Flag` for
+/// `Flag logical = false`).
 pub(crate) fn property_name<'a>(node: tree_sitter::Node<'a>, source: &'a str) -> &'a str {
-    node_text(node, source)
-        .split_whitespace()
-        .next()
-        .unwrap_or("")
+    let text = node_text(node, source).trim_start();
+    let end = text
+        .find(|c: char| !(c.is_alphanumeric() || c == '_'))
+        .unwrap_or(text.len());
+    &text[..end]
 }
 
-/// Extract function name from a `function_call` node.
-pub(crate) fn extract_func_name<'a>(
-    node: tree_sitter::Node<'a>,
+/// Attribute text of a `properties` block: everything before its first
+/// `property` child (e.g. `properties (Nontunable, Constant)`).
+pub(crate) fn block_attrs<'a>(block: tree_sitter::Node<'a>, source: &'a str) -> &'a str {
+    let mut cursor = block.walk();
+    let end = block
+        .children(&mut cursor)
+        .find(|c| c.kind() == "property")
+        .map(|c| c.start_byte())
+        .unwrap_or_else(|| block.end_byte());
+    &source[block.start_byte()..end]
+}
+
+/// True when the attribute list of a `properties` block names `attr`.
+pub(crate) fn block_has_attr(block: tree_sitter::Node, attr: &str, source: &str) -> bool {
+    let attrs = block_attrs(block, source);
+    attrs
+        .split(|c: char| !(c.is_alphanumeric() || c == '_'))
+        .any(|w| w == attr)
+}
+
+/// True when the `property` has a default value (`= ...`).
+pub(crate) fn property_has_default(node: tree_sitter::Node, source: &str) -> bool {
+    node_text(node, source).contains('=')
+}
+
+/// Header line and name of a method named `name` in the class, if present.
+pub(crate) fn method_header<'a>(
+    class_node: tree_sitter::Node<'a>,
+    name: &str,
     source: &'a str,
 ) -> Option<&'a str> {
-    if node.kind() != "function_call" {
-        return None;
+    let mut stack = vec![class_node];
+    while let Some(node) = stack.pop() {
+        if node.kind() == "function_definition" && function_name(node, source) == Some(name) {
+            return node_text(node, source).lines().next();
+        }
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            stack.push(child);
+        }
     }
-    let name_node = node.child_by_field_name("name")?;
-    Some(&source[name_node.start_byte()..name_node.end_byte()])
+    None
 }
 
 // ---------------------------------------------------------------------------
 // Helper: pattern detection
 // ---------------------------------------------------------------------------
-
-/// Count the number of arguments in a `function_call` node.
-pub(crate) fn count_args(node: tree_sitter::Node) -> usize {
-    // In tree-sitter-matlab call arguments are a child node of kind
-    // `arguments` rather than a named field, so `child_by_field_name` never
-    // matches. Locate them by child kind instead.
-    let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        if child.kind() == "arguments" {
-            return child.named_child_count();
-        }
-    }
-    0
-}
-
-/// Check if a function_call is the RHS of an assignment (has output).
-pub(crate) fn has_output_assignment(node: tree_sitter::Node) -> bool {
-    if let Some(parent) = node.parent() {
-        // Check if parent is an assignment and this node is on the right side
-        if parent.kind() == "assignment" {
-            if let Some(rhs) = parent
-                .child_by_field_name("right")
-                .or_else(|| parent.child(2))
-            {
-                return node.start_byte() >= rhs.start_byte() && node.end_byte() <= rhs.end_byte();
-            }
-        }
-    }
-    false
-}
 
 /// Check if a class definition inherits from matlab.System.
 pub(crate) fn is_system_object_class(class_node: tree_sitter::Node, source: &str) -> bool {
@@ -537,11 +480,6 @@ fn function_name<'a>(func: tree_sitter::Node<'a>, source: &'a str) -> Option<&'a
         }
     }
     None
-}
-
-/// True when the raw text of a node contains `needle`.
-pub(crate) fn block_text_has(node: tree_sitter::Node, needle: &str, source: &str) -> bool {
-    node_text(node, source).contains(needle)
 }
 
 // ---------------------------------------------------------------------------
