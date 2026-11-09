@@ -38,8 +38,8 @@ mod tests {
     // -- DEBUGFUN ------------------------------------------------------------
 
     #[test]
-    fn debugfun_fires_on_keyboard_call() {
-        let src = "keyboard();\n";
+    fn debugfun_fires_on_dbstep_call() {
+        let src = "dbstep();\n";
         let diags = node_diags(src);
         assert!(has_id(&diags, "DEBUGFUN"), "got: {diags:?}");
     }

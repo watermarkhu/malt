@@ -12,7 +12,7 @@
 //!
 //! ## Rule
 //!
-//! Detects likely bugs and logic errors in MATLAB code. All 35 checks share a
+//! Detects likely bugs and logic errors in MATLAB code. All 34 checks share a
 //! single hybrid engine (`BugsEngine`) that performs both node-level checking
 //! (dispatched per-node during traversal) and file-level checking (full-tree
 //! analysis after traversal). Each diagnostic carries the specific check ID
@@ -23,38 +23,38 @@
 //! | Check ID | Severity | Fix | Description |
 //! | --- | --- | --- | --- |
 //! | IFBDUP | error | no | This condition has no effect because all blocks in this if statement are identical. This indicates a bug in the code. Remove the condition or change the code blocks. |
-//! | IFCDUP | error | no | The statements under this VAR_RESERVED_WORD condition cannot be reached because it is a duplicate of the VAR_RESERVED_WORD condition on line VAR_NUMBER. This indicates a bug in the code. Remove or change the condition. |
-//! | CTRUE | error | no | This logical comparison always returns true. Did you mean to use VAR_NAME to evaluate function argument: VAR_NAME(...VAR_NAME...)? |
-//! | CFALSE | error | no | This logical comparison always returns false. Did you mean to use VAR_NAME to evaluate function argument: VAR_NAME(...VAR_NAME...)? |
-//! | SHOCIRT | error | no | The VAR_NAME operator is unexpected because VAR_NAME(A VAR_NAME B) always returns true. |
-//! | SHOCIRF | error | no | The VAR_NAME operator is unexpected because VAR_NAME(A VAR_NAME B) always returns false. |
-//! | DEBUGFUN | error | no | Debug functions are intended to be used at the command line. At runtime, they will generate an error. Remove the debug function. |
-//! | INCR | error | no | ++x operation does not increment the value of x. To increase the value by 1, use x = x + 1. |
-//! | DECR | error | no | --x operation does not decrement the value of x. To decrease the value by 1, use x = x - 1. |
-//! | CMDAND | error | yes | Use 'A && B' or 'A & B' to test whether A and B are both true in MATLAB. |
-//! | CMDOR | error | yes | Use 'A \|\| B' or 'A \| B' to test whether either A or B is true in MATLAB. |
-//! | RHSFN | error | no | The expression cannot be assigned to multiple values. |
-//! | FNAN | error | yes | Use ISNAN when comparing values to NaN. |
-//! | LOGEMP | error | yes | Using 'isempty' on a logical expression creates incorrect results. To determine if all the conditions are false, use '~any(..., "all")' instead. |
+//! | IFCDUP | error | no | The statements under this elseif condition cannot be reached because it is a duplicate of the if/elseif condition on line N. This indicates a bug in the code. Remove or change the condition. |
+//! | CTRUE | error | no | This logical comparison always returns true. Did you mean to use F to evaluate function argument: F(...A<=1...)? A comparison of a logical-valued function such as `any(A)` against a numeric literal that every logical value satisfies. |
+//! | CFALSE | error | no | This logical comparison always returns false. Did you mean to use F to evaluate function argument: F(...A>1...)? A comparison of a logical-valued function such as `any(A)` against a numeric literal that no logical value satisfies. |
+//! | SHOCIRT | error | no | The && operator is unexpected because isscalar(A && B) always returns true. (`isscalar`, `islogical`, `isreal` applied to `&&` or `||`.) |
+//! | SHOCIRF | error | no | The || operator is unexpected because isempty(A || B) always returns false. (`isempty`, `isnan`, `ischar`, `isnumeric`, … applied to `&&` or `||`.) |
+//! | DEBUGFUN | error | no | Debug functions (`dbcont`, `dbquit`, `dbup`, `dbdown`, `dbstep`) are intended to be used at the command line. At runtime, they will generate an error. Remove the debug function. |
+//! | INCR | error | yes (unsafe) | `++x` does not increment the value of x. To increase the value by 1, use x = x + 1. |
+//! | DECR | error | yes (unsafe) | `--x` does not decrement the value of x. To decrease the value by 1, use x = x - 1. |
+//! | CMDAND | error | yes (unsafe) | Command-syntax statement `a &b`: use 'A && B' or 'A & B' to test whether A and B are both true in MATLAB. |
+//! | CMDOR | error | yes (unsafe) | Command-syntax statement `a |b`: use 'A || B' or 'A | B' to test whether either A or B is true in MATLAB. |
+//! | RHSFN | warning | no | The expression cannot be assigned to multiple values. |
+//! | FNAN | error | yes (unsafe) | Use ISNAN when comparing values to NaN (`x == NaN`, `x ~= NaN`). |
+//! | LOGEMP | error | no | Using 'isempty' on a logical expression creates incorrect results. To determine if all the conditions are false, use '~any(..., "all")' instead. |
 //! | STCUL | error | no | The comparison will likely fail due to case mismatch. |
-//! | LBODUP | error | no | Since both operands are identical, the second operand has no effect on the VAR_RESERVED_WORD operation. This indicates a bug in the code. Change one of the operands or remove the VAR_RESERVED_WORD operation. |
-//! | FUNFUN | error | no | The first input argument must be a function handle. Did you mean '@VAR_NAME'? |
+//! | LBODUP | error | no | Since both operands are identical, the second operand has no effect on the && operation (`A && A`, `A | A`, …). This indicates a bug in the code. Change one of the operands or remove the operation. |
+//! | FUNFUN | error | no | The first input argument must be a function handle. Did you mean '@name'? (A function name passed as a string to `arrayfun`, `structfun`, `bsxfun`, …; legacy `cellfun('isempty', …)` names are allowed.) |
 //! | DEFSIZE | error | no | Do not overload 'size' for fundamental data types. |
 //! | VARARG | error | no | Initialize VARARGOUT with a CELL. |
 //! | STRCMPCSTR | error | no | 'strcmp' always returns false for string elements of a cell array. Use ["str1", "str2"] instead of {"str1", "str2"}. |
 //! | ASSRT | error | no | The first input argument to 'assert' must be a condition. To always throw an error, use 'error(msg)' instead. |
-//! | BDSCA2 | error | no | Operands to '\|\|' and '&&' must be scalar values. Use 'all' or 'any' to convert this value into a scalar value or use the element-wise operators '\|' or '&' instead. |
+//! | BDSCA2 | error | no | Operands to '\|\|' and '&&' must be scalar values (matrix literal, range or sized `zeros`/`ones`/… operand). Use 'all' or 'any' to convert this value into a scalar value or use the element-wise operators '\|' or '&' instead. |
 //! | NOPRC | error | no | A line break terminates the statement so it may be incomplete. Use ellipsis (...) to continue the statement. Or add a semicolon to hide the output. |
-//! | MOCUP | error | no | Variable VAR_NAME may be cleared before the cleanup function that references VAR_NAME executes, resulting in an undefined variable error. |
-//! | MDUPC | error | no | The case value VAR_NAME is a duplicate of one on line VAR_NUMBER. |
-//! | MNANC | error | yes | NaN never compares equal to any value, so this case will never be matched. |
+//! | MOCUP | error | no | Variable X may be cleared before the cleanup function that references X executes, resulting in an undefined variable error. |
+//! | MDUPC | error | no | The case value X is a duplicate of one on line N. |
+//! | MNANC | error | no | NaN never compares equal to any value, so this case will never be matched (`case NaN`). |
 //! | MULCC | error | no | This case cannot be matched due to a call to UPPER or LOWER on the SWITCH value. |
-//! | MEXCEP | error | no | To report an MException as a warning, use a format specifier to ensure the message is printed correctly. For example, 'warning(E.identifier, "%s", E.message)'. |
-//! | PFUIXE | error | no | The index variable VAR_NAME might be used after the PARFOR loop on line VAR_NUMBER, but it is unavailable after the loop. |
+//! | MEXCEP | error | no | To report an MException as a warning (`warning(E.message)`), use a format specifier to ensure the message is printed correctly. For example, 'warning(E.identifier, "%s", E.message)'. |
+//! | PFUIXE | error | no | The index variable X might be used after the PARFOR loop on line N, but it is unavailable after the loop. |
 //! | PFBFN | error | no | Use of this function is invalid inside a PARFOR loop because it accesses or modifies the workspace in a non-transparent way. |
 //! | PFWHOS | error | no | Using "who" or "whos" without "-file" is invalid inside a PARFOR loop because it accesses the workspace in a non-transparent way. |
-//! | PFTUSE | error | no | The temporary variable VAR_NAME is used after the PARFOR loop on line VAR_NUMBER, but its value is not available after the loop. |
-//! | PFRNC | error | no | Parfor reduction variable VAR_NAME must be used in the same position in each assignment statement when using non-commutative reduction operations '*', '[,]', or '[;]'. |
+//! | PFTUSE | error | no | The temporary variable X is used after the PARFOR loop on line N, but its value is not available after the loop. |
+//! | PFRNC | error | no | Parfor reduction variable X must be used in the same position in each assignment statement when using non-commutative reduction operations '*', '[,]', or '[;]'. |
 //!
 //! ## Fix
 //!
@@ -93,29 +93,30 @@
 //! ```toml
 //! [lint.rules.BUGS_ENGINE]
 //! severity = "error"
-//! debug_functions = ["keyboard", "dbstop", "dbclear", "dbcont", "dbquit", "dbup", "dbdown"]
+//! debug_functions = ["dbcont", "dbquit", "dbup", "dbdown", "dbstep"]
 //! higher_order_functions = ["cellfun", "arrayfun", "structfun", "bsxfun", "spfun"]
 //! ```
 
 mod check_assert_constant;
-mod check_constant_condition;
+mod check_command_logical;
 mod check_debug_function;
-mod check_duplicate_conditions;
-mod check_element_wise_boolean;
 mod check_funfun;
-mod check_length_empty;
+mod check_incr_decr;
+mod check_isempty_logical;
+mod check_logical_comparison;
+mod check_mocup;
 mod check_nan_comparison;
-mod check_operator_precedence;
-mod check_scalar_array_op;
-mod check_self_modify;
+mod check_nonscalar_operand;
+mod check_parfor;
 mod check_short_circuit;
-mod check_size_comparison;
-mod check_strcmp_char;
-mod check_strcmpi_same_case;
+mod check_size_overload;
+mod check_strcmp_case_mismatch;
+mod check_strcmp_cell;
+mod check_switch_upper_lower;
+mod check_warning_message;
 
 use malt_core::{Category, Config, Diagnostic, FileContext, Fix, NodeContext, Rule, Severity};
 use serde::Deserialize;
-use std::collections::HashSet;
 use tree_sitter::Node;
 
 // ---------------------------------------------------------------------------
@@ -124,42 +125,21 @@ use tree_sitter::Node;
 
 /// Node types targeted by node-level checks.
 const TARGET_NODES: &[&str] = &[
-    "if_statement",
-    "while_statement",
     "switch_statement",
     "boolean_operator",
     "binary_operator",
     "comparison_operator",
     "function_call",
-    "assignment",
-    "try_statement",
+    "unary_operator",
+    "command",
 ];
 
 /// Debug functions that should not appear in production code.
-const DEFAULT_DEBUG_FUNCTIONS: &[&str] = &[
-    "keyboard", "dbstop", "dbclear", "dbcont", "dbquit", "dbup", "dbdown", "dbstack", "dbstatus",
-    "dbtype",
-];
+const DEFAULT_DEBUG_FUNCTIONS: &[&str] = &["dbcont", "dbquit", "dbup", "dbdown", "dbstep"];
 
 /// Higher-order functions that accept function handles.
 const DEFAULT_HIGHER_ORDER_FUNCTIONS: &[&str] =
     &["cellfun", "arrayfun", "structfun", "bsxfun", "spfun"];
-
-/// Array-producing functions whose result is non-scalar.
-const ARRAY_FUNCTIONS: &[&str] = &[
-    "zeros",
-    "ones",
-    "rand",
-    "randn",
-    "eye",
-    "linspace",
-    "logspace",
-    "repmat",
-    "reshape",
-    "cell",
-    "struct",
-    "fieldnames",
-];
 
 // ---------------------------------------------------------------------------
 // Rule-specific configuration
@@ -184,7 +164,7 @@ pub struct BugsConfig {
 // ---------------------------------------------------------------------------
 
 /// Bugs Detection Engine: a hybrid rule that performs both node-level and
-/// file-level checks for 35 bug-detection rules from MATLAB's Code Analyzer.
+/// file-level checks for 34 bug-detection checks from MATLAB's Code Analyzer.
 pub struct BugsEngine {
     config: BugsConfig,
 }
@@ -294,7 +274,7 @@ impl BugsEngine {
 
     fn walk_if_condition_dup(node: Node, source: &str, diagnostics: &mut Vec<Diagnostic>) {
         if node.kind() == "if_statement" {
-            let mut conditions: Vec<(String, Node)> = Vec::new();
+            let mut conditions: Vec<(String, Node, &str)> = Vec::new();
 
             // Collect the main if condition.
             if let Some(cond) = node
@@ -302,7 +282,7 @@ impl BugsEngine {
                 .or_else(|| find_condition_child(node))
             {
                 let cond_text = normalize_whitespace(node_text(cond, source));
-                conditions.push((cond_text, cond));
+                conditions.push((cond_text, cond, "if"));
             }
 
             // Collect elseif conditions.
@@ -314,16 +294,16 @@ impl BugsEngine {
                         .or_else(|| find_condition_child(child))
                     {
                         let cond_text = normalize_whitespace(node_text(cond, source));
-                        if let Some((_, first_cond)) =
-                            conditions.iter().find(|(t, _)| *t == cond_text)
+                        if let Some((_, first_cond, first_kw)) =
+                            conditions.iter().find(|(t, _, _)| *t == cond_text)
                         {
                             let pos = cond.start_position();
                             let first_line = first_cond.start_position().row + 1;
                             diagnostics.push(Diagnostic {
                                 rule_id: "IFCDUP",
                                 message: format!(
-                                    "The statements under this elseif condition cannot be reached because it is a duplicate of the elseif condition on line {}. This indicates a bug in the code. Remove or change the condition.",
-                                    first_line
+                                    "The statements under this elseif condition cannot be reached because it is a duplicate of the {} condition on line {}. This indicates a bug in the code. Remove or change the condition.",
+                                    first_kw, first_line
                                 ),
                                 severity: Severity::Error,
                                 byte_range: cond.start_byte()..cond.end_byte(),
@@ -332,7 +312,7 @@ impl BugsEngine {
                                 fix: None,
                             });
                         } else {
-                            conditions.push((cond_text, cond));
+                            conditions.push((cond_text, cond, "elseif"));
                         }
                     }
                 }
@@ -345,7 +325,7 @@ impl BugsEngine {
         }
     }
 
-    /// LBODUP / MDUPC: Duplicate case values in switch.
+    /// MDUPC: Duplicate case values in switch.
     fn check_switch_dup_cases(&self, root: Node, source: &str) -> Vec<Diagnostic> {
         let mut diagnostics = Vec::new();
         Self::walk_switch_dup_cases(root, source, &mut diagnostics);
@@ -366,16 +346,6 @@ impl BugsEngine {
                             let pos = case_val.start_position();
                             let first_line = first.start_position().row + 1;
                             let case_text = node_text(case_val, source).trim();
-                            // Report as both LBODUP and MDUPC (they cover different aspects).
-                            diagnostics.push(Diagnostic {
-                                rule_id: "LBODUP",
-                                message: "Since both operands are identical, the second operand has no effect on the VAR_RESERVED_WORD operation. This indicates a bug in the code. Change one of the operands or remove the VAR_RESERVED_WORD operation.".to_string(),
-                                severity: Severity::Error,
-                                byte_range: case_val.start_byte()..case_val.end_byte(),
-                                line: pos.row + 1,
-                                column: pos.column + 1,
-                                fix: None,
-                            });
                             diagnostics.push(Diagnostic {
                                 rule_id: "MDUPC",
                                 message: format!(
@@ -426,7 +396,21 @@ impl BugsEngine {
             if let Some(parent) = node.parent() {
                 if parent.kind() == "source_file" || parent.kind() == "block" {
                     let op = node_text(node, source).trim();
-                    if op.starts_with('+') || op.starts_with('-') {
+                    let is_incr_decr = node
+                        .child_by_field_name("operand")
+                        .and_then(|o| {
+                            (o.kind() == "unary_operator")
+                                .then(|| o.child_by_field_name("operand"))
+                                .flatten()
+                        })
+                        .is_some_and(|o| o.kind() == "identifier");
+                    let follows_statement = node
+                        .prev_named_sibling()
+                        .is_some_and(|p| p.kind() != "comment");
+                    if (op.starts_with('+') || op.starts_with('-'))
+                        && !is_incr_decr
+                        && follows_statement
+                    {
                         let pos = node.start_position();
                         diagnostics.push(Diagnostic {
                             rule_id: "NOPRC",
@@ -448,77 +432,16 @@ impl BugsEngine {
         }
     }
 
-    /// MEXCEP: Catch clause without an exception identifier.
-    fn check_catch_without_id(&self, root: Node, source: &str) -> Vec<Diagnostic> {
-        let mut diagnostics = Vec::new();
-        Self::walk_catch_without_id(root, source, &mut diagnostics);
-        diagnostics
-    }
-
-    fn walk_catch_without_id(node: Node, source: &str, diagnostics: &mut Vec<Diagnostic>) {
-        if node.kind() == "catch_clause" {
-            // Check if the catch clause has an identifier child.
-            let has_id = {
-                let mut cursor = node.walk();
-                let result = node.children(&mut cursor).any(|c| c.kind() == "identifier");
-                result
-            };
-
-            if !has_id {
-                // Also check the source text for `catch <id>` pattern.
-                let catch_text = node_text(node, source).trim().to_string();
-                let has_id_text = catch_text
-                    .strip_prefix("catch")
-                    .map(|rest| {
-                        let rest = rest.trim();
-                        !rest.is_empty() && rest.chars().next().is_some_and(|c| c.is_alphabetic())
-                    })
-                    .unwrap_or(false);
-
-                if !has_id_text {
-                    let pos = node.start_position();
-                    diagnostics.push(Diagnostic {
-                        rule_id: "MEXCEP",
-                        message: "To report an MException as a warning, use a format specifier to ensure the message is printed correctly. For example, 'warning(E.identifier, \"%s\", E.message)'.".to_string(),
-                        severity: Severity::Error,
-                        byte_range: node.start_byte()..node.end_byte(),
-                        line: pos.row + 1,
-                        column: pos.column + 1,
-                        fix: None,
-                    });
-                }
-            }
-        }
-
-        // For try_statement, check its catch_clause children.
-        if node.kind() == "try_statement" {
-            let mut cursor = node.walk();
-            for child in node.children(&mut cursor) {
-                if child.kind() == "catch_clause" {
-                    Self::walk_catch_without_id(child, source, diagnostics);
-                }
-            }
-        }
-
-        let mut cursor = node.walk();
-        for child in node.children(&mut cursor) {
-            if child.kind() != "catch_clause" {
-                Self::walk_catch_without_id(child, source, diagnostics);
-            }
-        }
-    }
-
     /// RHSFN: an assignment whose left-hand side is a multiple-output
     /// expression but whose right-hand side cannot return multiple values.
     ///
     /// # Limitations (grammar)
     ///
-    /// Only a right-hand side that is NOT a `function_call` is flagged. The
-    /// tree-sitter MATLAB grammar uses `function_call` for both actual function
-    /// calls and array/cell indexing, so `[a, b] = f(...)` (a scalar-returning
-    /// `f`) cannot be distinguished from `[a, b] = f(i)` (an index into an
-    /// array `f`). As a result this check misses multi-output assignments whose
-    /// RHS is a genuinely scalar-returning function call.
+    /// Only right-hand sides that can never produce several values are flagged
+    /// (literals, matrices, cells, ranges and operator expressions). A
+    /// `function_call`, a bare identifier or a field expression may be a call to
+    /// a multi-output function (the grammar cannot tell calls from indexing), so
+    /// those are left alone.
     fn check_multioutput_assignment(&self, root: Node) -> Vec<Diagnostic> {
         let mut diagnostics = Vec::new();
         Self::walk_multioutput_assignment(root, &mut diagnostics);
@@ -534,13 +457,26 @@ impl BugsEngine {
                 // right-hand side (identifier, literal, operator expression)
                 // yields a single value that cannot be assigned to multiple
                 // left-hand targets.
-                if lhs.kind() == "multioutput_variable" && rhs.kind() != "function_call" {
+                if lhs.kind() == "multioutput_variable"
+                    && matches!(
+                        rhs.kind(),
+                        "number"
+                            | "string"
+                            | "matrix"
+                            | "cell"
+                            | "range"
+                            | "binary_operator"
+                            | "boolean_operator"
+                            | "comparison_operator"
+                            | "unary_operator"
+                    )
+                {
                     let pos = rhs.start_position();
                     diagnostics.push(Diagnostic {
                         rule_id: "RHSFN",
                         message: "The expression cannot be assigned to multiple values."
                             .to_string(),
-                        severity: Severity::Error,
+                        severity: Severity::Warning,
                         byte_range: rhs.start_byte()..rhs.end_byte(),
                         line: pos.row + 1,
                         column: pos.column + 1,
@@ -684,201 +620,6 @@ impl BugsEngine {
         }
         false
     }
-
-    /// Parfor-related checks: PFUIXE, PFBFN, PFWHOS, PFTUSE, PFRNC.
-    fn check_parfor_issues(&self, root: Node, source: &str) -> Vec<Diagnostic> {
-        let mut diagnostics = Vec::new();
-        Self::walk_parfor_issues(root, source, &mut diagnostics);
-        diagnostics
-    }
-
-    fn walk_parfor_issues(node: Node, source: &str, diagnostics: &mut Vec<Diagnostic>) {
-        if node.kind() == "for_statement" {
-            let stmt_text = node_text(node, source);
-            if !stmt_text.starts_with("parfor") {
-                // Not a parfor — recurse into children only.
-                let mut cursor = node.walk();
-                for child in node.children(&mut cursor) {
-                    Self::walk_parfor_issues(child, source, diagnostics);
-                }
-                return;
-            }
-
-            // This is a parfor. Extract the loop variable.
-            let loop_var = extract_for_variable(node, source);
-
-            // Walk the parfor body for issues.
-            let mut cursor = node.walk();
-            for child in node.children(&mut cursor) {
-                if child.kind() == "block" {
-                    Self::check_parfor_body(child, source, loop_var.as_deref(), diagnostics);
-                }
-            }
-        }
-
-        let mut cursor = node.walk();
-        for child in node.children(&mut cursor) {
-            Self::walk_parfor_issues(child, source, diagnostics);
-        }
-    }
-
-    fn check_parfor_body(
-        node: Node,
-        source: &str,
-        loop_var: Option<&str>,
-        diagnostics: &mut Vec<Diagnostic>,
-    ) {
-        match node.kind() {
-            "function_call" => {
-                let func_name = extract_call_name(node, source);
-                if let Some(name) = &func_name {
-                    // PFUIXE: Loop variable used in eval.
-                    if *name == "eval" || *name == "evalin" || *name == "feval" {
-                        if let Some(lv) = loop_var {
-                            let args = collect_call_args(node, source);
-                            if args.iter().any(|a| a.contains(lv)) {
-                                let pos = node.start_position();
-                                diagnostics.push(Diagnostic {
-                                    rule_id: "PFUIXE",
-                                    message: format!(
-                                        "The index variable {} might be used after the PARFOR loop on line {}, but it is unavailable after the loop.",
-                                        lv, pos.row + 1
-                                    ),
-                                    severity: Severity::Error,
-                                    byte_range: node.start_byte()..node.end_byte(),
-                                    line: pos.row + 1,
-                                    column: pos.column + 1,
-                                    fix: None,
-                                });
-                            }
-                        }
-                    }
-
-                    // PFWHOS: who/whos without -file in parfor.
-                    if *name == "who" || *name == "whos" {
-                        let args = collect_call_args(node, source);
-                        let has_file_flag = args.iter().any(|a| {
-                            let a = a.trim().trim_matches(|c| c == '\'' || c == '"');
-                            a == "-file"
-                        });
-                        if !has_file_flag {
-                            let pos = node.start_position();
-                            diagnostics.push(Diagnostic {
-                                rule_id: "PFWHOS",
-                                message: "Using \"who\" or \"whos\" without \"-file\" is invalid inside a PARFOR loop because it accesses the workspace in a non-transparent way.".to_string(),
-                                severity: Severity::Error,
-                                byte_range: node.start_byte()..node.end_byte(),
-                                line: pos.row + 1,
-                                column: pos.column + 1,
-                                fix: None,
-                            });
-                        }
-                    }
-
-                    // PFBFN: Certain builtin functions problematic in parfor.
-                    let problematic_builtins = [
-                        "assignin",
-                        "evalin",
-                        "save",
-                        "load",
-                        "clear",
-                        "global",
-                        "persistent",
-                    ];
-                    if problematic_builtins.contains(name) {
-                        let pos = node.start_position();
-                        diagnostics.push(Diagnostic {
-                            rule_id: "PFBFN",
-                            message: "Use of this function is invalid inside a PARFOR loop because it accesses or modifies the workspace in a non-transparent way.".to_string(),
-                            severity: Severity::Error,
-                            byte_range: node.start_byte()..node.end_byte(),
-                            line: pos.row + 1,
-                            column: pos.column + 1,
-                            fix: None,
-                        });
-                    }
-                }
-            }
-            "command" => {
-                // PFWHOS: `who`/`whos` command form (no parentheses) without
-                // `-file` in parfor.
-                let text = node_text(node, source).trim();
-                let first = text.split_whitespace().next().unwrap_or("");
-                if (first == "who" || first == "whos") && !text.contains("-file") {
-                    let pos = node.start_position();
-                    diagnostics.push(Diagnostic {
-                        rule_id: "PFWHOS",
-                        message: "Using \"who\" or \"whos\" without \"-file\" is invalid inside a PARFOR loop because it accesses the workspace in a non-transparent way.".to_string(),
-                        severity: Severity::Error,
-                        byte_range: node.start_byte()..node.end_byte(),
-                        line: pos.row + 1,
-                        column: pos.column + 1,
-                        fix: None,
-                    });
-                }
-            }
-            "assignment" => {
-                // PFTUSE / PFRNC: Check for temporary variable misuse and
-                // inconsistent reduction patterns.
-                if let Some(lhs) = node.child_by_field_name("left").or_else(|| node.child(0)) {
-                    if lhs.kind() == "identifier" {
-                        let var_name = node_text(lhs, source).trim().to_string();
-                        if let Some(rhs) =
-                            node.child_by_field_name("right").or_else(|| node.child(2))
-                        {
-                            let rhs_text = node_text(rhs, source);
-                            // PFTUSE: Variable used on both sides but is not a reduction.
-                            if rhs_text.contains(&var_name)
-                                && !is_reduction_pattern(&var_name, rhs, source)
-                            {
-                                let pos = node.start_position();
-                                diagnostics.push(Diagnostic {
-                                    rule_id: "PFTUSE",
-                                    message: format!(
-                                        "The temporary variable {} is used after the PARFOR loop on line {}, but its value is not available after the loop.",
-                                        var_name, pos.row + 1
-                                    ),
-                                    severity: Severity::Error,
-                                    byte_range: node.start_byte()..node.end_byte(),
-                                    line: pos.row + 1,
-                                    column: pos.column + 1,
-                                    fix: None,
-                                });
-                            }
-
-                            // PFRNC: Reduction operator not consistent.
-                            if is_reduction_pattern(&var_name, rhs, source) {
-                                // Check for mixed reduction operators on same variable.
-                                // This is a simplified check — full analysis would track
-                                // across the entire parfor body.
-                                if has_mixed_reduction_ops(&var_name, rhs, source) {
-                                    let pos = node.start_position();
-                                    diagnostics.push(Diagnostic {
-                                        rule_id: "PFRNC",
-                                        message: format!(
-                                            "Parfor reduction variable {} must be used in the same position in each assignment statement when using non-commutative reduction operations '*', '[,]', or '[;]'.",
-                                            var_name
-                                        ),
-                                        severity: Severity::Error,
-                                        byte_range: node.start_byte()..node.end_byte(),
-                                        line: pos.row + 1,
-                                        column: pos.column + 1,
-                                        fix: None,
-                                    });
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            _ => {}
-        }
-
-        let mut cursor = node.walk();
-        for child in node.children(&mut cursor) {
-            Self::check_parfor_body(child, source, loop_var, diagnostics);
-        }
-    }
 }
 
 // ---------------------------------------------------------------------------
@@ -920,21 +661,26 @@ impl Rule for BugsEngine {
         let mut diagnostics = Vec::new();
 
         match node.kind() {
-            "if_statement" | "while_statement" => {
-                diagnostics.extend(self.check_constant_condition(node, source));
+            "command" => {
+                diagnostics.extend(self.check_command_logical(node, source));
             }
             "boolean_operator" => {
-                diagnostics.extend(self.check_short_circuit(node, source));
+                diagnostics.extend(self.check_identical_operands(node, source));
+                diagnostics.extend(self.check_nonscalar_operand(node, source));
             }
             "binary_operator" => {
-                diagnostics.extend(self.check_element_wise_boolean(node, source));
-                diagnostics.extend(self.check_scalar_array_op(node, source));
+                diagnostics.extend(self.check_identical_operands(node, source));
+            }
+            "unary_operator" => {
+                diagnostics.extend(self.check_incr_decr(node, source));
             }
             "comparison_operator" => {
                 diagnostics.extend(self.check_nan_comparison(node, source));
+                diagnostics.extend(self.check_logical_comparison(node, source));
             }
             "switch_statement" => {
                 diagnostics.extend(self.check_switch_upper_lower(node, source));
+                diagnostics.extend(self.check_switch_nan_case(node, source));
             }
             "function_call" => {
                 diagnostics.extend(self.check_debug_function(node, source));
@@ -943,11 +689,9 @@ impl Rule for BugsEngine {
                 diagnostics.extend(self.check_funfun(node, source));
                 diagnostics.extend(self.check_assert_condition(node, source));
                 diagnostics.extend(self.check_isempty_logical(node, source));
+                diagnostics.extend(self.check_short_circuit(node, source));
+                diagnostics.extend(self.check_warning_message(node, source));
             }
-            "assignment" => {
-                diagnostics.extend(self.check_self_modify(node, source));
-            }
-            // try_statement is handled at file level.
             _ => {}
         }
 
@@ -964,7 +708,6 @@ impl Rule for BugsEngine {
         diagnostics.extend(self.check_if_condition_dup(root, source));
         diagnostics.extend(self.check_switch_dup_cases(root, source));
         diagnostics.extend(self.check_line_break_termination(root, source));
-        diagnostics.extend(self.check_catch_without_id(root, source));
         diagnostics.extend(self.check_multioutput_assignment(root));
         diagnostics.extend(self.check_vararg_init(root, source));
         diagnostics.extend(self.check_parfor_issues(root, source));
@@ -1040,18 +783,6 @@ pub(crate) fn find_case_value(case_node: Node) -> Option<Node> {
         .children(&mut cursor)
         .find(|child| child.is_named() && child.kind() != "block" && child.kind() != "comment");
     result
-}
-
-/// Check if a condition text represents an always-true value.
-pub(crate) fn is_always_true(text: &str) -> bool {
-    let trimmed = text.trim();
-    trimmed == "true" || trimmed == "1" || trimmed == "1.0"
-}
-
-/// Check if a condition text represents an always-false value.
-pub(crate) fn is_always_false(text: &str) -> bool {
-    let trimmed = text.trim();
-    trimmed == "false" || trimmed == "0" || trimmed == "0.0"
 }
 
 /// Extract the function name from a `function_call` node.
@@ -1155,82 +886,40 @@ pub(crate) fn find_operator_text<'a>(node: Node<'a>, source: &'a str) -> String 
     String::new()
 }
 
-/// Check if a node is inside a loop (`for_statement` or `while_statement`).
-pub(crate) fn is_inside_loop(node: Node) -> bool {
-    let mut current = node.parent();
-    while let Some(parent) = current {
-        if parent.kind() == "for_statement" || parent.kind() == "while_statement" {
-            return true;
-        }
-        current = parent.parent();
-    }
-    false
-}
-
-/// Check if a node is in a boolean context (condition of if/while/elseif).
-pub(crate) fn is_in_boolean_context(node: Node) -> bool {
-    let mut current = node.parent();
-    while let Some(parent) = current {
-        match parent.kind() {
-            "if_statement" | "while_statement" | "elseif_clause" => {
-                // Check if the node is in the condition part, not the body.
-                // The condition comes before the first block child.
-                let in_condition = true;
-                let mut cursor = parent.walk();
-                for child in parent.children(&mut cursor) {
-                    if child.kind() == "block" {
-                        break;
-                    }
-                    if child.id() == node.id() || is_ancestor_of(child, node) {
-                        return in_condition;
-                    }
-                }
-                return false;
-            }
-            // Stop at statement boundaries.
-            "source_file" | "function_definition" => return false,
-            _ => {}
-        }
-        current = parent.parent();
-    }
-    false
-}
-
-/// Check if `ancestor` is an ancestor of `node`.
-pub(crate) fn is_ancestor_of(ancestor: Node, node: Node) -> bool {
-    let mut current = node.parent();
-    while let Some(parent) = current {
-        if parent.id() == ancestor.id() {
-            return true;
-        }
-        current = parent.parent();
-    }
-    false
-}
-
-/// Check if a node represents an array-producing expression.
+/// Check if a node is a known non-scalar value: a matrix literal with at
+/// least two elements, a range, or `zeros`/`ones`/`rand`/`randn`/`eye` called
+/// with literal sizes whose product exceeds one.
 pub(crate) fn is_array_expression(node: Node, source: &str) -> bool {
     match node.kind() {
-        "matrix" | "cell" => true,
-        "function_call" => {
-            if let Some(name) = extract_call_name(node, source) {
-                ARRAY_FUNCTIONS.contains(&name)
-            } else {
-                false
+        "matrix" => {
+            let mut count = 0;
+            let mut cursor = node.walk();
+            for row in node.children(&mut cursor) {
+                let mut inner = row.walk();
+                count += row
+                    .children(&mut inner)
+                    .filter(|c| c.is_named() && c.kind() != "comment")
+                    .count();
             }
+            count > 1
         }
-        _ => false,
-    }
-}
-
-/// Check if a node is a scalar literal (number, true, false).
-pub(crate) fn is_scalar_literal(node: Node, source: &str) -> bool {
-    match node.kind() {
-        "number" => true,
-        "true" | "false" => true,
-        "identifier" => {
-            let text = node_text(node, source).trim();
-            text == "true" || text == "false"
+        "range" => true,
+        "function_call" => {
+            let Some(name) = extract_call_name(node, source) else {
+                return false;
+            };
+            if !["zeros", "ones", "rand", "randn", "eye"].contains(&name) {
+                return false;
+            }
+            let args = arg_nodes(node);
+            if args.is_empty() || args.iter().any(|a| a.kind() != "number") {
+                return false;
+            }
+            let product: f64 = args
+                .iter()
+                .filter_map(|a| node_text(*a, source).trim().parse::<f64>().ok())
+                .product();
+            product > 1.0
         }
         _ => false,
     }
@@ -1254,72 +943,6 @@ pub(crate) fn extract_for_variable<'a>(node: Node<'a>, source: &'a str) -> Optio
         }
     }
     None
-}
-
-/// Check if a for loop body is simple enough to potentially be a parfor.
-///
-/// Returns `true` if the loop body contains no `break`, `continue`, `return`,
-/// nested loops, or global/persistent variable access.
-pub(crate) fn is_reduction_pattern(var_name: &str, rhs: Node, source: &str) -> bool {
-    if rhs.kind() != "binary_operator" {
-        return false;
-    }
-
-    let lhs_child = match rhs.child(0) {
-        Some(c) => c,
-        None => return false,
-    };
-
-    if lhs_child.kind() == "identifier" {
-        let name = node_text(lhs_child, source).trim();
-        if name == var_name {
-            let op = find_operator_text(rhs, source);
-            return op == "+" || op == "-" || op == "*" || op == ".*";
-        }
-    }
-
-    false
-}
-
-/// Check for mixed reduction operators on the same variable.
-pub(crate) fn has_mixed_reduction_ops(var_name: &str, rhs: Node, source: &str) -> bool {
-    // This is a simplified check. In a full implementation, we would track
-    // all reduction operations on `var_name` across the parfor body.
-    // Here we check if the RHS contains the variable name in multiple
-    // different operations.
-    if rhs.kind() != "binary_operator" {
-        return false;
-    }
-
-    let op = find_operator_text(rhs, source);
-
-    // Check if any child also references the variable with a different op.
-    let mut found_ops: Vec<String> = vec![op];
-    collect_reduction_ops(var_name, rhs, source, &mut found_ops);
-
-    // If we found more than one unique operator, it's mixed.
-    let unique: HashSet<&String> = found_ops.iter().collect();
-    unique.len() > 1
-}
-
-pub(crate) fn collect_reduction_ops(
-    var_name: &str,
-    node: Node,
-    source: &str,
-    ops: &mut Vec<String>,
-) {
-    if node.kind() == "binary_operator" {
-        if let Some(lhs) = node.child(0) {
-            if lhs.kind() == "identifier" && node_text(lhs, source).trim() == var_name {
-                ops.push(find_operator_text(node, source));
-            }
-        }
-    }
-
-    let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        collect_reduction_ops(var_name, child, source, ops);
-    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1440,7 +1063,28 @@ end
         assert!(!has_id(&diags, "IFCDUP"), "got: {diags:?}");
     }
 
-    // -- LBODUP / MDUPC ------------------------------------------------------
+    #[test]
+    fn ifcdup_message_names_keywords() {
+        let diags = file_diags("if x\n    a = 1;\nelseif x\n    b = 2;\nend\n");
+        let d = diags
+            .iter()
+            .find(|d| d.rule_id == "IFCDUP")
+            .expect("IFCDUP");
+        assert!(
+            d.message
+                .contains("duplicate of the if condition on line 1"),
+            "got: {}",
+            d.message
+        );
+    }
+
+    #[test]
+    fn noprc_no_fire_on_increment_statement() {
+        let diags = file_diags("x = 1;\n++x;\n");
+        assert!(!has_id(&diags, "NOPRC"), "got: {diags:?}");
+    }
+
+    // -- MDUPC ------------------------------------------------------
 
     #[test]
     fn lbodup_and_mdupc_fire_on_duplicate_case_values() {
@@ -1455,7 +1099,6 @@ switch x
 end
 ";
         let diags = file_diags(src);
-        assert!(has_id(&diags, "LBODUP"), "got: {diags:?}");
         assert!(has_id(&diags, "MDUPC"), "got: {diags:?}");
     }
 
@@ -1472,7 +1115,6 @@ switch x
 end
 ";
         let diags = file_diags(src);
-        assert!(!has_id(&diags, "LBODUP"), "got: {diags:?}");
         assert!(!has_id(&diags, "MDUPC"), "got: {diags:?}");
     }
 
@@ -1510,38 +1152,11 @@ end
         assert!(!has_id(&diags, "NOPRC"), "got: {diags:?}");
     }
 
-    // -- MEXCEP --------------------------------------------------------------
-
-    #[test]
-    fn mexcep_fires_on_catch_without_identifier() {
-        let src = "\
-try
-    x = 1;
-catch
-end
-";
-        let diags = file_diags(src);
-        assert!(has_id(&diags, "MEXCEP"), "got: {diags:?}");
-    }
-
-    #[test]
-    fn mexcep_no_fire_on_catch_with_identifier() {
-        let src = "\
-try
-    x = 1;
-catch err
-    disp(err.message);
-end
-";
-        let diags = file_diags(src);
-        assert!(!has_id(&diags, "MEXCEP"), "got: {diags:?}");
-    }
-
     // -- RHSFN ---------------------------------------------------------------
 
     #[test]
     fn rhsfn_fires_on_multioutput_with_single_value_rhs() {
-        let src = "a = [1 2];\n[a, b] = a;\n";
+        let src = "[a, b] = [1 2];\n";
         let diags = file_diags(src);
         assert!(has_id(&diags, "RHSFN"), "got: {diags:?}");
     }
@@ -1551,6 +1166,18 @@ end
         let src = "[a, b] = 1 + 2;\n";
         let diags = file_diags(src);
         assert!(has_id(&diags, "RHSFN"), "got: {diags:?}");
+    }
+
+    #[test]
+    fn rhsfn_no_fire_on_identifier_or_field_rhs() {
+        let diags = file_diags("[a, b] = obj.method;\n[c, d] = f;\n");
+        assert!(!has_id(&diags, "RHSFN"), "got: {diags:?}");
+    }
+
+    #[test]
+    fn rhsfn_is_a_warning() {
+        let diags = file_diags("[m, n] = [1, 2];\n");
+        assert_eq!(diags[0].severity, Severity::Warning);
     }
 
     #[test]
@@ -1618,132 +1245,6 @@ end
         assert!(!has_id(&diags, "VARARG"), "got: {diags:?}");
     }
 
-    // -- PFUIXE --------------------------------------------------------------
-
-    #[test]
-    fn pfuixe_fires_on_eval_with_loop_var() {
-        let src = "\
-parfor i = 1:10
-    eval(sprintf('x%d', i));
-end
-";
-        let diags = file_diags(src);
-        assert!(has_id(&diags, "PFUIXE"), "got: {diags:?}");
-    }
-
-    #[test]
-    fn pfuixe_no_fire_outside_parfor() {
-        let src = "eval(sprintf('x%d', i));\n";
-        let diags = file_diags(src);
-        assert!(!has_id(&diags, "PFUIXE"), "got: {diags:?}");
-    }
-
-    // -- PFBFN ---------------------------------------------------------------
-
-    #[test]
-    fn pfbfn_fires_on_save_in_parfor() {
-        let src = "\
-parfor i = 1:10
-    save('data.mat');
-end
-";
-        let diags = file_diags(src);
-        assert!(has_id(&diags, "PFBFN"), "got: {diags:?}");
-    }
-
-    #[test]
-    fn pfbfn_no_fire_outside_parfor() {
-        let src = "save('data.mat');\n";
-        let diags = file_diags(src);
-        assert!(!has_id(&diags, "PFBFN"), "got: {diags:?}");
-    }
-
-    // -- PFWHOS --------------------------------------------------------------
-
-    #[test]
-    fn pfwhos_fires_on_who_in_parfor() {
-        let src = "\
-parfor i = 1:10
-    who('x');
-end
-";
-        let diags = file_diags(src);
-        assert!(has_id(&diags, "PFWHOS"), "got: {diags:?}");
-    }
-
-    #[test]
-    fn pfwhos_no_fire_outside_parfor() {
-        let src = "who('x');\n";
-        let diags = file_diags(src);
-        assert!(!has_id(&diags, "PFWHOS"), "got: {diags:?}");
-    }
-
-    #[test]
-    fn pfwhos_no_fire_on_whos_with_file_flag() {
-        let src = "\
-parfor i = 1:10
-    whos('-file', 'x.mat');
-end
-";
-        let diags = file_diags(src);
-        assert!(!has_id(&diags, "PFWHOS"), "got: {diags:?}");
-    }
-
-    #[test]
-    fn pfwhos_fires_on_whos_command_form() {
-        let src = "\
-parfor i = 1:10
-    whos
-end
-";
-        let diags = file_diags(src);
-        assert!(has_id(&diags, "PFWHOS"), "got: {diags:?}");
-    }
-
-    // -- PFTUSE --------------------------------------------------------------
-
-    #[test]
-    fn pftuse_fires_on_self_use_non_reduction() {
-        let src = "\
-parfor i = 1:10
-    x = x(i);
-end
-";
-        let diags = file_diags(src);
-        assert!(has_id(&diags, "PFTUSE"), "got: {diags:?}");
-    }
-
-    #[test]
-    fn pftuse_no_fire_outside_parfor() {
-        let src = "x = x(i);\n";
-        let diags = file_diags(src);
-        assert!(!has_id(&diags, "PFTUSE"), "got: {diags:?}");
-    }
-
-    // -- PFRNC ---------------------------------------------------------------
-
-    #[test]
-    fn pfrnc_fires_on_mixed_reduction_operators() {
-        let src = "\
-parfor i = 1:10
-    x = x + x * 2;
-end
-";
-        let diags = file_diags(src);
-        assert!(has_id(&diags, "PFRNC"), "got: {diags:?}");
-    }
-
-    #[test]
-    fn pfrnc_no_fire_on_single_reduction_operator() {
-        let src = "\
-parfor i = 1:10
-    x = x + 2;
-end
-";
-        let diags = file_diags(src);
-        assert!(!has_id(&diags, "PFRNC"), "got: {diags:?}");
-    }
-
     /// Ensure representative test sources parse without syntax errors.
     #[test]
     fn test_sources_parse() {
@@ -1751,8 +1252,7 @@ end
             "y = zeros(3) && x;\n",
             "y = size(x) == [1 2];\n",
             "assert(true);\n",
-            "cellfun('isempty', x);\n",
-            "try\n    x = 1;\ncatch\nend\n",
+            "arrayfun('f', x);\n",
             "parfor i = 1:10\n    eval(sprintf('x%d', i));\nend\n",
         ];
         for src in sources {

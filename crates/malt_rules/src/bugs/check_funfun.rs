@@ -22,6 +22,21 @@ impl BugsEngine {
         if args.is_empty() {
             return Vec::new();
         }
+        // `cellfun` accepts a few legacy function names as strings.
+        const CELLFUN_LEGACY: &[&str] = &[
+            "isempty",
+            "islogical",
+            "isreal",
+            "length",
+            "ndims",
+            "prodofsize",
+            "size",
+            "isclass",
+        ];
+        let first_name = args[0].trim().trim_matches(|c| c == '\'' || c == '"');
+        if func_name == "cellfun" && CELLFUN_LEGACY.contains(&first_name) {
+            return Vec::new();
+        }
 
         let first_arg = args[0].trim();
         let is_string = (first_arg.starts_with('\'') && first_arg.ends_with('\''))
@@ -57,7 +72,7 @@ mod tests {
 
     #[test]
     fn funfun_fires_on_string_function_arg() {
-        let src = "cellfun('isempty', x);\n";
+        let src = "arrayfun('myfun', x);\n";
         let diags = node_diags(src);
         assert!(has_id(&diags, "FUNFUN"), "got: {diags:?}");
     }
@@ -66,6 +81,18 @@ mod tests {
     fn funfun_no_fire_on_handle_arg() {
         let src = "cellfun(@isempty, x);\n";
         let diags = node_diags(src);
+        assert!(!has_id(&diags, "FUNFUN"), "got: {diags:?}");
+    }
+}
+
+#[cfg(test)]
+mod funfun_legacy_tests {
+    use super::*;
+    use crate::test_util::has_id;
+
+    #[test]
+    fn funfun_no_fire_on_cellfun_legacy_name() {
+        let diags = node_diags("cellfun('isempty', x);\n");
         assert!(!has_id(&diags, "FUNFUN"), "got: {diags:?}");
     }
 }

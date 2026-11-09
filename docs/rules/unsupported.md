@@ -15,8 +15,13 @@ icon: lucide/ban
 Detects usage of unsupported, deprecated, or platform-specific features
 that are no longer available in modern MATLAB or restricted to specific
 configurations. All 13 checks share a single `UnsupportedEngine` that
-dispatches node-level checks on `function_call` and `command` nodes; each
-diagnostic carries the specific check ID (e.g. `MCADE`, `FEATUD`).
+dispatches node-level checks on `function_call`, `command`, `attribute`
+and `field_expression` nodes; each diagnostic carries the specific check ID
+(e.g. `MCADE`, `FEATUD`). Function checks fire on both call syntax
+(`feature('x')`) and command syntax (`feature accel on`); `IMPKG` and
+`MIPKG` fire on references and imports of `internal.matlab.*` and
+`matlab.<...>.internal.*` respectively; `MCADE` fires on a `Description`
+class-member attribute.
 
 ## Check IDs
 
@@ -103,16 +108,17 @@ Severity: **warning** · Auto-fix: **no**
 ### Incorrect
 
 ```matlab
-deploytool();           % MCADE: ADE function
-s = serial('COM1');     % SEPTUD: use serialport instead
-v = feature('version'); % FEATUD: undocumented internal function
-import pkg.sub.*;       % IMPKG: unsupported import context
+v = feature('version');       % FEATUD
+setptr(gcf, 'hand');          % SEPTUD
+x = ismembc(a, b);            % ISMBUD
+import internal.matlab.*      % IMPKG
+y = matlab.internal.foo.bar;  % MIPKG
 ```
 
 ### Correct
 
 ```matlab
-sp = serialport('COM1', 9600);
+tf = ismember(a, b);
 v = version;
 ```
 

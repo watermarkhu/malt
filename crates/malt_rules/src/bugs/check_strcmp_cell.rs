@@ -1,8 +1,8 @@
 use super::*;
 
 impl BugsEngine {
-    /// STRCMPCSTR: `strcmp` compared against a cell array of strings, which
-    /// always returns false for string elements of the cell array.
+    /// STRCMPCSTR: `strcmp` called with a cell array literal containing
+    /// double-quoted string elements, which never compare equal.
     pub(crate) fn check_strcmp_cell(&self, node: Node, source: &str) -> Vec<Diagnostic> {
         if node.kind() != "function_call" {
             return Vec::new();
@@ -17,7 +17,19 @@ impl BugsEngine {
             return Vec::new();
         }
 
-        let has_cell_arg = arg_nodes(node).iter().any(|a| a.kind() == "cell");
+        let has_cell_arg = arg_nodes(node).iter().any(|a| {
+            a.kind() == "cell" && {
+                let mut cursor = a.walk();
+                let rows: Vec<_> = a.children(&mut cursor).collect();
+                rows.iter().any(|row| {
+                    let mut rc = row.walk();
+                    let found = row
+                        .children(&mut rc)
+                        .any(|e| e.kind() == "string" && node_text(e, source).starts_with('"'));
+                    found
+                })
+            }
+        });
 
         if has_cell_arg {
             let pos = node.start_position();
@@ -45,9 +57,16 @@ mod tests {
 
     #[test]
     fn strcmpcstr_fires_on_cell_array_arg() {
-        let src = "strcmp({'a', 'b'}, 'a');\n";
+        let src = "strcmp({\"a\", \"b\"}, \"a\");\n";
         let diags = node_diags(src);
         assert!(has_id(&diags, "STRCMPCSTR"), "got: {diags:?}");
+    }
+
+    #[test]
+    fn strcmpcstr_no_fire_on_char_cell() {
+        let src = "strcmp({'a', 'b'}, 'a');\n";
+        let diags = node_diags(src);
+        assert!(!has_id(&diags, "STRCMPCSTR"), "got: {diags:?}");
     }
 
     #[test]

@@ -17,7 +17,7 @@
 //! many restrictions compared to general MATLAB code; this engine flags
 //! variable-size data, growing arrays, unsupported functions, cell arrays,
 //! try-catch, imports, nested functions, scripts, and similar constraints.
-//! All 15 checks share a single `CodegenEngine` that dispatches node-level
+//! All 14 checks share a single `CodegenEngine` that dispatches node-level
 //! checks on `function_call`, `command`, `try_statement`, `for_statement`,
 //! `assignment`, `cell`, and `arguments_statement` nodes, plus file-level
 //! checks for nested functions and script-mode files. Each diagnostic carries
@@ -27,21 +27,20 @@
 //!
 //! | Check ID | Severity | Fix | Description |
 //! | --- | --- | --- | --- |
-//! | EMVDF | error | no | Code generation requires that all elements of a variable are defined before indexing into the variable. |
-//! | EMGRO | error | no | For code generation, grow an array by using 'end + 1' indexing. |
-//! | EMFCN | error | no | This function is not supported in code generation. |
+//! | EMVDF | error | no | Code generation requires that all elements of a variable are defined before indexing into the variable. Fires on an indexed assignment `x(k) = ...` when `x` is not mentioned earlier in the enclosing function. |
+//! | EMGRO | error | no | For code generation, grow an array by using 'end + 1' indexing. Fires on `x(end+k) = ...` with `k` other than 1, and on `x = [x, ...]` growth inside a loop. |
+//! | EMFCN | error | no | This function is not supported in code generation. For example `eval`, `str2num`, `input`, `save`, `dir`. |
 //! | EMCEL | error | no | Fixed-point conversion does not support cell arrays. |
 //! | EMTC | error | no | TRY/CATCH is unsupported for code generation. |
 //! | EMIMP | error | no | Code generation does not support import statements. |
 //! | EMNST | error | no | Fixed-point conversion does not support nested functions. |
 //! | EMSCR | error | no | Code generation does not support scripts. |
 //! | EMPFR | error | no | HDL code generation does not support parfor statements. |
-//! | EMRIFAV | error | no | Code generation does not support repeating arguments with validation. |
-//! | EMLOAD | error | no | The output of a call to LOAD is not assigned to a variable. For code generation, assign the output of LOAD to a variable without subscripting. |
-//! | EMS2N | error | no | Code generation does not support 'str2num'. Use 'str2double' instead. |
-//! | PRMNOIN | error | no | For code generation, specify a binaryOccupancyMap object in the constructor of the mobileRobotPRM object. |
-//! | LOOPPRAGMAWITHOUTFOR | error | no | A coder.loop.Control transform must be immediately followed by a for loop. |
-//! | FPASE | error | no | Direct assignment to a possible fixed-point type is not recommended. Use the subscripted assignment syntax 'var(:) =' instead. |
+//! | EMRIFAV | error | no | Code generation does not support repeating arguments with validation. Fires on `arguments (Repeating)` blocks that declare validation. |
+//! | EMLOAD | error | no | The output of a call to LOAD is not assigned to a variable. For code generation, assign the output of LOAD to a variable without subscripting. Fires on `load` used as a statement or command, and on `x(k) = load(...)`. |
+//! | PRMNOIN | error | no | For code generation, specify a binaryOccupancyMap object in the constructor of the mobileRobotPRM object. Fires on `mobileRobotPRM()` called without arguments. |
+//! | LOOPPRAGMAWITHOUTFOR | error | no | A coder.loop.Control transform must be immediately followed by a for loop. Fires on a `coder.loop.*` call statement not followed by `for`. |
+//! | FPASE | error | no | Direct assignment to a possible fixed-point type is not recommended. Use the subscripted assignment syntax 'var(:) =' instead. Fires on `y = ...` when `y` was earlier assigned `fi(...)`. |
 //!
 //! ## Examples
 //!
@@ -50,10 +49,10 @@
 //! ```matlab
 //! x = [];
 //! for i = 1:10
-//!     x(end+1) = i;   % EMGRO: growing array
+//!     x = [x, i];     % EMGRO: grow with end+1 indexing
 //! end
 //! y = {1, 2};         % EMCEL: cell array
-//! z = str2num('1 2'); % EMS2N: use str2double
+//! z = str2num('1 2'); % EMFCN: unsupported function
 //! ```
 //!
 //! ### Correct
@@ -95,7 +94,7 @@ use serde::Deserialize;
 /// Deserialized from the `[lint.rules.CODEGEN_ENGINE]` section in `.malt.toml`.
 #[derive(Debug, Clone, Deserialize, Default)]
 pub struct CodegenEngineConfig {
-    /// Check IDs to skip (e.g., `["EMSCR", "EMWHL"]`).
+    /// Check IDs to skip (e.g., `["EMSCR", "EMFCN"]`).
     #[serde(default)]
     pub skip_checks: Vec<String>,
 }
@@ -110,7 +109,7 @@ struct CheckMeta {
     description: &'static str,
 }
 
-/// All 20 code generation check definitions.
+/// All code generation check definitions.
 const CHECKS: &[CheckMeta] = &[
     CheckMeta {
         id: "EMVDF",
@@ -119,10 +118,6 @@ const CHECKS: &[CheckMeta] = &[
     CheckMeta {
         id: "EMGRO",
         description: "For code generation, grow an array by using 'end + 1' indexing.",
-    },
-    CheckMeta {
-        id: "EMNODEF",
-        description: "Code generation requires that variables are defined before use.",
     },
     CheckMeta {
         id: "EMFCN",
@@ -149,24 +144,8 @@ const CHECKS: &[CheckMeta] = &[
         description: "Code generation does not support scripts.",
     },
     CheckMeta {
-        id: "EMBRK",
-        description: "HDL code generation does not support break statements.",
-    },
-    CheckMeta {
-        id: "EMCNT",
-        description: "HDL code generation does not support continue statements.",
-    },
-    CheckMeta {
         id: "EMPFR",
         description: "HDL code generation does not support parfor statements.",
-    },
-    CheckMeta {
-        id: "EMRTN",
-        description: "HDL code generation does not support return statements inside of loops.",
-    },
-    CheckMeta {
-        id: "EMWHL",
-        description: "HDL code generation does not support while statements.",
     },
     CheckMeta {
         id: "EMRIFAV",
@@ -175,10 +154,6 @@ const CHECKS: &[CheckMeta] = &[
     CheckMeta {
         id: "EMLOAD",
         description: "The output of a call to LOAD is not assigned to a variable. For code generation, assign the output of LOAD to a variable without subscripting.",
-    },
-    CheckMeta {
-        id: "EMS2N",
-        description: "Code generation does not support 'str2num'. Use 'str2double' instead.",
     },
     CheckMeta {
         id: "PRMNOIN",
@@ -194,12 +169,14 @@ const CHECKS: &[CheckMeta] = &[
     },
 ];
 
-/// Functions unsupported in code generation.
+/// Functions unsupported in code generation (reported as `EMFCN`).
+///
+/// Functions that code generation treats as extrinsic (`plot`, `figure`, `disp`,
+/// ...) and `load` (handled by `EMLOAD`) are deliberately absent.
 const UNSUPPORTED_FUNCTIONS: &[&str] = &[
     "eval",
     "evalc",
     "evalin",
-    "feval",
     "assignin",
     "input",
     "keyboard",
@@ -215,15 +192,8 @@ const UNSUPPORTED_FUNCTIONS: &[&str] = &[
     "clear",
     "clearvars",
     "pack",
-    "figure",
-    "plot",
-    "subplot",
-    "xlabel",
-    "ylabel",
-    "title",
     "diary",
     "save",
-    "load",
     "matfile",
     "cd",
     "ls",
@@ -233,12 +203,11 @@ const UNSUPPORTED_FUNCTIONS: &[&str] = &[
     "javaObject",
     "javaMethod",
     "javaArray",
-    "NET",
+    "str2num",
     "actxserver",
     "matlabroot",
     "tempdir",
     "tempname",
-    "script",
     "run",
 ];
 
@@ -255,7 +224,7 @@ fn check_description(id: &str) -> &'static str {
 // Rule implementation
 // ---------------------------------------------------------------------------
 
-/// Engine covering 20 code generation checks.
+/// Engine covering the code generation checks.
 ///
 /// Node-level checks fire on `function_call`, `command`, `try_statement`,
 /// `for_statement`, `assignment`, and `cell`. File-level checks detect
@@ -379,7 +348,7 @@ impl Rule for CodegenEngine {
             "for_statement" => self.check_for_statement(ctx.node, ctx.source),
             "assignment" => self.check_assignment(ctx.node, ctx.source),
             "cell" => self.check_cell(ctx.node),
-            "arguments_statement" => self.check_arguments_statement(ctx.node),
+            "arguments_statement" => self.check_arguments_statement(ctx.node, ctx.source),
             _ => Vec::new(),
         }
     }
@@ -462,13 +431,6 @@ pub(crate) fn is_inside_loop(node: tree_sitter::Node) -> bool {
     false
 }
 
-/// Check if an indexing expression contains `end+1` pattern.
-pub(crate) fn contains_end_plus_pattern(node: tree_sitter::Node, source: &str) -> bool {
-    let text = node_text(node, source);
-    let normalized: String = text.chars().filter(|c| !c.is_whitespace()).collect();
-    normalized.contains("end+1")
-}
-
 /// Check if a matrix literal contains a variable name as an element.
 pub(crate) fn matrix_contains_var(node: tree_sitter::Node, source: &str, var_name: &str) -> bool {
     let count = node.child_count();
@@ -509,11 +471,76 @@ pub(crate) fn is_followed_by_for(node: tree_sitter::Node) -> bool {
     while let Some(sib) = sibling {
         match sib.kind() {
             "for_statement" => return true,
-            ";" | "comment" | "line_continuation" => {
+            ";" | "," | "\n" | "\r\n" | "comment" | "line_continuation" => {
                 sibling = sib.next_sibling();
             }
             _ => return false,
         }
+    }
+    false
+}
+
+/// Number of arguments passed in a `function_call` node (0 for `f()`).
+pub(crate) fn call_arg_count(node: tree_sitter::Node) -> usize {
+    (0..node.child_count())
+        .filter_map(|i| node.child(i))
+        .find(|c| c.kind() == "arguments")
+        .map(|args| {
+            (0..args.named_child_count())
+                .filter_map(|i| args.named_child(i))
+                .filter(|c| c.kind() != "comment")
+                .count()
+        })
+        .unwrap_or(0)
+}
+
+/// Nearest enclosing `function_definition`, or the root node.
+pub(crate) fn enclosing_scope(node: tree_sitter::Node) -> tree_sitter::Node {
+    let mut current = node;
+    while let Some(p) = current.parent() {
+        if p.kind() == "function_definition" {
+            return p;
+        }
+        current = p;
+    }
+    current
+}
+
+/// Whether an identifier named `name` occurs inside `scope` before byte
+/// offset `before` (parameters, outputs, assignments, declarations, uses).
+pub(crate) fn has_earlier_mention(
+    scope: tree_sitter::Node,
+    source: &str,
+    name: &str,
+    before: usize,
+) -> bool {
+    if scope.start_byte() >= before {
+        return false;
+    }
+    if scope.kind() == "identifier" {
+        return scope.end_byte() <= before && node_text(scope, source) == name;
+    }
+    (0..scope.child_count())
+        .filter_map(|i| scope.child(i))
+        .any(|c| has_earlier_mention(c, source, name, before))
+}
+
+/// Whether the text of an indexing expression grows past the end by
+/// something other than exactly `end+1` (e.g. `end+2`, `end+n`).
+pub(crate) fn has_end_plus_other(text: &str) -> bool {
+    let norm: String = text.chars().filter(|c| !c.is_whitespace()).collect();
+    let mut rest = norm.as_str();
+    while let Some(pos) = rest.find("end+") {
+        let after = &rest[pos + 4..];
+        let is_one = after.starts_with('1')
+            && !after[1..]
+                .chars()
+                .next()
+                .is_some_and(|c| c.is_alphanumeric() || c == '_' || c == '.');
+        if !is_one {
+            return true;
+        }
+        rest = after;
     }
     false
 }

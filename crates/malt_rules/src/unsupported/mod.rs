@@ -15,8 +15,13 @@
 //! Detects usage of unsupported, deprecated, or platform-specific features
 //! that are no longer available in modern MATLAB or restricted to specific
 //! configurations. All 13 checks share a single `UnsupportedEngine` that
-//! dispatches node-level checks on `function_call` and `command` nodes; each
-//! diagnostic carries the specific check ID (e.g. `MCADE`, `FEATUD`).
+//! dispatches node-level checks on `function_call`, `command`, `attribute`
+//! and `field_expression` nodes; each diagnostic carries the specific check ID
+//! (e.g. `MCADE`, `FEATUD`). Function checks fire on both call syntax
+//! (`feature('x')`) and command syntax (`feature accel on`); `IMPKG` and
+//! `MIPKG` fire on references and imports of `internal.matlab.*` and
+//! `matlab.<...>.internal.*` respectively; `MCADE` fires on a `Description`
+//! class-member attribute.
 //!
 //! ## Check IDs
 //!
@@ -36,21 +41,23 @@
 //! | UIRSUD | warning | no | 'uirestore' is unsupported and might have been changed without notice or might be removed without notice. There is no simple replacement for this. |
 //! | UISUUD | warning | no | 'uisuspend' is unsupported and might have been changed without notice or might be removed without notice. There is no simple replacement for this. |
 //!
+//!
 //! ## Examples
 //!
 //! ### Incorrect
 //!
 //! ```matlab
-//! deploytool();           % MCADE: ADE function
-//! s = serial('COM1');     % SEPTUD: use serialport instead
-//! v = feature('version'); % FEATUD: undocumented internal function
-//! import pkg.sub.*;       % IMPKG: unsupported import context
+//! v = feature('version');       % FEATUD
+//! setptr(gcf, 'hand');          % SEPTUD
+//! x = ismembc(a, b);            % ISMBUD
+//! import internal.matlab.*      % IMPKG
+//! y = matlab.internal.foo.bar;  % MIPKG
 //! ```
 //!
 //! ### Correct
 //!
 //! ```matlab
-//! sp = serialport('COM1', 9600);
+//! tf = ismember(a, b);
 //! v = version;
 //! ```
 //!
@@ -128,8 +135,7 @@ const CHECKS: &[CheckMeta] = &[
     },
     CheckMeta {
         id: "MIPKG",
-        description:
-            "Functions in MATLAB's internal namespaces are unsupported and might have been changed without notice or might be removed without notice. There is no simple replacement for this.",
+        description: "Functions in MATLAB's internal namespaces are unsupported and might have been changed without notice or might be removed without notice. There is no simple replacement for this.",
     },
     CheckMeta {
         id: "SEPTUD",
@@ -149,52 +155,38 @@ const CHECKS: &[CheckMeta] = &[
     },
 ];
 
-/// ADE functions that are no longer supported.
-pub(crate) const ADE_FUNCTIONS: &[&str] = &[
-    "deploytool",
-    "mcrinstaller",
-    "mcrversion",
-    "isdeployed",
-    "ismcc",
-    "ctfroot",
-    "componentinfo",
-    "packagetool",
+/// Unsupported functions: `(function name, check ID)`.
+pub(crate) const UNSUPPORTED_FUNCTIONS: &[(&str, &str)] = &[
+    ("awtinvoke", "AWTIUD"),
+    ("axescheck", "AXCHUD"),
+    ("feature", "FEATUD"),
+    ("findpackage", "FNDPUD"),
+    ("hgconvertunits", "HGCNUD"),
+    ("ismembc", "ISMBUD"),
+    ("setptr", "SEPTUD"),
+    ("system_dependent", "SYDEUD"),
+    ("uirestore", "UIRSUD"),
+    ("uisuspend", "UISUUD"),
 ];
 
-/// ActiveX/COM functions.
-pub(crate) const ACTIVEX_FUNCTIONS: &[&str] = &[
-    "actxserver",
-    "actxcontrol",
-    "actxGetRunningServer",
-    "actxcontrollist",
-    "actxcontrolselect",
-    "enableservice",
-    "registerevent",
-    "unregisterevent",
-    "isevent",
-    "eventlisteners",
-    "events",
-];
-
-/// Handle Graphics container functions (deprecated patterns).
-pub(crate) const HG_CONTAINER_FUNCTIONS: &[&str] = &[
-    "uicontainer",
-    "uiflowcontainer",
-    "uigridcontainer",
-    "uitabgroup",
-    "uitab",
-];
-
-/// Deprecated UI setup functions.
-pub(crate) const UI_SETUP_FUNCTIONS: &[&str] = &[
-    "uiwait",
-    "guidata",
-    "guihandles",
-    "setappdata",
-    "getappdata",
-    "rmappdata",
-    "isappdata",
-];
+/// Classify a (dotted) name against the unsupported namespaces.
+///
+/// Returns `IMPKG` for `internal.matlab.*` and `MIPKG` for `matlab.<...>.internal.*`.
+pub(crate) fn namespace_check(name: &str) -> Option<&'static str> {
+    // A wildcard import (`internal.matlab.*`) names every member of the namespace.
+    let mut segs: Vec<&str> = name.split('.').collect();
+    if segs.last() == Some(&"*") {
+        segs.pop();
+        segs.push("member");
+    }
+    if segs.len() >= 3 && segs[0] == "internal" && segs[1] == "matlab" {
+        return Some("IMPKG");
+    }
+    if segs.len() >= 3 && segs[0] == "matlab" && segs[1..segs.len() - 1].contains(&"internal") {
+        return Some("MIPKG");
+    }
+    None
+}
 
 /// Look up check description by ID.
 fn check_description(id: &str) -> &'static str {
@@ -211,13 +203,14 @@ fn check_description(id: &str) -> &'static str {
 
 /// Engine covering 13 unsupported feature checks.
 ///
-/// Node-level checks fire on `function_call` and `command` nodes.
+/// Node-level checks fire on `function_call`, `command`, `attribute` and
+/// `field_expression` nodes.
 pub struct UnsupportedEngine {
     config: UnsupportedEngineConfig,
 }
 
 /// Node types for node-level dispatch.
-const TARGET_NODES: &[&str] = &["function_call", "command"];
+const TARGET_NODES: &[&str] = &["function_call", "command", "attribute", "field_expression"];
 
 impl UnsupportedEngine {
     /// Factory constructor called by the rule registry.
@@ -264,6 +257,8 @@ impl Rule for UnsupportedEngine {
         match ctx.node.kind() {
             "function_call" => self.check_function_call(ctx.node, ctx.source),
             "command" => self.check_command(ctx.node, ctx.source),
+            "attribute" => self.check_attribute(ctx.node, ctx.source),
+            "field_expression" => self.check_field_expression(ctx.node, ctx.source),
             _ => Vec::new(),
         }
     }
@@ -292,7 +287,7 @@ pub(crate) fn make_diag(check_id: &'static str, node: tree_sitter::Node) -> Diag
 // ---------------------------------------------------------------------------
 
 /// Extract the raw text of a node.
-fn node_text<'a>(node: tree_sitter::Node<'a>, source: &'a str) -> &'a str {
+pub(crate) fn node_text<'a>(node: tree_sitter::Node<'a>, source: &'a str) -> &'a str {
     &source[node.start_byte()..node.end_byte()]
 }
 
@@ -322,41 +317,6 @@ pub(crate) fn extract_command_name<'a>(
     } else {
         None
     }
-}
-
-// ---------------------------------------------------------------------------
-// Helper: pattern detection
-// ---------------------------------------------------------------------------
-
-/// Check if a function call is inside a callback-like function.
-/// Heuristic: parent function name contains "Callback", "Fcn", or "ButtonPushed".
-pub(crate) fn is_inside_callback(node: tree_sitter::Node) -> bool {
-    let mut current = node.parent();
-    while let Some(p) = current {
-        if p.kind() == "function_definition" {
-            if let Some(name_node) = p.child_by_field_name("name") {
-                // We can't easily get source here, so use byte range length
-                // as a proxy. Instead, just check by child structure.
-                // In practice, we'd need source access here. For now, use
-                // a lenient heuristic: any function_definition parent counts.
-                let _ = name_node;
-                return true;
-            }
-        }
-        current = p.parent();
-    }
-    false
-}
-
-/// Check if a fetchOutputs call is chained on a parfeval result.
-/// Pattern: parfeval(...).fetchOutputs() — detects field_expression parent.
-pub(crate) fn is_chained_parfeval(node: tree_sitter::Node, source: &str) -> bool {
-    // If the function_call's name is a field_expression containing "parfeval"
-    if let Some(name_node) = node.child_by_field_name("name") {
-        let text = node_text(name_node, source);
-        return text.contains("parfeval");
-    }
-    false
 }
 
 // ---------------------------------------------------------------------------
@@ -401,11 +361,11 @@ mod tests {
     #[test]
     fn test_sources_parse() {
         let sources = [
-            "deploytool();\n",
-            "ex = actxserver('Excel.Application');\n",
+            "internal.matlab.foo(1);\n",
+            "feature accel on\n",
             "import pkg.sub.*;\n",
-            "pkg = meta.package('my.pkg');\n",
-            "dt = System.Data.DataTable();\n",
+            "y = matlab.internal.a.b;\n",
+            "classdef A\n properties (Description = 'x')\n a\n end\nend\n",
         ];
         for src in sources {
             let tree = parse(src);

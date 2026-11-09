@@ -19,6 +19,11 @@ impl CodegenEngine {
             diags.push(make_diag("EMIMP", node));
         }
 
+        // EMLOAD: command-syntax load never assigns its output.
+        if self.is_enabled("EMLOAD") && cmd_name == "load" {
+            diags.push(make_diag("EMLOAD", node));
+        }
+
         // EMFCN: unsupported commands (clear, load, etc.)
         if self.is_enabled("EMFCN") && UNSUPPORTED_FUNCTIONS.contains(&cmd_name) {
             diags.push(make_diag("EMFCN", node));
@@ -47,5 +52,18 @@ mod tests {
         let src = "x = 1;\n";
         let diags = lint_nodes(&*engine(), src);
         assert!(!has_id(&diags, "EMIMP"), "got: {diags:?}");
+    }
+}
+
+#[cfg(test)]
+mod load_tests {
+    use super::*;
+    use crate::test_util::{has_id, lint_nodes};
+
+    #[test]
+    fn emload_fires_on_command_syntax_load() {
+        let src = "load data.mat\n";
+        let diags = lint_nodes(&*engine(), src);
+        assert!(has_id(&diags, "EMLOAD"), "got: {diags:?}");
     }
 }

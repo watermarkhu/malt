@@ -55,7 +55,7 @@ impl BugsEngine {
                     let pos = node.start_position();
                     diagnostics.push(Diagnostic {
                         rule_id: "MOCUP",
-                        message: "Variable VAR_NAME may be cleared before the cleanup function that references VAR_NAME executes, resulting in an undefined variable error.".to_string(),
+                        message: format!("Variable {v} may be cleared before the cleanup function that references {v} executes, resulting in an undefined variable error."),
                         severity: Severity::Error,
                         byte_range: node.start_byte()..node.end_byte(),
                         line: pos.row + 1,
@@ -179,5 +179,24 @@ x = 1;
 ";
         let diags = file_diags(src);
         assert!(!has_id(&diags, "MOCUP"), "got: {diags:?}");
+    }
+}
+
+#[cfg(test)]
+mod mocup_tests {
+    use super::*;
+    use crate::test_util::has_id;
+
+    #[test]
+    fn mocup_names_the_variable() {
+        let src = "function f()\n    fid = fopen('a');\n    c = onCleanup(@() fclose(fid));\n    clear fid\nend\n";
+        let diags = file_diags(src);
+        let d = diags.iter().find(|d| d.rule_id == "MOCUP").expect("MOCUP");
+        assert!(
+            d.message.starts_with("Variable fid may be cleared"),
+            "got: {}",
+            d.message
+        );
+        assert!(has_id(&diags, "MOCUP"));
     }
 }

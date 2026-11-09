@@ -1,6 +1,7 @@
 //! Node-level `command` dispatch for the unsupported features engine.
 //!
-//! Fires the IMPKG check for `import` commands.
+//! Fires the function checks for command syntax (`feature accel on`) and the
+//! IMPKG / MIPKG checks for `import` commands naming internal namespaces.
 
 use super::*;
 
@@ -18,9 +19,23 @@ impl UnsupportedEngine {
             None => return diags,
         };
 
-        // IMPKG: import command
-        if self.is_enabled("IMPKG") && cmd_name == "import" {
-            diags.push(make_diag("IMPKG", node));
+        if cmd_name == "import" {
+            let mut cursor = node.walk();
+            for arg in node.children(&mut cursor) {
+                if arg.kind() != "command_argument" {
+                    continue;
+                }
+                let id = namespace_check(node_text(arg, source));
+                if let Some(id) = id.filter(|id| self.is_enabled(id)) {
+                    diags.push(make_diag(id, node));
+                }
+            }
+            return diags;
+        }
+
+        let found = UNSUPPORTED_FUNCTIONS.iter().find(|(n, _)| *n == cmd_name);
+        if let Some((_, id)) = found.filter(|(_, id)| self.is_enabled(id)) {
+            diags.push(make_diag(id, node));
         }
 
         diags
@@ -32,19 +47,30 @@ mod tests {
     use super::*;
     use crate::test_util::{has_id, lint_nodes};
 
-    // -- IMPKG ---------------------------------------------------------------
-
     #[test]
-    fn impkg_fires_on_import_command() {
-        let src = "import pkg.sub.*;\n";
-        let diags = lint_nodes(&*engine(), src);
+    fn impkg_fires_on_internal_matlab_import() {
+        let diags = lint_nodes(&*engine(), "import internal.matlab.*\n");
         assert!(has_id(&diags, "IMPKG"), "got: {diags:?}");
     }
 
     #[test]
-    fn impkg_no_fire_on_regular_command() {
-        let src = "disp('hello');\n";
-        let diags = lint_nodes(&*engine(), src);
-        assert!(!has_id(&diags, "IMPKG"), "got: {diags:?}");
+    fn mipkg_fires_on_matlab_internal_import() {
+        let diags = lint_nodes(&*engine(), "import matlab.internal.foo\n");
+        assert!(has_id(&diags, "MIPKG"), "got: {diags:?}");
+    }
+
+    #[test]
+    fn import_of_regular_package_does_not_fire() {
+        let diags = lint_nodes(&*engine(), "import pkg.sub.*;\n");
+        assert!(
+            !has_id(&diags, "IMPKG") && !has_id(&diags, "MIPKG"),
+            "got: {diags:?}"
+        );
+    }
+
+    #[test]
+    fn featud_fires_on_command_syntax() {
+        let diags = lint_nodes(&*engine(), "feature accel on\n");
+        assert!(has_id(&diags, "FEATUD"), "got: {diags:?}");
     }
 }

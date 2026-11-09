@@ -19,31 +19,35 @@ impl CodegenEngine {
             diags.push(make_diag("EMFCN", node));
         }
 
-        // EMLOAD: load function
-        if self.is_enabled("EMLOAD") && func_name == "load" {
+        // EMLOAD: `load` used as a bare statement discards its output.
+        let is_stmt = node
+            .parent()
+            .is_some_and(|p| matches!(p.kind(), "block" | "source_file"));
+        if self.is_enabled("EMLOAD") && func_name == "load" && is_stmt {
             diags.push(make_diag("EMLOAD", node));
         }
 
-        // EMS2N: str2num
-        if self.is_enabled("EMS2N") && func_name == "str2num" {
-            diags.push(make_diag("EMS2N", node));
-        }
-
-        // PRMNOIN: validateattributes / inputParser in codegen context
-        if self.is_enabled("PRMNOIN")
-            && (func_name == "validateattributes"
-                || func_name == "inputParser"
-                || func_name == "addRequired"
-                || func_name == "addParameter")
+        // PRMNOIN: mobileRobotPRM constructed without a map argument.
+        if self.is_enabled("PRMNOIN") && func_name == "mobileRobotPRM" && call_arg_count(node) == 0
         {
             diags.push(make_diag("PRMNOIN", node));
         }
 
-        // LOOPPRAGMAWITHOUTFOR: coder.loop without following for
-        if self.is_enabled("LOOPPRAGMAWITHOUTFOR") && func_name == "coder.loop" {
-            // Check if next sibling is a for_statement
-            if !is_followed_by_for(node) {
-                diags.push(make_diag("LOOPPRAGMAWITHOUTFOR", node));
+        // LOOPPRAGMAWITHOUTFOR: coder.loop.* transform without a following for.
+        // The grammar parses `coder.loop.Control(...)` as a `field_expression`
+        // whose last field is the call.
+        if self.is_enabled("LOOPPRAGMAWITHOUTFOR") {
+            if let Some(fe) = node.parent() {
+                let at_stmt = fe
+                    .parent()
+                    .is_some_and(|p| matches!(p.kind(), "block" | "source_file"));
+                if fe.kind() == "field_expression"
+                    && node_text(fe, source).starts_with("coder.loop.")
+                    && at_stmt
+                    && !is_followed_by_for(fe)
+                {
+                    diags.push(make_diag("LOOPPRAGMAWITHOUTFOR", fe));
+                }
             }
         }
 
@@ -73,8 +77,8 @@ mod tests {
     }
 
     #[test]
-    fn emfcn_fires_on_plot() {
-        let src = "plot(x, y);\n";
+    fn emfcn_fires_on_save() {
+        let src = "save('f.mat');\n";
         let diags = lint_nodes(&*engine(), src);
         assert!(has_id(&diags, "EMFCN"), "got: {diags:?}");
     }
@@ -89,55 +93,65 @@ mod tests {
     // -- EMLOAD ---------------------------------------------------------------
 
     #[test]
-    fn emload_fires_on_load_function() {
-        let src = "load('file.mat');\n";
-        let diags = lint_nodes(&*engine(), src);
+    fn emload_fires_on_load_statement() {
+        let diags = lint_nodes(&*engine(), "load('file.mat');\n");
         assert!(has_id(&diags, "EMLOAD"), "got: {diags:?}");
     }
 
     #[test]
-    fn emload_not_fire_on_save() {
-        let src = "save('file.mat');\n";
-        let diags = lint_nodes(&*engine(), src);
+    fn emload_not_fire_when_assigned() {
+        let diags = lint_nodes(&*engine(), "s = load('file.mat');\n");
         assert!(!has_id(&diags, "EMLOAD"), "got: {diags:?}");
     }
 
-    // -- EMS2N ----------------------------------------------------------------
+    // -- EMFCN str2num ----------------------------------------------------------
 
     #[test]
-    fn ems2n_fires_on_str2num() {
-        let src = "x = str2num('1 2');\n";
-        let diags = lint_nodes(&*engine(), src);
-        assert!(has_id(&diags, "EMS2N"), "got: {diags:?}");
+    fn emfcn_fires_on_str2num() {
+        let diags = lint_nodes(&*engine(), "x = str2num('1 2');\n");
+        assert!(has_id(&diags, "EMFCN"), "got: {diags:?}");
     }
 
     #[test]
-    fn ems2n_not_fire_on_str2double() {
-        let src = "x = str2double('1 2');\n";
-        let diags = lint_nodes(&*engine(), src);
-        assert!(!has_id(&diags, "EMS2N"), "got: {diags:?}");
+    fn emfcn_not_fire_on_str2double() {
+        let diags = lint_nodes(&*engine(), "x = str2double('1 2');\n");
+        assert!(!has_id(&diags, "EMFCN"), "got: {diags:?}");
     }
 
     // -- PRMNOIN --------------------------------------------------------------
 
     #[test]
-    fn prmnoin_fires_on_validateattributes() {
-        let src = "validateattributes(x, {'numeric'}, {'scalar'});\n";
-        let diags = lint_nodes(&*engine(), src);
+    fn prmnoin_fires_on_prm_without_map() {
+        let diags = lint_nodes(&*engine(), "p = mobileRobotPRM();\n");
         assert!(has_id(&diags, "PRMNOIN"), "got: {diags:?}");
     }
 
     #[test]
-    fn prmnoin_fires_on_inputparser() {
-        let src = "p = inputParser();\n";
-        let diags = lint_nodes(&*engine(), src);
-        assert!(has_id(&diags, "PRMNOIN"), "got: {diags:?}");
-    }
-
-    #[test]
-    fn prmnoin_not_fire_on_plain_call() {
-        let src = "x = fcn(1, 2);\n";
-        let diags = lint_nodes(&*engine(), src);
+    fn prmnoin_not_fire_with_map() {
+        let diags = lint_nodes(&*engine(), "p = mobileRobotPRM(map);\n");
         assert!(!has_id(&diags, "PRMNOIN"), "got: {diags:?}");
+    }
+
+    #[test]
+    fn prmnoin_not_fire_on_inputparser() {
+        let diags = lint_nodes(&*engine(), "p = inputParser();\n");
+        assert!(!has_id(&diags, "PRMNOIN"), "got: {diags:?}");
+    }
+
+    // -- LOOPPRAGMAWITHOUTFOR -----------------------------------------------------
+
+    #[test]
+    fn looppragma_fires_without_for() {
+        let diags = lint_nodes(&*engine(), "coder.loop.Control(1);\nx = 1;\n");
+        assert!(has_id(&diags, "LOOPPRAGMAWITHOUTFOR"), "got: {diags:?}");
+    }
+
+    #[test]
+    fn looppragma_not_fire_before_for() {
+        let diags = lint_nodes(
+            &*engine(),
+            "coder.loop.Control(1);\nfor i = 1:3\n    x = i;\nend\n",
+        );
+        assert!(!has_id(&diags, "LOOPPRAGMAWITHOUTFOR"), "got: {diags:?}");
     }
 }
