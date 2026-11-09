@@ -83,7 +83,7 @@ Input argument might be unused. Consider replacing the argument with ~ instead.
 
 ### VANUS
 
-Severity: **info** · Auto-fix: **no**
+Severity: **warning** · Auto-fix: **no**
 
 Input argument 'varargin' might be unused.
 

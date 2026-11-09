@@ -33,7 +33,7 @@
 //! | DECR | error | yes (unsafe) | `--x` does not decrement the value of x. To decrease the value by 1, use x = x - 1. |
 //! | CMDAND | error | yes (unsafe) | Command-syntax statement `a &b`: use 'A && B' or 'A & B' to test whether A and B are both true in MATLAB. |
 //! | CMDOR | error | yes (unsafe) | Command-syntax statement `a |b`: use 'A || B' or 'A | B' to test whether either A or B is true in MATLAB. |
-//! | RHSFN | warning | no | The expression cannot be assigned to multiple values. |
+//! | RHSFN | error | no | The expression cannot be assigned to multiple values. |
 //! | FNAN | error | yes (unsafe) | Use ISNAN when comparing values to NaN (`x == NaN`, `x ~= NaN`). |
 //! | LOGEMP | error | no | Using 'isempty' on a logical expression creates incorrect results. To determine if all the conditions are false, use '~any(..., "all")' instead. |
 //! | STCUL | error | no | The comparison will likely fail due to case mismatch. |
@@ -476,7 +476,7 @@ impl BugsEngine {
                         rule_id: "RHSFN",
                         message: "The expression cannot be assigned to multiple values."
                             .to_string(),
-                        severity: Severity::Warning,
+                        severity: Severity::Error,
                         byte_range: rhs.start_byte()..rhs.end_byte(),
                         line: pos.row + 1,
                         column: pos.column + 1,
@@ -1175,9 +1175,10 @@ end
     }
 
     #[test]
-    fn rhsfn_is_a_warning() {
+    fn rhsfn_is_an_error() {
+        // MathWorks lists RHSFN as an error.
         let diags = file_diags("[m, n] = [1, 2];\n");
-        assert_eq!(diags[0].severity, Severity::Warning);
+        assert_eq!(diags[0].severity, Severity::Error);
     }
 
     #[test]

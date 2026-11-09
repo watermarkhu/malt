@@ -138,13 +138,13 @@ To avoid conflicts with functions on the path, specify variables to load from fi
 
 ### SEPEX
 
-Severity: **info** · Auto-fix: **no**
+Severity: **warning** · Auto-fix: **no**
 
 Consider using newline, semicolon, or comma before this statement for readability.
 
 ### NBRAK1
 
-Severity: **info** · Auto-fix: **yes**
+Severity: **warning** · Auto-fix: **yes**
 
 If you intend to specify expression precedence, use parentheses () instead of brackets [].
 
@@ -156,7 +156,7 @@ Names longer than VAR_NUMBER characters are not supported. This name has been tr
 
 ### CHAIN
 
-Severity: **info** · Auto-fix: **no**
+Severity: **warning** · Auto-fix: **no**
 
 Expressions like a < b < c are interpreted as (a < b) < c. Use (a < b) && (b < c) instead.
 
@@ -174,25 +174,25 @@ Function name VAR_NAME is known to MATLAB by its file name: VAR_FILE.
 
 ### NOIN
 
-Severity: **info** · Auto-fix: **no**
+Severity: **warning** · Auto-fix: **no**
 
 Method VAR_NAME should either be a static method or have at least one input argument.
 
 ### VALST
 
-Severity: **info** · Auto-fix: **no**
+Severity: **warning** · Auto-fix: **no**
 
 VAR_NAME must be the last argument in the argument list.
 
 ### PROP
 
-Severity: **info** · Auto-fix: **no**
+Severity: **warning** · Auto-fix: **no**
 
 VAR_NAME is also the name of a property, which may be confusing. Use obj.PropertyName syntax to reference the property, or rename this variable to improve readability.
 
 ### CPROP
 
-Severity: **info** · Auto-fix: **no**
+Severity: **warning** · Auto-fix: **no**
 
 VAR_NAME is also the name of a property, which may be confusing. Use obj.PropertyName syntax to reference the property, or rename the property to improve readability.
 
@@ -210,7 +210,7 @@ Consider explicitly defining the array, and then using the END operator to index
 
 ### COMNC
 
-Severity: **info** · Auto-fix: **yes**
+Severity: **warning** · Auto-fix: **yes**
 
 Comment with percent (%) following comma acts as a row separator. Replace the comma with a semicolon to make the row separation clearer. Alternatively, replace the percent (%) with an ellipsis (...) to add a comment inside a row.
 
@@ -390,7 +390,7 @@ The Code Analyzer is unable to determine if the expression assigned to the VAR_N
 
 ### ATTOF
 
-Severity: **info** · Auto-fix: **no**
+Severity: **warning** · Auto-fix: **no**
 
 Setting the class attribute Abstract to false is not recommended.
 
@@ -408,7 +408,7 @@ SetAccess cannot be set on Constant properties.
 
 ### MOBSRV
 
-Severity: **info** · Auto-fix: **no**
+Severity: **warning** · Auto-fix: **no**
 
 Using SetObservable or GetObservable on a Constant property has no effect.
 
@@ -438,13 +438,13 @@ Attempting to call a property or event VAR_NAME as a function.
 
 ### MTHANS
 
-Severity: **info** · Auto-fix: **no**
+Severity: **warning** · Auto-fix: **no**
 
 Using ANS as a method name is not recommended as ANS is frequently overwritten by MATLAB.
 
 ### MHERM
 
-Severity: **info** · Auto-fix: **no**
+Severity: **warning** · Auto-fix: **no**
 
 Parenthesize the multiplication of VAR_NAME and its transpose to ensure the result is Hermitian.
 

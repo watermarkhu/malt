@@ -64,7 +64,7 @@ impl GoodPracticesEngine {
                 rule_id: "ATTOF",
                 message: "Setting the class attribute Abstract to false is not recommended."
                     .to_string(),
-                severity: Severity::Info,
+                severity: Severity::Warning,
                 byte_range: start_byte..end_byte,
                 line,
                 column,

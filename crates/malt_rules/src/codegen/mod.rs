@@ -40,7 +40,7 @@
 //! | EMLOAD | error | no | The output of a call to LOAD is not assigned to a variable. For code generation, assign the output of LOAD to a variable without subscripting. Fires on `load` used as a statement or command, and on `x(k) = load(...)`. |
 //! | PRMNOIN | error | no | For code generation, specify a binaryOccupancyMap object in the constructor of the mobileRobotPRM object. Fires on `mobileRobotPRM()` called without arguments. |
 //! | LOOPPRAGMAWITHOUTFOR | error | no | A coder.loop.Control transform must be immediately followed by a for loop. Fires on a `coder.loop.*` call statement not followed by `for`. |
-//! | FPASE | error | no | Direct assignment to a possible fixed-point type is not recommended. Use the subscripted assignment syntax 'var(:) =' instead. Fires on `y = ...` when `y` was earlier assigned `fi(...)`. |
+//! | FPASE | warning | no | Direct assignment to a possible fixed-point type is not recommended. Use the subscripted assignment syntax 'var(:) =' instead. Fires on `y = ...` when `y` was earlier assigned `fi(...)`. |
 //!
 //! ## Examples
 //!
@@ -368,7 +368,12 @@ pub(crate) fn make_diag(check_id: &'static str, node: tree_sitter::Node) -> Diag
     Diagnostic {
         rule_id: check_id,
         message: check_description(check_id).to_string(),
-        severity: Severity::Error,
+        // Every code-generation check is an error except FPASE.
+        severity: if check_id == "FPASE" {
+            Severity::Warning
+        } else {
+            Severity::Error
+        },
         byte_range: node.start_byte()..node.end_byte(),
         line: start.row + 1,
         column: start.column + 1,

@@ -33,7 +33,7 @@
 //! | PREALL | warning | no | The preallocated value assigned to variable might be unused. |
 //! | INUSA | warning | no | Input argument might be unused after the function arguments block(s). |
 //! | INUSD | warning | no | Input argument might be unused. Consider replacing the argument with ~ instead. |
-//! | VANUS | info | no | Input argument 'varargin' might be unused. |
+//! | VANUS | warning | no | Input argument 'varargin' might be unused. |
 //! | DEFNU | warning | no | Function might be unused. |
 //! | UNRCH | warning | no | This statement (and possibly following ones) cannot be reached. |
 //! | MANU | warning | no | Input argument might be unused. Consider replacing the argument with ~, or make this method Static instead. |

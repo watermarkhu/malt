@@ -105,7 +105,7 @@ A coder.loop.Control transform must be immediately followed by a for loop. Fires
 
 ### FPASE
 
-Severity: **error** · Auto-fix: **no**
+Severity: **warning** · Auto-fix: **no**
 
 Direct assignment to a possible fixed-point type is not recommended. Use the subscripted assignment syntax 'var(:) =' instead. Fires on `y = ...` when `y` was earlier assigned `fi(...)`.
 

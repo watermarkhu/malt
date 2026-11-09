@@ -44,7 +44,7 @@ impl GoodPracticesEngine {
             message: format!(
                 "Parenthesize the multiplication of {a} and its transpose to ensure the result is Hermitian."
             ),
-            severity: Severity::Info,
+            severity: Severity::Warning,
             byte_range: node.start_byte()..node.end_byte(),
             line: pos.row + 1,
             column: pos.column + 1,

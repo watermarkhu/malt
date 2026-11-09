@@ -21,7 +21,7 @@ impl UnusedEngine {
                     diagnostics.push(Diagnostic {
                         rule_id: "VANUS",
                         message: "Input argument 'varargin' might be unused.".to_string(),
-                        severity: Severity::Info,
+                        severity: Severity::Warning,
                         byte_range: def.byte_range.clone(),
                         line: def.line,
                         column: def.column,

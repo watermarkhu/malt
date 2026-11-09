@@ -37,7 +37,7 @@ impl GoodPracticesEngine {
                 message:
                     "Using SetObservable or GetObservable on a Constant property has no effect."
                         .to_string(),
-                severity: Severity::Info,
+                severity: Severity::Warning,
                 byte_range: start_byte..end_byte,
                 line,
                 column,

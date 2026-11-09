@@ -48,19 +48,19 @@
 //! | EVLSEQVAR | warning | no | Using 'eval' to dynamically assign variables is not recommended. |
 //! | NOANS | warning | no | Using ANS as a variable is not recommended as ANS is frequently overwritten by MATLAB. |
 //! | LOAD | warning | no | To avoid conflicts with functions on the path, specify variables to load from file. |
-//! | SEPEX | info | no | Consider using newline, semicolon, or comma before this statement for readability. |
-//! | NBRAK1 | info | yes | If you intend to specify expression precedence, use parentheses () instead of brackets []. |
+//! | SEPEX | warning | no | Consider using newline, semicolon, or comma before this statement for readability. |
+//! | NBRAK1 | warning | yes | If you intend to specify expression precedence, use parentheses () instead of brackets []. |
 //! | LNGNM | warning | no | Names longer than VAR_NUMBER characters are not supported. This name has been truncated to VAR_NUMBER characters. |
-//! | CHAIN | info | no | Expressions like a < b < c are interpreted as (a < b) < c. Use (a < b) && (b < c) instead. |
+//! | CHAIN | warning | no | Expressions like a < b < c are interpreted as (a < b) < c. Use (a < b) && (b < c) instead. |
 //! | DISPLAY | warning | no | Overloading DISPLAY is not recommended. |
 //! | FNDEF | warning | no | Function name VAR_NAME is known to MATLAB by its file name: VAR_FILE. |
-//! | NOIN | info | no | Method VAR_NAME should either be a static method or have at least one input argument. |
-//! | VALST | info | no | VAR_NAME must be the last argument in the argument list. |
-//! | PROP | info | no | VAR_NAME is also the name of a property, which may be confusing. Use obj.PropertyName syntax to reference the property, or rename this variable to improve readability. |
-//! | CPROP | info | no | VAR_NAME is also the name of a property, which may be confusing. Use obj.PropertyName syntax to reference the property, or rename the property to improve readability. |
+//! | NOIN | warning | no | Method VAR_NAME should either be a static method or have at least one input argument. |
+//! | VALST | warning | no | VAR_NAME must be the last argument in the argument list. |
+//! | PROP | warning | no | VAR_NAME is also the name of a property, which may be confusing. Use obj.PropertyName syntax to reference the property, or rename this variable to improve readability. |
+//! | CPROP | warning | no | VAR_NAME is also the name of a property, which may be confusing. Use obj.PropertyName syntax to reference the property, or rename the property to improve readability. |
 //! | FVAL | warning | no | Calling functions using 'feval' is usually not necessary. Call the function directly instead. |
 //! | FNCOLND | warning | no | Consider explicitly defining the array, and then using the END operator to index into it. |
-//! | COMNC | info | yes | Comment with percent (%) following comma acts as a row separator. Replace the comma with a semicolon to make the row separation clearer. Alternatively, replace the percent (%) with an ellipsis (...) to add a comment inside a row. |
+//! | COMNC | warning | yes | Comment with percent (%) following comma acts as a row separator. Replace the comma with a semicolon to make the row separation clearer. Alternatively, replace the percent (%) with an ellipsis (...) to add a comment inside a row. |
 //! | ITERS | warning | no | The Code Analyzer type analysis may be incorrect here. |
 //! | LOGPROD | warning | no | Using 'prod' on a logical expression is hard to understand and might be incorrect. Consider using 'all' instead. |
 //! | LOGMIN | warning | no | Using 'min' on a logical expression is hard to understand and might be incorrect. Consider using 'all' instead. |
@@ -90,16 +90,16 @@
 //! | STFLD | warning | no | SETFIELD output must be assigned back to the structure. |
 //! | STRSZ | warning | no | Use STRCMP to compare character vectors that can have different sizes. |
 //! | ATTF | warning | no | The Code Analyzer is unable to determine if the expression assigned to the VAR_NAME attribute evaluates to true or false. |
-//! | ATTOF | info | no | Setting the class attribute Abstract to false is not recommended. |
+//! | ATTOF | warning | no | Setting the class attribute Abstract to false is not recommended. |
 //! | MCPO | warning | no | VAR_NAME property has no effect in a value class. |
 //! | MCSAC | warning | no | SetAccess cannot be set on Constant properties. |
-//! | MOBSRV | info | no | Using SetObservable or GetObservable on a Constant property has no effect. |
+//! | MOBSRV | warning | no | Using SetObservable or GetObservable on a Constant property has no effect. |
 //! | MDEPIN | warning | no | Default values should not be assigned to dependent properties because dependent properties do not store the values. |
 //! | MCCPI | warning | no | Initialize the Constant property or make it an Abstract Constant property. |
 //! | MGMD | warning | no | 'get' method should be implemented for each dependent property that does not also have private 'GetAccess' attribute. |
 //! | MCCPE | warning | no | Attempting to call a property or event VAR_NAME as a function. |
-//! | MTHANS | info | no | Using ANS as a method name is not recommended as ANS is frequently overwritten by MATLAB. |
-//! | MHERM | info | no | Parenthesize the multiplication of VAR_NAME and its transpose to ensure the result is Hermitian. |
+//! | MTHANS | warning | no | Using ANS as a method name is not recommended as ANS is frequently overwritten by MATLAB. |
+//! | MHERM | warning | no | Parenthesize the multiplication of VAR_NAME and its transpose to ensure the result is Hermitian. |
 //! | MNUML | warning | no | To create a square matrix, use VAR_NAME(numel(...), numel(...)). Alternatively, use VAR_NAME(size(...)) to create an array with same size as input array. |
 //! | COMPNOP | warning | yes | This logical comparison simplifies to VAR_NAME(...). Did you mean to use VAR_NAME to evaluate function argument: VAR_NAME(...VAR_NAME...)? |
 //! | COMPNOT | warning | yes | This logical comparison simplifies to ~VAR_NAME(...). Did you mean to use VAR_NAME to evaluate function argument: VAR_NAME(...VAR_NAME...)? |

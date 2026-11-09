@@ -88,7 +88,7 @@ Command-syntax statement `a
 
 ### RHSFN
 
-Severity: **warning** · Auto-fix: **no**
+Severity: **error** · Auto-fix: **no**
 
 The expression cannot be assigned to multiple values.
 

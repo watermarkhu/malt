@@ -36,7 +36,7 @@ impl GoodPracticesEngine {
             message: format!(
                 "Expressions like a {first} b {second} c are interpreted as (a {first} b) {second} c. Typically, to test a {first} b {second} c mathematically, if all arguments are numeric scalars, use (a {first} b) && (b {second} c), otherwise use (a {first} b) & (b {second} c)."
             ),
-            severity: Severity::Info,
+            severity: Severity::Warning,
             byte_range: node.start_byte()..node.end_byte(),
             line: pos.row + 1,
             column: pos.column + 1,

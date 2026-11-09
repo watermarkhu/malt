@@ -29,7 +29,7 @@ impl GoodPracticesEngine {
                                     "{} is also the name of a property, which may be confusing. Use obj.PropertyName syntax to reference the property, or rename the property to improve readability.",
                                     prop.name
                                 ),
-                                severity: Severity::Info,
+                                severity: Severity::Warning,
                                 byte_range: prop.byte_range.clone(),
                                 line: prop.line,
                                 column: 1,

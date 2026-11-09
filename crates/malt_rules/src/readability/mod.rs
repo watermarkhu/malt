@@ -62,6 +62,7 @@
 //! | STRCLFH | info | yes | For readability, use '~contains(str1, str2)' instead of 'cellfun(@isempty, strfind(str1, str2))'. |
 //! | STRIFCND | info | yes | For readability, use 'contains(str1, str2)' instead of 'strfind(str1, str2)'. |
 //! | CHARTEN | info | yes | For readability, consider using 'newline' instead of 'char(10)'. |
+//! | PSIZE | info | yes | NUMEL(x) is usually faster than PROD(SIZE(x)). |
 //! | SPRINTFN | info | yes | For readability, consider using the 'newline' function instead of 'sprintf('\n')'. |
 //!
 //! ## Fix
@@ -131,6 +132,7 @@ mod check_fvinr;
 mod check_ijcl;
 mod check_ismat;
 mod check_logical;
+mod check_prod_size;
 mod check_repmat;
 mod check_size_comparison;
 mod check_sprintf;
@@ -274,6 +276,7 @@ impl ReadabilityEngine {
             "strfind" => self.check_strfind_condition(node, source, results),
             "char" => self.check_char_literal(node, source, results),
             "sprintf" => self.check_sprintf(node, source, results),
+            "prod" => self.check_prod_size(node, source, results),
             "error" => self.check_error_warning(node, source, "SPERR", results),
             "warning" => self.check_error_warning(node, source, "SPWRN", results),
             "disp" => self.check_disp(node, source, results),

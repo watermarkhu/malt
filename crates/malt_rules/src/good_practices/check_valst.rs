@@ -50,7 +50,7 @@ fn report_not_last(list: Node, name: &str, source: &str, out: &mut Vec<Diagnosti
             out.push(Diagnostic {
                 rule_id: "VALST",
                 message: format!("{name} must be the last argument in the argument list."),
-                severity: Severity::Info,
+                severity: Severity::Warning,
                 byte_range: n.byte_range(),
                 line: pos.row + 1,
                 column: pos.column + 1,

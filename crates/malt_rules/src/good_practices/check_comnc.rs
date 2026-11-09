@@ -26,7 +26,7 @@ impl GoodPracticesEngine {
         vec![Diagnostic {
             rule_id: "COMNC",
             message: "Comment with percent (%) following comma acts as a row separator. Replace the comma with a semicolon to make the row separation clearer. Alternatively, replace the percent (%) with an ellipsis (...) to add a comment inside a row.".to_string(),
-            severity: Severity::Info,
+            severity: Severity::Warning,
             byte_range: node.start_byte()..node.start_byte() + 2,
             line: pos.row + 1,
             column: pos.column + 1,

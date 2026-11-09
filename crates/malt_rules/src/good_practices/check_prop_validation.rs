@@ -49,7 +49,7 @@ impl GoodPracticesEngine {
                         "{} is also the name of a property, which may be confusing. Use obj.PropertyName syntax to reference the property, or rename this variable to improve readability.",
                         def.name
                     ),
-                    severity: Severity::Info,
+                    severity: Severity::Warning,
                     byte_range: def.byte_range.clone(),
                     line: def.line,
                     column: def.column,

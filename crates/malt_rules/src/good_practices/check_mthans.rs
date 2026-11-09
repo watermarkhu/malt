@@ -16,7 +16,7 @@ impl GoodPracticesEngine {
                 diagnostics.push(Diagnostic {
                     rule_id: "MTHANS",
                     message: "Using ANS as a method name is not recommended as ANS is frequently overwritten by MATLAB.".to_string(),
-                    severity: Severity::Info,
+                    severity: Severity::Warning,
                     byte_range: func.byte_range.clone(),
                     line: func.line,
                     column: 1,

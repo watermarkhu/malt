@@ -33,7 +33,7 @@ impl GoodPracticesEngine {
                         "Method {} should either be a static method or have at least one input argument.",
                         func.name
                     ),
-                    severity: Severity::Info,
+                    severity: Severity::Warning,
                     byte_range: func.byte_range.clone(),
                     line: func.line,
                     column: 1,

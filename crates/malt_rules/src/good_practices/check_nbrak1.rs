@@ -56,7 +56,7 @@ impl GoodPracticesEngine {
         vec![Diagnostic {
             rule_id: "NBRAK1",
             message: "If you intend to specify expression precedence, use parentheses () instead of brackets [].".to_string(),
-            severity: Severity::Info,
+            severity: Severity::Warning,
             byte_range: start..end,
             line: pos.row + 1,
             column: pos.column + 1,

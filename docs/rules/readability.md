@@ -220,6 +220,12 @@ Severity: **info** · Auto-fix: **yes**
 
 For readability, consider using 'newline' instead of 'char(10)'.
 
+### PSIZE
+
+Severity: **info** · Auto-fix: **yes**
+
+NUMEL(x) is usually faster than PROD(SIZE(x)).
+
 ### SPRINTFN
 
 Severity: **info** · Auto-fix: **yes**

@@ -75,7 +75,7 @@ fn missing_separator(block: Node, source: &str) -> Option<Diagnostic> {
         message:
             "Consider using newline, semicolon, or comma before this statement for readability."
                 .to_string(),
-        severity: Severity::Info,
+        severity: Severity::Warning,
         byte_range: first.byte_range(),
         line: pos.row + 1,
         column: pos.column + 1,
