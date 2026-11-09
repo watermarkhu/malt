@@ -133,12 +133,6 @@ Severity: **error** · Auto-fix: **no**
 
 A METHODS block or END might be missing before the function definition. This might be causing additional error messages.
 
-### EOFMI
-
-Severity: **error** · Auto-fix: **no**
-
-Invalid syntax at end of file. File is incomplete.
-
 ### NOLHS
 
 Severity: **error** · Auto-fix: **no**

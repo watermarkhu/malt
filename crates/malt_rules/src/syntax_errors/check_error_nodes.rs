@@ -38,26 +38,6 @@ impl SyntaxErrorsEngine {
             }
         }
 
-        // EOFMI: Check if file ends with ERROR node.
-        if self.is_check_enabled("EOFMI") {
-            if let Some(last) = Self::last_descendant(root) {
-                if last.is_error() || last.is_missing() {
-                    let start = last.start_byte();
-                    let end = last.end_byte().max(start + 1);
-                    let pos = last.start_position();
-                    diagnostics.push(Diagnostic {
-                        rule_id: "EOFMI",
-                        message: "Invalid syntax at end of file. File is incomplete.".to_string(),
-                        severity: Severity::Error,
-                        byte_range: start..end,
-                        line: pos.row + 1,
-                        column: pos.column + 1,
-                        fix: None,
-                    });
-                }
-            }
-        }
-
         diagnostics
     }
 
@@ -400,10 +380,9 @@ mod tests {
     }
 
     #[test]
-    fn eolpar_cooccurs_with_eofmi() {
+    fn eolpar_fires_on_unclosed_call() {
         let diags = lint_file(&*engine(), "x = f(1;\ny = 1; 2");
         assert!(has_id(&diags, "EOLPAR"), "got: {diags:?}");
-        assert!(has_id(&diags, "EOFMI"), "got: {diags:?}");
     }
 
     #[test]
@@ -516,19 +495,5 @@ mod tests {
         assert!(!has_id(&diags, "ENDCT2"), "got: {diags:?}");
         assert!(!has_id(&diags, "ENDCT3"), "got: {diags:?}");
         assert!(!has_id(&diags, "ENDCT4"), "got: {diags:?}");
-    }
-
-    // -- EOFMI: file ends with ERROR node -----------------------------------
-
-    #[test]
-    fn eofmi_fires_on_incomplete_tail() {
-        let diags = lint_file(&*engine(), "x = 1; 2");
-        assert!(has_id(&diags, "EOFMI"), "got: {diags:?}");
-    }
-
-    #[test]
-    fn eofmi_ok_on_complete_file() {
-        let diags = lint_file(&*engine(), "x = 5;\n");
-        assert!(!has_id(&diags, "EOFMI"), "got: {diags:?}");
     }
 }

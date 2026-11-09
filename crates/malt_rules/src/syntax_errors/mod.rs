@@ -45,7 +45,6 @@
 //! | ENDCT2 | error | no | An END might be missing (after line VAR_RESERVED_WORD), possibly matching VAR_NUMBER. |
 //! | ENDCT3 | error | no | An END might be missing (before VAR_RESERVED_WORD on line VAR_NUMBER), possibly matching VAR_RESERVED_WORD. |
 //! | ENDCT4 | error | no | A METHODS block or END might be missing before the function definition. This might be causing additional error messages. |
-//! | EOFMI | error | no | Invalid syntax at end of file. File is incomplete. |
 //! | NOLHS | error | no | Left side of an assignment is empty. |
 //! | BADCH | error | no | Invalid text character(s). |
 //! | BADSP | error | no | Invalid text character(s). The text contains an unsupported non-ASCII whitespace character. |
@@ -267,7 +266,7 @@ impl SyntaxErrorsEngine {
     }
 
     // -----------------------------------------------------------------------
-    // Tree ERROR/MISSING node analysis (SYNER, NOPAR2, EOLPAR, ENDPAR, ENDCT, EOFMI)
+    // Tree ERROR/MISSING node analysis (SYNER, NOPAR2, EOLPAR, ENDPAR, ENDCT)
     // -----------------------------------------------------------------------
 
     /// Heuristic: does this error text look like an unclosed bracket?
@@ -870,7 +869,7 @@ impl Rule for SyntaxErrorsEngine {
         // 4. Unicode directional formatting characters (BADCT).
         diagnostics.extend(self.check_directional_formatting(source));
 
-        // 5. Tree ERROR/MISSING node analysis (SYNER, NOPAR2, EOLPAR, ENDPAR, ENDCT, EOFMI).
+        // 5. Tree ERROR/MISSING node analysis (SYNER, NOPAR2, EOLPAR, ENDPAR, ENDCT).
         diagnostics.extend(self.check_error_nodes(root, source));
 
         // 6. Number literal validation (BADFP, BADHBH, BADHBB, BADHBHT,

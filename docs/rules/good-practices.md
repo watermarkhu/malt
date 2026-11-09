@@ -58,12 +58,6 @@ Severity: **warning** · Auto-fix: **no**
 
 The first argument of ERROR should be a message identifier.
 
-### MEXCEP
-
-Severity: **warning** · Auto-fix: **no**
-
-To report an MException as a warning, use a format specifier to ensure the message is printed correctly. For example, 'warning(E.identifier, "%s", E.message)'.
-
 ### STCMP
 
 Severity: **warning** · Auto-fix: **no**

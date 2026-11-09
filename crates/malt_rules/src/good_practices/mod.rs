@@ -35,7 +35,6 @@
 //! | WLAST | warning | no | WARNING('') does not reset the warning state. Use LASTWARN('') instead. |
 //! | WNTAG | warning | no | The first argument of WARNING should be a message identifier. Using a message identifier allows users better control over the message. |
 //! | ERTAG | warning | no | The first argument of ERROR should be a message identifier. |
-//! | MEXCEP | warning | no | To report an MException as a warning, use a format specifier to ensure the message is printed correctly. For example, 'warning(E.identifier, "%s", E.message)'. |
 //! | STCMP | warning | no | Use STRCMP instead of == or ~= to compare character vectors, or convert character vectors to string scalars for direct comparison. |
 //! | STCI | warning | no | Use STRCMPI(str1,str2) instead of using UPPER/LOWER in a call to STRCMP. |
 //! | STISA | warning | no | Consider using ISA instead of comparing the class name. |
@@ -229,7 +228,6 @@ mod check_mccpi;
 mod check_mcpo;
 mod check_mcsac;
 mod check_mdepin;
-mod check_mexcep;
 mod check_mgmd;
 mod check_mherm;
 mod check_mipc1;
@@ -628,7 +626,6 @@ impl Rule for GoodPracticesEngine {
         // Error handling checks.
         diagnostics.extend(self.check_trync(node, source));
         diagnostics.extend(self.check_ctch(node, source));
-        diagnostics.extend(self.check_mexcep(node, source));
         diagnostics.extend(self.check_warning_error_tag(node, source));
 
         // String / comparison checks.
@@ -702,7 +699,7 @@ impl Rule for GoodPracticesEngine {
         diagnostics.extend(self.check_gvmis(ctx.tree, ctx.source));
         diagnostics.extend(self.check_sepex(ctx.tree, ctx.source));
         diagnostics.extend(self.check_strnu(ctx.tree, ctx.source));
-        diagnostics.extend(self.check_fndef(ctx.tree, ctx.source));
+        diagnostics.extend(self.check_fndef(ctx.tree, ctx.source, ctx.file_path));
         diagnostics.extend(self.check_valst(ctx.tree, ctx.source));
         diagnostics.extend(self.check_fval(ctx.tree, ctx.source));
         diagnostics.extend(self.check_fncolnd(ctx.tree, ctx.source));
