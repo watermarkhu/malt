@@ -33,6 +33,11 @@ impl UnsetVariablesEngine {
             // Run definite-assignment analysis.
             let mut da = analyze_definite_assignment(func_node, source);
 
+            // A name that is never defined in the function is a function call
+            // (`p = inputParser;`), not an unset variable.
+            da.possibly_unset
+                .retain(|u| scope.defs.iter().any(|d| d.name == u.name));
+
             // A nested function shares the workspace of the functions around it.
             if scope.kind == ScopeKind::NestedFunction {
                 let mut outer = HashSet::new();
@@ -139,17 +144,34 @@ end
     }
 
     #[test]
-    fn nodef_never_defined() {
+    fn never_defined_name_is_a_function_call() {
         let source = "\
 function foo()
     y = unknown_var + 1;
 end
 ";
         let diags = lint_file(&*engine(), source);
+        // Not defined anywhere in the function: MATLAB resolves it as a call.
         assert!(
-            diags.iter().any(|d| d.rule_id == "NODEF"),
-            "expected NODEF for 'unknown_var', got: {diags:?}"
+            !diags.iter().any(|d| d.rule_id == "NODEF"),
+            "got: {diags:?}"
         );
+    }
+
+    #[test]
+    fn nodef_fires_when_defined_only_later() {
+        let src = "function foo()\n    y = x + 1;\n    x = 2;\n    disp(y + x);\nend\n";
+        assert!(lint_file(&*engine(), src)
+            .iter()
+            .any(|d| d.rule_id == "NODEF" || d.rule_id == "USENS"));
+    }
+
+    #[test]
+    fn field_names_are_not_variables() {
+        let src = "function foo(p)\n    s = p.Results.Scale;\n    disp(s);\nend\n";
+        assert!(!lint_file(&*engine(), src)
+            .iter()
+            .any(|d| d.rule_id == "NODEF"));
     }
 
     #[test]

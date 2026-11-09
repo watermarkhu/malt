@@ -854,13 +854,7 @@ fn is_variable_use(node: Node) -> bool {
             }
             true
         }
-        "field_expression" => {
-            // The field part (second identifier) is not a variable use.
-            parent
-                .child_by_field_name("field")
-                .map(|f| f.id() != node.id())
-                .unwrap_or(true)
-        }
+        "field_expression" => !super::symbols::is_field_name(node),
         "function_arguments" | "function_output" | "function_definition" => false,
         _ => true,
     }

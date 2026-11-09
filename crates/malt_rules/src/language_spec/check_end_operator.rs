@@ -59,6 +59,7 @@ impl LanguageSpecEngine {
                                 | "methods"
                                 | "events"
                                 | "enumeration"
+                                | "arguments_statement"
                                 | "parfor"
                                 | "spmd_statement"
                                 | "elseif_clause"

@@ -39,6 +39,17 @@
 use std::collections::HashSet;
 use tree_sitter::Tree;
 
+/// Whether `node` is the name of a field in `a.b.c` (anything but the leading
+/// object), as opposed to a variable. The expression in a dynamic field
+/// `s.(name)` sits inside an `indirect_access` node and is a variable.
+pub(crate) fn is_field_name(node: tree_sitter::Node) -> bool {
+    node.parent().is_some_and(|p| {
+        p.kind() == "field_expression"
+            && p.named_child(0)
+                .is_some_and(|object| object.id() != node.id())
+    })
+}
+
 // ---------------------------------------------------------------------------
 // Definition kinds
 // ---------------------------------------------------------------------------
@@ -424,6 +435,32 @@ impl<'a> Builder<'a> {
             // Class declarations: names, attributes and superclasses are not
             // reads; only property default values and method bodies are code.
             "attributes" | "superclasses" | "enum" | "events" => {}
+            // `catch err` defines the exception variable.
+            "catch_clause" => {
+                let mut cursor = node.walk();
+                for child in node.children(&mut cursor) {
+                    if child.kind() == "identifier"
+                        && child.prev_sibling().is_some_and(|p| p.kind() == "catch")
+                    {
+                        let pos = child.start_position();
+                        let def = VarDef {
+                            name: self.node_text(child).to_string(),
+                            kind: DefKind::Assignment,
+                            byte_range: child.byte_range(),
+                            effect_start: child.end_byte(),
+                            partial: false,
+                            multi_output: false,
+                            prealloc: false,
+                            block_start: 0,
+                            line: pos.row + 1,
+                            column: pos.column + 1,
+                        };
+                        self.add_def(def);
+                    } else {
+                        self.visit_node(child);
+                    }
+                }
+            }
             "property" => {
                 let mut cursor = node.walk();
                 for child in node.children(&mut cursor) {
@@ -1110,11 +1147,7 @@ impl<'a> Builder<'a> {
             // Field expression: only the `object` part is a usage, not the
             // `field` part.
             "field_expression" => {
-                if parent
-                    .child_by_field_name("field")
-                    .map(|f| f.id() == node.id())
-                    .unwrap_or(false)
-                {
+                if is_field_name(node) {
                     // This is the field name (e.g., `field` in `obj.field`).
                     // Not a standalone variable usage.
                     return;

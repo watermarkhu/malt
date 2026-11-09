@@ -160,7 +160,11 @@ impl CompatibilityEngine {
                     ) {
                         continue;
                     }
-                    if !has_def_before_or_at(scope, name, use_.byte_range.start)
+                    // A name defined nowhere is a function (`p = inputParser;`).
+                    let defined_somewhere = has_variable_def(scope, name)
+                        || has_def_in_ancestors(symbol_table, scope_idx, name);
+                    if defined_somewhere
+                        && !has_def_before_or_at(scope, name, use_.byte_range.start)
                         && !has_def_in_ancestors(symbol_table, scope_idx, name)
                     {
                         push_use_diag(
@@ -489,9 +493,9 @@ mod tests {
     // -- IDISVARHIGH: plain read before definition --------------------------
 
     #[test]
-    fn idisvarhigh_plain_read_undefined_fires() {
+    fn idisvarhigh_plain_read_of_unknown_name_is_a_function() {
         let d = lint_file(&*engine(), "function f()\n y = x + 1;\nend\n");
-        assert!(has_id(&d, "IDISVARHIGH"), "got: {d:?}");
+        assert!(!has_id(&d, "IDISVARHIGH"), "got: {d:?}");
     }
 
     #[test]
@@ -501,9 +505,9 @@ mod tests {
     }
 
     #[test]
-    fn idisvarhigh_call_argument_undefined_fires() {
+    fn idisvarhigh_call_argument_of_unknown_name_is_a_function() {
         let d = lint_file(&*engine(), "function f()\n disp(x);\nend\n");
-        assert!(has_id(&d, "IDISVARHIGH"), "got: {d:?}");
+        assert!(!has_id(&d, "IDISVARHIGH"), "got: {d:?}");
     }
 
     #[test]

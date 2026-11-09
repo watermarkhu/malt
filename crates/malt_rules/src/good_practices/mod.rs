@@ -641,7 +641,6 @@ impl Rule for GoodPracticesEngine {
 
         // General practice checks.
         diagnostics.extend(self.check_load(node, source));
-        diagnostics.extend(self.check_noans(node, source));
         diagnostics.extend(self.check_lngnm(node, source));
         diagnostics.extend(self.check_nbrak1(node, source));
         diagnostics.extend(self.check_comnc(node, source));
@@ -697,6 +696,7 @@ impl Rule for GoodPracticesEngine {
         diagnostics.extend(self.check_display_override(ctx.tree, ctx.source));
         diagnostics.extend(self.check_noin(ctx.tree, ctx.source));
         diagnostics.extend(self.check_prop_validation(ctx.tree, ctx.source));
+        diagnostics.extend(self.check_noans(ctx.tree, ctx.source));
         diagnostics.extend(self.check_cprop(ctx.tree, ctx.source));
         diagnostics.extend(self.check_iters(ctx.tree, ctx.source));
         diagnostics.extend(self.check_gvmis(ctx.tree, ctx.source));

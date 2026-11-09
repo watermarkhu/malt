@@ -43,11 +43,11 @@ impl GoodPracticesEngine {
                     .find(|s| s.byte_range.start <= range.start && range.end <= s.byte_range.end);
                 let Some(scope) = scope else { continue };
 
-                // Output arguments are "used" externally — skip them.
-                let is_output = scope
-                    .defs
-                    .iter()
-                    .any(|d| d.kind == DefKind::OutputArg && d.name == *name);
+                // Output arguments are "used" externally, and a modified input
+                // may be a handle object: skip both.
+                let is_output = scope.defs.iter().any(|d| {
+                    matches!(d.kind, DefKind::OutputArg | DefKind::InputArg) && d.name == *name
+                });
                 if is_output {
                     continue;
                 }
