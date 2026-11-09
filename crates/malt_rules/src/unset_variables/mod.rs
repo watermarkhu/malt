@@ -17,7 +17,7 @@
 //! definite-assignment analysis to find variables used on code paths where
 //! they may never have been assigned. It covers 6 checks from MATLAB's "Unset
 //! Variables" category; each diagnostic carries the specific check ID (e.g.
-//! `NODEF`, `PSET`, `STOUT`).
+//! `NODEF`, `STOUT`).
 //!
 //! ## Check IDs
 //!
@@ -25,7 +25,6 @@
 //! | --- | --- | --- | --- |
 //! | NODEF | warning | no | Variable might be used before it is defined. |
 //! | USENS | warning | no | Explicitly initialize this variable to avoid a potential uninitialized variable, or use a valid syntax for function call on line VAR_NUMBER. |
-//! | PSET | warning | no | Persistent variable is used, but might be unset. |
 //! | SUSENS | warning | no | Variable is used, but might be unset (within a script). |
 //! | SVNODEF | warning | no | Variable might not have a value, because variable definition may not be executed. |
 //! | STOUT | warning | no | Function return value might be unset. |
@@ -83,11 +82,8 @@ use crate::analysis::symbols::SymbolTable;
 // ---------------------------------------------------------------------------
 
 mod check_function_scopes;
-mod check_if_pset;
 mod check_output_args;
-mod check_partial_branch_assignment;
 mod check_script_scopes;
-mod check_switch_pset;
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -160,43 +156,6 @@ impl UnsetVariablesEngine {
     pub(crate) fn is_ignored(&self, name: &str) -> bool {
         self.ignore_set.contains(name)
     }
-
-    /// Find the location of the first assignment to a variable within a compound
-    /// statement (for PSET diagnostic positioning).
-    pub(crate) fn find_assignment_location(
-        &self,
-        node: Node,
-        source: &str,
-        var_name: &str,
-    ) -> Option<(std::ops::Range<usize>, usize, usize)> {
-        // DFS search for the first assignment to var_name.
-        let mut stack = vec![node];
-        while let Some(current) = stack.pop() {
-            if current.kind() == "assignment" {
-                if let Some(lhs) = current.child_by_field_name("left") {
-                    if lhs.kind() == "identifier" {
-                        let name = &source[lhs.start_byte()..lhs.end_byte()];
-                        if name == var_name {
-                            let pos = lhs.start_position();
-                            return Some((
-                                lhs.start_byte()..lhs.end_byte(),
-                                pos.row + 1,
-                                pos.column + 1,
-                            ));
-                        }
-                    }
-                }
-            }
-            // Push children in reverse so we visit left-to-right.
-            let count = current.child_count();
-            for i in (0..count).rev() {
-                if let Some(child) = current.child(i) {
-                    stack.push(child);
-                }
-            }
-        }
-        None
-    }
 }
 
 impl Rule for UnsetVariablesEngine {
@@ -244,9 +203,6 @@ impl Rule for UnsetVariablesEngine {
         // 2. Script scope checks (SVNODEF, SUSENS).
         diagnostics.extend(self.check_script_scopes(&symbol_table));
 
-        // 3. Partial-branch assignment (PSET).
-        diagnostics.extend(self.check_partial_branch_assignment(tree, source));
-
         diagnostics
     }
 }
@@ -282,41 +238,6 @@ pub(crate) fn find_function_node_at<'a>(
         }
     }
     None
-}
-
-/// Collect all variable names assigned in a block (shallow — only direct
-/// assignment statements, not nested blocks).
-pub(crate) fn collect_block_assignments(block: Node, source: &str) -> HashSet<String> {
-    let mut assigned = HashSet::new();
-    let count = block.child_count();
-    for i in 0..count {
-        let Some(child) = block.child(i) else {
-            continue;
-        };
-        if child.kind() == "assignment" {
-            if let Some(lhs) = child.child_by_field_name("left") {
-                match lhs.kind() {
-                    "identifier" => {
-                        let name = &source[lhs.start_byte()..lhs.end_byte()];
-                        assigned.insert(name.to_string());
-                    }
-                    "multioutput_variable" => {
-                        let lhs_count = lhs.child_count();
-                        for j in 0..lhs_count {
-                            if let Some(id) = lhs.child(j) {
-                                if id.kind() == "identifier" {
-                                    let name = &source[id.start_byte()..id.end_byte()];
-                                    assigned.insert(name.to_string());
-                                }
-                            }
-                        }
-                    }
-                    _ => {}
-                }
-            }
-        }
-    }
-    assigned
 }
 
 // ---------------------------------------------------------------------------

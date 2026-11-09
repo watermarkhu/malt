@@ -41,3 +41,19 @@ fn function_file_is_clean() {
 fn class_file_only_has_release_gate_findings() {
     assert_eq!(ids("cls1.m"), vec!["FCDQS", "FCFAV", "FVINR"]);
 }
+
+#[test]
+fn function_with_arguments_block_parfor_and_switch() {
+    // PFNF is right: `helper` is a nested function called inside parfor.
+    assert_eq!(ids("func2.m"), vec!["FCDQS", "FCFAV", "FVINR", "PFNF"]);
+}
+
+#[test]
+fn script_findings_are_real_dead_stores_and_a_missing_semicolon() {
+    assert_eq!(ids("script2.m"), vec!["NASGU", "PRTCAL"]);
+}
+
+#[test]
+fn unit_test_class_is_clean() {
+    assert_eq!(ids("test1.m"), Vec::<&str>::new());
+}

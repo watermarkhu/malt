@@ -17,7 +17,7 @@ engine (`UnsetVariablesEngine`) builds a symbol table and runs
 definite-assignment analysis to find variables used on code paths where
 they may never have been assigned. It covers 6 checks from MATLAB's "Unset
 Variables" category; each diagnostic carries the specific check ID (e.g.
-`NODEF`, `PSET`, `STOUT`).
+`NODEF`, `STOUT`).
 
 ## Check IDs
 
@@ -32,12 +32,6 @@ Variable might be used before it is defined.
 Severity: **warning** · Auto-fix: **no**
 
 Explicitly initialize this variable to avoid a potential uninitialized variable, or use a valid syntax for function call on line VAR_NUMBER.
-
-### PSET
-
-Severity: **warning** · Auto-fix: **no**
-
-Persistent variable is used, but might be unset.
 
 ### SUSENS
 

@@ -67,7 +67,7 @@ pub(crate) fn walk_for_no_effect(
         }
         // NOEFF: other expression nodes at statement level that are not
         // assignments, function_calls, or commands.
-        else if !noeff_disabled && NO_EFFECT_EXPR_NODES.contains(&kind) {
+        else if !noeff_disabled && NO_EFFECT_EXPR_NODES.contains(&kind) && !is_method_call(node) {
             let pos = node.start_position();
             diagnostics.push(Diagnostic {
                 rule_id: "NOEFF",
@@ -91,6 +91,22 @@ pub(crate) fn walk_for_no_effect(
             walk_for_no_effect(child, source, diagnostics, noeff_disabled, eqeff_disabled);
         }
     }
+}
+
+/// `obj.method(args)` parses as a `field_expression` that ends in a call: a
+/// statement that does something, not an expression without effect.
+fn is_method_call(node: Node) -> bool {
+    let mut current = node;
+    while current.kind() == "field_expression" {
+        let Some(last) = current.named_child(current.named_child_count().saturating_sub(1)) else {
+            return false;
+        };
+        if matches!(last.kind(), "function_call" | "cell_index") {
+            return true;
+        }
+        current = last;
+    }
+    false
 }
 
 /// The operator of an operator expression, else the start of its text.

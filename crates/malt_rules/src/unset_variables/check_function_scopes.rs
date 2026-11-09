@@ -245,4 +245,12 @@ end
         let src = "function r = foo()\n    r = 1;\n    function inner()\n        disp(r);\n    end\nend\n";
         assert!(nodef_ids(src).is_empty());
     }
+
+    #[test]
+    fn a_branch_that_errors_does_not_leave_the_variable_unset() {
+        let src = "function r = foo(m)\n    switch m\n        case 1\n            s = 1;\n        otherwise\n            error('bad');\n    end\n    r = s;\nend\n";
+        assert!(nodef_ids(src).is_empty(), "{:?}", nodef_ids(src));
+        let src = "function r = foo(c)\n    if c\n        s = 1;\n    else\n        return\n    end\n    r = s;\nend\n";
+        assert!(nodef_ids(src).is_empty());
+    }
 }

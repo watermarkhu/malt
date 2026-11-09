@@ -57,6 +57,10 @@ const PROPERTY_ATTRS: &[&str] = &[
     "Default",
     "Hidden",
     "ExplicitProperties",
+    // matlab.unittest test classes.
+    "TestParameter",
+    "ClassSetupParameter",
+    "MethodSetupParameter",
 ];
 
 /// Valid methods-block attribute names (ATUNK).
@@ -67,6 +71,14 @@ const METHOD_ATTRS: &[&str] = &[
     "Hidden",
     "Sealed",
     "AbstractMethods",
+    // matlab.unittest test classes.
+    "Test",
+    "TestMethodSetup",
+    "TestMethodTeardown",
+    "TestClassSetup",
+    "TestClassTeardown",
+    "TestTags",
+    "ParameterCombination",
 ];
 
 /// Valid events-block attribute names (ATUNK).

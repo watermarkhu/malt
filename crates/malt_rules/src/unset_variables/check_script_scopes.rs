@@ -28,6 +28,12 @@ impl UnsetVariablesEngine {
                 if var_use.is_call_target {
                     continue;
                 }
+                // A name defined nowhere in the file (`t = tic;`,
+                // `containers.Map`) is a function or package, and a script may
+                // use variables of the base workspace.
+                if !scope.defs.iter().any(|d| d.name == var_use.name) {
+                    continue;
+                }
 
                 // Find the earliest definition of this variable in the scope.
                 let earliest_def = scope
@@ -37,22 +43,10 @@ impl UnsetVariablesEngine {
                     .min_by_key(|d| d.effect_start);
 
                 match earliest_def {
-                    None => {
-                        // Variable is used but never defined in the script → SVNODEF.
-                        reported.insert(var_use.name.clone());
-                        diagnostics.push(Diagnostic {
-                            rule_id: "SVNODEF",
-                            message: format!(
-                                "Variable '{}' might not have a value, because variable definition may not be executed.",
-                                var_use.name
-                            ),
-                            severity: Severity::Warning,
-                            byte_range: var_use.byte_range.clone(),
-                            line: var_use.line,
-                            column: var_use.column,
-                            fix: None,
-                        });
-                    }
+                    // Used but defined nowhere: a function, a package or a variable
+                    // of the base workspace. SVNODEF proper (defined only on some
+                    // paths) needs flow analysis of scripts and is not reported yet.
+                    None => {}
                     Some(def) if var_use.byte_range.start < def.effect_start => {
                         // Variable is used before its first definition → SUSENS.
                         reported.insert(var_use.name.clone());
@@ -93,13 +87,9 @@ mod tests {
     // -- SVNODEF / SUSENS tests (script scope) ------------------------------
 
     #[test]
-    fn svnodef_script_var_never_defined() {
-        let source = "y = x + 1;\n";
-        let diags = lint_file(&*engine(), source);
-        assert!(
-            diags.iter().any(|d| d.rule_id == "SVNODEF"),
-            "expected SVNODEF for 'x' in script, got: {diags:?}"
-        );
+    fn undefined_names_in_scripts_are_not_reported() {
+        // Could be a function or a variable of the base workspace.
+        assert!(ids("y = x + 1;\nt = tic;\nm = containers.Map();\n").is_empty());
     }
 
     #[test]
@@ -149,7 +139,7 @@ mod tests {
 
     #[test]
     fn script_messages_name_the_variable() {
-        let d = lint_file(&*engine(), "y = foo + 1;\n");
+        let d = lint_file(&*engine(), "y = foo + 1;\nfoo = 2;\n");
         assert!(d.iter().any(|d| d.message.contains("'foo'")), "{d:?}");
     }
 

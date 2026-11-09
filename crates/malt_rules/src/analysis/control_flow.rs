@@ -121,6 +121,30 @@ fn termination_cause(kind: &str) -> Option<&'static str> {
     }
 }
 
+/// Whether a block ends control flow for good: it contains a `return`,
+/// `break` or `continue`, or a call that never returns (`error`, `throw`,
+/// `rethrow`, `exit`, `quit`).
+fn block_never_falls_through(block: Node, source: &str) -> bool {
+    let mut cursor = block.walk();
+    let found = block.named_children(&mut cursor).any(|stmt| {
+        if termination_cause(stmt.kind()).is_some() {
+            return true;
+        }
+        let callee = match stmt.kind() {
+            "function_call" => stmt.child_by_field_name("name"),
+            "command" => stmt.named_child(0),
+            _ => None,
+        };
+        callee.is_some_and(|c| {
+            matches!(
+                node_text(c, source),
+                "error" | "throw" | "rethrow" | "exit" | "quit"
+            )
+        })
+    });
+    found
+}
+
 /// Iterate the named children of a node.
 fn named_children(node: Node) -> Vec<Node> {
     let mut children = Vec::new();
@@ -496,7 +520,11 @@ fn walk_if_statement(
         if child.kind() == "block" {
             let mut branch_assigned = assigned.clone();
             walk_block(*child, source, &mut branch_assigned, uses);
-            branch_sets.push(branch_assigned);
+            // A branch that never falls through (return, error, ...) does not
+            // limit what is assigned after the statement.
+            if !block_never_falls_through(*child, source) {
+                branch_sets.push(branch_assigned);
+            }
             break;
         }
     }
@@ -519,7 +547,11 @@ fn walk_if_statement(
                 if ec.kind() == "block" {
                     let mut branch_assigned = assigned.clone();
                     walk_block(*ec, source, &mut branch_assigned, uses);
-                    branch_sets.push(branch_assigned);
+                    // A branch that never falls through (return, error, ...) does not
+                    // limit what is assigned after the statement.
+                    if !block_never_falls_through(*ec, source) {
+                        branch_sets.push(branch_assigned);
+                    }
                     break;
                 }
             }
@@ -535,7 +567,11 @@ fn walk_if_statement(
                 if ec.kind() == "block" {
                     let mut branch_assigned = assigned.clone();
                     walk_block(*ec, source, &mut branch_assigned, uses);
-                    branch_sets.push(branch_assigned);
+                    // A branch that never falls through (return, error, ...) does not
+                    // limit what is assigned after the statement.
+                    if !block_never_falls_through(*ec, source) {
+                        branch_sets.push(branch_assigned);
+                    }
                     break;
                 }
             }
@@ -595,7 +631,11 @@ fn walk_switch_statement(
                     if cc.kind() == "block" {
                         let mut branch_assigned = assigned.clone();
                         walk_block(*cc, source, &mut branch_assigned, uses);
-                        branch_sets.push(branch_assigned);
+                        // A branch that never falls through (return, error, ...) does not
+                        // limit what is assigned after the statement.
+                        if !block_never_falls_through(*cc, source) {
+                            branch_sets.push(branch_assigned);
+                        }
                         break;
                     }
                 }
@@ -607,7 +647,11 @@ fn walk_switch_statement(
                     if oc.kind() == "block" {
                         let mut branch_assigned = assigned.clone();
                         walk_block(*oc, source, &mut branch_assigned, uses);
-                        branch_sets.push(branch_assigned);
+                        // A branch that never falls through (return, error, ...) does not
+                        // limit what is assigned after the statement.
+                        if !block_never_falls_through(*oc, source) {
+                            branch_sets.push(branch_assigned);
+                        }
                         break;
                     }
                 }
