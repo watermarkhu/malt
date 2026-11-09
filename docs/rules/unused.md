@@ -17,7 +17,7 @@ files. A single file-level engine (`UnusedEngine`) builds a symbol table
 and runs unreachability analysis, then cross-references every definition
 against its usages to identify dead code. It covers 17 checks from
 MATLAB's "Unused Constructions" category; each diagnostic carries the
-specific check ID (e.g. `NASGU`, `UNRCH`, `MSNU`).
+specific check ID (e.g. `NASGU`, `UNRCH`).
 
 ## Check IDs
 
@@ -105,18 +105,6 @@ Severity: **warning** · Auto-fix: **no**
 
 Input argument might be unused. Consider replacing the argument with ~, or make this method Static instead.
 
-### MSNU
-
-Severity: **warning** · Auto-fix: **no**
-
-A Code Analyzer message was once suppressed here, but the message is no longer generated.
-
-### MSNE
-
-Severity: **info** · Auto-fix: **no**
-
-No Code Analyzer check is found for this check ID.
-
 ## Examples
 
 ### Incorrect
@@ -127,7 +115,6 @@ function f()
     x = 1;
     return;
     y = x;              % UNRCH: unreachable after return
-    s.field = 1;        % MSNU: set but never read
 end
 ```
 

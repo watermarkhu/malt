@@ -91,6 +91,11 @@ pub struct VarDef {
     pub partial: bool,
     /// One element of a `[a, b] = f()` output list.
     pub multi_output: bool,
+    /// The right-hand side is a preallocation call (`zeros(...)`, `cell(...)`, ...).
+    pub prealloc: bool,
+    /// Start of the statement block the assignment sits in; two assignments with
+    /// the same value run one after the other, unconditionally.
+    pub block_start: usize,
 }
 
 /// A single variable usage (read) occurrence.
@@ -450,6 +455,8 @@ impl<'a> Builder<'a> {
                     effect_start: name_node.start_byte(),
                     partial: false,
                     multi_output: false,
+                    prealloc: false,
+                    block_start: 0,
                     line: name_pos.row + 1,
                     column: name_pos.column + 1,
                 });
@@ -580,6 +587,8 @@ impl<'a> Builder<'a> {
                     effect_start: node.start_byte(),
                     partial: false,
                     multi_output: false,
+                    prealloc: false,
+                    block_start: 0,
                     line: pos.row + 1,
                     column: pos.column + 1,
                 });
@@ -597,6 +606,8 @@ impl<'a> Builder<'a> {
                                 effect_start: child.start_byte(),
                                 partial: false,
                                 multi_output: false,
+                                prealloc: false,
+                                block_start: 0,
                                 line: pos.row + 1,
                                 column: pos.column + 1,
                             });
@@ -638,6 +649,8 @@ impl<'a> Builder<'a> {
                         effect_start: child.start_byte(),
                         partial: false,
                         multi_output: false,
+                        prealloc: false,
+                        block_start: 0,
                         line: pos.row + 1,
                         column: pos.column + 1,
                     });
@@ -684,6 +697,8 @@ impl<'a> Builder<'a> {
                                     effect_start: arg.start_byte(),
                                     partial: false,
                                     multi_output: false,
+                                    prealloc: false,
+                                    block_start: 0,
                                     line: arg_pos.row + 1,
                                     column: arg_pos.column + 1,
                                 });
@@ -735,13 +750,37 @@ impl<'a> Builder<'a> {
     fn visit_assignment(&mut self, node: tree_sitter::Node<'a>) {
         // Process LHS: definitions.
         if let Some(lhs) = node.child_by_field_name("left") {
+            let before = self
+                .current_scope()
+                .map_or(0, |i| self.scopes[i].defs.len());
             self.extract_assignment_lhs(lhs, node.end_byte());
+            let prealloc = node
+                .child_by_field_name("right")
+                .is_some_and(|r| self.is_prealloc_call(r));
+            let block_start = node.parent().map_or(0, |p| p.start_byte());
+            if let Some(idx) = self.current_scope() {
+                for def in self.scopes[idx].defs.iter_mut().skip(before) {
+                    def.block_start = block_start;
+                    def.prealloc = prealloc && lhs.kind() == "identifier";
+                }
+            }
         }
 
         // Process RHS: usages (just recurse normally).
         if let Some(rhs) = node.child_by_field_name("right") {
             self.visit_node(rhs);
         }
+    }
+
+    /// Whether `node` is a call that creates a preallocated array.
+    fn is_prealloc_call(&self, node: tree_sitter::Node<'a>) -> bool {
+        const PREALLOC: &[&str] = &[
+            "zeros", "ones", "cell", "nan", "NaN", "inf", "Inf", "false", "true", "eye", "rand",
+        ];
+        node.kind() == "function_call"
+            && node
+                .child_by_field_name("name")
+                .is_some_and(|n| PREALLOC.contains(&self.node_text(n)))
     }
 
     /// Extract definitions from an assignment LHS.
@@ -758,6 +797,8 @@ impl<'a> Builder<'a> {
                     effect_start: effect,
                     partial: false,
                     multi_output: false,
+                    prealloc: false,
+                    block_start: 0,
                     line: pos.row + 1,
                     column: pos.column + 1,
                 });
@@ -775,6 +816,8 @@ impl<'a> Builder<'a> {
                                 effect_start: effect,
                                 partial: false,
                                 multi_output: true,
+                                prealloc: false,
+                                block_start: 0,
                                 line: pos.row + 1,
                                 column: pos.column + 1,
                             });
@@ -828,6 +871,8 @@ impl<'a> Builder<'a> {
             effect_start: effect,
             partial: true,
             multi_output: false,
+            prealloc: false,
+            block_start: 0,
         });
     }
 
@@ -886,6 +931,8 @@ impl<'a> Builder<'a> {
                         effect_start: child.start_byte(),
                         partial: false,
                         multi_output: false,
+                        prealloc: false,
+                        block_start: 0,
                         line: pos.row + 1,
                         column: pos.column + 1,
                     });
@@ -919,6 +966,8 @@ impl<'a> Builder<'a> {
                         effect_start: child.start_byte(),
                         partial: false,
                         multi_output: false,
+                        prealloc: false,
+                        block_start: 0,
                         line: pos.row + 1,
                         column: pos.column + 1,
                     });
