@@ -29,6 +29,7 @@ replacement = ""
 [[checks]]
 id = "EVLC"
 function_name = "evalc"
+min_args = 2
 message = "Using 'evalc' with two arguments is not recommended. Use try/catch statements instead to make code more clear and efficient."
 replacement = ""
 
@@ -37,6 +38,14 @@ id = "RAND"
 function_name = "rand"
 message = "RAND or RANDN with the 'seed', 'state', or 'twister' inputs is not recommended. Use RNG instead."
 replacement = "rng"
+literal_args = ["seed", "state", "twister"]
+
+[[checks]]
+id = "RAND"
+function_name = "randn"
+message = "RAND or RANDN with the 'seed', 'state', or 'twister' inputs is not recommended. Use RNG instead."
+replacement = "rng"
+literal_args = ["seed", "state", "twister"]
 
 [[checks]]
 id = "HOUGH"
@@ -407,12 +416,14 @@ replacement = "settings"
 [[checks]]
 id = "EV2IN"
 function_name = "eval"
+min_args = 2
 message = "Using 'eval' with two arguments is not recommended. Use try/catch statements instead to make code more clear and efficient."
 replacement = ""
 
 [[checks]]
 id = "EV3IN"
 function_name = "evalin"
+min_args = 3
 message = "Using 'evalin' with three arguments is not recommended. Use try/catch statements instead to make code more clear and efficient."
 replacement = ""
 

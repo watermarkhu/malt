@@ -39,6 +39,15 @@
 use std::collections::HashSet;
 use tree_sitter::Tree;
 
+/// Whether a `function_call` is the trailing call of a dotted expression:
+/// `inline(x)` in `coder.inline(x)` or `obj.method(x)`. Its name is then a
+/// member of the object or package in front of it, not a function in scope.
+pub(crate) fn is_qualified_call(call: tree_sitter::Node) -> bool {
+    call.parent().is_some_and(|p| {
+        p.kind() == "field_expression" && p.named_child(0).is_some_and(|o| o.id() != call.id())
+    })
+}
+
 /// Whether `node` is the name of a field in `a.b.c` (anything but the leading
 /// object), as opposed to a variable. The expression in a dynamic field
 /// `s.(name)` sits inside an `indirect_access` node and is a variable.

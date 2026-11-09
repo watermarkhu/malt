@@ -74,3 +74,21 @@ fn legacy_globals_nargin_varargin_and_eval() {
 fn legacy_string_handling() {
     assert_eq!(ids("legacy2.m"), vec!["AGROW", "NASGU", "OR2"]);
 }
+
+#[test]
+fn numeric_solver_has_no_hermitian_false_positive() {
+    // `r' * r` is already Hermitian; only `x' * A * x` chains are MHERM's.
+    assert_eq!(ids("num1.m"), Vec::<&str>::new());
+}
+
+#[test]
+fn numeric_script_findings_are_real() {
+    // rand(N, 2) is not the 'seed' form (RAND), and the table field assignment
+    // is reported as the dead store it is.
+    assert_eq!(ids("num2.m"), vec!["LOGSUM", "NASGU", "STRNU"]);
+}
+
+#[test]
+fn coder_inline_is_not_the_removed_inline_function() {
+    assert_eq!(ids("coder1.m"), Vec::<&str>::new());
+}

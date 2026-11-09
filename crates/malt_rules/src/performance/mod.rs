@@ -751,7 +751,7 @@ pub(crate) fn extract_func_name<'a>(
     node: tree_sitter::Node<'a>,
     source: &'a str,
 ) -> Option<&'a str> {
-    if node.kind() != "function_call" {
+    if node.kind() != "function_call" || crate::analysis::symbols::is_qualified_call(node) {
         return None;
     }
     let name_node = node.child_by_field_name("name")?;

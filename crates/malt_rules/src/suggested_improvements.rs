@@ -82,6 +82,47 @@ struct SuggestedEntry {
     message: String,
     /// Recommended replacement function or syntax.
     replacement: String,
+    /// The usage is only discouraged with at least this many arguments
+    /// (`eval(s, catch_s)`). 0 means any call.
+    #[serde(default)]
+    min_args: usize,
+    /// The usage is only discouraged when one argument is one of these string
+    /// literals (`rand('seed', 1)`), compared case-insensitively. Empty means
+    /// any call.
+    #[serde(default)]
+    literal_args: Vec<String>,
+}
+
+impl SuggestedEntry {
+    /// Whether the call `node` is the discouraged usage, not just a call to
+    /// the function.
+    fn applies_to(&self, node: tree_sitter::Node, source: &str) -> bool {
+        if self.min_args == 0 && self.literal_args.is_empty() {
+            return true;
+        }
+        let mut cursor = node.walk();
+        let args = node.children(&mut cursor).find(|c| c.kind() == "arguments");
+        // A command-syntax call carries no parsed arguments to inspect.
+        let Some(args) = args else {
+            return false;
+        };
+        if args.named_child_count() < self.min_args {
+            return false;
+        }
+        if self.literal_args.is_empty() {
+            return true;
+        }
+        let mut cursor = args.walk();
+        let matched = args.named_children(&mut cursor).any(|a| {
+            a.kind() == "string" && {
+                let text = source[a.byte_range()].trim_matches(|c| c == '\'' || c == '"');
+                self.literal_args
+                    .iter()
+                    .any(|l| l.eq_ignore_ascii_case(text))
+            }
+        });
+        matched
+    }
 }
 
 /// Top-level structure of the suggested_improvements.toml data file.
@@ -185,6 +226,10 @@ impl Rule for SuggestedImprovementsEngine {
             None => return Vec::new(),
         };
 
+        if !entry.applies_to(ctx.node, ctx.source) {
+            return Vec::new();
+        }
+
         let start = ctx.node.start_position();
 
         // The entry's `id` field is a &str pointing into the static
@@ -220,6 +265,9 @@ impl Rule for SuggestedImprovementsEngine {
 fn extract_func_name<'a>(node: tree_sitter::Node<'a>, source: &'a str) -> Option<&'a str> {
     match node.kind() {
         "function_call" => {
+            if crate::analysis::symbols::is_qualified_call(node) {
+                return None;
+            }
             let name_node = node.child_by_field_name("name")?;
             Some(&source[name_node.start_byte()..name_node.end_byte()])
         }
@@ -462,9 +510,11 @@ mod tests {
     // -- Other not-recommended functions ---------------------------------------
 
     #[test]
-    fn plot_of_eval_fires_ev2in() {
-        let diags = lint_nodes(&*engine(), "eval('x = 1');\n");
+    fn eval_with_two_arguments_fires_ev2in() {
+        let diags = lint_nodes(&*engine(), "eval('x = 1', 'x = 0');\n");
         assert!(has_id(&diags, "EV2IN"), "got: {diags:?}");
+        let diags = lint_nodes(&*engine(), "eval('x = 1');\n");
+        assert!(!has_id(&diags, "EV2IN"), "got: {diags:?}");
     }
 
     #[test]
@@ -497,5 +547,23 @@ mod tests {
     fn help_command_does_not_fire() {
         let diags = lint_nodes(&*engine(), "help csvread\n");
         assert!(!has_id(&diags, "FORMATNOI"), "got: {diags:?}");
+    }
+
+    #[test]
+    fn argument_conditions_narrow_the_call() {
+        use crate::test_util::lint_nodes;
+        let engine = SuggestedImprovementsEngine::from_config(&Config::default());
+        let ids = |src: &str| -> Vec<&'static str> {
+            lint_nodes(&*engine, src)
+                .iter()
+                .map(|d| d.rule_id)
+                .collect()
+        };
+        assert!(ids("x = rand(3, 2);\n").is_empty());
+        assert_eq!(ids("rand('seed', 1);\n"), vec!["RAND"]);
+        assert_eq!(ids("randn('state', 1);\n"), vec!["RAND"]);
+        assert!(ids("eval('a = 1;');\n").is_empty());
+        assert_eq!(ids("eval('a = 1;', 'a = 0;');\n"), vec!["EV2IN"]);
+        assert!(ids("y = coder.inline('always');\n").is_empty());
     }
 }

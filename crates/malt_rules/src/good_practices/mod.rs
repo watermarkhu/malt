@@ -798,7 +798,7 @@ pub(crate) fn is_statement_level(node: Node) -> bool {
 
 /// Extract the function name from a `function_call` node.
 pub(crate) fn get_function_call_name<'a>(node: Node<'a>, source: &'a str) -> Option<&'a str> {
-    if node.kind() != "function_call" {
+    if node.kind() != "function_call" || crate::analysis::symbols::is_qualified_call(node) {
         return None;
     }
     let name_node = node.child_by_field_name("name")?;
@@ -1937,7 +1937,7 @@ mod tests {
 
     #[test]
     fn test_g1_node_checks_fire_through_dispatch() {
-        let source = "classdef Foo\n    methods\n        function z = compute(obj, x)\n            z = x * x';\n        end\n    end\nend\ny = zeros(numel(x));\n";
+        let source = "classdef Foo\n    methods\n        function z = compute(obj, x)\n            z = x * y * x';\n        end\n    end\nend\ny = zeros(numel(x));\n";
         let tree = parse(source);
         let eng = engine();
 

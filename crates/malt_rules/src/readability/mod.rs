@@ -377,6 +377,9 @@ pub(crate) fn find_arguments(node: tree_sitter::Node) -> Option<tree_sitter::Nod
 
 /// The callee name of a `function_call` node, when it is a bare identifier.
 pub(crate) fn call_name<'a>(node: tree_sitter::Node, source: &'a str) -> Option<&'a str> {
+    if crate::analysis::symbols::is_qualified_call(node) {
+        return None;
+    }
     let name = node.child_by_field_name("name")?;
     (name.kind() == "identifier").then(|| &source[name.start_byte()..name.end_byte()])
 }

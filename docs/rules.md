@@ -1864,13 +1864,14 @@ to refresh them whenever `data/compatibility.toml` or
 | [`JAPIEXT884`](rules/compatibility.md#japiext884) | 'io.grpc.stub' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
 | [`JAPIEXT885`](rules/compatibility.md#japiext885) | 'io.grpc.util' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
 
-### Suggested Improvements (243 checks)
+### Suggested Improvements (244 checks)
 
 | Check ID | Message |
 | -------- | ------- |
 | [`IMPORTDYN`](rules/suggested-improvements.md#importdyn) | Using function syntax to call 'import' is not recommended. With appropriate code changes, use command syntax instead. |
 | [`LERR`](rules/suggested-improvements.md#lerr) | LASTERR and LASTERROR are not recommended. Use an identifier on the CATCH block instead. |
 | [`EVLC`](rules/suggested-improvements.md#evlc) | Using 'evalc' with two arguments is not recommended. Use try/catch statements instead to make code more clear and efficient. |
+| [`RAND`](rules/suggested-improvements.md#rand) | RAND or RANDN with the 'seed', 'state', or 'twister' inputs is not recommended. Use RNG instead. |
 | [`RAND`](rules/suggested-improvements.md#rand) | RAND or RANDN with the 'seed', 'state', or 'twister' inputs is not recommended. Use RNG instead. |
 | [`HOUGH`](rules/suggested-improvements.md#hough) | HOUGH(BW,'ThetaResolution',VAL) is not recommended. Use HOUGH(BW,'Theta',-90:VAL:(90-VAL) ) instead. |
 | [`THOUR`](rules/suggested-improvements.md#thour) | 'hour' with serial date number or text inputs is not recommended. With appropriate code changes, use 'datetime' as input instead. |

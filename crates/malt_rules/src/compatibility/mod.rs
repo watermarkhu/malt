@@ -292,6 +292,9 @@ impl Rule for CompatibilityEngine {
 fn extract_func_name<'a>(node: tree_sitter::Node<'a>, source: &'a str) -> Option<&'a str> {
     match node.kind() {
         "function_call" => {
+            if crate::analysis::symbols::is_qualified_call(node) {
+                return None;
+            }
             let name_node = node.child_by_field_name("name")?;
             Some(&source[name_node.start_byte()..name_node.end_byte()])
         }

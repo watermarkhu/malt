@@ -31,13 +31,14 @@ lookup-based check.
 
 ## Check IDs
 
-### Suggested Improvements (243 checks)
+### Suggested Improvements (244 checks)
 
 | Check ID | Severity | Description |
 | -------- | -------- | ----------- |
 | <a id="importdyn"></a>`IMPORTDYN` | warning | Using function syntax to call 'import' is not recommended. With appropriate code changes, use command syntax instead. |
 | <a id="lerr"></a>`LERR` | warning | LASTERR and LASTERROR are not recommended. Use an identifier on the CATCH block instead. |
 | <a id="evlc"></a>`EVLC` | warning | Using 'evalc' with two arguments is not recommended. Use try/catch statements instead to make code more clear and efficient. |
+| <a id="rand"></a>`RAND` | warning | RAND or RANDN with the 'seed', 'state', or 'twister' inputs is not recommended. Use RNG instead. |
 | <a id="rand"></a>`RAND` | warning | RAND or RANDN with the 'seed', 'state', or 'twister' inputs is not recommended. Use RNG instead. |
 | <a id="hough"></a>`HOUGH` | warning | HOUGH(BW,'ThetaResolution',VAL) is not recommended. Use HOUGH(BW,'Theta',-90:VAL:(90-VAL) ) instead. |
 | <a id="thour"></a>`THOUR` | warning | 'hour' with serial date number or text inputs is not recommended. With appropriate code changes, use 'datetime' as input instead. |
