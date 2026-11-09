@@ -46,7 +46,13 @@ impl GoodPracticesEngine {
                 // Output arguments are "used" externally, and a modified input
                 // may be a handle object: skip both.
                 let is_output = scope.defs.iter().any(|d| {
-                    matches!(d.kind, DefKind::OutputArg | DefKind::InputArg) && d.name == *name
+                    matches!(
+                        d.kind,
+                        DefKind::OutputArg
+                            | DefKind::InputArg
+                            | DefKind::Global
+                            | DefKind::Persistent
+                    ) && d.name == *name
                 });
                 if is_output {
                     continue;

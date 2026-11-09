@@ -50,7 +50,10 @@ impl GoodPracticesEngine {
         let (check_id, message) = if !self.is_check_enabled("EVLCS") {
             return Vec::new();
         } else {
-            classify_eval_usage(&args_text, &self.config)
+            let literal = find_child_of_kind(node, "arguments")
+                .map(|a| string_literal_text(a, source))
+                .unwrap_or_default();
+            classify_eval_usage(&literal, &args_text, &self.config)
         };
 
         vec![Diagnostic {
@@ -169,5 +172,27 @@ mod tests {
         let diags = eng.check_eval(fc, source);
         assert_eq!(diags.len(), 1);
         assert!(diags[0].rule_id.starts_with("EVL"));
+    }
+
+    #[test]
+    fn eval_classification_looks_at_string_literals_only() {
+        use crate::test_util::lint_nodes as lint_file;
+        use malt_core::Config;
+        let e = crate::good_practices::GoodPracticesEngine::from_config(&Config::default());
+        let ids = |src: &str| -> Vec<&'static str> {
+            lint_file(&*e, src)
+                .iter()
+                .map(|d| d.rule_id)
+                .filter(|id| id.starts_with("EVL"))
+                .collect()
+        };
+        // Constant statements and variables: plain EVLCS.
+        assert_eq!(ids("eval('tmp = 2;');\n"), vec!["EVLCS"]);
+        assert_eq!(ids("out = eval(expr);\n"), vec!["EVLCS"]);
+        // A variable called `s` is not a field access.
+        assert_eq!(ids("eval(s);\n"), vec!["EVLCS"]);
+        // Built assignments and field names.
+        assert_eq!(ids("eval([name ' = 1;']);\n"), vec!["EVLEQ"]);
+        assert_eq!(ids("eval(['s.' field ' = 1;']);\n"), vec!["EVLDOT"]);
     }
 }

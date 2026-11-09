@@ -16,6 +16,11 @@ impl GoodPracticesEngine {
             return Vec::new();
         }
 
+        // A statement of its own is a top-level statement.
+        if is_statement_level(node) {
+            return Vec::new();
+        }
+
         // A call that is the entire right-hand side of an assignment is still a
         // top-level statement; anything deeper is a sub-expression.
         if let Some(parent) = node.parent() {
@@ -50,7 +55,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_tlev_fires_on_bare_eval_statement() {
+    fn test_tlev_silent_on_bare_eval_statement() {
         let source = "eval(x + y);\n";
         let tree = parse(source);
         let root = tree.root_node();
@@ -58,8 +63,7 @@ mod tests {
 
         let fc = find_child_of_kind(root, "function_call").unwrap();
         let diags = eng.check_tlev(fc, source);
-        assert_eq!(diags.len(), 1);
-        assert_eq!(diags[0].rule_id, "TLEV");
+        assert!(diags.is_empty(), "a statement is top-level: {diags:?}");
     }
 
     #[test]

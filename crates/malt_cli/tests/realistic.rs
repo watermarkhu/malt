@@ -57,3 +57,20 @@ fn script_findings_are_real_dead_stores_and_a_missing_semicolon() {
 fn unit_test_class_is_clean() {
     assert_eq!(ids("test1.m"), Vec::<&str>::new());
 }
+
+#[test]
+fn guide_file_has_only_unused_callback_arguments_and_callback() {
+    assert_eq!(ids("gui1.m"), vec!["DEFNU", "INUSD", "VANUS"]);
+}
+
+#[test]
+fn legacy_globals_nargin_varargin_and_eval() {
+    // No VALST (varargin is last), no FVAL (no feval), no STRNU on the global,
+    // no TLEV on a top-level eval.
+    assert_eq!(ids("legacy1.m"), vec!["AGROW", "ERTAG", "EVLCS", "PRTCAL"]);
+}
+
+#[test]
+fn legacy_string_handling() {
+    assert_eq!(ids("legacy2.m"), vec!["AGROW", "NASGU", "OR2"]);
+}

@@ -887,24 +887,60 @@ pub(crate) fn node_has_string_child(node: Node) -> bool {
     false
 }
 
-/// Classify the type of eval usage based on argument text patterns.
+/// The text of the string literals inside `node` (quotes removed), in order.
+/// Identifiers are not part of it, so a variable named `s` or `system` does not
+/// look like code.
+pub(crate) fn string_literal_text(node: Node, source: &str) -> String {
+    let mut out = String::new();
+    let mut stack = vec![node];
+    while let Some(n) = stack.pop() {
+        if n.kind() == "string" {
+            let raw = &source[n.byte_range()];
+            out.push_str(raw.trim_matches(|c| c == '\'' || c == '"'));
+            out.push(' ');
+            continue;
+        }
+        let mut cursor = n.walk();
+        let children: Vec<Node> = n.children(&mut cursor).collect();
+        stack.extend(children.into_iter().rev());
+    }
+    out
+}
+
+/// Pick the `eval` check that fits what the call evaluates. `literal` is the text
+/// of the string literals in the argument, `args_text` the whole argument.
 pub(crate) fn classify_eval_usage(
+    literal: &str,
     args_text: &str,
     config: &GoodPracticesConfig,
 ) -> (&'static str, &'static str) {
-    // EVLDOT: dynamic field access patterns like `eval(['s.' fieldname])`
-    if (args_text.contains("s.") || args_text.contains(".("))
-        && config.disabled_checks.iter().all(|c| c != "EVLDOT")
-    {
+    let on = |id: &str| config.disabled_checks.iter().all(|c| c != id);
+
+    // EVLDOT: dynamic field access like `eval(['s.' fieldname])`.
+    let bytes = literal.as_bytes();
+    let dotted = literal.contains(".(")
+        || bytes.iter().enumerate().any(|(i, &c)| {
+            c == b'.'
+                && i > 0
+                && (bytes[i - 1].is_ascii_alphanumeric() || bytes[i - 1] == b'_')
+                && bytes
+                    .get(i + 1)
+                    .is_none_or(|n| n.is_ascii_alphabetic() || *n == b' ')
+        });
+    if dotted && on("EVLDOT") {
         return (
             "EVLDOT",
             "'eval' is inefficient and makes code less clear. Use dynamic field names to access structure fields or object properties instead.",
         );
     }
 
-    // EVLSYS: system command patterns
-    if (args_text.contains("system") || args_text.contains("dos") || args_text.contains("unix"))
-        && config.disabled_checks.iter().all(|c| c != "EVLSYS")
+    // EVLSYS: an operating-system command.
+    let trimmed = literal.trim_start();
+    if (trimmed.starts_with('!')
+        || ["system", "dos", "unix"]
+            .iter()
+            .any(|k| trimmed.starts_with(k)))
+        && on("EVLSYS")
     {
         return (
             "EVLSYS",
@@ -912,18 +948,22 @@ pub(crate) fn classify_eval_usage(
         );
     }
 
-    // EVLEQ: dynamic variable creation like `eval([varname ' = ...'])`
-    if args_text.contains(" = ") && config.disabled_checks.iter().all(|c| c != "EVLEQ") {
+    // EVLEQ: building an assignment, `eval([name ' = 1'])`, from a non-constant.
+    let assigns = literal.match_indices('=').any(|(i, _)| {
+        let before = literal[..i].chars().last();
+        let after = literal[i + 1..].chars().next();
+        !matches!(before, Some('=' | '~' | '<' | '>')) && after != Some('=')
+    });
+    let is_constant = !args_text.contains('[') && !args_text.contains("sprintf");
+    if assigns && !is_constant && on("EVLEQ") {
         return (
             "EVLEQ",
             "'eval' is inefficient and makes code less clear. Assign to the variable directly.",
         );
     }
 
-    // EVLSEQVAR: sequential variable creation like `eval(['x' num2str(i)])`
-    if (args_text.contains("num2str") || args_text.contains("int2str"))
-        && config.disabled_checks.iter().all(|c| c != "EVLSEQVAR")
-    {
+    // EVLSEQVAR: sequential variable creation like `eval(['x' num2str(i)])`.
+    if (args_text.contains("num2str") || args_text.contains("int2str")) && on("EVLSEQVAR") {
         return (
             "EVLSEQVAR",
             "Using 'eval' to dynamically assign variables is not recommended.",
@@ -1956,7 +1996,7 @@ mod tests {
     fn test_g4_checks_fire_through_dispatch() {
         let source = "for i = 1:10\n    i = 5;\nend\n\
 function f()\n    x = 1;\n    import foo.bar\nend\n\
-eval(x + y);\nonCleanup(@f);\n[~] = onCleanup(@f);\nc = computer('arch');\nfprintf('%d %d', x);\n";
+z = f(eval(x + y));\nonCleanup(@f);\n[~] = onCleanup(@f);\nc = computer('arch');\nfprintf('%d %d', x);\n";
         let tree = parse(source);
         let eng = engine();
 
