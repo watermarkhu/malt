@@ -389,7 +389,9 @@ impl<'a> Builder<'a> {
             if let Some(child) = root.child(i) {
                 match child.kind() {
                     "comment" | "line_continuation" => continue,
-                    "function_definition" => return true,
+                    // A class file is not a script: its properties, attributes
+                    // and method names are declarations, not variable uses.
+                    "function_definition" | "class_definition" => return true,
                     _ => return false,
                 }
             }
@@ -419,6 +421,25 @@ impl<'a> Builder<'a> {
             "global_operator" => self.visit_global_persistent(node, DefKind::Global),
             "persistent_operator" => self.visit_global_persistent(node, DefKind::Persistent),
             "identifier" => self.visit_identifier(node),
+            // Class declarations: names, attributes and superclasses are not
+            // reads; only property default values and method bodies are code.
+            "attributes" | "superclasses" | "enum" | "events" => {}
+            "property" => {
+                let mut cursor = node.walk();
+                for child in node.children(&mut cursor) {
+                    if child.kind() == "default_value" {
+                        self.visit_children(child);
+                    }
+                }
+            }
+            "class_definition" => {
+                let mut cursor = node.walk();
+                for child in node.children(&mut cursor) {
+                    if child.kind() != "identifier" {
+                        self.visit_node(child);
+                    }
+                }
+            }
             // For all other nodes, just recurse into children.
             _ => self.visit_children(node),
         }

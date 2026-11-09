@@ -152,4 +152,10 @@ mod tests {
         let d = lint_file(&*engine(), "y = foo + 1;\n");
         assert!(d.iter().any(|d| d.message.contains("'foo'")), "{d:?}");
     }
+
+    #[test]
+    fn class_files_are_not_scripts() {
+        let src = "classdef Foo\n    properties\n        a = 1\n    end\n    methods\n        function r = get(obj)\n            r = obj.a;\n        end\n    end\nend\n";
+        assert!(ids(src).is_empty(), "{:?}", ids(src));
+    }
 }

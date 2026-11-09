@@ -138,13 +138,14 @@ impl CompatibilityEngine {
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
             if child.kind() == "property" {
-                // A property with a type constraint has >1 named child
-                // (name identifier + type/validation).
-                let named: Vec<_> = child
+                // A property with validation has more than its name and an
+                // optional default value: a class, size or validator function.
+                let validated = child
                     .children(&mut child.walk())
                     .filter(|c| c.is_named())
-                    .collect();
-                if named.len() >= 2 {
+                    .skip(1)
+                    .any(|c| !matches!(c.kind(), "default_value" | "comment"));
+                if validated {
                     push_diag("FCCPV", FCCPV_MSG, node, Severity::Error, diagnostics);
                     return;
                 }
@@ -154,18 +155,23 @@ impl CompatibilityEngine {
 
     /// FCLFS: a script file containing local function definitions.
     fn check_fclfs(&self, node: Node, diagnostics: &mut Vec<Diagnostic>) {
-        // A script with local functions has top-level statements BEFORE the
-        // function_definition (both direct children of source_file). A pure
-        // function file starts with the function definition, so a preceding
-        // non-function sibling marks this as a script local function.
-        if let Some(parent) = node.parent() {
-            if parent.kind() == "source_file" {
-                if let Some(prev) = node.prev_sibling() {
-                    if prev.kind() != "function_definition" {
-                        push_diag("FCLFS", FCLFS_MSG, node, Severity::Error, diagnostics);
-                    }
-                }
-            }
+        // A file is a script when its first statement is neither a function nor
+        // a class definition; a function defined in it is a local function in a
+        // script. In a function or class file local functions are always fine.
+        let Some(parent) = node.parent() else {
+            return;
+        };
+        if parent.kind() != "source_file" {
+            return;
+        }
+        let mut cursor = parent.walk();
+        let first = parent
+            .named_children(&mut cursor)
+            .find(|c| !matches!(c.kind(), "comment" | "line_continuation"));
+        let is_script =
+            first.is_some_and(|f| !matches!(f.kind(), "function_definition" | "class_definition"));
+        if is_script {
+            push_diag("FCLFS", FCLFS_MSG, node, Severity::Error, diagnostics);
         }
     }
 
@@ -558,6 +564,27 @@ mod tests {
             "classdef C\n properties\n  x double = 1\n end\nend\n",
         );
         assert!(has_id(&d, "FCCPV"), "got: {d:?}");
+    }
+
+    #[test]
+    fn fccpv_default_value_is_not_validation() {
+        let d = lint_file(&*engine(), "classdef C\n properties\n  x = 1\n end\nend\n");
+        assert!(!has_id(&d, "FCCPV"), "got: {d:?}");
+    }
+
+    #[test]
+    fn fclfs_local_function_in_function_file_not_fires() {
+        let d = lint_file(&*engine(), "function a()\nend\nfunction b()\nend\n");
+        assert!(!has_id(&d, "FCLFS"), "got: {d:?}");
+    }
+
+    #[test]
+    fn fclfs_local_function_in_class_file_not_fires() {
+        let d = lint_file(
+            &*engine(),
+            "classdef C\nend\nfunction y = helper(x)\n y = x;\nend\n",
+        );
+        assert!(!has_id(&d, "FCLFS"), "got: {d:?}");
     }
 
     #[test]
