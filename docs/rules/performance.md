@@ -12,20 +12,19 @@ icon: lucide/zap
 
 ## What this rule does
 
-A hybrid rule module implementing 41 performance-related MATLAB lint
+A hybrid rule module implementing 40 performance-related MATLAB lint
 checks from MATLAB's Code Analyzer. Most checks operate at the node level
-(function calls, operators, commands), while AGROW, SAGROW, and PFBNS
+(function calls, operators, commands), while AGROW, SAGROW, SPRIX, and PFBNS
 require file-level traversal to detect array-growth patterns inside loops.
 Each diagnostic carries the specific check ID (e.g. `AGROW`, `MINV`).
 
-A single `PerformanceEngine` struct handles all 41 checks. Node-level
+A single `PerformanceEngine` struct handles all 40 checks. Node-level
 checks are dispatched by node kind (`function_call`, `command`,
-`binary_operator`, `boolean_operator`, `comparison_operator`,
-`unary_operator`); file-level checks traverse the full tree looking for
+`binary_operator`, `boolean_operator`, `comparison_operator`, `cell`); file-level checks traverse the full tree looking for
 growth patterns inside `for_statement`/`while_statement`. The node-level
 `check_*` methods and their tests live in sibling `check_*.rs` modules;
 this module keeps the engine, the dispatch, the file-level growth walk
-(AGROW/SAGROW/PFBNS), and the shared free helpers.
+(AGROW/SAGROW/SPRIX/PFBNS), and the shared free helpers.
 
 ## Check IDs
 
@@ -149,12 +148,6 @@ Severity: **info** · Auto-fix: **no**
 
 Instead of using 'native2unicode' with 'fread', specify the character encoding scheme in the call to 'fopen'.
 
-### TNMLP
-
-Severity: **info** · Auto-fix: **no**
-
-Move the toolbox function out of the loop for better performance.
-
 ### LAXES
 
 Severity: **info** · Auto-fix: **no**
@@ -271,7 +264,7 @@ It appears that STRCMPI/STRNCMPI can be replaced by a faster, case sensitive com
 
 ### FNDSB
 
-Severity: **info** · Auto-fix: **yes**
+Severity: **info** · Auto-fix: **no**
 
 For array or cell array, performance can be improved using logical indexing instead of 'find'.
 
@@ -279,10 +272,13 @@ For array or cell array, performance can be improved using logical indexing inst
 
 Rewrites the flagged call or operator into its faster equivalent:
 
-- `&` → `&&` and `|` → `||` in boolean contexts (AND2, OR2).
-- `str2num` → `str2double` (ST2NM), `flipud`/`fliplr` → `flip` (FLPST).
-- `im2bw` → `imbinarize` (MRPBW), `deblank` → `strtrim` (TRIM1),
-  `strtrim` → `strip` (TRIM2), `findstr` → `contains` (FNDSB).
+All rewrites are unsafe fixes (they can change behaviour):
+
+- `&` → `&&` and `|` → `||` in conditions (AND2, OR2).
+- `str2num` → `str2double` (ST2NM).
+- `fliplr(sort(x))` → `sort(x, 'descend')` (FLPST).
+- `regionprops(bwlabel(bw), …)` → `regionprops(logical(bw), …)` (MRPBW).
+- nested `fliplr`/`deblank` and `deblank(strjust(s, 'left'))` → `strtrim(s)` (TRIM1, TRIM2).
 
 ## Examples
 
@@ -294,7 +290,7 @@ for i = 1:n
 end
 if a & b                   % AND2
 inv(A) * b                 % MINV
-exist('foo', 'file')       % EXIST
+exist('foo')             % EXIST
 ```
 
 ### Correct
@@ -306,7 +302,7 @@ for i = 1:n
 end
 if a && b
 A \ b
-isfile('foo')
+exist('foo', 'file')
 ```
 
 ### Fixed

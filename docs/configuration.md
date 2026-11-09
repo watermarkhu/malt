@@ -246,7 +246,7 @@ disabled_checks = ["PFEVC", "PFANSLP"]   # Turn off specific checks
 | `SYNTAX_ERRORS_ENGINE` | syntax-errors | `disabled_checks` |
 | `LANGUAGE_SPEC_ENGINE` | language-specification | `disabled_checks` |
 | `BUGS_ENGINE` | bugs | `debug_functions`, `higher_order_functions` (extra function names to treat as debug/higher-order) |
-| `CUSTOM_CHECKS` | custom-checks | `max_function_inputs`, `max_function_outputs`, `max_function_lines`, `max_line_length`, `max_nesting_depth`, `max_cyclomatic_complexity`, `max_strict_cyclomatic_complexity`, `max_avg_cyclomatic_complexity`, `max_branches`, `max_return_points`, `max_nested_functions`, `max_anonymous_functions`, `max_local_variables`, `max_local_constants`, `max_called_functions`, `max_semicolons_per_line`, `max_tree_children`, `max_persistent_variables`, `max_conditions`, `max_input_args_used`, `max_output_args_used` |
+| `CUSTOM_CHECKS` | custom-checks | `max_function_inputs`, `max_function_outputs`, `max_function_lines`, `max_line_length`, `max_nesting_depth`, `max_cyclomatic_complexity`, `max_script_cyclomatic_complexity`, `max_anonymous_cyclomatic_complexity`, `disallow_bang`, `disallow_try_catch`, `disallow_persistent`, `disallow_continue`, `disallow_break`, `disallow_return`, `disallow_script`, `disallow_nested_functions`, `disallow_command_syntax`, `disallow_anonymous_functions`, `disallow_char_vectors`, `disallow_cellstr`, `disallow_varargin`, `disallow_varargout` |
 | `NAMING_ENGINE` | naming | `max`, `min`, `pattern`, `prefix`, `phrase`, `suffix`, `style` — per-entity check config via `[lint.rules.naming.<entity>.<check>]` |
 | `COMPAT` | compatibility | *(data-driven lookup; no params)* |
 | `GOOD_PRACTICES_ENGINE` | good-practices | `disabled_checks`, `max_variable_name_length` |

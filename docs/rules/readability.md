@@ -18,21 +18,15 @@ code. Instead of implementing one struct per check, a single
 method (and a file-level pass for MFAMB), emitting diagnostics with the
 specific check ID (e.g. `ISCHR`, `IJCL`, `RPMT1`).
 
-The 35 checks cover type-checking simplification (`isa(x, 'type')` →
-dedicated predicates), dimension checks (`size(x,dim)==1` → `isrow`/`iscolumn`),
-variable shadowing, unnecessary brackets, modern string functions,
-character literals, formatting, control-flow style, error/warning message
-IDs, input validation, output style, flip/rotate, redundant arithmetic and
-boolean logic, size and logical helpers, `arguments` attributes, and
-ambiguous identifiers.
+The 30 checks cover type-checking simplification (`strcmp(class(x), 'char')`
+→ dedicated predicates), dimension checks (`size(x,dim)==1` →
+`isrow`/`iscolumn`, `ndims(x)==2` → `ismatrix`), the imaginary unit,
+unnecessary brackets, `strfind`-based containment tests, `char(10)` and
+`sprintf('\n')` → `newline`, `repmat` of constants, `error`/`warning`
+message construction, `display`/`disp` of `sprintf`, flip/rotate, logical
+helpers, `arguments` attributes, and ambiguous identifiers.
 
 ## Check IDs
-
-### ASGSL
-
-Severity: **info** · Auto-fix: **no**
-
-Assignment to variable might be unnecessary.
 
 ### COMNL
 
@@ -118,12 +112,6 @@ Severity: **info** · Auto-fix: **yes**
 
 For readability, consider using 'NaN(x,y)' instead of 'repmat(NaN,x,y)'.
 
-### PSIZE
-
-Severity: **info** · Auto-fix: **yes**
-
-NUMEL(x) is usually faster than PROD(SIZE(x)).
-
 ### LOGSUM
 
 Severity: **info** · Auto-fix: **no**
@@ -132,7 +120,7 @@ Consider using 'nnz' instead of 'sum' for logical vectors to improve readability
 
 ### LOGL
 
-Severity: **info** · Auto-fix: **no**
+Severity: **info** · Auto-fix: **yes**
 
 Use 'true' or 'false' instead of 'logical(1)' or 'logical(0)'.
 
@@ -162,7 +150,7 @@ Use ISCELL instead of comparing the class to 'cell'.
 
 ### IJCL
 
-Severity: **info** · Auto-fix: **no**
+Severity: **info** · Auto-fix: **yes**
 
 For improved robustness, consider replacing i and j by 1i.
 
@@ -210,19 +198,19 @@ For readability, use '~contains(str1, str2)' instead of 'isempty(strfind(str1, s
 
 ### STRCL1
 
-Severity: **info** · Auto-fix: **no**
+Severity: **info** · Auto-fix: **yes**
 
 For readability, use '~contains(str1, str2)' instead of 'cellfun('isempty', strfind(str1, str2))'.
 
 ### STRCLFH
 
-Severity: **info** · Auto-fix: **no**
+Severity: **info** · Auto-fix: **yes**
 
 For readability, use '~contains(str1, str2)' instead of 'cellfun(@isempty, strfind(str1, str2))'.
 
 ### STRIFCND
 
-Severity: **info** · Auto-fix: **no**
+Severity: **info** · Auto-fix: **yes**
 
 For readability, use 'contains(str1, str2)' instead of 'strfind(str1, str2)'.
 
@@ -242,45 +230,48 @@ For readability, consider using the 'newline' function instead of 'sprintf('\n')
 
 Rewrites the flagged construct into the clearer equivalent:
 
-- `isa(x, 'type')` → `ischar`/`isstring`/`islogical`/`iscell`/`isnumeric`
-  (ISCHR, ISSTR, ISLOG, ISCEL, ISMAT).
-- `size(x, dim) == 1` → `isrow(x)`/`iscolumn(x)` (ISROW, ISCOL).
-- `x * 1` → `x`, `x * 0` → `zeros(size(x))`, `x + 0` → `x`,
-  `x - 0` → `x` (RPMT1, RPMT0, RPMTI, RPMTN).
-- `x | true` → `true` and `x & false` → `false` (RPMTT, RPMTF).
-- `prod(size(x))` → `numel(x)`, `char(10)` → `newline`,
-  `sprintf('%d', x)` → `num2str(x)`, `strcmp(s, '')` → `strlength(s)==0`.
-- `flipud(fliplr(x))` → `rot90(x, 2)`, `[scalar]` → `scalar`,
+- `strcmp(class(x), 'char')` → `ischar(x)` (ISCHR, ISSTR, ISLOG, ISCEL).
+- `size(x, dim) == 1` → `isrow(x)`/`iscolumn(x)` (ISROW, ISCOL);
+  `ndims(x) == 2` → `ismatrix(x)` (ISMAT).
+- `repmat(c, x, y)` → `ones`/`zeros`/`true`/`false`/`Inf`/`NaN(x, y)`
+  (RPMT1, RPMT0, RPMTT, RPMTF, RPMTI, RPMTN).
+- `char(10)` and `sprintf('\n')` → `newline`; `logical(1)` → `true`.
+- `flipud(fliplr(x))` → `rot90(x, 2)`; `[scalar]` → `scalar`;
   `disp(sprintf(...))` → `fprintf(...)`.
+- `isempty(strfind(s, p))`, `cellfun(@isempty, strfind(s, p))` →
+  `~contains(s, p)`; `if strfind(s, p)` → `if contains(s, p)`.
+- `strcmpi(lower(x), y)` → `strcmpi(x, y)` (STLOW).
+- `i`/`j` as the imaginary unit → `1i`/`1j` (IJCL).
 - A trailing comma before a newline in a matrix becomes a semicolon (COMNL).
 - An `(Input)` attribute is inserted into attribute-less `arguments`
   blocks (FVINR).
+
+Fixes that can change behaviour (STLOW, STREMP, STRCL1, STRCLFH, STRIFCND,
+ISROW, ISCOL, IJCL) are unsafe and need `--unsafe-fixes`.
 
 ## Examples
 
 ### Incorrect
 
 ```matlab
-if isa(x, 'char')
-if a || true
+if strcmp(class(x), 'char')
 y = flipud(fliplr(m));
-n = prod(size(a));
+z = repmat(0, 3, 4);
 ```
 
 ### Correct
 
 ```matlab
 if ischar(x)
-if a
 y = rot90(m, 2);
-n = numel(a);
+z = zeros(3, 4);
 ```
 
 ### Fixed
 
 ```diff
-- n = prod(size(a));
-+ n = numel(a);
+- z = repmat(0, 3, 4);
++ z = zeros(3, 4);
 ```
 
 ## Configuration

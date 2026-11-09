@@ -1,12 +1,12 @@
-//! # SPRINTFN: `sprintf('%d', x)` → `num2str(x)`
+//! # SPRINTFN: `sprintf('\n')` -> `newline`
 //!
-//! `check_sprintf` suggests `num2str` for `sprintf` calls whose only purpose
-//! is converting a number with a simple numeric format specifier.
+//! `check_sprintf` flags `sprintf('\n')` (a single newline escape) and
+//! suggests the `newline` function.
 
 use super::*;
 
 impl ReadabilityEngine {
-    /// SPRINTFN: `sprintf('%d', x)` → `num2str(x)`
+    /// SPRINTFN: `sprintf('\n')` -> `newline`
     pub(crate) fn check_sprintf(
         &self,
         node: tree_sitter::Node,
@@ -16,36 +16,17 @@ impl ReadabilityEngine {
         if !self.is_check_enabled("SPRINTFN") {
             return;
         }
-
-        let args = match find_arguments(node) {
-            Some(a) => a,
-            None => return,
-        };
-
-        let named_children: Vec<_> = (0..args.named_child_count())
-            .filter_map(|i| args.named_child(i))
-            .collect();
-
-        if named_children.len() != 2 {
+        let args = call_args(node);
+        if args.len() != 1 || args[0].kind() != "string" {
             return;
         }
-
-        let fmt_text = &source[named_children[0].start_byte()..named_children[0].end_byte()];
-
-        // Check for simple numeric format specifiers
-        let fmt_stripped = fmt_text
-            .trim_start_matches('\'')
-            .trim_end_matches('\'')
-            .trim_start_matches('"')
-            .trim_end_matches('"');
-
-        if matches!(fmt_stripped, "%d" | "%i" | "%f" | "%g" | "%e") {
+        let text = &source[args[0].start_byte()..args[0].end_byte()];
+        if text == "'\\n'" || text == "\"\\n\"" {
             results.push(self.diag(
                 "SPRINTFN",
                 "For readability, consider using the 'newline' function instead of 'sprintf('\\n')'.",
                 node,
-                // num2str formats differently from sprintf: not a replacement.
-                None,
+                Some(Fix::new(node.start_byte()..node.end_byte(), "newline")),
             ));
         }
     }
@@ -61,17 +42,22 @@ mod tests {
         ReadabilityEngine::from_config(&Config::default())
     }
 
-    // -- SPRINTFN ------------------------------------------------------------
-
     #[test]
-    fn sprintfn_simple_numeric_format_fires() {
-        let diags = lint_nodes(&*engine(), "x = sprintf('%d', y);\n");
+    fn sprintf_newline_fires_and_is_fixed() {
+        let src = "x = [a sprintf('\\n')];\n";
+        let diags = lint_nodes(&*engine(), src);
         assert!(has_id(&diags, "SPRINTFN"), "got: {diags:?}");
+        assert_eq!(malt_core::apply_fixes(src, &diags), "x = [a newline];\n");
     }
 
     #[test]
-    fn sprintfn_string_format_does_not_fire() {
-        let diags = lint_nodes(&*engine(), "x = sprintf('%s', y);\n");
-        assert!(!has_id(&diags, "SPRINTFN"), "got: {diags:?}");
+    fn sprintf_numeric_format_or_other_text_does_not_fire() {
+        for src in [
+            "x = sprintf('%d', n);\n",
+            "x = sprintf('a\\n');\n",
+            "x = sprintf(fmt);\n",
+        ] {
+            assert!(!has_id(&lint_nodes(&*engine(), src), "SPRINTFN"), "{src}");
+        }
     }
 }

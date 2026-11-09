@@ -12,20 +12,19 @@
 //!
 //! ## Rule
 //!
-//! A hybrid rule module implementing 41 performance-related MATLAB lint
+//! A hybrid rule module implementing 40 performance-related MATLAB lint
 //! checks from MATLAB's Code Analyzer. Most checks operate at the node level
-//! (function calls, operators, commands), while AGROW, SAGROW, and PFBNS
+//! (function calls, operators, commands), while AGROW, SAGROW, SPRIX, and PFBNS
 //! require file-level traversal to detect array-growth patterns inside loops.
 //! Each diagnostic carries the specific check ID (e.g. `AGROW`, `MINV`).
 //!
-//! A single `PerformanceEngine` struct handles all 41 checks. Node-level
+//! A single `PerformanceEngine` struct handles all 40 checks. Node-level
 //! checks are dispatched by node kind (`function_call`, `command`,
-//! `binary_operator`, `boolean_operator`, `comparison_operator`,
-//! `unary_operator`); file-level checks traverse the full tree looking for
+//! `binary_operator`, `boolean_operator`, `comparison_operator`, `cell`); file-level checks traverse the full tree looking for
 //! growth patterns inside `for_statement`/`while_statement`. The node-level
 //! `check_*` methods and their tests live in sibling `check_*.rs` modules;
 //! this module keeps the engine, the dispatch, the file-level growth walk
-//! (AGROW/SAGROW/PFBNS), and the shared free helpers.
+//! (AGROW/SAGROW/SPRIX/PFBNS), and the shared free helpers.
 //!
 //! ## Check IDs
 //!
@@ -33,8 +32,8 @@
 //! | --- | --- | --- | --- |
 //! | AGROW | info | no | Variable appears to change size on every loop iteration. Consider preallocating for speed. |
 //! | SAGROW | info | no | Variable appears to change size on every loop iteration (within a script). Consider preallocating for speed. |
-//! | AND2 | info | yes | When both arguments are numeric scalars, consider replacing & with && for performance. |
-//! | OR2 | info | yes | When both arguments are numeric scalars, consider replacing \| with \|\| for performance. |
+//! | AND2 | info | yes (unsafe) | When both arguments are numeric scalars, consider replacing & with && for performance. |
+//! | OR2 | info | yes (unsafe) | When both arguments are numeric scalars, consider replacing \| with \|\| for performance. |
 //! | MINV | info | no | INV(A)*b can be slower and less accurate than A\b. Consider using A\b for INV(A)*b or b/A for b*INV(A). |
 //! | GFLD | info | no | Use dynamic fieldnames with structures instead of GETFIELD. |
 //! | SFLD | info | no | Use dynamic fieldnames with structures instead of SETFIELD. |
@@ -44,17 +43,16 @@
 //! | CCAT1 | info | no | { A{I} } can usually be replaced by A(I) or A(I)', which can be much faster. |
 //! | ISMT | info | no | Using ISEMPTY is usually faster than comparing LENGTH to 0. |
 //! | ISCL | info | no | To improve performance, use 'isscalar' instead of length comparison. |
-//! | ST2NM | info | yes | If you are operating on scalar values, consider using 'str2double' for faster performance. |
-//! | FLPST | info | yes | For better performance in some cases, use SORT with the 'descend' option. |
+//! | ST2NM | info | yes (unsafe) | If you are operating on scalar values, consider using 'str2double' for faster performance. |
+//! | FLPST | info | yes (unsafe) | For better performance in some cases, use SORT with the 'descend' option. |
 //! | MXFND | info | no | Use FIND with the 'first' or 'last' option. |
 //! | EFIND | info | no | To improve performance, replace ISEMPTY(FIND(X)) with ISEMPTY(FIND( X, 1 )). |
 //! | UDIM | info | no | Instead of using transpose (' or .'), consider using a different DIMENSION input argument to VAR_NAME. |
 //! | FREAD | info | no | FREAD(FID,...,'*char') is more efficient than CHAR(FREAD(...)). |
 //! | N2UNI | info | no | Instead of using 'native2unicode' with 'fread', specify the character encoding scheme in the call to 'fopen'. |
-//! | TNMLP | info | no | Move the toolbox function out of the loop for better performance. |
 //! | LAXES | info | no | Calling AXES(h) in a loop can be slow. Consider moving the call to AXES outside the loop. |
 //! | MMTC | info | no | This use of MAT2CELL should probably be replaced by a simpler, faster call to NUM2CELL. |
-//! | MRPBW | info | yes | To use less memory, replace BWLABEL(bw) by LOGICAL(bw) in a call of REGIONPROPS. |
+//! | MRPBW | info | yes (unsafe) | To use less memory, replace BWLABEL(bw) by LOGICAL(bw) in a call of REGIONPROPS. |
 //! | SPRIX | info | no | This sparse indexing expression is likely to be slow. |
 //! | TRSRT | info | no | Transposing the input to 'sort' is often unnecessary. |
 //! | GRIDD | info | no | Consider replacing GRIDDATA with SCATTEREDINTERPOLANT for better performance. |
@@ -66,21 +64,24 @@
 //! | CLEAR0ARGS | info | no | Avoid using 'clear' to clear more than necessary, this decreases code performance and is usually unnecessary. |
 //! | RGXP1 | info | no | Using REGEXP(str, pattern, 'ONCE') is faster in this case. |
 //! | RGXPI | info | no | Using REGEXPI(str, pattern, 'ONCE') is faster in this case. |
-//! | TRIM1 | info | yes | Use STRTRIM(str) instead of nesting FLIPLR and DEBLANK calls. |
-//! | TRIM2 | info | yes | Use STRTRIM(str) instead of DEBLANK(STRJUST(str,'left')). |
+//! | TRIM1 | info | yes (unsafe) | Use STRTRIM(str) instead of nesting FLIPLR and DEBLANK calls. |
+//! | TRIM2 | info | yes (unsafe) | Use STRTRIM(str) instead of DEBLANK(STRJUST(str,'left')). |
 //! | STTOK | info | no | Use one call to 'split' instead of calling 'strtok' in a loop. |
 //! | STNCI | info | no | Use STRNCMPI(str1,str2) instead of using UPPER/LOWER in a call to STRNCMP. |
 //! | STCCS | info | no | It appears that STRCMPI/STRNCMPI can be replaced by a faster, case sensitive compare. |
-//! | FNDSB | info | yes | For array or cell array, performance can be improved using logical indexing instead of 'find'. |
+//! | FNDSB | info | no | For array or cell array, performance can be improved using logical indexing instead of 'find'. |
 //!
 //! ## Fix
 //!
 //! Rewrites the flagged call or operator into its faster equivalent:
 //!
-//! - `&` → `&&` and `|` → `||` in boolean contexts (AND2, OR2).
-//! - `str2num` → `str2double` (ST2NM), `flipud`/`fliplr` → `flip` (FLPST).
-//! - `im2bw` → `imbinarize` (MRPBW), `deblank` → `strtrim` (TRIM1),
-//!   `strtrim` → `strip` (TRIM2), `findstr` → `contains` (FNDSB).
+//! All rewrites are unsafe fixes (they can change behaviour):
+//!
+//! - `&` → `&&` and `|` → `||` in conditions (AND2, OR2).
+//! - `str2num` → `str2double` (ST2NM).
+//! - `fliplr(sort(x))` → `sort(x, 'descend')` (FLPST).
+//! - `regionprops(bwlabel(bw), …)` → `regionprops(logical(bw), …)` (MRPBW).
+//! - nested `fliplr`/`deblank` and `deblank(strjust(s, 'left'))` → `strtrim(s)` (TRIM1, TRIM2).
 //!
 //! ## Examples
 //!
@@ -92,7 +93,7 @@
 //! end
 //! if a & b                   % AND2
 //! inv(A) * b                 % MINV
-//! exist('foo', 'file')       % EXIST
+//! exist('foo')             % EXIST
 //! ```
 //!
 //! ### Correct
@@ -104,7 +105,7 @@
 //! end
 //! if a && b
 //! A \ b
-//! isfile('foo')
+//! exist('foo', 'file')
 //! ```
 //!
 //! ### Fixed
@@ -134,7 +135,6 @@ mod check_boolean_context_binary;
 mod check_command;
 mod check_comparison;
 mod check_function_call;
-mod check_unary;
 
 // ---------------------------------------------------------------------------
 // Rule-specific configuration
@@ -160,7 +160,7 @@ struct CheckMeta {
     description: &'static str,
 }
 
-/// All 41 performance check definitions.
+/// All 40 performance check definitions.
 const CHECKS: &[CheckMeta] = &[
     CheckMeta {
         id: "AGROW",
@@ -180,8 +180,7 @@ const CHECKS: &[CheckMeta] = &[
     },
     CheckMeta {
         id: "MINV",
-        description:
-            "INV(A)*b can be slower and less accurate than A\\b. Consider using A\\b for INV(A)*b or b/A for b*INV(A).",
+        description: "INV(A)*b can be slower and less accurate than A\\b. Consider using A\\b for INV(A)*b or b/A for b*INV(A).",
     },
     CheckMeta {
         id: "GFLD",
@@ -242,10 +241,6 @@ const CHECKS: &[CheckMeta] = &[
     CheckMeta {
         id: "N2UNI",
         description: "Instead of using 'native2unicode' with 'fread', specify the character encoding scheme in the call to 'fopen'.",
-    },
-    CheckMeta {
-        id: "TNMLP",
-        description: "Move the toolbox function out of the loop for better performance.",
     },
     CheckMeta {
         id: "LAXES",
@@ -342,7 +337,7 @@ pub(crate) fn check_description(id: &str) -> &'static str {
 // Rule implementation
 // ---------------------------------------------------------------------------
 
-/// Hybrid performance engine covering 41 performance checks.
+/// Hybrid performance engine covering 40 performance checks.
 ///
 /// Node-level checks fire on `function_call`, `command`, `binary_operator`,
 /// `boolean_operator`, and `comparison_operator`. File-level checks (AGROW,
@@ -358,7 +353,7 @@ const TARGET_NODES: &[&str] = &[
     "binary_operator",
     "boolean_operator",
     "comparison_operator",
-    "unary_operator",
+    "cell",
 ];
 
 impl PerformanceEngine {
@@ -376,15 +371,72 @@ impl PerformanceEngine {
     }
 
     // -----------------------------------------------------------------------
-    // File-level checks: AGROW, SAGROW, PFBNS
+    // File-level checks: AGROW, SAGROW, SPRIX, PFBNS
     // -----------------------------------------------------------------------
 
-    /// File-level check for array/struct growth inside loops.
+    /// File-level checks: array growth in loops (AGROW/SAGROW), indexed
+    /// assignment into sparse arrays (SPRIX) and broadcast variables in
+    /// `parfor` loops (PFBNS).
     fn check_growth_in_loops(&self, tree: &tree_sitter::Tree, source: &str) -> Vec<Diagnostic> {
         let mut diags = Vec::new();
         let root = tree.root_node();
-        self.traverse_for_growth(&root, source, false, &mut diags);
+        self.traverse_for_growth(&root, source, false, false, &mut diags);
+        self.check_sparse_assignments(root, source, &mut diags);
+        if self.is_enabled("PFBNS") {
+            check_broadcast_variables(root, source, &mut diags);
+        }
         diags
+    }
+
+    /// SPRIX: `S(i) = v` where `S` was created by `sparse(...)`/`spalloc(...)`.
+    fn check_sparse_assignments(
+        &self,
+        root: tree_sitter::Node,
+        source: &str,
+        diags: &mut Vec<Diagnostic>,
+    ) {
+        if !self.is_enabled("SPRIX") {
+            return;
+        }
+        let mut sparse_vars: Vec<&str> = Vec::new();
+        let mut stack = vec![root];
+        let mut assignments = Vec::new();
+        while let Some(n) = stack.pop() {
+            if n.kind() == "assignment" {
+                assignments.push(n);
+            }
+            let mut c = n.walk();
+            for ch in n.children(&mut c) {
+                stack.push(ch);
+            }
+        }
+        assignments.sort_by_key(|n| n.start_byte());
+        for a in assignments {
+            let (Some(lhs), Some(rhs)) = (
+                a.child_by_field_name("left"),
+                a.child_by_field_name("right"),
+            ) else {
+                continue;
+            };
+            if lhs.kind() == "identifier" {
+                let name = node_text(lhs, source);
+                let is_sparse = rhs.kind() == "function_call"
+                    && matches!(extract_func_name(rhs, source), Some("sparse" | "spalloc"));
+                if is_sparse {
+                    if !sparse_vars.contains(&name) {
+                        sparse_vars.push(name);
+                    }
+                } else {
+                    sparse_vars.retain(|v| *v != name);
+                }
+            } else if lhs.kind() == "function_call" {
+                if let Some(name) = extract_func_name(lhs, source) {
+                    if sparse_vars.contains(&name) {
+                        diags.push(make_diag("SPRIX", a));
+                    }
+                }
+            }
+        }
     }
 
     /// Recursive traversal looking for growth patterns inside loops.
@@ -393,39 +445,39 @@ impl PerformanceEngine {
         node: &tree_sitter::Node,
         source: &str,
         in_loop: bool,
+        in_function: bool,
         diags: &mut Vec<Diagnostic>,
     ) {
         let kind = node.kind();
         let entering_loop = kind == "for_statement" || kind == "while_statement";
         let now_in_loop = in_loop || entering_loop;
+        let now_in_function = in_function || kind == "function_definition";
+        // AGROW applies to functions and methods; SAGROW to scripts.
+        let check_id = if now_in_function { "AGROW" } else { "SAGROW" };
 
         // Only check assignment nodes inside loops.
         if now_in_loop && kind == "assignment" {
-            self.check_assignment_growth(*node, source, diags);
+            self.check_assignment_growth(*node, source, check_id, diags);
         }
 
-        // Also detect growth via full-node text for assignments that tree-sitter
-        // may parse differently (e.g., s.field(end+1) = k might parse as
-        // a function_call at statement level rather than an assignment).
+        // Also detect growth via full-node text for statements that
+        // tree-sitter may parse as a bare call (e.g. `s.field(end+1)`).
         if now_in_loop
             && (kind == "function_call" || kind == "cell_index")
             && is_statement_level(node)
+            && self.is_enabled(check_id)
         {
             let text = node_text(*node, source);
             let normalized: String = text.chars().filter(|c| !c.is_whitespace()).collect();
             if normalized.contains("end+1") {
-                let has_dot = text.contains('.');
-                let check_id = if has_dot { "SAGROW" } else { "AGROW" };
-                if self.is_enabled(check_id) {
-                    diags.push(make_diag(check_id, *node));
-                }
+                diags.push(make_diag(check_id, *node));
             }
         }
 
         let count = node.child_count();
         for i in 0..count {
             if let Some(child) = node.child(i) {
-                self.traverse_for_growth(&child, source, now_in_loop, diags);
+                self.traverse_for_growth(&child, source, now_in_loop, now_in_function, diags);
             }
         }
     }
@@ -433,17 +485,20 @@ impl PerformanceEngine {
     /// Check a single assignment node for growth patterns.
     ///
     /// Detects:
-    /// 1. `x = [x, val]` or `x = [x; val]` — concatenation growth (AGROW)
-    /// 2. `x(end+1) = val` — end+1 indexing (AGROW)
-    /// 3. `x{end+1} = val` — cell growth (AGROW)
-    /// 4. `s.field(end+1) = val` — struct field growth (SAGROW)
-    /// 5. `x = []` followed by growth — PFBNS (simplified: flag end+1 patterns)
+    /// 1. `x = [x, val]` or `x = [x; val]` — concatenation growth
+    /// 2. `x(end+1) = val` — end+1 indexing
+    /// 3. `x{end+1} = val` — cell growth
+    /// 4. `s.field(end+1) = val` and `s.field = [s.field, val]` — field growth
     fn check_assignment_growth(
         &self,
         node: tree_sitter::Node,
         source: &str,
+        check_id: &'static str,
         diags: &mut Vec<Diagnostic>,
     ) {
+        if !self.is_enabled(check_id) {
+            return;
+        }
         let lhs = match node.child_by_field_name("left").or_else(|| node.child(0)) {
             Some(n) => n,
             None => return,
@@ -456,19 +511,7 @@ impl PerformanceEngine {
         let lhs_text = node_text(lhs, source);
         let rhs_text = node_text(rhs, source);
 
-        // Determine if LHS involves a struct field (for SAGROW vs AGROW).
-        let is_struct = lhs.kind() == "field_expression"
-            || (lhs.kind() == "function_call" && lhs_text.contains('.'));
-
-        let check_id = if is_struct { "SAGROW" } else { "AGROW" };
-
-        if !self.is_enabled(check_id) {
-            return;
-        }
-
         // Pattern 1: x(end+1) = ... or x{end+1} = ...
-        // LHS is a function_call (indexing) or cell_index containing "end+1"
-        // or "end + 1".
         if (lhs.kind() == "function_call" || lhs.kind() == "cell_index")
             && contains_end_plus_pattern(lhs, source)
         {
@@ -476,41 +519,114 @@ impl PerformanceEngine {
             return;
         }
 
-        // Pattern 1b: s.field(end+1) = ... — may parse with field_expression as LHS
-        // and end+1 in the assignment text before the `=`.
+        // Pattern 1b: s.field(end+1) = ... — field_expression as LHS.
         if lhs.kind() == "field_expression" {
-            // Check the full assignment text up to the `=` for end+1 pattern.
             let assign_text = node_text(node, source);
             if let Some(eq_pos) = assign_text.find('=') {
                 let lhs_full = &assign_text[..eq_pos];
                 let normalized: String = lhs_full.chars().filter(|c| !c.is_whitespace()).collect();
                 if normalized.contains("end+1") {
-                    diags.push(make_diag("SAGROW", node));
+                    diags.push(make_diag(check_id, node));
                     return;
                 }
             }
         }
 
-        // Pattern 2: x = [x, val] or x = [x; val]
-        // LHS is a simple identifier, RHS is a matrix containing that identifier.
-        if lhs.kind() == "identifier" {
-            let var_name = lhs_text;
-            if rhs.kind() == "matrix" && matrix_contains_var(rhs, source, var_name) {
-                diags.push(make_diag(check_id, node));
-                return;
-            }
-            // Also check cell: x = {x, val} — though less common
-            if rhs.kind() == "cell" && matrix_contains_var(rhs, source, var_name) {
-                diags.push(make_diag(check_id, node));
-                return;
-            }
+        // Pattern 2: x = [x, val] or x = [x; val] (or the cell equivalent).
+        if lhs.kind() == "identifier"
+            && (rhs.kind() == "matrix" || rhs.kind() == "cell")
+            && matrix_contains_var(rhs, source, lhs_text)
+        {
+            diags.push(make_diag(check_id, node));
+            return;
         }
 
         // Pattern 3: s.field = [s.field, val]
-        if lhs.kind() == "field_expression" {
-            let field_text = lhs_text;
-            if rhs.kind() == "matrix" && rhs_text.contains(field_text) {
-                diags.push(make_diag("SAGROW", node));
+        if lhs.kind() == "field_expression" && rhs.kind() == "matrix" && rhs_text.contains(lhs_text)
+        {
+            diags.push(make_diag(check_id, node));
+        }
+    }
+}
+
+/// Whether `name` is the target of a plain assignment that starts before `before`.
+fn defined_before(root: tree_sitter::Node, source: &str, name: &str, before: usize) -> bool {
+    let mut stack = vec![root];
+    while let Some(n) = stack.pop() {
+        if n.kind() == "assignment" && n.start_byte() < before {
+            if let Some(l) = n.child_by_field_name("left") {
+                if l.kind() == "identifier" && node_text(l, source) == name {
+                    return true;
+                }
+            }
+        }
+        let mut c = n.walk();
+        for ch in n.children(&mut c) {
+            stack.push(ch);
+        }
+    }
+    false
+}
+
+/// PFBNS: a variable indexed with different expressions inside a `parfor`
+/// body (and never assigned there) is a broadcast variable.
+fn check_broadcast_variables(root: tree_sitter::Node, source: &str, diags: &mut Vec<Diagnostic>) {
+    let mut stack = vec![root];
+    while let Some(n) = stack.pop() {
+        let mut c = n.walk();
+        for ch in n.children(&mut c) {
+            stack.push(ch);
+        }
+        if n.kind() != "for_statement" || !node_text(n, source).trim_start().starts_with("parfor") {
+            continue;
+        }
+        // Collect indexed uses (name -> (distinct index texts, first node)) and assigned names.
+        let mut uses: Vec<(&str, Vec<String>, tree_sitter::Node)> = Vec::new();
+        let mut assigned: Vec<&str> = Vec::new();
+        let mut inner = vec![n];
+        while let Some(m) = inner.pop() {
+            if m.kind() == "assignment" {
+                if let Some(l) = m.child_by_field_name("left") {
+                    let base = if l.kind() == "function_call" {
+                        extract_func_name(l, source)
+                    } else {
+                        Some(node_text(l, source))
+                    };
+                    if let Some(b) = base {
+                        assigned.push(b);
+                    }
+                }
+            }
+            if m.kind() == "function_call" {
+                if let (Some(name), Some(args)) = (extract_func_name(m, source), find_arguments(m))
+                {
+                    let idx = node_text(args, source)
+                        .chars()
+                        .filter(|c| !c.is_whitespace())
+                        .collect::<String>();
+                    match uses.iter_mut().find(|(u, _, _)| *u == name) {
+                        Some((_, v, _)) => {
+                            if !v.contains(&idx) {
+                                v.push(idx);
+                            }
+                        }
+                        None => uses.push((name, vec![idx], m)),
+                    }
+                }
+            }
+            let mut c = m.walk();
+            for ch in m.children(&mut c) {
+                inner.push(ch);
+            }
+        }
+        for (name, idxs, first) in uses {
+            // Only variables defined before the loop (not function calls), never
+            // assigned inside it, indexed in at least two different ways.
+            if idxs.len() >= 2
+                && !assigned.contains(&name)
+                && defined_before(root, source, name, n.start_byte())
+            {
+                diags.push(make_diag_named("PFBNS", first, name));
             }
         }
     }
@@ -556,7 +672,7 @@ impl Rule for PerformanceEngine {
                 Vec::new()
             }
             "comparison_operator" => self.check_comparison(ctx.node, ctx.source),
-            "unary_operator" => self.check_unary(ctx.node, ctx.source),
+            "cell" => self.check_cell(ctx.node, ctx.source),
             _ => Vec::new(),
         }
     }
@@ -699,40 +815,9 @@ pub(crate) fn extract_operator<'a>(node: tree_sitter::Node<'a>, source: &'a str)
     ""
 }
 
-/// Extract the operator text from a `unary_operator` node.
-pub(crate) fn extract_unary_operator<'a>(node: tree_sitter::Node<'a>, source: &'a str) -> &'a str {
-    if let Some(child) = node.child(0) {
-        let text = node_text(child, source);
-        match text {
-            "~" | "-" | "+" | "!" => return text,
-            _ => {}
-        }
-    }
-    ""
-}
-
-/// Get the first named child of a node.
-pub(crate) fn first_named_child(node: tree_sitter::Node) -> Option<tree_sitter::Node> {
-    let count = node.named_child_count();
-    if count > 0 {
-        node.named_child(0)
-    } else {
-        None
-    }
-}
-
 // ---------------------------------------------------------------------------
 // Helper: argument analysis
 // ---------------------------------------------------------------------------
-
-/// Count the number of arguments in a `function_call` node.
-pub(crate) fn count_args(node: tree_sitter::Node) -> usize {
-    // Arguments are in the `arguments` child node.
-    match find_arguments(node) {
-        Some(args_node) => args_node.named_child_count(),
-        None => 0,
-    }
-}
 
 /// Find the `arguments` child node of a `function_call` node.
 ///
@@ -770,85 +855,9 @@ pub(crate) fn has_string_arg(node: tree_sitter::Node, source: &str, value: &str)
     false
 }
 
-/// Check if `exist(...)` has a second argument indicating type ('file', 'dir', etc.).
-pub(crate) fn has_exist_type_arg(node: tree_sitter::Node, source: &str) -> bool {
-    // exist should have 2 arguments, with the second being a string like 'file', 'dir'.
-    let arg_count = count_args(node);
-    if arg_count < 2 {
-        return false;
-    }
-    has_string_arg(node, source, "file")
-        || has_string_arg(node, source, "dir")
-        || has_string_arg(node, source, "builtin")
-        || has_string_arg(node, source, "class")
-}
-
-/// Check if a regexp/regexpi call has an overly simple pattern (just alphanumeric).
-pub(crate) fn has_simple_regex_pattern(node: tree_sitter::Node, source: &str) -> bool {
-    // Look for the second argument (the pattern) and check if it's purely alphanumeric
-    // (meaning a simple `contains` or `strcmp` would suffice).
-    let args_node = match find_arguments(node) {
-        Some(n) => n,
-        None => return false,
-    };
-
-    // The pattern is usually the 2nd argument.
-    let named_count = args_node.named_child_count();
-    if named_count < 2 {
-        return false;
-    }
-
-    if let Some(pattern_node) = args_node.named_child(1) {
-        let text = node_text(pattern_node, source);
-        // Strip quotes.
-        let inner = text.trim_matches('\'').trim_matches('"');
-        // If the pattern is purely alphanumeric (no regex metacharacters), it's simple.
-        if !inner.is_empty() && inner.chars().all(|c| c.is_alphanumeric() || c == '_') {
-            return true;
-        }
-    }
-    false
-}
-
-/// Check if the first argument to lower/upper is a strcmp call (STNCI pattern).
-pub(crate) fn has_strcmp_arg(node: tree_sitter::Node, source: &str) -> bool {
-    let args_node = match find_arguments(node) {
-        Some(n) => n,
-        None => return false,
-    };
-
-    if let Some(first_arg) = first_named_child(args_node) {
-        if first_arg.kind() == "function_call" {
-            if let Some(name) = extract_func_name(first_arg, source) {
-                return name == "strcmp" || name == "strcmpi";
-            }
-        }
-    }
-    false
-}
-
 // ---------------------------------------------------------------------------
 // Helper: pattern detection
 // ---------------------------------------------------------------------------
-
-/// Check if the function_call is a nested call of the same function.
-/// e.g., max(max(x)) — the outer call's first argument is the same function.
-pub(crate) fn is_nested_same_call(node: tree_sitter::Node, source: &str, func_name: &str) -> bool {
-    let args_node = match find_arguments(node) {
-        Some(n) => n,
-        None => return false,
-    };
-
-    // Check if first argument is a function_call with the same name.
-    if let Some(first_arg) = first_named_child(args_node) {
-        if first_arg.kind() == "function_call" {
-            if let Some(inner_name) = extract_func_name(first_arg, source) {
-                return inner_name == func_name;
-            }
-        }
-    }
-    false
-}
 
 /// Check if a function_call node is used as a subscript index.
 /// i.e., the parent is the arguments of another function_call.
@@ -943,22 +952,6 @@ pub(crate) fn has_inv_operand(node: tree_sitter::Node, source: &str) -> bool {
         }
     }
     false
-}
-
-/// Check if both operands of a binary_operator are the same text.
-pub(crate) fn has_same_operands(node: tree_sitter::Node, source: &str) -> bool {
-    // Typically: child(0) = left, child(1) = op, child(2) = right.
-    let left = match node.child(0) {
-        Some(n) => n,
-        None => return false,
-    };
-    let right = match node.child(2) {
-        Some(n) => n,
-        None => return false,
-    };
-    let left_text = node_text(left, source).trim();
-    let right_text = node_text(right, source).trim();
-    !left_text.is_empty() && left_text == right_text
 }
 
 /// Check if an indexing expression contains `end+1` or `end + 1` pattern.
@@ -1101,14 +1094,14 @@ mod tests {
 
     #[test]
     fn agrow_fires_on_concatenation_growth() {
-        let src = "for i = 1:10\n    x = [x, i];\nend\n";
+        let src = "function f()\nfor i = 1:10\n    x = [x, i];\nend\nend\n";
         let diags = lint_file(&*engine(), src);
         assert!(has_id(&diags, "AGROW"), "got: {diags:?}");
     }
 
     #[test]
     fn agrow_fires_on_end_plus_one() {
-        let src = "for i = 1:10\n    x(end+1) = i;\nend\n";
+        let src = "function f()\nfor i = 1:10\n    x(end+1) = i;\nend\nend\n";
         let diags = lint_file(&*engine(), src);
         assert!(has_id(&diags, "AGROW"), "got: {diags:?}");
     }
@@ -1123,24 +1116,61 @@ mod tests {
     // -- SAGROW (file-level) -------------------------------------------------
 
     #[test]
-    fn sagrow_fires_on_struct_field_growth() {
+    fn sagrow_fires_on_script_growth() {
         let src = "for i = 1:10\n    s.data(end+1) = i;\nend\n";
         let diags = lint_file(&*engine(), src);
         assert!(has_id(&diags, "SAGROW"), "got: {diags:?}");
     }
 
     #[test]
-    fn sagrow_fires_on_struct_field_concatenation() {
+    fn sagrow_fires_on_script_concatenation() {
         let src = "for i = 1:10\n    s.data = [s.data, i];\nend\n";
         let diags = lint_file(&*engine(), src);
         assert!(has_id(&diags, "SAGROW"), "got: {diags:?}");
     }
 
     #[test]
-    fn sagrow_not_fire_on_struct_indexed_assignment() {
+    fn sagrow_not_fire_on_indexed_assignment() {
         let src = "for i = 1:10\n    s.data(i) = i;\nend\n";
         let diags = lint_file(&*engine(), src);
         assert!(!has_id(&diags, "SAGROW"), "got: {diags:?}");
+    }
+
+    #[test]
+    fn agrow_in_function_sagrow_in_script() {
+        let f = "function f()\nfor i = 1:10\n    s.data(end+1) = i;\nend\nend\n";
+        let d = lint_file(&*engine(), f);
+        assert!(has_id(&d, "AGROW") && !has_id(&d, "SAGROW"), "got: {d:?}");
+        let s = "for i = 1:10\n    x(end+1) = i;\nend\n";
+        let d = lint_file(&*engine(), s);
+        assert!(has_id(&d, "SAGROW") && !has_id(&d, "AGROW"), "got: {d:?}");
+    }
+
+    #[test]
+    fn sprix_fires_on_indexed_assignment_into_sparse() {
+        let src = "S = sparse(10, 10);\nS(3) = 1;\n";
+        assert!(has_id(&lint_file(&*engine(), src), "SPRIX"));
+        let src = "S = zeros(10);\nS(3) = 1;\n";
+        assert!(!has_id(&lint_file(&*engine(), src), "SPRIX"));
+        let src = "S = sparse(10, 10);\nS = full(S);\nS(3) = 1;\n";
+        assert!(!has_id(&lint_file(&*engine(), src), "SPRIX"));
+    }
+
+    #[test]
+    fn pfbns_fires_on_broadcast_variable_with_name() {
+        let src = "c = foo();\nparfor i = 1:N\n    a(i) = c(i,1);\n    b(i) = c(i,2);\nend\n";
+        let d = lint_file(&*engine(), src);
+        let p = d.iter().find(|d| d.rule_id == "PFBNS").expect("PFBNS");
+        assert!(
+            p.message.contains("variable c is") || p.message.contains(" c "),
+            "{}",
+            p.message
+        );
+        assert!(!p.message.contains("VAR_NAME"));
+        let src = "c = foo();\nparfor i = 1:N\n    a(i) = c(i,1);\n    b(i) = c(i,1);\nend\n";
+        assert!(!has_id(&lint_file(&*engine(), src), "PFBNS"));
+        let src = "c = foo();\nfor i = 1:N\n    a(i) = c(i,1);\n    b(i) = c(i,2);\nend\n";
+        assert!(!has_id(&lint_file(&*engine(), src), "PFBNS"));
     }
 
     // -- Config-respected test --------------------------------------------------
@@ -1157,7 +1187,7 @@ skip_checks = ["AGROW", "ST2NM"]
         let rule = PerformanceEngine::from_config(&config);
 
         // Skipped check no longer fires.
-        let src = "for i = 1:10\n    x = [x, i];\nend\n";
+        let src = "function f()\nfor i = 1:10\n    x = [x, i];\nend\nend\n";
         let diags = lint_file(&*rule, src);
         assert!(!has_id(&diags, "AGROW"), "got: {diags:?}");
 

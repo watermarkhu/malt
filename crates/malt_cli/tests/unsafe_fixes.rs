@@ -26,15 +26,21 @@ fn fixed(source: &str, mode: FixMode) -> String {
 const UNSAFE: &[(&str, &str)] = &[
     // str2num evaluates expressions, str2double returns NaN for them.
     ("n = str2num('1 2');\ndisp(n);\n", "str2double"),
-    // flip works along the first non-singleton dimension, fliplr along the second.
-    ("y = fliplr(m);\ndisp(y);\n", "flip(m)"),
+    // fliplr(sort(x)) flips along the second dimension even for a column.
+    ("y = fliplr(sort(m));\ndisp(y);\n", "sort(m, 'descend')"),
     // && errors on non-scalar operands, & does not.
     ("if a & b\n  disp(1);\nend\n", "a && b"),
     ("if a | b\n  disp(1);\nend\n", "a || b"),
-    // x * 1 still turns a logical or char array into doubles.
-    ("y = x * 1;\ndisp(y);\n", "y = x;"),
-    // isnumeric is also true for single and integer types.
-    ("if isa(x, 'double')\n  disp(1);\nend\n", "isnumeric(x)"),
+    // strfind and contains differ for cell and non-text input.
+    (
+        "y = isempty(strfind(s, 'a'));\ndisp(y);\n",
+        "~contains(s, 'a')",
+    ),
+    // lower/upper reject non-text input that strcmpi accepts.
+    (
+        "y = strcmpi(lower(s), 'abc');\ndisp(y);\n",
+        "strcmpi(s, 'abc')",
+    ),
     // f(x) == true equals f(x) only when f returns a logical.
     ("if numel(A) == true\n  disp(1);\nend\n", "if numel(A)\n"),
 ];
@@ -74,6 +80,9 @@ const NO_REWRITE: &[(&str, &str)] = &[
     ("if strcmp(upper(s), 'ABC')\n  disp(1);\nend\n", "strcmp(s,"),
     ("parfor i = 1:2:9\n  disp(i);\nend\n", "1:9"),
     ("t = sprintf('%f', pi);\ndisp(t);\n", "num2str"),
+    // No Code Analyzer check describes these; the old arithmetic/isa checks were removed.
+    ("y = x * 1;\ndisp(y);\n", "y = x;"),
+    ("if isa(x, 'double')\n  disp(1);\nend\n", "isnumeric(x)"),
 ];
 
 #[test]

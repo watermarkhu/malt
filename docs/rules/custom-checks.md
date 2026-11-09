@@ -12,11 +12,19 @@ icon: lucide/sliders-horizontal
 
 ## What this rule does
 
-Configurable code-complexity and style-metric checks from MATLAB's Code
-Analyzer. All 25 checks are handled by a single file-level engine
-(`CustomChecksEngine`) that performs one traversal per file and computes
-all metrics simultaneously. Each check has a configurable threshold; a
-threshold of `0` disables that check.
+Configurable code-complexity and style checks from MATLAB's Code Analyzer
+"Custom Checks" group, handled by a single file-level engine
+(`CustomChecksEngine`).
+
+* Metric checks (`FCNIL`, `FCNOL`, `FCNLL`, `LLMNC`, `MNCSN`, `CYCCOM`,
+  `MCYCCOM`, `SCYCCOM`, `MSCYCCOM`, `ACYCCOM`, `MACYCCOM`) have a
+  configurable limit; a limit of `0` disables the check.
+* The `DAF*` checks and `SYSBANG` flag every use of a construct that the
+  configuration disallows. They are controlled by boolean `disallow_*`
+  options. As in MATLAB, all `DAF*` checks are off by default; `SYSBANG`
+  is on by default.
+
+`LLMCC` (line length excluding comments) is not implemented.
 
 ## Check IDs
 
@@ -176,7 +184,10 @@ Anonymous function has a modified cyclomatic complexity of more than VAR_NUMBER.
 
 ```matlab
 function f(a, b, c, d, e, f, g, h, i)  % FCNIL — too many inputs
-    x = 1; y = 2; z = 3;               % DAFSC — too many semicolons on one line
+    try                                % DAFTC (with disallow_try_catch = true)
+        x = 1;
+    catch
+    end
 end
 ```
 
@@ -193,27 +204,28 @@ end
 ```toml
 [lint.rules.CUSTOM_CHECKS]
 severity = "warn"
-max_function_inputs = 7
-max_function_outputs = 7
-max_function_lines = 200
-max_line_length = 120
-max_nesting_depth = 5
-max_cyclomatic_complexity = 15
-max_strict_cyclomatic_complexity = 20
-max_avg_cyclomatic_complexity = 10
-max_branches = 10
-max_return_points = 5
-max_nested_functions = 3
-max_anonymous_functions = 5
-max_local_variables = 20
-max_local_constants = 10
-max_called_functions = 30
-max_semicolons_per_line = 3
-max_tree_children = 50
-max_persistent_variables = 10
-max_conditions = 5
-max_input_args_used = 10
-max_output_args_used = 10
+max_function_inputs = 7                 # FCNIL
+max_function_outputs = 7                # FCNOL
+max_function_lines = 200                # FCNLL
+max_line_length = 120                   # LLMNC
+max_nesting_depth = 5                   # MNCSN
+max_cyclomatic_complexity = 15          # CYCCOM, MCYCCOM (functions)
+max_script_cyclomatic_complexity = 20   # SCYCCOM, MSCYCCOM (scripts)
+max_anonymous_cyclomatic_complexity = 10 # ACYCCOM, MACYCCOM
+disallow_bang = true                    # SYSBANG
+disallow_try_catch = false              # DAFTC
+disallow_persistent = false             # DAFPV
+disallow_continue = false               # DAFCO
+disallow_break = false                  # DAFBR
+disallow_return = false                 # DAFRT
+disallow_script = false                 # DAFSC
+disallow_nested_functions = false       # DAFNF
+disallow_command_syntax = false         # DAFCF
+disallow_anonymous_functions = false    # DAFAF
+disallow_char_vectors = false           # DAFCV
+disallow_cellstr = false                # DAFCVC
+disallow_varargin = false               # DAFVI
+disallow_varargout = false              # DAFVO
 ```
 
 See [Configuration](../configuration.md) for the full parameter list and [rules.md](../rules.md) for the complete rule inventory.

@@ -1,66 +1,41 @@
-//! # STLOW: unnecessary UPPER/LOWER call in a string comparison
+//! # STLOW: unnecessary UPPER/LOWER call in a case-insensitive comparison
 //!
-//! `check_stlow` flags `strcmp(upper(x), 'ABC')` / `strcmp(lower(x), 'abc')`
-//! style comparisons where the compared literal is already entirely in the
-//! target case, making the conversion call unnecessary.
+//! `check_stlow` flags `strcmpi(lower(x), y)` / `strncmpi(upper(x), y, n)`
+//! style comparisons: the comparison already ignores case, so the call to
+//! `upper`/`lower` on an argument is unnecessary.
 
 use super::*;
 
 impl ReadabilityEngine {
-    /// STLOW: `strcmp(upper(x), 'ABC')` — the UPPER/LOWER call is unnecessary
-    /// when the compared literal is already entirely in that case.
+    /// STLOW: `strcmpi`/`strncmpi` with an `upper`/`lower` call as a compared
+    /// argument (the first two arguments).
     pub(crate) fn check_stlow(
         &self,
-        named_children: &[tree_sitter::Node],
+        node: tree_sitter::Node,
         source: &str,
         results: &mut Vec<Diagnostic>,
     ) {
         if !self.is_check_enabled("STLOW") {
             return;
         }
-
-        for i in 0..2 {
-            let arg = named_children[i];
-            if arg.kind() != "function_call" {
+        for arg in call_args(node).into_iter().take(2) {
+            if arg.kind() != "function_call"
+                || !matches!(call_name(arg, source), Some("upper" | "lower"))
+            {
                 continue;
             }
-
-            let func_name = match arg.child_by_field_name("name") {
-                Some(n) => &source[n.start_byte()..n.end_byte()],
-                None => continue,
-            };
-
-            let uppercase = match func_name {
-                "upper" => true,
-                "lower" => false,
-                _ => continue,
-            };
-
-            let inner_args = match find_arguments(arg) {
-                Some(a) => a,
-                None => continue,
-            };
-            if inner_args.named_child_count() != 1 {
+            let inner = call_args(arg);
+            if inner.len() != 1 {
                 continue;
             }
-
-            let other = named_children[1 - i];
-            if other.kind() != "string" {
-                continue;
-            }
-            let other_text = &source[other.start_byte()..other.end_byte()];
-            let literal = other_text.trim_matches('\'').trim_matches('"');
-
-            if is_all_case(literal, uppercase) {
-                results.push(self.diag(
-                    "STLOW",
-                    "In this comparison the call to UPPER/LOWER is unnecessary.",
-                    arg,
-                    // Dropping UPPER/LOWER from a case-sensitive strcmp changes its
-                    // result, so there is no rewrite to offer.
-                    None,
-                ));
-            }
+            let operand = &source[inner[0].start_byte()..inner[0].end_byte()];
+            results.push(self.diag(
+                "STLOW",
+                "In this comparison the call to UPPER/LOWER is unnecessary.",
+                arg,
+                // Unsafe: upper/lower reject non-text input, strcmpi does not.
+                Some(Fix::new(arg.start_byte()..arg.end_byte(), operand)),
+            ));
         }
     }
 }
@@ -75,55 +50,35 @@ mod tests {
         ReadabilityEngine::from_config(&Config::default())
     }
 
-    // -- STLOW ---------------------------------------------------------------
+    #[test]
+    fn stlow_lower_in_strcmpi_fires_and_is_unsafe_fix() {
+        let src = "x = strcmpi(lower(str), 'abc');\n";
+        let diags = lint_nodes(&*engine(), src);
+        let d = diags.iter().find(|d| d.rule_id == "STLOW").expect("STLOW");
+        assert!(!d.fix.as_ref().expect("fix").is_safe());
+        assert_eq!(
+            malt_core::apply_fixes(src, &diags),
+            src,
+            "safe fixes must not apply it"
+        );
+    }
 
     #[test]
-    fn stlow_upper_with_uppercase_literal_fires() {
-        let diags = lint_nodes(&*engine(), "x = strcmp(upper(str), 'ABC');\n");
+    fn stlow_upper_in_strncmpi_fires() {
+        let diags = lint_nodes(&*engine(), "x = strncmpi('ABC', upper(s), 2);\n");
         assert!(has_id(&diags, "STLOW"), "got: {diags:?}");
     }
 
     #[test]
-    fn stlow_lower_with_lowercase_literal_fires() {
-        let diags = lint_nodes(&*engine(), "x = strcmp(lower(str), 'abc');\n");
-        assert!(has_id(&diags, "STLOW"), "got: {diags:?}");
-    }
-
-    #[test]
-    fn stlow_mixed_case_does_not_fire() {
-        let diags = lint_nodes(&*engine(), "x = strcmp(upper(str), 'AbC');\n");
-        assert!(!has_id(&diags, "STLOW"), "got: {diags:?}");
-    }
-
-    #[test]
-    fn stlow_opposite_case_does_not_fire() {
-        let diags = lint_nodes(&*engine(), "x = strcmp(upper(str), 'abc');\n");
-        assert!(!has_id(&diags, "STLOW"), "got: {diags:?}");
-    }
-
-    #[test]
-    fn stlow_no_conversion_call_does_not_fire() {
-        let diags = lint_nodes(&*engine(), "x = strcmp(str, 'ABC');\n");
-        assert!(!has_id(&diags, "STLOW"), "got: {diags:?}");
-    }
-
-    #[test]
-    fn stlow_non_literal_other_side_does_not_fire() {
-        let diags = lint_nodes(&*engine(), "x = strcmp(upper(x), y);\n");
-        assert!(!has_id(&diags, "STLOW"), "got: {diags:?}");
-    }
-
-    #[test]
-    fn stlow_does_not_rewrite_a_case_sensitive_comparison() {
-        let source = "x = strcmp(upper(x), 'ABC');\n";
-        let diags = lint_nodes(&*engine(), source);
-        let diag = diags
-            .iter()
-            .find(|d| d.rule_id == "STLOW")
-            .expect("STLOW should fire");
-        // Dropping upper() from a case-sensitive strcmp changes its result
-        // (x = 'abc' matches before, not after): the check reports, never rewrites.
-        assert!(diag.fix.is_none(), "STLOW must not carry an auto-fix");
+    fn stlow_case_sensitive_or_plain_comparison_does_not_fire() {
+        for src in [
+            "x = strcmp(upper(str), 'ABC');\n",
+            "x = strcmpi(str, 'ABC');\n",
+            "x = strcmpi(f(str), 'ABC');\n",
+            "x = strncmpi(a, b, upper(n));\n",
+        ] {
+            assert!(!has_id(&lint_nodes(&*engine(), src), "STLOW"), "{src}");
+        }
     }
 
     #[test]
@@ -132,7 +87,7 @@ mod tests {
             Config::from_toml("[lint.rules.READABILITY_ENGINE]\ndisabled_checks = [\"STLOW\"]\n")
                 .expect("valid config");
         let rule = ReadabilityEngine::from_config(&config);
-        let diags = lint_nodes(&*rule, "x = strcmp(upper(str), 'ABC');\n");
+        let diags = lint_nodes(&*rule, "x = strcmpi(lower(str), 'abc');\n");
         assert!(!has_id(&diags, "STLOW"), "got: {diags:?}");
     }
 }

@@ -18,19 +18,18 @@
 //! method (and a file-level pass for MFAMB), emitting diagnostics with the
 //! specific check ID (e.g. `ISCHR`, `IJCL`, `RPMT1`).
 //!
-//! The 35 checks cover type-checking simplification (`isa(x, 'type')` →
-//! dedicated predicates), dimension checks (`size(x,dim)==1` → `isrow`/`iscolumn`),
-//! variable shadowing, unnecessary brackets, modern string functions,
-//! character literals, formatting, control-flow style, error/warning message
-//! IDs, input validation, output style, flip/rotate, redundant arithmetic and
-//! boolean logic, size and logical helpers, `arguments` attributes, and
-//! ambiguous identifiers.
+//! The 30 checks cover type-checking simplification (`strcmp(class(x), 'char')`
+//! → dedicated predicates), dimension checks (`size(x,dim)==1` →
+//! `isrow`/`iscolumn`, `ndims(x)==2` → `ismatrix`), the imaginary unit,
+//! unnecessary brackets, `strfind`-based containment tests, `char(10)` and
+//! `sprintf('\n')` → `newline`, `repmat` of constants, `error`/`warning`
+//! message construction, `display`/`disp` of `sprintf`, flip/rotate, logical
+//! helpers, `arguments` attributes, and ambiguous identifiers.
 //!
 //! ## Check IDs
 //!
 //! | Check ID | Severity | Fix | Description |
 //! | --- | --- | --- | --- |
-//! | ASGSL | info | no | Assignment to variable might be unnecessary. |
 //! | COMNL | info | yes | Newline following comma acts as a row separator. Replace the comma with a semicolon to make the row separation clearer. Alternatively, use an ellipsis (...) to continue the current row on the next line. |
 //! | SPERR | info | no | ERROR takes SPRINTF-like arguments directly. |
 //! | SPWRN | info | no | WARNING takes SPRINTF-like arguments directly. |
@@ -45,14 +44,13 @@
 //! | RPMTF | info | yes | For readability, consider using 'false(x,y)' instead of 'repmat(false,x,y)'. |
 //! | RPMTI | info | yes | For readability, consider using 'Inf(x,y)' instead of 'repmat(Inf,x,y)'. |
 //! | RPMTN | info | yes | For readability, consider using 'NaN(x,y)' instead of 'repmat(NaN,x,y)'. |
-//! | PSIZE | info | yes | NUMEL(x) is usually faster than PROD(SIZE(x)). |
 //! | LOGSUM | info | no | Consider using 'nnz' instead of 'sum' for logical vectors to improve readability. |
-//! | LOGL | info | no | Use 'true' or 'false' instead of 'logical(1)' or 'logical(0)'. |
+//! | LOGL | info | yes | Use 'true' or 'false' instead of 'logical(1)' or 'logical(0)'. |
 //! | ISCHR | info | yes | Use ISCHAR instead of comparing the class to 'char'. |
 //! | ISSTR | info | yes | Use ISSTRUCT instead of comparing the class to 'struct'. |
 //! | ISLOG | info | yes | Use ISLOGICAL instead of comparing the class to 'logical'. |
 //! | ISCEL | info | yes | Use ISCELL instead of comparing the class to 'cell'. |
-//! | IJCL | info | no | For improved robustness, consider replacing i and j by 1i. |
+//! | IJCL | info | yes | For improved robustness, consider replacing i and j by 1i. |
 //! | ISMAT | info | yes | When checking if a variable is a matrix consider using ISMATRIX. |
 //! | ISROW | info | yes | When checking if a variable is a row vector consider using ISROW. |
 //! | ISCOL | info | yes | When checking if a variable is a column vector consider using ISCOLUMN. |
@@ -60,9 +58,9 @@
 //! | MFAMB | info | no | Code Analyzer cannot determine whether VAR_NAME is a variable or a function, and assumes it is a function. |
 //! | FVINR | info | yes | For readability, add Input attribute to the input arguments block. |
 //! | STREMP | info | yes | For readability, use '~contains(str1, str2)' instead of 'isempty(strfind(str1, str2))'. |
-//! | STRCL1 | info | no | For readability, use '~contains(str1, str2)' instead of 'cellfun('isempty', strfind(str1, str2))'. |
-//! | STRCLFH | info | no | For readability, use '~contains(str1, str2)' instead of 'cellfun(@isempty, strfind(str1, str2))'. |
-//! | STRIFCND | info | no | For readability, use 'contains(str1, str2)' instead of 'strfind(str1, str2)'. |
+//! | STRCL1 | info | yes | For readability, use '~contains(str1, str2)' instead of 'cellfun('isempty', strfind(str1, str2))'. |
+//! | STRCLFH | info | yes | For readability, use '~contains(str1, str2)' instead of 'cellfun(@isempty, strfind(str1, str2))'. |
+//! | STRIFCND | info | yes | For readability, use 'contains(str1, str2)' instead of 'strfind(str1, str2)'. |
 //! | CHARTEN | info | yes | For readability, consider using 'newline' instead of 'char(10)'. |
 //! | SPRINTFN | info | yes | For readability, consider using the 'newline' function instead of 'sprintf('\n')'. |
 //!
@@ -70,45 +68,48 @@
 //!
 //! Rewrites the flagged construct into the clearer equivalent:
 //!
-//! - `isa(x, 'type')` → `ischar`/`isstring`/`islogical`/`iscell`/`isnumeric`
-//!   (ISCHR, ISSTR, ISLOG, ISCEL, ISMAT).
-//! - `size(x, dim) == 1` → `isrow(x)`/`iscolumn(x)` (ISROW, ISCOL).
-//! - `x * 1` → `x`, `x * 0` → `zeros(size(x))`, `x + 0` → `x`,
-//!   `x - 0` → `x` (RPMT1, RPMT0, RPMTI, RPMTN).
-//! - `x | true` → `true` and `x & false` → `false` (RPMTT, RPMTF).
-//! - `prod(size(x))` → `numel(x)`, `char(10)` → `newline`,
-//!   `sprintf('%d', x)` → `num2str(x)`, `strcmp(s, '')` → `strlength(s)==0`.
-//! - `flipud(fliplr(x))` → `rot90(x, 2)`, `[scalar]` → `scalar`,
+//! - `strcmp(class(x), 'char')` → `ischar(x)` (ISCHR, ISSTR, ISLOG, ISCEL).
+//! - `size(x, dim) == 1` → `isrow(x)`/`iscolumn(x)` (ISROW, ISCOL);
+//!   `ndims(x) == 2` → `ismatrix(x)` (ISMAT).
+//! - `repmat(c, x, y)` → `ones`/`zeros`/`true`/`false`/`Inf`/`NaN(x, y)`
+//!   (RPMT1, RPMT0, RPMTT, RPMTF, RPMTI, RPMTN).
+//! - `char(10)` and `sprintf('\n')` → `newline`; `logical(1)` → `true`.
+//! - `flipud(fliplr(x))` → `rot90(x, 2)`; `[scalar]` → `scalar`;
 //!   `disp(sprintf(...))` → `fprintf(...)`.
+//! - `isempty(strfind(s, p))`, `cellfun(@isempty, strfind(s, p))` →
+//!   `~contains(s, p)`; `if strfind(s, p)` → `if contains(s, p)`.
+//! - `strcmpi(lower(x), y)` → `strcmpi(x, y)` (STLOW).
+//! - `i`/`j` as the imaginary unit → `1i`/`1j` (IJCL).
 //! - A trailing comma before a newline in a matrix becomes a semicolon (COMNL).
 //! - An `(Input)` attribute is inserted into attribute-less `arguments`
 //!   blocks (FVINR).
+//!
+//! Fixes that can change behaviour (STLOW, STREMP, STRCL1, STRCLFH, STRIFCND,
+//! ISROW, ISCOL, IJCL) are unsafe and need `--unsafe-fixes`.
 //!
 //! ## Examples
 //!
 //! ### Incorrect
 //!
 //! ```matlab
-//! if isa(x, 'char')
-//! if a || true
+//! if strcmp(class(x), 'char')
 //! y = flipud(fliplr(m));
-//! n = prod(size(a));
+//! z = repmat(0, 3, 4);
 //! ```
 //!
 //! ### Correct
 //!
 //! ```matlab
 //! if ischar(x)
-//! if a
 //! y = rot90(m, 2);
-//! n = numel(a);
+//! z = zeros(3, 4);
 //! ```
 //!
 //! ### Fixed
 //!
 //! ```diff
-//! - n = prod(size(a));
-//! + n = numel(a);
+//! - z = repmat(0, 3, 4);
+//! + z = zeros(3, 4);
 //! ```
 //!
 //! ## Configuration
@@ -119,27 +120,22 @@
 //! disabled_checks = ["IJCL", "NBRAK2"]
 //! ```
 
-mod check_boolean_tautology;
 mod check_char_literal;
+mod check_class_compare;
 mod check_comnl;
 mod check_disp;
 mod check_display;
 mod check_error_warning;
-mod check_find_logical;
 mod check_fludlr;
 mod check_fvinr;
-mod check_ij_shadow;
-mod check_inline_assignment;
-mod check_isa;
-mod check_narginchk;
-mod check_prod_size;
-mod check_redundant_arithmetic;
+mod check_ijcl;
+mod check_ismat;
+mod check_logical;
+mod check_repmat;
 mod check_size_comparison;
 mod check_sprintf;
 mod check_stlow;
 mod check_strfind;
-mod check_strncmp;
-mod check_sum_logical;
 mod check_unnecessary_brackets;
 
 use malt_core::{Category, Config, Diagnostic, FileContext, Fix, NodeContext, Rule, Severity};
@@ -161,55 +157,16 @@ pub struct ReadabilityConfig {
     pub disabled_checks: Vec<String>,
 }
 
-// ---------------------------------------------------------------------------
-// Lookup table: isa(x, 'type') → preferred function
-// ---------------------------------------------------------------------------
-
 /// Checks whose rewrite is not equivalent in every situation, so `--fix` leaves
 /// it alone (`--unsafe-fixes` applies it):
 ///
-/// - RPMT0/1/I/N, RPMTT/F: `x*1`, `x+0`, `c || true` ... drop an operation that
-///   still converts the type (logical, char, integer) or evaluates a side effect;
-/// - STREMP: `strcmp(s, '')` and `strlength(s)==0` differ for non-text input;
-/// - ISMAT: `isa(x, 'double')` is not `isnumeric(x)` (single and integer types);
-/// - ISROW / ISCOL: `size(x, 1) == 1` is true for an N-d array, `isrow(x)` is not.
+/// - STLOW: `lower`/`upper` reject non-text input that `strcmpi` accepts;
+/// - STREMP / STRCL1 / STRCLFH / STRIFCND: `strfind` and `contains` differ for
+///   cell and non-text input, and for empty patterns;
+/// - ISROW / ISCOL: `size(x, 1) == 1` is true for an N-d array, `isrow(x)` is not;
+/// - IJCL: `i` may come from `load`/`eval` rather than the built-in unit.
 const UNSAFE_FIXES: &[&str] = &[
-    "RPMT0", "RPMT1", "RPMTI", "RPMTN", "RPMTT", "RPMTF", "STREMP", "ISMAT", "ISROW", "ISCOL",
-];
-
-/// Mapping from `isa` second argument (without quotes) to
-/// (check_id, preferred_function, description).
-pub(crate) const ISA_REPLACEMENTS: &[(&str, &str, &str, &str)] = &[
-    (
-        "char",
-        "ISCHR",
-        "ischar",
-        "Use ISCHAR instead of comparing the class to 'char'.",
-    ),
-    (
-        "string",
-        "ISSTR",
-        "isstring",
-        "Use ISSTRUCT instead of comparing the class to 'struct'.",
-    ),
-    (
-        "logical",
-        "ISLOG",
-        "islogical",
-        "Use ISLOGICAL instead of comparing the class to 'logical'.",
-    ),
-    (
-        "cell",
-        "ISCEL",
-        "iscell",
-        "Use ISCELL instead of comparing the class to 'cell'.",
-    ),
-    (
-        "double",
-        "ISMAT",
-        "isnumeric",
-        "When checking if a variable is a matrix consider using ISMATRIX.",
-    ),
+    "STLOW", "STREMP", "STRCL1", "STRCLFH", "STRIFCND", "ISROW", "ISCOL", "IJCL",
 ];
 
 // ---------------------------------------------------------------------------
@@ -220,10 +177,6 @@ pub(crate) const ISA_REPLACEMENTS: &[(&str, &str, &str, &str)] = &[
 pub(crate) const TARGET_NODES: &[&str] = &[
     "function_call",
     "comparison_operator",
-    "boolean_operator",
-    "identifier",
-    "binary_operator",
-    "assignment",
     "matrix",
     "arguments_statement",
 ];
@@ -238,7 +191,7 @@ pub(crate) const BUILTIN_DENYLIST: &[&str] = &[
 // Rule implementation
 // ---------------------------------------------------------------------------
 
-/// The readability engine — a single rule instance that checks 36 readability
+/// The readability engine — a single rule instance that checks 30 readability
 /// improvement patterns via dispatched per-check logic.
 ///
 /// Registered once with inventory. Each emitted diagnostic carries the specific
@@ -314,20 +267,20 @@ impl ReadabilityEngine {
         };
 
         match func_name {
-            "isa" => self.check_isa(node, source, results),
-            "strcmp" => self.check_strcmp(node, source, ctx, results),
-            "strncmp" | "strncmpi" => self.check_strncmp(node, source, func_name, results),
-            "strfind" => self.check_strfind(node, source, results),
+            "strcmp" | "isequal" => self.check_class_compare(node, source, results),
+            "strcmpi" | "strncmpi" => self.check_stlow(node, source, results),
+            "isempty" => self.check_isempty_strfind(node, source, results),
+            "cellfun" => self.check_cellfun_strfind(node, source, results),
+            "strfind" => self.check_strfind_condition(node, source, results),
             "char" => self.check_char_literal(node, source, results),
             "sprintf" => self.check_sprintf(node, source, results),
             "error" => self.check_error_warning(node, source, "SPERR", results),
             "warning" => self.check_error_warning(node, source, "SPWRN", results),
             "disp" => self.check_disp(node, source, results),
-            "display" => self.check_display(node, results),
-            "nargchk" => self.check_narginchk(node, source, results),
-            "prod" => self.check_prod_size(node, source, results),
+            "display" => self.check_display(node, source, results),
             "sum" => self.check_sum_logical(node, source, results),
-            "find" => self.check_find_logical(node, source, results),
+            "logical" => self.check_logical_literal(node, source, results),
+            "repmat" => self.check_repmat(node, source, results),
             "flipud" | "fliplr" => self.check_fludlr(node, source, func_name, results),
             _ => {}
         }
@@ -338,36 +291,10 @@ impl ReadabilityEngine {
         let node = ctx.node;
         let source = ctx.source;
 
-        // Look for size(x,dim)==1 patterns (ISROW, ISCOL)
+        // size(x,dim)==1 patterns (ISROW, ISCOL)
         self.check_size_comparison(node, source, results);
-    }
-
-    /// Checks dispatched for `boolean_operator` nodes.
-    fn check_boolean_operator(&self, ctx: &NodeContext, results: &mut Vec<Diagnostic>) {
-        let node = ctx.node;
-        let source = ctx.source;
-
-        self.check_boolean_tautology(node, source, results);
-    }
-
-    /// Checks dispatched for `assignment` nodes.
-    fn check_assignment(&self, ctx: &NodeContext, results: &mut Vec<Diagnostic>) {
-        let node = ctx.node;
-        let source = ctx.source;
-
-        // IJCL: assignment to `i` or `j` shadows complex unit
-        self.check_ij_shadow(node, source, results);
-
-        // ASGSL: assignment on same line as control statement
-        self.check_inline_assignment(node, results);
-    }
-
-    /// Checks dispatched for `binary_operator` nodes.
-    fn check_binary_operator(&self, ctx: &NodeContext, results: &mut Vec<Diagnostic>) {
-        let node = ctx.node;
-        let source = ctx.source;
-
-        self.check_redundant_arithmetic(node, source, results);
+        // ndims(x)==2 (ISMAT)
+        self.check_ismat(node, source, results);
     }
 
     /// Checks dispatched for `matrix` nodes.
@@ -380,71 +307,6 @@ impl ReadabilityEngine {
 
         // COMNL: newline after comma acts as a row separator
         self.check_comnl(node, source, results);
-    }
-
-    // -----------------------------------------------------------------------
-    // Individual check implementations
-    // -----------------------------------------------------------------------
-
-    /// STREMP: `strcmp(s, '')` → `strlength(s)==0`
-    /// STRIFCND: `strcmp` inside `if` condition → `matches`
-    fn check_strcmp(
-        &self,
-        node: tree_sitter::Node,
-        source: &str,
-        ctx: &NodeContext,
-        results: &mut Vec<Diagnostic>,
-    ) {
-        let args = match find_arguments(node) {
-            Some(a) => a,
-            None => return,
-        };
-
-        let named_children: Vec<_> = (0..args.named_child_count())
-            .filter_map(|i| args.named_child(i))
-            .collect();
-
-        if named_children.len() != 2 {
-            return;
-        }
-
-        let arg1_text = &source[named_children[0].start_byte()..named_children[0].end_byte()];
-        let arg2_text = &source[named_children[1].start_byte()..named_children[1].end_byte()];
-
-        // STREMP: strcmp(s, '') or strcmp('', s)
-        if self.is_check_enabled("STREMP")
-            && (is_empty_string(arg2_text) || is_empty_string(arg1_text))
-        {
-            let var = if is_empty_string(arg1_text) {
-                arg2_text
-            } else {
-                arg1_text
-            };
-            results.push(self.diag(
-                "STREMP",
-                "For readability, use '~contains(str1, str2)' instead of 'isempty(strfind(str1, str2))'.",
-                node,
-                // Parenthesised: `~strcmp(s, '')` must not become `~strlength(s)==0`.
-                Some(Fix::new(
-                    node.start_byte()..node.end_byte(),
-                    format!("(strlength({var})==0)"),
-                )),
-            ));
-            return;
-        }
-
-        // STRIFCND: strcmp inside if condition → suggest matches
-        if self.is_check_enabled("STRIFCND") && is_inside_if_condition(ctx.node) {
-            results.push(self.diag(
-                "STRIFCND",
-                "For readability, use 'contains(str1, str2)' instead of 'strfind(str1, str2)'.",
-                node,
-                None,
-            ));
-        }
-
-        // STLOW: unnecessary UPPER/LOWER call in a comparison
-        self.check_stlow(&named_children, source, results);
     }
 }
 
@@ -480,6 +342,7 @@ impl Rule for ReadabilityEngine {
     fn check_file(&self, ctx: &FileContext) -> Vec<Diagnostic> {
         let mut results = Vec::new();
         self.check_mfamb(ctx.tree, ctx.source, &mut results);
+        self.check_ijcl(ctx.tree, ctx.source, &mut results);
         results
     }
 
@@ -489,14 +352,8 @@ impl Rule for ReadabilityEngine {
         match ctx.node.kind() {
             "function_call" => self.check_function_call(ctx, &mut results),
             "comparison_operator" => self.check_comparison(ctx, &mut results),
-            "boolean_operator" => self.check_boolean_operator(ctx, &mut results),
-            "assignment" => self.check_assignment(ctx, &mut results),
-            "binary_operator" => self.check_binary_operator(ctx, &mut results),
             "matrix" => self.check_matrix(ctx, &mut results),
             "arguments_statement" => self.check_fvinr(ctx, &mut results),
-            // `identifier` nodes are handled via `assignment` LHS check (IJCL)
-            // rather than standalone identifier dispatch, to avoid false
-            // positives on identifier reads.
             _ => {}
         }
 
@@ -518,55 +375,32 @@ pub(crate) fn find_arguments(node: tree_sitter::Node) -> Option<tree_sitter::Nod
         .find(|c| c.kind() == "arguments")
 }
 
-/// Check if a string literal represents an empty string (`''` or `""`).
-pub(crate) fn is_empty_string(s: &str) -> bool {
-    s == "''" || s == "\"\""
+/// The callee name of a `function_call` node, when it is a bare identifier.
+pub(crate) fn call_name<'a>(node: tree_sitter::Node, source: &'a str) -> Option<&'a str> {
+    let name = node.child_by_field_name("name")?;
+    (name.kind() == "identifier").then(|| &source[name.start_byte()..name.end_byte()])
 }
 
-/// Return true when `s` contains at least one alphabetic character and every
-/// alphabetic character is in the case requested by `uppercase`.
-pub(crate) fn is_all_case(s: &str, uppercase: bool) -> bool {
-    let mut has_alpha = false;
-    for c in s.chars() {
-        if c.is_alphabetic() {
-            has_alpha = true;
-            if c.is_lowercase() == uppercase {
-                return false;
-            }
-        }
-    }
-    has_alpha
+/// The argument nodes of a `function_call` node.
+pub(crate) fn call_args<'t>(node: tree_sitter::Node<'t>) -> Vec<tree_sitter::Node<'t>> {
+    find_arguments(node)
+        .map(|args| {
+            (0..args.named_child_count())
+                .filter_map(|i| args.named_child(i))
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
-/// Check if a node is inside an `if_statement` condition.
-pub(crate) fn is_inside_if_condition(node: tree_sitter::Node) -> bool {
-    let mut current = node.parent();
-    while let Some(parent) = current {
-        match parent.kind() {
-            "if_statement" => return true,
-            "block" | "source_file" | "function_definition" => return false,
-            _ => current = parent.parent(),
-        }
-    }
-    false
-}
-
-/// Extract the operator text from a binary/boolean operator node.
-///
-/// Iterates over unnamed children to find the operator token between operands.
-pub(crate) fn extract_operator_text<'a>(node: tree_sitter::Node<'a>, source: &'a str) -> &'a str {
-    // Walk all children (including unnamed) looking for the operator
+/// Whether a `comparison_operator` node uses `==`. The operator token is
+/// inspected, not the node text: that would also find the `==` inside
+/// `size(x == 1, 1) ~= 1`.
+pub(crate) fn is_equality_operator(node: tree_sitter::Node, source: &str) -> bool {
     let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        if !child.is_named() {
-            let text = &source[child.start_byte()..child.end_byte()];
-            // Operator tokens are things like +, -, *, .*, |, ||, &, &&, ==
-            if !text.trim().is_empty() && text != "(" && text != ")" && text != "[" && text != "]" {
-                return text;
-            }
-        }
-    }
-    ""
+    let found = node
+        .children(&mut cursor)
+        .any(|c| !c.is_named() && &source[c.start_byte()..c.end_byte()] == "==");
+    found
 }
 
 /// Find the trailing comma of a `row` node, skipping trailing `comment` and
@@ -705,7 +539,7 @@ inventory::submit!(crate::RuleRegistration::new(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_util::{has_id, lint_file, lint_nodes};
+    use crate::test_util::{has_id, lint_file};
     use malt_core::Config;
 
     fn engine() -> Box<dyn Rule> {
@@ -760,34 +594,5 @@ mod tests {
         let rule = ReadabilityEngine::from_config(&config);
         let diags = lint_file(&*rule, "y = somevar(1);\nsomevar = 5;\n");
         assert!(!has_id(&diags, "MFAMB"), "got: {diags:?}");
-    }
-
-    // -- STREMP --------------------------------------------------------------
-
-    #[test]
-    fn stremp_strcmp_empty_fires() {
-        let diags = lint_nodes(&*engine(), "x = strcmp(s, '');\n");
-        assert!(has_id(&diags, "STREMP"), "got: {diags:?}");
-    }
-
-    #[test]
-    fn stremp_strcmp_nonempty_does_not_fire() {
-        let diags = lint_nodes(&*engine(), "x = strcmp(s, 'a');\n");
-        assert!(!has_id(&diags, "STREMP"), "got: {diags:?}");
-    }
-
-    // -- STRIFCND ------------------------------------------------------------
-
-    #[test]
-    fn strifcnd_strcmp_in_if_condition_fires() {
-        let source = "if strcmp(a, b)\n    x = 1;\nend\n";
-        let diags = lint_nodes(&*engine(), source);
-        assert!(has_id(&diags, "STRIFCND"), "got: {diags:?}");
-    }
-
-    #[test]
-    fn strifcnd_strcmp_at_statement_level_does_not_fire() {
-        let diags = lint_nodes(&*engine(), "x = strcmp(a, b);\n");
-        assert!(!has_id(&diags, "STRIFCND"), "got: {diags:?}");
     }
 }

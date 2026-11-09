@@ -14,13 +14,11 @@ impl PerformanceEngine {
         // Pattern: length(x) == 0 → isempty(x)
         // Pattern: length(x) == 1 → isscalar(x)
         if let Some((func, val)) = extract_length_comparison(node, source) {
-            if func == "length" {
-                if self.is_enabled("ISMT") && val == "0" {
-                    diags.push(make_diag("ISMT", node));
-                }
-                if self.is_enabled("ISCL") && val == "1" {
-                    diags.push(make_diag("ISCL", node));
-                }
+            if func == "length" && self.is_enabled("ISMT") && val == "0" {
+                diags.push(make_diag("ISMT", node));
+            }
+            if self.is_enabled("ISCL") && val == "1" {
+                diags.push(make_diag("ISCL", node));
             }
         }
 
@@ -54,6 +52,20 @@ mod tests {
         let src = "y = (length(x) == 1);\n";
         let diags = lint_nodes(&*engine(), src);
         assert!(has_id(&diags, "ISCL"), "got: {diags:?}");
+    }
+
+    #[test]
+    fn iscl_fires_on_numel_one() {
+        let src = "y = (numel(x) == 1);\n";
+        let diags = lint_nodes(&*engine(), src);
+        assert!(has_id(&diags, "ISCL"), "got: {diags:?}");
+    }
+
+    #[test]
+    fn ismt_not_fire_on_numel_zero() {
+        let src = "y = (numel(x) == 0);\n";
+        let diags = lint_nodes(&*engine(), src);
+        assert!(!has_id(&diags, "ISMT"), "got: {diags:?}");
     }
 
     #[test]
