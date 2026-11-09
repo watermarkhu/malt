@@ -554,6 +554,25 @@ function renderRuleTable(modules: RuleModule[]): string {
   return rows.join('\n') + '\n'
 }
 
+/**
+ * MATLAB's official messages contain placeholders such as `<name>` and `<number>`.
+ * VitePress reads them as HTML tags, so escape them outside code spans and fences.
+ */
+function escapePlaceholders(md: string): string {
+  let fenced = false
+  return md
+    .split('\n')
+    .map((line) => {
+      if (/^\s*(```|~~~)/.test(line)) { fenced = !fenced; return line }
+      if (fenced) return line
+      return line
+        .split('`')
+        .map((part, i) => (i % 2 === 1 ? part : part.replace(/<(name|number|reserved word|file)>/gi, '&lt;$1&gt;')))
+        .join('`')
+    })
+    .join('\n')
+}
+
 function dataTable(entries: CheckEntry[], page?: string): string {
   if (!entries.length) return '_(no checks)_\n'
   const lines = ['| Check ID | Message |', '| -------- | ------- |']
@@ -607,7 +626,7 @@ function renderGeneratedRulesSection(): string {
 function writeRulePages(modules: RuleModule[]): void {
   for (const mod of modules) {
     const out = join(RULES_DIR, rulePageName(mod))
-    writeFileSync(out, renderRulePage(mod), 'utf8')
+    writeFileSync(out, escapePlaceholders(renderRulePage(mod)), 'utf8')
     console.log(`wrote docs/rules/${rulePageName(mod)} (${mod.checks.length || 'single'} check${mod.checks.length === 1 ? '' : 's'})`)
   }
 }
@@ -666,7 +685,7 @@ function checkDrift(modules: RuleModule[], only?: string): boolean {
 
   for (const mod of modules) {
     if (only && rulePageName(mod).replace(/\.md$/, '') !== only) continue
-    const expected = renderRulePage(mod)
+    const expected = escapePlaceholders(renderRulePage(mod))
     const out = join(RULES_DIR, rulePageName(mod))
     if (!existsSync(out) || readFileSync(out, 'utf8') !== expected) {
       console.error(`docs/rules/${rulePageName(mod)} is out of date (run \`bun run docs:gen\`)`)

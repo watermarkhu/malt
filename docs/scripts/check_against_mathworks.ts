@@ -45,7 +45,7 @@ const walk = (d: string) => {
     if (statSync(p).isDirectory()) walk(p)
     else if (p.endsWith('.rs')) {
       for (const m of readFileSync(p, 'utf8').matchAll(/^\/\/! \| ([A-Za-z][A-Za-z0-9_.]*) \| (error|warning|info) \|[^|]*\| ?(.*?) \|\s*$/gm))
-        ours.set(m[1], { severity: m[2], message: m[3].trim(), file: p.replace(src + '/', '') })
+        ours.set(m[1], { severity: m[2], message: m[3].replace(/\\\|/g, '|').trim(), file: p.replace(src + '/', '') })
     } else if (p.endsWith('.toml')) {
       for (const m of readFileSync(p, 'utf8').matchAll(/^id = "([A-Za-z][A-Za-z0-9_.]*)"/gm))
         if (!ours.has(m[1])) ours.set(m[1], { file: p.replace(src + '/', '') })
