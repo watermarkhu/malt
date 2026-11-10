@@ -1,6 +1,7 @@
 //! NOPRT check: statement in a function that produces output without a semicolon.
 
 use super::*;
+use crate::analysis::control_flow::is_split_statement_continuation;
 
 impl FormattingEngine {
     /// Flag an `assignment` statement inside a function that is not terminated
@@ -20,6 +21,14 @@ impl FormattingEngine {
         // `a = 1:2:3:4` parses as a range followed by an ERROR node, and MATLAB
         // reports M3COL for the chain, not NOPRT.
         if node.next_sibling().is_some_and(|s| s.kind() == "ERROR") {
+            return;
+        }
+        // A statement that a line break splits before `-x`/`+x` is reported by
+        // NOPRC instead (`y = 3` then `-4`).
+        if node
+            .next_named_sibling()
+            .is_some_and(|s| is_split_statement_continuation(s, source))
+        {
             return;
         }
         if has_trailing_semicolon(node, source) {
@@ -47,6 +56,16 @@ mod tests {
     use crate::formatting::tests::{has_id, lint};
 
     // -- NOPRT ---------------------------------------------------------------
+
+    #[test]
+    fn noprt_not_reported_on_statement_split_before_unary_sign() {
+        // Probed: MATLAB reports NOPRT on the `-4` line only.
+        let diags = lint("function f(n)\ny = 3\n-4\nend\n");
+        assert!(
+            !diags.iter().any(|d| d.rule_id == "NOPRT" && d.line == 2),
+            "got: {diags:?}"
+        );
+    }
 
     #[test]
     fn noprt_assignment_in_function_without_semicolon() {

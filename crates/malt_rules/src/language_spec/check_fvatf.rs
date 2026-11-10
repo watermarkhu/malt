@@ -7,14 +7,14 @@ impl LanguageSpecEngine {
     pub(crate) fn check_fvatf(
         &self,
         blocks: &[ArgumentsBlockMeta],
-        _source: &str,
+        source: &str,
         diagnostics: &mut Vec<Diagnostic>,
     ) {
         if !self.is_check_enabled("FVATF") {
             return;
         }
         for block in blocks {
-            if attributes_have_value(block.node) {
+            if attributes_have_value(block.node, source) {
                 self.push_block_diag(
                     block,
                     "FVATF",
@@ -44,6 +44,22 @@ end
         assert!(
             !filter_by_id(&diags, "FVATF").is_empty(),
             "FVATF should fire for attribute values in arguments blocks"
+        );
+    }
+
+    #[test]
+    fn test_fvatf_no_fire_logical_attribute_value() {
+        let source = "\
+function f(a)
+    arguments (Input = true)
+        a (1,1) double
+    end
+end
+";
+        let diags = check_source(source, "f.m");
+        assert!(
+            filter_by_id(&diags, "FVATF").is_empty(),
+            "FVATF should NOT fire for logical constant attribute values"
         );
     }
 

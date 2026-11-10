@@ -1,6 +1,19 @@
 //! MANU check: method input argument that is never used.
 
+use super::check_unused_inputs::collect_arguments_blocks;
 use super::*;
+use crate::analysis::symbols::Scope;
+use tree_sitter::Node;
+
+/// Whether a method has exactly one input argument, the case MANU reports.
+pub(crate) fn sole_input(scope: &Scope) -> bool {
+    scope
+        .defs
+        .iter()
+        .filter(|d| d.kind == DefKind::InputArg)
+        .count()
+        == 1
+}
 
 impl UnusedEngine {
     /// Run MANU check: an input argument of a method that is never used in the
@@ -9,17 +22,23 @@ impl UnusedEngine {
     ///
     /// # Limitations
     ///
-    /// MANU overlaps with the INUSD/INUSA checks (`check_unused_inputs`), which
-    /// also report unused method inputs. A method with an unused input argument
-    /// may therefore emit MANU alongside INUSD/INUSA; this overlap follows the
-    /// distinct MathWorks messages verbatim.
-    pub(crate) fn check_manu(&self, table: &SymbolTable, diagnostics: &mut Vec<Diagnostic>) {
+    /// MANU is reported only for a method whose sole input is unused (probes M1,
+    /// M5 and ls-c__V4). A method with several inputs reports each unused one
+    /// as INUSD instead (probes M2, M3, M4 and M7).
+    pub(crate) fn check_manu(
+        &self,
+        table: &SymbolTable,
+        root: Node,
+        source: &str,
+        diagnostics: &mut Vec<Diagnostic>,
+    ) {
         if self.is_check_disabled("MANU") {
             return;
         }
+        let blocks = collect_arguments_blocks(root, source);
 
         for scope in &table.scopes {
-            if scope.kind != ScopeKind::Method {
+            if scope.kind != ScopeKind::Method || !sole_input(scope) {
                 continue;
             }
 
@@ -30,6 +49,15 @@ impl UnusedEngine {
                 let name = &def.name;
 
                 if self.should_ignore_name(name) {
+                    continue;
+                }
+
+                // An input declared in the arguments block is INUSA's.
+                let declared = blocks
+                    .by_function
+                    .get(&(scope.byte_range.start, scope.byte_range.end))
+                    .is_some_and(|d| d.iter().any(|d| d.name == *name));
+                if declared {
                     continue;
                 }
 
@@ -62,12 +90,37 @@ mod tests {
     // -- MANU: unused method input argument ----------------------------------
 
     #[test]
-    fn manu_fires_on_unused_method_input() {
+    fn manu_fires_on_unused_sole_method_input() {
+        // Probes M1 and M5: the only input of a method, unused.
         let diags = lint_file(
             &*engine(),
-            "classdef Foo\n    methods\n        function y = bar(self, x)\n            y = self.v;\n        end\n    end\nend\n",
+            "classdef M1\n    methods\n        function r = m(obj)\n            r = 1;\n        end\n    end\nend\n",
         );
         assert!(has_id(&diags, "MANU"), "got: {diags:?}");
+        assert!(!has_id(&diags, "INUSD"), "got: {diags:?}");
+    }
+
+    #[test]
+    fn manu_silent_with_several_method_inputs_reports_inusd() {
+        // Probes M2, M3 and M7: with more than one input, MATLAB reports
+        // each unused input as INUSD and no MANU.
+        let diags = lint_file(
+            &*engine(),
+            "classdef M3\n    methods\n        function r = m(obj, a)\n            r = 1;\n        end\n    end\nend\n",
+        );
+        assert!(!has_id(&diags, "MANU"), "got: {diags:?}");
+        let inusd = diags.iter().filter(|d| d.rule_id == "INUSD").count();
+        assert_eq!(inusd, 2, "got: {diags:?}");
+    }
+
+    #[test]
+    fn manu_silent_on_sole_input_declared_in_arguments_block() {
+        // Probe t__Cls constructor: a block-declared input is INUSA's, not MANU's.
+        let diags = lint_file(
+            &*engine(),
+            "classdef Cls\n    methods\n        function r = Cls(x)\n            arguments\n                x\n            end\n        end\n    end\nend\n",
+        );
+        assert!(!has_id(&diags, "MANU"), "got: {diags:?}");
     }
 
     #[test]

@@ -145,6 +145,7 @@ mod check_unnecessary_brackets;
 use malt_core::{Category, Config, Diagnostic, FileContext, Fix, NodeContext, Rule, Severity};
 use serde::Deserialize;
 
+use crate::analysis::control_flow::in_unreachable_code;
 use crate::analysis::symbols::{DefKind, SymbolTable};
 
 // ---------------------------------------------------------------------------
@@ -279,16 +280,20 @@ impl ReadabilityEngine {
         };
 
         match func_name {
-            "strcmp" | "isequal" => self.check_class_compare(node, source, results),
+            "strcmp" => self.check_class_compare(node, source, results),
             "strcmpi" | "strncmpi" => self.check_stlow(node, source, results),
             "isempty" => self.check_isempty_strfind(node, source, results),
             "cellfun" => self.check_cellfun_strfind(node, source, results),
             "strfind" => self.check_strfind_condition(node, source, results),
             "char" => self.check_char_literal(node, source, results),
             "sprintf" => self.check_sprintf(node, source, results),
-            "prod" => self.check_prod_size(node, source, results),
+            "prod" if !in_unreachable_code(node, source) => {
+                self.check_prod_size(node, source, results)
+            }
             "error" => self.check_error_warning(node, source, "SPERR", results),
-            "warning" => self.check_error_warning(node, source, "SPWRN", results),
+            "warning" if !in_unreachable_code(node, source) => {
+                self.check_error_warning(node, source, "SPWRN", results)
+            }
             "disp" => self.check_disp(node, source, results),
             "display" => self.check_display(node, source, results),
             "sum" => self.check_sum_logical(node, source, results),

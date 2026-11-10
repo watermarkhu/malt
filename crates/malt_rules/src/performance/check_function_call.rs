@@ -3,6 +3,7 @@
 //! TRIM1, TRIM2, STTOK, STNCI, STCCS) and on `cell` nodes (CCAT, CCAT1).
 
 use super::*;
+use crate::analysis::control_flow::in_unreachable_code;
 
 type Node<'a> = tree_sitter::Node<'a>;
 
@@ -299,6 +300,7 @@ impl PerformanceEngine {
 
         // STNCI: strncmp(lower(a), lower(b), n)
         if on("STNCI")
+            && !in_unreachable_code(node, source)
             && func_name == "strncmp"
             && args.iter().take(2).any(|a| {
                 matches!(call_name(*a, source), Some("lower" | "upper"))
@@ -606,6 +608,10 @@ mod tests {
         assert!(fires("x = strncmp(lower(a), lower(b), 3);\n", "STNCI"));
         assert!(fires("x = strncmp(upper(a), b, 3);\n", "STNCI"));
         assert!(!fires("x = strncmp(a, b, 3);\n", "STNCI"));
+        assert!(!fires(
+            "error('x');\nx = strncmp(lower(a), lower(b), 3);\n",
+            "STNCI"
+        ));
         assert!(!fires("x = lower(strcmp(a, b));\n", "STNCI"));
     }
 

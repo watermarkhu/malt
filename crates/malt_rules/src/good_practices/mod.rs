@@ -197,6 +197,7 @@ use malt_core::{Category, Config, Diagnostic, FileContext, Fix, NodeContext, Rul
 use serde::Deserialize;
 use tree_sitter::Node;
 
+use crate::analysis::control_flow::in_unreachable_code;
 use crate::analysis::metadata::{ClassMeta, FileMeta};
 use crate::analysis::symbols::SymbolTable;
 
@@ -334,6 +335,7 @@ pub(crate) const REMOVED_WARNING_TAGS: &[&str] = &[];
 pub(crate) const TARGET_NODES: &[&str] = &[
     "function_call",
     "command",
+    "lambda",
     "try_statement",
     "catch_clause",
     "assignment",
@@ -677,8 +679,10 @@ impl Rule for GoodPracticesEngine {
 
         // String / comparison checks.
         diagnostics.extend(self.check_stcmp(node, source));
-        diagnostics.extend(self.check_stci(node, source));
-        diagnostics.extend(self.check_stisa(node, source));
+        if !in_unreachable_code(node, source) {
+            diagnostics.extend(self.check_stci(node, source));
+            diagnostics.extend(self.check_stisa(node, source));
+        }
 
         // Eval / dynamic code checks.
         diagnostics.extend(self.check_eval(node, source));

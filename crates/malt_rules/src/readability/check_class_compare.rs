@@ -115,12 +115,22 @@ mod tests {
     }
 
     #[test]
-    fn reversed_and_isequal_forms_fire() {
+    fn reversed_strcmp_form_fires() {
+        let src = "x = strcmp('char', class(a));\n";
+        assert!(has_id(&lint_nodes(&*engine(), src), "ISCHR"), "{src}");
+    }
+
+    #[test]
+    fn isequal_form_does_not_fire() {
+        // Probed: MATLAB reports nothing for `isequal(class(x), 'struct')`,
+        // `isequal(class(x), 'char')` or the reversed argument order.
         for src in [
-            "x = strcmp('char', class(a));\n",
             "x = isequal(class(a), 'char');\n",
+            "x = isequal(class(a), 'struct');\n",
+            "x = isequal('struct', class(a));\n",
         ] {
-            assert!(has_id(&lint_nodes(&*engine(), src), "ISCHR"), "{src}");
+            assert!(!has_id(&lint_nodes(&*engine(), src), "ISSTR"), "{src}");
+            assert!(!has_id(&lint_nodes(&*engine(), src), "ISCHR"), "{src}");
         }
     }
 

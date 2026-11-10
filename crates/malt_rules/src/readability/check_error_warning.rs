@@ -84,6 +84,14 @@ mod tests {
     }
 
     #[test]
+    fn spwrn_is_not_reported_after_error_call() {
+        let src = "error('x');\nwarning(sprintf('bad %d', n));\n";
+        assert!(!has_id(&lint_nodes(&*engine(), src), "SPWRN"));
+        let src = "warning(sprintf('bad %d', n));\nerror('x');\n";
+        assert!(has_id(&lint_nodes(&*engine(), src), "SPWRN"));
+    }
+
+    #[test]
     fn spwrn_plain_warning_calls_do_not_fire() {
         for src in ["warning('my message');\n", "warning('A:b', 'message');\n"] {
             assert!(!has_id(&lint_nodes(&*engine(), src), "SPWRN"), "{src}");

@@ -16,9 +16,9 @@ impl BugsEngine {
         }
         let lhs_text = node_text(lhs, source).trim().to_string();
         let rhs_text = node_text(rhs, source).trim().to_string();
-        let var_text = if rhs_text == "NaN" {
+        let var_text = if rhs_text.eq_ignore_ascii_case("nan") {
             lhs_text.as_str()
-        } else if lhs_text == "NaN" {
+        } else if lhs_text.eq_ignore_ascii_case("nan") {
             rhs_text.as_str()
         } else {
             return Vec::new();
@@ -109,9 +109,16 @@ mod tests {
     }
 
     #[test]
-    fn fnan_no_fire_on_ordering_or_lowercase_nan() {
-        let diags = node_diags("y = x < NaN;\nz = x == nan;\n");
+    fn fnan_no_fire_on_ordering_comparison() {
+        let diags = node_diags("y = x < NaN;\n");
         assert!(!has_id(&diags, "FNAN"), "got: {diags:?}");
+    }
+
+    #[test]
+    fn fnan_fires_on_lowercase_nan_function() {
+        // Probed: MATLAB reports FNAN for `a+b == nan` as for `NaN`.
+        let diags = node_diags("if a+b == nan, end\n");
+        assert!(has_id(&diags, "FNAN"), "got: {diags:?}");
     }
 
     #[test]

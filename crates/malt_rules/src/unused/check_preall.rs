@@ -6,7 +6,12 @@ impl UnusedEngine {
     /// Run PREALL check: an array preallocated (`x = zeros(1, n)`) whose value
     /// is replaced by a later full assignment in the same block before anything
     /// reads it, so the preallocation does nothing.
-    pub(crate) fn check_preall(&self, table: &SymbolTable, diagnostics: &mut Vec<Diagnostic>) {
+    pub(crate) fn check_preall(
+        &self,
+        table: &SymbolTable,
+        unreachable: &[std::ops::Range<usize>],
+        diagnostics: &mut Vec<Diagnostic>,
+    ) {
         if self.is_check_disabled("PREALL") {
             return;
         }
@@ -14,6 +19,13 @@ impl UnusedEngine {
         for scope in &table.scopes {
             for def in &scope.defs {
                 if !def.prealloc || def.kind != DefKind::Assignment || def.partial {
+                    continue;
+                }
+                // Probe gp-b__t1: MATLAB reports nothing after an `error` call.
+                if unreachable
+                    .iter()
+                    .any(|r| r.contains(&def.byte_range.start))
+                {
                     continue;
                 }
                 let name = &def.name;
@@ -98,6 +110,14 @@ mod tests {
     #[test]
     fn preall_ok_when_overwrite_is_conditional() {
         assert!(!preall("function foo(n, c)\n    x = zeros(1, n);\n    if c\n        x = 5;\n    end\n    disp(x);\nend\n"));
+    }
+
+    #[test]
+    fn preall_silent_after_error_call() {
+        // Probe gp-b__t1: statements after an `error` call are not analysed.
+        assert!(!preall(
+            "function foo(n)\n    error('stop');\n    x = zeros(1, n);\n    x = compute(n);\n    disp(x);\nend\n"
+        ));
     }
 
     #[test]

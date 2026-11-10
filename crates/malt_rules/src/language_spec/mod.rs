@@ -2866,22 +2866,19 @@ pub(crate) fn block_properties(block_node: tree_sitter::Node) -> Vec<tree_sitter
     props
 }
 
-/// Whether an arguments block declares any attribute value (must be logical constants).
-pub(crate) fn attributes_have_value(block_node: tree_sitter::Node) -> bool {
+/// Whether an arguments block assigns an attribute a value other than `true` or `false`.
+pub(crate) fn attributes_have_value(block_node: tree_sitter::Node, source: &str) -> bool {
     let mut cursor = block_node.walk();
-    for child in block_node.children(&mut cursor) {
-        if child.kind() != "attributes" {
-            continue;
-        }
-        let mut inner = child.walk();
-        for attr in child.children(&mut inner) {
-            if attr.kind() == "=" || attr.is_error() || attr.is_missing() {
-                return true;
-            }
-        }
-        return false;
-    }
-    false
+    let attrs: Vec<tree_sitter::Node> = block_node
+        .children(&mut cursor)
+        .filter(|child| child.kind() == "attributes")
+        .collect();
+    attrs.into_iter().any(|attrs| {
+        node_text(attrs, source).split('=').skip(1).any(|rest| {
+            let value = rest.split([',', ')']).next().unwrap_or_default().trim();
+            value != "true" && value != "false"
+        })
+    })
 }
 
 /// A reference made inside a validation function call.
@@ -3020,34 +3017,6 @@ pub(crate) fn block_declaration_sequence(
 /// Whether `sequence` is a prefix of `full`.
 pub(crate) fn is_prefix_of(sequence: &[String], full: &[String]) -> bool {
     sequence.len() <= full.len() && sequence.iter().zip(full.iter()).all(|(a, b)| a == b)
-}
-
-/// Whether a name is a known MATLAB class name.
-pub(crate) fn is_known_class_name(name: &str) -> bool {
-    matches!(
-        name,
-        "double"
-            | "single"
-            | "logical"
-            | "char"
-            | "string"
-            | "cell"
-            | "struct"
-            | "function_handle"
-            | "int8"
-            | "int16"
-            | "int32"
-            | "int64"
-            | "uint8"
-            | "uint16"
-            | "uint32"
-            | "uint64"
-            | "table"
-            | "datetime"
-            | "duration"
-            | "categorical"
-            | "calendarDuration"
-    )
 }
 
 /// Functions that are not supported inside arguments blocks.

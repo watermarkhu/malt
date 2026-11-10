@@ -8,12 +8,6 @@ impl BugsEngine {
         if node.kind() != "unary_operator" {
             return Vec::new();
         }
-        let at_statement_level = node
-            .parent()
-            .is_some_and(|p| p.kind() == "source_file" || p.kind() == "block");
-        if !at_statement_level {
-            return Vec::new();
-        }
         let Some(inner) = node.child_by_field_name("operand") else {
             return Vec::new();
         };
@@ -78,6 +72,14 @@ mod tests {
     #[test]
     fn decr_fires_on_minus_minus() {
         let diags = node_diags("--count;\n");
+        assert!(has_id(&diags, "DECR"), "got: {diags:?}");
+    }
+
+    #[test]
+    fn incr_and_decr_fire_inside_assignments() {
+        // Probed: MATLAB reports INCR at `++` in `y = ++x;` and DECR for `--x`.
+        let diags = node_diags("y = ++x;\nz = --x;\n");
+        assert!(has_id(&diags, "INCR"), "got: {diags:?}");
         assert!(has_id(&diags, "DECR"), "got: {diags:?}");
     }
 

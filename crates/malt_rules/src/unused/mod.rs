@@ -224,7 +224,8 @@ impl Rule for UnusedEngine {
         self.check_nused(&table, &mut diagnostics);
         self.check_puse(&table, &mut diagnostics);
         self.check_setnu(&table, &mut diagnostics);
-        self.check_preall(&table, &mut diagnostics);
+        let unreachable = check_unrch::unreachable_regions(ctx.tree, ctx.source);
+        self.check_preall(&table, &unreachable, &mut diagnostics);
         self.check_vanus(&table, &mut diagnostics);
         self.check_vunus(&table, ctx.tree, ctx.source, &mut diagnostics);
         let file_stem = ctx
@@ -233,7 +234,7 @@ impl Rule for UnusedEngine {
             .and_then(|s| s.to_str())
             .unwrap_or("");
         self.check_defnu(&table, file_stem, &mut diagnostics);
-        self.check_manu(&table, &mut diagnostics);
+        self.check_manu(&table, ctx.tree.root_node(), ctx.source, &mut diagnostics);
 
         // 3. Run tree-walk checks.
         self.check_unrch(ctx, &mut diagnostics);

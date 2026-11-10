@@ -10,8 +10,8 @@ use std::collections::HashMap;
 use std::ops::Range;
 
 /// A name declared in an `arguments` block: where it is declared.
-struct BlockDecl {
-    name: String,
+pub(crate) struct BlockDecl {
+    pub(crate) name: String,
     byte_range: Range<usize>,
     line: usize,
     column: usize,
@@ -19,9 +19,9 @@ struct BlockDecl {
 
 /// The `arguments` blocks of one file.
 #[derive(Default)]
-struct ArgumentsBlocks {
+pub(crate) struct ArgumentsBlocks {
     /// Declarations keyed by the byte range of the function they belong to.
-    by_function: HashMap<(usize, usize), Vec<BlockDecl>>,
+    pub(crate) by_function: HashMap<(usize, usize), Vec<BlockDecl>>,
     /// Byte range of every `arguments` block. A name that appears inside one
     /// (a validator or a default value) is not a use of the input.
     ranges: Vec<Range<usize>>,
@@ -90,8 +90,12 @@ impl UnusedEngine {
                 if !inusd_on {
                     continue;
                 }
-                // MANU reports unused method inputs, with advice that fits methods.
-                if scope.kind == ScopeKind::Method && manu_enabled {
+                // MANU reports a method's only input when it is unused; with
+                // more inputs MATLAB reports each unused one as INUSD.
+                if scope.kind == ScopeKind::Method
+                    && manu_enabled
+                    && super::check_manu::sole_input(scope)
+                {
                     continue;
                 }
                 if !scope.is_used(name) {
@@ -114,7 +118,7 @@ impl UnusedEngine {
 }
 
 /// Collect the names declared in every `arguments` block of the file.
-fn collect_arguments_blocks(root: Node, source: &str) -> ArgumentsBlocks {
+pub(crate) fn collect_arguments_blocks(root: Node, source: &str) -> ArgumentsBlocks {
     let mut blocks = ArgumentsBlocks::default();
     collect_arguments_dfs(root, source, &mut blocks);
     blocks

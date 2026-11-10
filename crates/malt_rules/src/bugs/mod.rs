@@ -119,6 +119,8 @@ use malt_core::{Category, Config, Diagnostic, FileContext, Fix, NodeContext, Rul
 use serde::Deserialize;
 use tree_sitter::Node;
 
+use crate::analysis::control_flow::is_split_statement_continuation;
+
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
@@ -402,37 +404,18 @@ impl BugsEngine {
     }
 
     fn walk_line_break_termination(node: Node, source: &str, diagnostics: &mut Vec<Diagnostic>) {
-        if node.kind() == "unary_operator" {
-            if let Some(parent) = node.parent() {
-                if parent.kind() == "source_file" || parent.kind() == "block" {
-                    let op = node_text(node, source).trim();
-                    let is_incr_decr = node
-                        .child_by_field_name("operand")
-                        .and_then(|o| {
-                            (o.kind() == "unary_operator")
-                                .then(|| o.child_by_field_name("operand"))
-                                .flatten()
-                        })
-                        .is_some_and(|o| o.kind() == "identifier");
-                    let follows_statement = node
-                        .prev_named_sibling()
-                        .is_some_and(|p| p.kind() != "comment");
-                    if (op.starts_with('+') || op.starts_with('-'))
-                        && !is_incr_decr
-                        && follows_statement
-                    {
-                        let pos = node.start_position();
-                        diagnostics.push(Diagnostic {
-                            rule_id: "NOPRC",
-                            message: "A line break terminates the statement so it may be incomplete. Use ellipsis (...) to continue the statement. Or add a semicolon to hide the output.".to_string(),
-                            severity: Severity::Error,
-                            byte_range: node.start_byte()..node.end_byte(),
-                            line: pos.row + 1,
-                            column: pos.column + 1,
-                            fix: None,
-                        });
-                    }
-                }
+        if is_split_statement_continuation(node, source) {
+            if let Some(previous) = node.prev_named_sibling() {
+                let pos = previous.start_position();
+                diagnostics.push(Diagnostic {
+                    rule_id: "NOPRC",
+                    message: "A line break terminates the statement so it may be incomplete. Use ellipsis (...) to continue the statement. Or add a semicolon to hide the output.".to_string(),
+                    severity: Severity::Error,
+                    byte_range: node.start_byte()..node.end_byte(),
+                    line: pos.row + 1,
+                    column: pos.column + 1,
+                    fix: None,
+                });
             }
         }
 
@@ -1143,6 +1126,7 @@ a = 1 + 2
 ";
         let diags = file_diags(src);
         assert!(has_id(&diags, "NOPRC"), "got: {diags:?}");
+        assert!(diags.iter().any(|d| d.rule_id == "NOPRC" && d.line == 1));
     }
 
     #[test]

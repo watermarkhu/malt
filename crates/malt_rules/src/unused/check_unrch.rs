@@ -167,9 +167,60 @@ fn contains_kind(node: Node, kind: &str) -> bool {
 }
 
 /// Returns `true` if `node` never lets execution continue to the next statement.
-/// Probes: `error` and `rethrow` calls, and `while true` loops with no `break`.
+/// Probes: `rethrow` calls, `error` calls whose first argument is not a variable
+/// (`error(s)` is not a terminator, gp-b__t2; `error(sprintf(...))` is, readability__t3),
+/// and `while true` loops with no `break`.
 fn is_terminator(node: Node, source: &str) -> bool {
-    is_call_to(node, source, &["error", "rethrow"]) || is_infinite_loop(node, source)
+    is_call_to(node, source, &["rethrow"])
+        || (is_call_to(node, source, &["error"]) && !has_variable_first_argument(node))
+        || is_infinite_loop(node, source)
+}
+
+/// Returns `true` if the first argument of a call is a bare identifier.
+fn has_variable_first_argument(node: Node) -> bool {
+    named_children(node)
+        .into_iter()
+        .find(|c| c.kind() == "arguments")
+        .and_then(|args| named_children(args).into_iter().next())
+        .is_some_and(|arg| arg.kind() == "identifier")
+}
+
+/// Byte ranges of the code that UNRCH reports as unreachable: every statement
+/// after a `return`, `break`, `continue`, `error` or infinite loop in the same
+/// block. Other checks use them to stay silent where MATLAB does not analyse.
+pub(crate) fn unreachable_regions(
+    tree: &tree_sitter::Tree,
+    source: &str,
+) -> Vec<std::ops::Range<usize>> {
+    let mut regions: Vec<std::ops::Range<usize>> = find_unreachable(tree, source)
+        .into_iter()
+        .map(|span| span.byte_range)
+        .collect();
+    collect_regions_after_terminator(tree.root_node(), source, &mut regions);
+    regions
+}
+
+fn collect_regions_after_terminator(
+    node: Node,
+    source: &str,
+    regions: &mut Vec<std::ops::Range<usize>>,
+) {
+    if node.kind() == "block" || is_script_body(node) {
+        let mut terminator_seen = false;
+        for child in named_children(node) {
+            if terminator_seen {
+                if !matches!(child.kind(), "comment" | "function_definition") {
+                    regions.push(child.start_byte()..node.end_byte());
+                }
+                break;
+            } else if is_terminator(child, source) {
+                terminator_seen = true;
+            }
+        }
+    }
+    for child in named_children(node) {
+        collect_regions_after_terminator(child, source, regions);
+    }
 }
 
 /// Walk the tree; within each `block` or script body (`source_file`), mark
@@ -184,7 +235,7 @@ fn collect_unreachable_after_error(
         let mut terminator_seen = false;
         for child in named_children(node) {
             if terminator_seen {
-                if child.kind() == "comment" {
+                if matches!(child.kind(), "comment" | "function_definition") {
                     continue;
                 }
                 // One report per run: MATLAB flags the first statement only.
@@ -314,6 +365,26 @@ mod tests {
         // Probe: MATLAB reports nothing after a break outside a loop (a syntax error).
         let diags = lint_file(&*engine(), "disp(1);\nbreak\ndisp(2);\n");
         assert!(!has_id(&diags, "UNRCH"), "got: {diags:?}");
+    }
+
+    #[test]
+    fn unrch_ok_after_error_with_variable_message() {
+        // Probe gp-b__t2: `error(s)` with a variable does not end the flow.
+        let diags = lint_file(
+            &*engine(),
+            "function f(s)\n    error(s);\n    disp(1);\nend\n",
+        );
+        assert!(unrch_lines(&diags).is_empty(), "got: {diags:?}");
+    }
+
+    #[test]
+    fn unrch_fires_after_error_with_computed_message() {
+        // Probe readability__t3: `error(sprintf(...))` ends the flow.
+        let diags = lint_file(
+            &*engine(),
+            "function f(x)\n    error(sprintf('bad %d', x));\n    disp(1);\nend\n",
+        );
+        assert_eq!(unrch_lines(&diags), vec![3], "got: {diags:?}");
     }
 
     #[test]

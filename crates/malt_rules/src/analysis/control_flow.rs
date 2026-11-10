@@ -199,6 +199,71 @@ pub fn is_script_body(node: Node) -> bool {
         .any(|c| c.kind() == "function_definition")
 }
 
+/// `true` for a statement-level unary `+x` or `-x` (not `++x`/`--x`) that
+/// follows a completed statement. MATLAB reads the line break before it as the
+/// end of the previous statement, which is then reported by NOPRC.
+pub fn is_split_statement_continuation(node: Node, source: &str) -> bool {
+    if node.kind() != "unary_operator" {
+        return false;
+    }
+    if !node
+        .parent()
+        .is_some_and(|p| matches!(p.kind(), "source_file" | "block"))
+    {
+        return false;
+    }
+    let op = node_text(node, source).trim();
+    let is_incr_decr = node
+        .child_by_field_name("operand")
+        .and_then(|o| {
+            (o.kind() == "unary_operator")
+                .then(|| o.child_by_field_name("operand"))
+                .flatten()
+        })
+        .is_some_and(|o| o.kind() == "identifier");
+    let follows_statement = node
+        .prev_named_sibling()
+        .is_some_and(|p| p.kind() != "comment");
+    (op.starts_with('+') || op.starts_with('-')) && !is_incr_decr && follows_statement
+}
+
+/// `true` when the statement holding `node` follows a `return`, `break`,
+/// `continue` or `error(...)` in the same block. MATLAB's style checks skip
+/// such statements (only UNRCH reports them).
+pub fn in_unreachable_code(node: Node, source: &str) -> bool {
+    let mut statement = node;
+    while let Some(parent) = statement.parent() {
+        if matches!(parent.kind(), "block" | "source_file") {
+            break;
+        }
+        statement = parent;
+    }
+    let script = statement
+        .parent()
+        .is_some_and(|p| p.kind() == "source_file");
+    let mut previous = statement.prev_named_sibling();
+    while let Some(sibling) = previous {
+        previous = sibling.prev_named_sibling();
+        if sibling.kind() == "comment" {
+            continue;
+        }
+        if let Some(cause) = termination_cause(sibling.kind()) {
+            if !(script && matches!(cause, "break" | "continue")) {
+                return true;
+            }
+        }
+        let callee = match sibling.kind() {
+            "function_call" => sibling.child_by_field_name("name"),
+            "command" => sibling.named_child(0),
+            _ => None,
+        };
+        if callee.is_some_and(|c| node_text(c, source) == "error") {
+            return true;
+        }
+    }
+    false
+}
+
 /// For a single `block` node, find the first terminating statement and mark
 /// all subsequent named siblings as unreachable.
 fn check_block_unreachable(block: Node, source: &str, spans: &mut Vec<UnreachableSpan>) {

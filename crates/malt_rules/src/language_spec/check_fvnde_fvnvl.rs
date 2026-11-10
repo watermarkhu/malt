@@ -17,18 +17,27 @@ impl LanguageSpecEngine {
             return;
         }
         for block in blocks {
-            for prop in block_properties(block.node) {
-                if !prop_has_name_value(prop) {
+            let mut cursor = block.node.walk();
+            let errors: Vec<tree_sitter::Node> = block
+                .node
+                .children(&mut cursor)
+                .filter(|child| child.is_error())
+                .collect();
+            for prop in block_properties(block.node).into_iter().chain(errors) {
+                // The grammar splits `opts.?double` into a name and an error node,
+                // so the `?` is read from the source text of the property.
+                let text = node_text(prop, source);
+                let name_len = text
+                    .find(|c: char| c.is_whitespace() || matches!(c, '=' | '{' | '('))
+                    .unwrap_or(text.len());
+                if !text[..name_len].contains('?') {
                     continue;
                 }
-                let uses_class_name = prop_name_value_field(prop, source)
-                    .as_deref()
-                    .map(is_known_class_name)
-                    .unwrap_or(false);
-                if !uses_class_name {
-                    continue;
-                }
-                if nde && prop_has_default(prop) {
+                let tail = &text[name_len..];
+                let head = tail.split('=').next().unwrap_or_default();
+                let has_default = prop_has_default(prop) || tail.contains('=');
+                let has_validation = prop_has_validation(prop) || head.contains('{');
+                if nde && has_default {
                     self.push_diag(
                         prop,
                         "FVNDE",
@@ -36,7 +45,7 @@ impl LanguageSpecEngine {
                         diagnostics,
                     );
                 }
-                if nvl && prop_has_validation(prop) {
+                if nvl && has_validation {
                     self.push_diag(
                         prop,
                         "FVNVL",
@@ -59,7 +68,7 @@ mod tests {
         let source = "\
 function f(opts)
     arguments
-        opts.double = 3
+        opts.?double = 3
     end
 end
 ";
@@ -68,6 +77,34 @@ end
             !filter_by_id(&diags, "FVNDE").is_empty(),
             "FVNDE should fire for a default value on a class-name name-value argument"
         );
+    }
+
+    #[test]
+    fn test_fvnde_fires_dotted_class_name_default() {
+        let source = "\
+function f(opts)
+    arguments
+        opts.?matlab.graphics.chart.primitive.Line = 1
+    end
+end
+";
+        let diags = check_source(source, "f.m");
+        assert!(!filter_by_id(&diags, "FVNDE").is_empty());
+    }
+
+    #[test]
+    fn test_fvnde_no_fire_field_named_like_class() {
+        // MATLAB: only the `?Class` form is a class name; `opts.double` is a plain name.
+        let source = "\
+function f(opts)
+    arguments
+        opts.double = 3
+        opts.string (1,1) string = \"a\"
+    end
+end
+";
+        let diags = check_source(source, "f.m");
+        assert!(filter_by_id(&diags, "FVNDE").is_empty());
     }
 
     #[test]
@@ -91,7 +128,7 @@ end
         let source = "\
 function f(opts)
     arguments
-        opts.double {mustBeReal}
+        opts.?double {mustBeReal}
     end
 end
 ";
@@ -100,6 +137,19 @@ end
             !filter_by_id(&diags, "FVNVL").is_empty(),
             "FVNVL should fire for validation on a class-name name-value argument"
         );
+    }
+
+    #[test]
+    fn test_fvnvl_no_fire_field_named_like_class() {
+        let source = "\
+function f(opts)
+    arguments
+        opts.double {mustBeReal}
+    end
+end
+";
+        let diags = check_source(source, "f.m");
+        assert!(filter_by_id(&diags, "FVNVL").is_empty());
     }
 
     #[test]

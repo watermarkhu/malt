@@ -34,9 +34,49 @@ impl LanguageSpecEngine {
         };
         // MATLAB reads a single argument as an identifier only when it has no
         // whitespace: 'Result: done' is a plain message.
-        if content.contains(':') && !content.chars().any(char::is_whitespace) {
+        // MATLAB does not check statements that can never run.
+        if content.contains(':')
+            && !content.chars().any(char::is_whitespace)
+            && !in_unreachable_code(node, source)
+        {
             self.push_diag(node, rule_id, message, diagnostics);
         }
+    }
+}
+
+/// Whether an earlier statement in an enclosing block ends control flow.
+fn in_unreachable_code(node: tree_sitter::Node, source: &str) -> bool {
+    let mut current = node;
+    while let Some(parent) = current.parent() {
+        if matches!(parent.kind(), "block" | "source_file") {
+            let script = parent.kind() == "source_file"
+                && crate::analysis::control_flow::is_script_body(parent);
+            let mut cursor = parent.walk();
+            for sibling in parent.named_children(&mut cursor) {
+                if sibling.id() == current.id() {
+                    break;
+                }
+                if statement_terminates(sibling, source, script) {
+                    return true;
+                }
+            }
+        }
+        current = parent;
+    }
+    false
+}
+
+fn statement_terminates(stmt: tree_sitter::Node, source: &str, script: bool) -> bool {
+    match stmt.kind() {
+        "return_statement" => true,
+        "break_statement" | "continue_statement" => !script,
+        "function_call" => callee_name(stmt, source).is_some_and(|name| {
+            matches!(
+                name.as_str(),
+                "error" | "throw" | "rethrow" | "exit" | "quit"
+            )
+        }),
+        _ => false,
     }
 }
 
@@ -101,6 +141,19 @@ warning('hello: world');
 ";
         let diags = check_source(source, "myscript.m");
         assert!(filter_by_id(&diags, "ERTXT").is_empty());
+        assert!(filter_by_id(&diags, "WTXT").is_empty());
+    }
+
+    #[test]
+    fn test_ertxt_wtxt_not_reported_after_terminator() {
+        // MATLAB: statements after `error(...)` are unreachable and not checked.
+        let source = "\
+error('a:b');
+error('c:d');
+warning('e:f');
+";
+        let diags = check_source(source, "myscript.m");
+        assert_eq!(filter_by_id(&diags, "ERTXT").len(), 1);
         assert!(filter_by_id(&diags, "WTXT").is_empty());
     }
 }

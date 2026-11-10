@@ -22,7 +22,7 @@ impl ReadabilityEngine {
         while let Some(node) = stack.pop() {
             let mut cursor = node.walk();
             stack.extend(node.children(&mut cursor));
-            if node.kind() != "assignment" {
+            if node.kind() != "assignment" || in_unreachable_code(node, source) {
                 continue;
             }
             let (Some(left), Some(right)) = (
