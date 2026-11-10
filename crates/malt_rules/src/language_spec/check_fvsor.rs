@@ -151,6 +151,27 @@ end
     }
 
     #[test]
+    fn test_fvsor_no_fire_for_class_name_value_with_default() {
+        // MATLAB probe (t__fv2): `opts.?matlab.graphics.chart.primitive.Line = 1`
+        // in the block declares the function-line input `opts`; no FVSOR. The
+        // grammar puts this declaration in an ERROR node, not a property.
+        let source = "\
+function r = fvG(a, opts)
+    arguments
+        a
+        opts.?matlab.graphics.chart.primitive.Line = 1
+    end
+    r = 1;
+end
+";
+        let diags = check_source(source, "f.m");
+        assert!(
+            filter_by_id(&diags, "FVSOR").is_empty(),
+            "FVSOR should NOT fire for a class name-value declaration: {diags:?}"
+        );
+    }
+
+    #[test]
     fn test_fvsor_no_fire_matching_ignored_argument() {
         let source = "\
 function f(~, b)

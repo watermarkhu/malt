@@ -2886,12 +2886,24 @@ pub(crate) fn prop_has_dimensions(prop: tree_sitter::Node) -> bool {
 }
 
 /// Collect the `property` and `class_property` children of an arguments block.
+///
+/// A `struct.?Class = default` line does not parse as a `class_property` (the
+/// grammar has no default value for it): the grammar wraps the class property in
+/// an `ERROR` node next to the block's other declarations, so those are looked
+/// into too.
 pub(crate) fn block_properties(block_node: tree_sitter::Node) -> Vec<tree_sitter::Node> {
     let mut props = Vec::new();
     let mut cursor = block_node.walk();
     for child in block_node.children(&mut cursor) {
         if child.kind() == "property" || child.kind() == "class_property" {
             props.push(child);
+        } else if child.kind() == "ERROR" {
+            let mut inner = child.walk();
+            props.extend(
+                child
+                    .children(&mut inner)
+                    .filter(|c| c.kind() == "class_property"),
+            );
         }
     }
     props

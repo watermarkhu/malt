@@ -30,7 +30,7 @@ outside the repository (`~/.local/share/malt-reference/`).
 - The `mathworks` preset mirrors MATLAB's factory configuration. Checks MATLAB never
   reports by default are off under it and on under `--preset all`: ERTAG, WNTAG,
   BDLOG2, CTCH, VANUS, FVNIV, SUSENS, IDISVARHIGH, USESWNS, NOEFF, PUSE, COMPNOP,
-  COMPNOT, CTOINW, BDSCA2, LOGSUM, DUALC, GTARG, LTARG, BDLGI, SIMPT, STRSZ, ELARLOG, MFAMB, STCUL, USENS, ITERS, SHOCIRF, MOCUP, ADAPPREF, MIPC1, VTFIN, PFUTVR, VTPCON, VTPIN, VTPEAL, GPNES, the forward-compatibility gates (FCLEN, FCCPV,
+  COMPNOT, CTOINW, BDSCA2, LOGSUM, DUALC, GTARG, LTARG, BDLGI, SIMPT, STRSZ, ELARLOG, MFAMB, STCUL, USENS, ITERS, SHOCIRF, MOCUP, ADAPPREF, MIPC1, VTFIN, LNGNM, PFUTVR, VTPCON, VTPIN, VTPEAL, GPNES, the forward-compatibility gates (FCLEN, FCCPV,
   FCDQS, FCFAV, FCHBL, FCLFS, FCNVA) and the 897 compatibility entries MATLAB lists as
   "low reliability" (`low_reliability = true` in `data/compatibility.toml`; also on
   with the `behavior-changes` category).
@@ -104,10 +104,18 @@ MATLAB in the probes (some need toolboxes that are not installed).
 | FVUBD, FVONV | MATLAB reports the forward-reference case as FVVCON. |
 | BADOT, SYNEND, EOFMI | No evidence in MATLAB's output; the syntax engine no longer emits them. |
 
-## Open rows (28 differences, see the backlog)
+## Open rows (4 differences, see the backlog)
 
-| Group | Rows |
+| Row | Note |
 | --- | --- |
-| Reaching definitions | INUSD 4 (entry value overwritten before a read; reads only after `error`), DEFNU 3 (`s.f(end+1) = i` records a use of `f`; a function after a classdef `end`; `t__fv4`), NODEF 3 (`ans`, `keyboard`, a never-defined name), ASGLU 2 (`bugs__f1/f2:44`), VUNUS, SETNU |
-| Recovery after a parse error | SYNER 3 (`f(a.b=1)`; a SYNER after a number-literal error on the same statement), NOPAR, REDEF (`k += 1` on a loop variable), FVSOR (`t__fv2:62`), FNDEF (`readability__t3f` missed, `t__fv4` extra), NOPTS (`syntax__t5`), BDLOG1 (`syntax__v11`) |
-| Unexplained | LNGNM (`gp-a__t1:24`), MCNPN (`ls-c__V1:33`), NOPTS (`ls-c__scr1:8`: `f(1)` before `f` is assigned), RHSFN (`bugs__t1:45`) |
+| MCNPN `ls-c__V1.m:33` (malt-only) | MATLAB is silent for a signature-only declaration in a `methods (Abstract)` block (`f2(obj)` without the `function` keyword); abstract methods with a body and abstract properties are reported. Not implemented. |
+| ASGLU `bugs__f1.m:44`, `bugs__f2.m:44` (matlab-only) | MATLAB reports `[a,b] = 5` at line 44; malt drops the dead-store analysis after the parse error at lines 27-28 (a stray `elseif ... end`). Deleting those two lines makes malt report it. |
+| DEFNU `t__fv4.m:1` (matlab-only) | With a `function` line inside an `arguments` block MATLAB reports the primary function at line 1, column 14; malt reports at line 5. |
+
+## Rules worth knowing
+
+- A file whose root is an ERROR node that starts with `function` is analysed as a function (symbol table, FNDEF, NASGU).
+- `condition` is a field name in this grammar, not a node kind: read it with `child_by_field_name("condition")`.
+- A number-literal error drops every SYNER in its statement; an unterminated string drops the other checks on its statement.
+- NODEF is reported for a read with no reaching definition when the name is assigned somewhere later in the function, and silent otherwise.
+- INUSD uses the entry value's liveness: an input overwritten before any read, or read only after `error(...)`, is unused.

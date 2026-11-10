@@ -19,7 +19,8 @@ impl UnusedEngine {
 
         for (index, scope) in table.scopes.iter().enumerate() {
             for def in &scope.defs {
-                if def.kind != DefKind::Assignment || def.partial {
+                // A for-loop variable counts too: a nested function may set it.
+                if !matches!(def.kind, DefKind::Assignment | DefKind::ForIterator) || def.partial {
                     continue;
                 }
                 let name = &def.name;
@@ -27,18 +28,19 @@ impl UnusedEngine {
                     continue;
                 }
                 // Inputs, outputs, globals and persistents are used outside.
-                if scope
-                    .defs
-                    .iter()
-                    .any(|d| d.name == *name && d.kind != DefKind::Assignment)
-                {
+                if scope.defs.iter().any(|d| {
+                    d.name == *name && !matches!(d.kind, DefKind::Assignment | DefKind::ForIterator)
+                }) {
                     continue;
                 }
                 // Report once per variable, at its first assignment in this scope.
                 let first = scope
                     .defs
                     .iter()
-                    .filter(|d| d.kind == DefKind::Assignment && d.name == *name)
+                    .filter(|d| {
+                        matches!(d.kind, DefKind::Assignment | DefKind::ForIterator)
+                            && d.name == *name
+                    })
                     .min_by_key(|d| d.byte_range.start);
                 if first.is_none_or(|d| d.byte_range != def.byte_range) {
                     continue;
@@ -100,6 +102,31 @@ mod tests {
     }
 
     // -- SETNU: shared variable set but never read --------------------------
+
+    #[test]
+    fn setnu_fires_on_for_variable_set_by_nested_function() {
+        // Probe (c4__m1, sn_a): `k` is the loop variable and `inner` sets it; never read.
+        let diags = lint_file(
+            &*engine(),
+            "function r = outer()\nfor k = 1:3\n  inner();\nend\n  function inner()\n    k = 5;\n  end\nr = 1;\nend\n",
+        );
+        let lines: Vec<usize> = diags
+            .iter()
+            .filter(|d| d.rule_id == "SETNU")
+            .map(|d| d.line)
+            .collect();
+        assert_eq!(lines, vec![2], "got: {diags:?}");
+    }
+
+    #[test]
+    fn setnu_silent_for_loop_variable_not_set_by_nested_function() {
+        // Probe (sn_e): a loop variable nobody else sets is not SETNU.
+        let diags = lint_file(
+            &*engine(),
+            "function r = outer()\nfor k = 1:3\n  disp(1);\nend\nr = 1;\nend\n",
+        );
+        assert!(!has_id(&diags, "SETNU"), "got: {diags:?}");
+    }
 
     #[test]
     fn setnu_fires_on_shared_variable_never_read() {

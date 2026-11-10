@@ -92,6 +92,10 @@ pub struct Dead {
     /// never read. A partial store is dead only if no later read of the
     /// variable can see it, so `s.a = 1; s.a = 2; disp(s)` reports nothing.
     pub partial: Vec<usize>,
+    /// Variables whose value on entry to the scope may be read: live before the
+    /// body, plus the excluded names (conservatively read). An input outside this
+    /// set is never read with its entry value (INUSD).
+    pub entry: HashSet<String>,
 }
 
 /// The dead assignments of scope `index`.
@@ -168,10 +172,12 @@ pub fn dead_stores(table: &SymbolTable, index: usize, tree: &Tree, source: &str)
         partial_reports: Vec::new(),
         bail: false,
     };
-    analysis.block(body, exit, true);
+    let before_body = analysis.block(body, exit, true);
     if analysis.bail {
         return None;
     }
+    let mut entry = analysis.finish(before_body);
+    entry.extend(analysis.excluded.iter().cloned());
     analysis.reports.sort_unstable();
     analysis.reports.dedup();
     analysis.partial_reports.sort_unstable();
@@ -179,6 +185,7 @@ pub fn dead_stores(table: &SymbolTable, index: usize, tree: &Tree, source: &str)
     Some(Dead {
         full: analysis.reports,
         partial: analysis.partial_reports,
+        entry,
     })
 }
 

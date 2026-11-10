@@ -683,9 +683,14 @@ impl<'a> Builder<'a> {
             return ScopeKind::NestedFunction;
         }
 
-        // File-level function.
-        if !self.first_file_function_seen {
-            self.first_file_function_seen = true;
+        // File-level function. A classdef file's main entity is the class, so a
+        // function after the classdef `end` is local (probed: `function helper()`
+        // after a classdef is DEFNU when unused).
+        let after_class = std::iter::successors(node.prev_sibling(), |s| s.prev_sibling())
+            .any(|s| s.kind() == "class_definition");
+        let first = !self.first_file_function_seen && !after_class;
+        self.first_file_function_seen = true;
+        if first {
             ScopeKind::Function
         } else {
             ScopeKind::LocalFunction
@@ -1235,6 +1240,11 @@ impl<'a> Builder<'a> {
 
             // Function call name: count as usage (could be array indexing).
             "function_call" => {
+                // `s.f(end+1)`: `f` is a member of `s`, not a name in scope
+                // (probed: a local function `f` is still DEFNU after it).
+                if is_qualified_call(parent) {
+                    return;
+                }
                 // The callee is a use because it could be indexing (`A(i)`),
                 // but one that checks can tell from a plain variable use.
                 let is_callee = parent

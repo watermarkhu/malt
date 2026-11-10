@@ -85,7 +85,9 @@ impl UnsetVariablesEngine {
                     })
                     .map(|d| d.byte_range.start)
                     .collect();
-                (!assigns.is_empty() && assigns.iter().all(|&start| start > use_start))
+                (!assigns.is_empty()
+                    && assigns.iter().all(|&start| start > use_start)
+                    && !Self::assigned_in_enclosing_loop(func_node, use_start, &assigns))
                     || Self::cleared_before(func_node, source, scope, name, use_start)
             };
             self.emit_possibly_unset_diagnostics(&da, nodef_applies, &mut diagnostics);
@@ -98,6 +100,31 @@ impl UnsetVariablesEngine {
         }
 
         diagnostics
+    }
+
+    /// Whether a loop around the use at `use_start` contains one of `assigns`: the
+    /// assignment reaches the use on the next iteration, so MATLAB reports nothing
+    /// (probed: `while q` with `q = 1` in the body, `q` read before `q = i` in a
+    /// `for` body).
+    fn assigned_in_enclosing_loop(
+        func: tree_sitter::Node,
+        use_start: usize,
+        assigns: &[usize],
+    ) -> bool {
+        let Some(mut node) = func.descendant_for_byte_range(use_start, use_start + 1) else {
+            return false;
+        };
+        loop {
+            if matches!(node.kind(), "for_statement" | "while_statement")
+                && assigns.iter().any(|a| node.byte_range().contains(a))
+            {
+                return true;
+            }
+            match node.parent() {
+                Some(parent) => node = parent,
+                None => return false,
+            }
+        }
     }
 
     /// Whether a plain `clear name` statement of the function body comes before
@@ -374,5 +401,60 @@ end
         assert!(nodef_ids(src).is_empty(), "{:?}", nodef_ids(src));
         let src = "function r = foo(c)\n    if c\n        s = 1;\n    else\n        return\n    end\n    r = s;\nend\n";
         assert!(nodef_ids(src).is_empty());
+    }
+
+    fn nodef_lines(src: &str) -> Vec<(usize, usize)> {
+        lint_file(&*engine(), src)
+            .iter()
+            .filter(|d| d.rule_id == "NODEF")
+            .map(|d| (d.line, d.column))
+            .collect()
+    }
+
+    #[test]
+    fn nodef_in_if_and_while_condition() {
+        // Probe (custom__a, o, p): a condition read before the later assignment.
+        assert_eq!(
+            nodef_lines("function foo(x)\nif q\n    x = 1;\nend\nq = 2;\nend\n"),
+            vec![(2, 4)]
+        );
+        assert_eq!(
+            nodef_lines("function foo(x)\nif x && q\n    y = 1;\nend\nq = 2;\nend\n"),
+            vec![(2, 9)]
+        );
+        assert_eq!(
+            nodef_lines("function foo()\nwhile q\n    x = 1;\nend\nq = 2;\nend\n"),
+            vec![(2, 7)]
+        );
+    }
+
+    #[test]
+    fn nodef_silent_when_a_loop_assigns_the_name() {
+        // Probe (v12, m): the assignment in the loop body reaches the read on the
+        // next iteration.
+        assert!(nodef_lines("function f()\nwhile q\n    q = 1;\nend\nend\n").is_empty());
+        assert!(nodef_lines(
+            "function f()\nfor i = 1:2\n    if i > 1, y = q; end\n    q = i;\nend\nend\n"
+        )
+        .is_empty());
+    }
+
+    #[test]
+    fn nodef_for_bare_command_name_before_assignment() {
+        // Probe (v4, gp-a__t10 `keyboard;`): `q;` is a read of `q` (NODEF and VUNUS).
+        assert_eq!(nodef_lines("function f()\nq;\nq = 2;\nend\n"), vec![(2, 1)]);
+        // A name the function never assigns is a function call (probe v9).
+        assert!(nodef_lines("function f()\nq;\nend\n").is_empty());
+    }
+
+    #[test]
+    fn nodef_for_ans_only_when_assigned_later() {
+        // Probe (gp-b__t2, f): `ans` read before the function assigns it.
+        assert_eq!(
+            nodef_lines("function f()\nans\nans = 5;\nend\n"),
+            vec![(2, 1)]
+        );
+        // Probe (v11): with no assignment, `ans` is NOANS only.
+        assert!(nodef_lines("function f()\ny = ans;\nend\n").is_empty());
     }
 }

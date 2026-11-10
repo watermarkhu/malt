@@ -237,4 +237,22 @@ mod tests {
         );
         assert!(!has_id(&diags, "DEFNU"), "got: {diags:?}");
     }
+
+    #[test]
+    fn defnu_not_suppressed_by_field_store_of_same_name() {
+        // Probe (performance__t1): `s.f(end+1) = i` stores into a field `f`, which
+        // is not a call to the local function `f`.
+        let diags = lint_file(
+            &*engine(),
+            "function main()\n  s.f(end+1) = 1;\nend\nfunction f()\nend\n",
+        );
+        assert!(has_id(&diags, "DEFNU"), "got: {diags:?}");
+    }
+
+    #[test]
+    fn defnu_for_function_after_classdef() {
+        // Probe (naming__e): a function after a classdef `end` is a local function.
+        let diags = lint_file(&*engine(), "classdef Cl\nend\nfunction helper()\nend\n");
+        assert!(has_id(&diags, "DEFNU"), "got: {diags:?}");
+    }
 }

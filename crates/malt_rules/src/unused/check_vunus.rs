@@ -150,8 +150,9 @@ fn vunus_message(op: &str) -> String {
 }
 
 /// Whether `name`, at `node`, is a variable of the function around it. Scripts
-/// are not counted. An input or output argument is always a variable; another
-/// variable must be assigned before the statement.
+/// are not counted. An input or output argument is always a variable; any other
+/// name counts when the function assigns it anywhere (probed: `q;` before
+/// `q = 2` is VUNUS too).
 fn is_function_variable(table: &SymbolTable, node: Node, name: &str) -> bool {
     let start = node.start_byte();
     let Some(scope) = table
@@ -171,7 +172,7 @@ fn is_function_variable(table: &SymbolTable, node: Node, name: &str) -> bool {
     scope.defs.iter().any(|d| {
         d.name == name
             && match d.kind {
-                DefKind::InputArg | DefKind::OutputArg => true,
+                DefKind::InputArg | DefKind::OutputArg | DefKind::Assignment => true,
                 DefKind::Global | DefKind::Persistent => false,
                 _ => d.effect_start <= start,
             }
@@ -313,5 +314,16 @@ mod tests {
         // In a script, and for a name that is not a variable, MATLAB is silent.
         assert!(vunus("x = 1;\nx;\n").is_empty());
         assert!(vunus("function f()\n    disp;\nend\n").is_empty());
+    }
+
+    #[test]
+    fn vunus_bare_variable_assigned_later() {
+        // Probe (gp-a__t10 `keyboard;`, v4): `a;` before `a = 1` is VUNUS too.
+        assert_eq!(
+            vunus("function f()\n    a;\n    a = 1;\nend\n"),
+            vec![(2, 5, msg("a"))]
+        );
+        // `ans` with no assignment in the function is not a variable here.
+        assert!(vunus("function f()\n    ans;\nend\n").is_empty());
     }
 }

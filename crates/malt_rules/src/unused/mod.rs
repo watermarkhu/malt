@@ -220,7 +220,7 @@ impl Rule for UnusedEngine {
 
         // 2. Run symbol-based checks.
         self.check_nasgu(&table, ctx.tree, ctx.source, &mut diagnostics);
-        self.check_unused_inputs(&table, ctx.tree.root_node(), ctx.source, &mut diagnostics);
+        self.check_unused_inputs(&table, ctx.tree, ctx.source, &mut diagnostics);
         self.check_nused(&table, &mut diagnostics);
         self.check_puse(&table, &mut diagnostics);
         self.check_setnu(&table, &mut diagnostics);

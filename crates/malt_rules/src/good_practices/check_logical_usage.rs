@@ -273,6 +273,25 @@ fn check_bare_condition(
                 fix: None,
             });
         }
+        // MATLAB reports a transposed condition (`if a'`, `while a.'`) at the
+        // transpose operator, whatever the type of the operand.
+        "postfix_operator" if eng.is_check_enabled("BDLOG1") => {
+            let op_start = value
+                .named_child(0)
+                .map_or(value.start_byte(), |operand| operand.end_byte());
+            let line_start = source[..op_start].rfind('\n').map_or(0, |i| i + 1);
+            diagnostics.push(Diagnostic {
+                rule_id: "BDLOG1",
+                message: "A scalar logical value is expected in the conditional expression. \
+                          Use 'any' or 'all' to reduce the array to a logical scalar."
+                    .to_string(),
+                severity: Severity::Warning,
+                byte_range: op_start..value.end_byte(),
+                line: source[..op_start].matches('\n').count() + 1,
+                column: op_start + 1 - line_start,
+                fix: None,
+            });
+        }
         _ => {}
     }
 }
@@ -325,6 +344,43 @@ mod tests {
     fn test_bdlog1_silent_for_logical_scalar() {
         let source = "x = true;\nif x\n    y = 1;\nend\n";
         assert!(logical_ids(source, "BDLOG1").is_empty());
+    }
+
+    #[test]
+    fn test_bdlog1_fires_on_transposed_condition_at_the_operator() {
+        // MATLAB probe on `a=1;\nif a', end; y = 2;`: BDLOG1 on line 2, column 5.
+        let source = "a=1;\nif a', end; y = 2;\n";
+        let diags = engine().check_logical_usage(&parse(source), source);
+        let found: Vec<_> = diags.iter().filter(|d| d.rule_id == "BDLOG1").collect();
+        assert_eq!(found.len(), 1, "got: {diags:?}");
+        assert_eq!((found[0].line, found[0].column), (2, 5));
+    }
+
+    #[test]
+    fn test_bdlog1_fires_on_transposed_condition_in_parentheses_and_while() {
+        // MATLAB probes: `if (a')` gives column 6, `while a'` column 8, `if a.'` column 5.
+        for (source, column) in [
+            ("a=1;\nif (a')\nend\n", 6),
+            ("a=1;\nwhile a'\nend\n", 8),
+            ("a=[1 2];\nif a.'\nend\n", 5),
+        ] {
+            let diags = engine().check_logical_usage(&parse(source), source);
+            let found: Vec<_> = diags.iter().filter(|d| d.rule_id == "BDLOG1").collect();
+            assert_eq!(found.len(), 1, "{source:?} got: {diags:?}");
+            assert_eq!((found[0].line, found[0].column), (2, column), "{source:?}");
+        }
+    }
+
+    #[test]
+    fn test_bdlog1_silent_for_transpose_inside_a_comparison() {
+        // MATLAB probes: `if a' == 1` and `x = a';` report no BDLOG1.
+        for source in ["a=1;\nif a' == 1\nend\n", "a=1;\nx = a';\n"] {
+            let diags = engine().check_logical_usage(&parse(source), source);
+            assert!(
+                !diags.iter().any(|d| d.rule_id == "BDLOG1"),
+                "{source:?} {diags:?}"
+            );
+        }
     }
 
     #[test]

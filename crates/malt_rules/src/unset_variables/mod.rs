@@ -107,8 +107,10 @@ pub(crate) const MATLAB_BUILTINS: &[&str] = &[
     "nargout",
     "varargin",
     "varargout",
-    "ans",
 ];
+
+// `ans` is not in the list: MATLAB reports NODEF for it only when the function
+// assigns `ans` after the use (probed: `ans` with no assignment is NOANS alone).
 
 // ---------------------------------------------------------------------------
 // Rule-specific configuration

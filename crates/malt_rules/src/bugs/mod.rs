@@ -119,7 +119,9 @@ use malt_core::{Category, Config, Diagnostic, FileContext, Fix, NodeContext, Rul
 use serde::Deserialize;
 use tree_sitter::Node;
 
-use crate::analysis::control_flow::is_split_statement_continuation;
+use crate::analysis::control_flow::{in_unreachable_code, is_split_statement_continuation};
+use crate::analysis::symbols::SymbolTable;
+use crate::readability::is_variable_defined_before;
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -440,13 +442,23 @@ impl BugsEngine {
     /// `function_call`, a bare identifier or a field expression may be a call to
     /// a multi-output function (the grammar cannot tell calls from indexing), so
     /// those are left alone.
-    fn check_multioutput_assignment(&self, root: Node) -> Vec<Diagnostic> {
+    fn check_multioutput_assignment(
+        &self,
+        tree: &tree_sitter::Tree,
+        source: &str,
+    ) -> Vec<Diagnostic> {
+        let table = SymbolTable::build(tree, source);
         let mut diagnostics = Vec::new();
-        Self::walk_multioutput_assignment(root, &mut diagnostics);
+        Self::walk_multioutput_assignment(tree.root_node(), source, &table, &mut diagnostics);
         diagnostics
     }
 
-    fn walk_multioutput_assignment(node: Node, diagnostics: &mut Vec<Diagnostic>) {
+    fn walk_multioutput_assignment(
+        node: Node,
+        source: &str,
+        table: &SymbolTable,
+        diagnostics: &mut Vec<Diagnostic>,
+    ) {
         if node.kind() == "assignment" {
             let lhs = node.child_by_field_name("left").or_else(|| node.child(0));
             let rhs = node.child_by_field_name("right").or_else(|| node.child(2));
@@ -459,20 +471,27 @@ impl BugsEngine {
                 // needs a comma (`[a,b]`, `[a,~]`) to be reported.
                 let mut cursor = lhs.walk();
                 let has_comma = lhs.children(&mut cursor).any(|c| c.kind() == ",");
+                // Probed in MATLAB: `[a,b] = x` is reported only when `x` is a
+                // variable at that point (`[a,b] = pi` is silent, `x = 1; [a,b] = x`
+                // is reported) and not in unreachable code.
+                let identifier_variable = rhs.kind() == "identifier"
+                    && is_variable_defined_before(node_text(rhs, source), rhs.start_byte(), table)
+                    && !in_unreachable_code(node, source);
                 if lhs.kind() == "multioutput_variable"
                     && has_comma
-                    && matches!(
-                        rhs.kind(),
-                        "number"
-                            | "string"
-                            | "matrix"
-                            | "cell"
-                            | "range"
-                            | "binary_operator"
-                            | "boolean_operator"
-                            | "comparison_operator"
-                            | "unary_operator"
-                    )
+                    && (identifier_variable
+                        || matches!(
+                            rhs.kind(),
+                            "number"
+                                | "string"
+                                | "matrix"
+                                | "cell"
+                                | "range"
+                                | "binary_operator"
+                                | "boolean_operator"
+                                | "comparison_operator"
+                                | "unary_operator"
+                        ))
                 {
                     let pos = rhs.start_position();
                     diagnostics.push(Diagnostic {
@@ -491,7 +510,7 @@ impl BugsEngine {
 
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
-            Self::walk_multioutput_assignment(child, diagnostics);
+            Self::walk_multioutput_assignment(child, source, table, diagnostics);
         }
     }
 
@@ -704,7 +723,7 @@ impl Rule for BugsEngine {
         diagnostics.extend(self.check_if_condition_dup(root, source));
         diagnostics.extend(self.check_switch_dup_cases(root, source));
         diagnostics.extend(self.check_line_break_termination(root, source));
-        diagnostics.extend(self.check_multioutput_assignment(root));
+        diagnostics.extend(self.check_multioutput_assignment(ctx.tree, source));
         diagnostics.extend(self.check_vararg_init(root, source));
         diagnostics.extend(self.check_parfor_issues(root, source));
         diagnostics.extend(self.check_mocup(root, source));
@@ -1200,6 +1219,36 @@ end
     #[test]
     fn rhsfn_no_fire_on_function_call_rhs() {
         let src = "[a, b] = myfunc(x);\n";
+        let diags = file_diags(src);
+        assert!(!has_id(&diags, "RHSFN"), "got: {diags:?}");
+    }
+
+    #[test]
+    fn rhsfn_fires_on_identifier_variable_rhs() {
+        // Probed in MATLAB (bugs__t1:45): `x = 1; [a,b] = x;` is reported.
+        let diags = file_diags("x = 1;\n[a, b] = x;\n");
+        assert!(has_id(&diags, "RHSFN"), "got: {diags:?}");
+    }
+
+    #[test]
+    fn rhsfn_fires_on_identifier_parameter_rhs() {
+        let diags = file_diags("function r = f(x)\n[a, b] = x;\nr = 1;\nend\n");
+        assert!(has_id(&diags, "RHSFN"), "got: {diags:?}");
+    }
+
+    #[test]
+    fn rhsfn_no_fire_on_identifier_that_is_not_a_variable() {
+        // Probed in MATLAB: `[a,b] = pi` (a function) and `[a,b] = x` with x
+        // undefined are silent.
+        for src in ["[a, b] = pi;\n", "[a, b] = x;\n", "[a, b] = x;\nx = 1;\n"] {
+            let diags = file_diags(src);
+            assert!(!has_id(&diags, "RHSFN"), "{src}: got: {diags:?}");
+        }
+    }
+
+    #[test]
+    fn rhsfn_no_fire_on_identifier_in_unreachable_code() {
+        let src = "function r = f(x)\nerror('a');\n[a, b] = x;\nr = 1;\nend\n";
         let diags = file_diags(src);
         assert!(!has_id(&diags, "RHSFN"), "got: {diags:?}");
     }

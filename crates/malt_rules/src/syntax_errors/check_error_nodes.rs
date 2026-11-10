@@ -7,6 +7,7 @@ impl SyntaxErrorsEngine {
         let mut diagnostics = Vec::new();
         let last = Self::last_descendant(root);
         self.walk_error_nodes(root, source, last, &mut diagnostics);
+        self.walk_dotted_name_value_calls(root, source, &mut diagnostics);
 
         // ENDPAR: Check if the file ends with a missing closing bracket.
         if self.is_check_enabled("ENDPAR") {
@@ -309,6 +310,77 @@ impl SyntaxErrorsEngine {
 }
 
 impl SyntaxErrorsEngine {
+    /// A statement-level call with a dotted name in name=value form, `f(a.b=1);`.
+    /// Tree-sitter leaves `=1` as an ERROR after the arguments. MATLAB reports
+    /// NOPAR at the `(` (the `=` is the offending token) and SYNER at the `)`
+    /// that closes the call. The same call inside an assignment (`x = f(a.b=1)`)
+    /// is not covered here.
+    fn walk_dotted_name_value_calls(
+        &self,
+        node: Node,
+        source: &str,
+        diagnostics: &mut Vec<Diagnostic>,
+    ) {
+        if node.kind() == "function_call"
+            && matches!(
+                node.parent().map(|p| p.kind()),
+                Some("source_file" | "block")
+            )
+        {
+            let name = node.child_by_field_name("name");
+            // The closing `)` is an anonymous child after the ERROR node.
+            let mut cursor = node.walk();
+            let error = node.children(&mut cursor).find(|c| c.is_error());
+            let has_dotted_argument = node.children(&mut node.walk()).any(|c| {
+                c.kind() == "arguments"
+                    && c.named_child(c.named_child_count().saturating_sub(1))
+                        .is_some_and(|a| a.kind() == "field_expression")
+            });
+            if let (Some(name), Some(error), true) = (name, error, has_dotted_argument) {
+                let open = name.end_byte();
+                let is_name_value_error = error.is_error()
+                    && source[error.start_byte()..].starts_with('=')
+                    && source.as_bytes().get(open) == Some(&b'(');
+                let close = source[error.end_byte()..]
+                    .find(')')
+                    .map(|i| error.end_byte() + i);
+                if let (true, Some(close)) = (is_name_value_error, close) {
+                    if self.is_check_enabled("NOPAR") {
+                        let line_start = source[..open].rfind('\n').map_or(0, |i| i + 1);
+                        let pos = name.end_position();
+                        diagnostics.push(Diagnostic {
+                            rule_id: "NOPAR",
+                            message: "A '(' might be missing a closing ')', causing invalid syntax at '='.".to_string(),
+                            severity: Severity::Error,
+                            byte_range: open..open + 1,
+                            line: pos.row + 1,
+                            column: open + 1 - line_start,
+                            fix: None,
+                        });
+                    }
+                    if self.is_check_enabled("SYNER") {
+                        let line_start = source[..close].rfind('\n').map_or(0, |i| i + 1);
+                        let line = source[..close].matches('\n').count() + 1;
+                        diagnostics.push(Diagnostic {
+                            rule_id: "SYNER",
+                            message: "Parse error at ')': usage might be invalid MATLAB syntax."
+                                .to_string(),
+                            severity: Severity::Error,
+                            byte_range: close..close + 1,
+                            line,
+                            column: close + 1 - line_start,
+                            fix: None,
+                        });
+                    }
+                }
+            }
+        }
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            self.walk_dotted_name_value_calls(child, source, diagnostics);
+        }
+    }
+
     /// The `arguments` statement that encloses `node`, if any.
     fn enclosing_arguments_statement<'a>(node: &Node<'a>) -> Option<Node<'a>> {
         let mut current = node.parent();
@@ -794,5 +866,44 @@ mod recovery_tests {
     fn fvapn_does_not_fire_for_name_value_at_end_of_call() {
         let diags = lint_file(&*engine(), "f(1, Name=2);\n");
         assert!(!has_id(&diags, "FVAPN"));
+    }
+}
+
+#[cfg(test)]
+mod dotted_name_value_tests {
+    use super::*;
+    use crate::test_util::{has_id, lint_file};
+    use malt_core::Config;
+
+    fn engine() -> Box<dyn Rule> {
+        SyntaxErrorsEngine::from_config(&Config::default())
+    }
+
+    #[test]
+    fn dotted_name_value_call_at_statement_level_is_nopar_and_syner() {
+        // MATLAB probe on `f(a.b=1);`: NOPAR at `(` (col 2), SYNER at `)` (col 8).
+        let diags = lint_file(&*engine(), "f(a.b=1);\n");
+        let nopar: Vec<_> = diags.iter().filter(|d| d.rule_id == "NOPAR").collect();
+        let syner: Vec<_> = diags.iter().filter(|d| d.rule_id == "SYNER").collect();
+        assert_eq!(nopar.len(), 1, "got: {diags:?}");
+        assert_eq!((nopar[0].line, nopar[0].column), (1, 2));
+        assert_eq!(syner.len(), 1, "got: {diags:?}");
+        assert_eq!((syner[0].line, syner[0].column), (1, 8));
+    }
+
+    #[test]
+    fn dotted_name_value_call_without_semicolon_is_nopar_and_syner() {
+        // MATLAB probe on `f(a.b=1)` with a newline: the same two findings.
+        let diags = lint_file(&*engine(), "f(a.b=1)\n");
+        assert!(has_id(&diags, "NOPAR"), "got: {diags:?}");
+        assert!(has_id(&diags, "SYNER"), "got: {diags:?}");
+    }
+
+    #[test]
+    fn plain_name_value_call_is_not_an_error() {
+        // `Name=1` is a valid name-value argument (MATLAB accepts it).
+        let diags = lint_file(&*engine(), "f(Name=1);\n");
+        assert!(!has_id(&diags, "NOPAR"), "got: {diags:?}");
+        assert!(!has_id(&diags, "SYNER"), "got: {diags:?}");
     }
 }

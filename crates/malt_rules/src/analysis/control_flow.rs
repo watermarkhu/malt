@@ -112,6 +112,15 @@ fn node_text<'a>(node: Node, source: &'a str) -> &'a str {
 }
 
 /// Returns the termination cause string for a terminating statement node kind.
+/// The name of a command that is only a name (`q;`), if `node` is one.
+fn bare_command_name(node: Node) -> Option<Node> {
+    if node.kind() != "command" || node.named_child_count() != 1 {
+        return None;
+    }
+    node.named_child(0)
+        .filter(|child| child.kind() == "command_name")
+}
+
 fn termination_cause(kind: &str) -> Option<&'static str> {
     match kind {
         "return_statement" => Some("return"),
@@ -603,6 +612,22 @@ fn walk_statement(
                 assigned.remove(&name);
             }
         }
+        "command" if node.named_child_count() == 1 && bare_command_name(node).is_some() => {
+            // `q;` parses as a command whose only child is its name: a read of `q`
+            // (probed: `q;` before `q = 2` reports NODEF).
+            if let Some(name_node) = bare_command_name(node) {
+                let name = node_text(name_node, source);
+                if !assigned.contains(name) {
+                    let pos = name_node.start_position();
+                    uses.push(PossiblyUnsetVar {
+                        name: name.to_string(),
+                        use_byte_range: name_node.start_byte()..name_node.end_byte(),
+                        use_line: pos.row + 1,
+                        use_column: pos.column + 1,
+                    });
+                }
+            }
+        }
         "function_call" | "command" => {
             // Check all arguments for uses of unset variables.
             collect_uses_in_expr(node, source, assigned, uses);
@@ -626,12 +651,9 @@ fn walk_if_statement(
 ) {
     let children = named_children(node);
 
-    // Check the condition for uses.
-    for child in &children {
-        if child.kind() == "condition" {
-            collect_uses_in_expr(*child, source, assigned, uses);
-            break;
-        }
+    // Check the condition for uses (`condition` is a field, not a node kind).
+    if let Some(condition) = node.child_by_field_name("condition") {
+        collect_uses_in_expr(condition, source, assigned, uses);
     }
 
     let mut branch_sets: Vec<HashSet<String>> = Vec::new();
@@ -657,11 +679,8 @@ fn walk_if_statement(
             let elseif_children = named_children(*child);
 
             // Check elseif condition for uses.
-            for ec in &elseif_children {
-                if ec.kind() == "condition" {
-                    collect_uses_in_expr(*ec, source, assigned, uses);
-                    break;
-                }
+            if let Some(condition) = child.child_by_field_name("condition") {
+                collect_uses_in_expr(condition, source, assigned, uses);
             }
 
             // Walk elseif body.
@@ -847,12 +866,9 @@ fn walk_while_statement(
 ) {
     let children = named_children(node);
 
-    // Check the condition for uses.
-    for child in &children {
-        if child.kind() == "condition" {
-            collect_uses_in_expr(*child, source, assigned, uses);
-            break;
-        }
+    // Check the condition for uses (`condition` is a field, not a node kind).
+    if let Some(condition) = node.child_by_field_name("condition") {
+        collect_uses_in_expr(condition, source, assigned, uses);
     }
 
     // Walk the body with a clone — do not merge back.

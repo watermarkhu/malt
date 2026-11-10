@@ -22,26 +22,85 @@ impl GoodPracticesEngine {
             return Vec::new();
         }
 
-        let meta = FileMeta::build(tree, source);
-        let Some(main) = meta.main_function() else {
+        // MATLAB reports nothing when a `function` line sits inside an arguments
+        // block: the block is then not closed, and the function is not analysed as
+        // the file's main function (probed with `function` inside `arguments`).
+        if function_keyword_in_arguments_block(source) {
             return Vec::new();
+        }
+
+        let (name, line, byte_range) = match FileMeta::build(tree, source).main_function() {
+            Some(main) => (main.name.clone(), main.line, main.byte_range.clone()),
+            None => match broken_function_header(tree.root_node(), source) {
+                Some(header) => header,
+                None => return Vec::new(),
+            },
         };
-        if main.name.is_empty() || main.name == stem {
+        if name.is_empty() || name == stem {
             return Vec::new();
         }
         vec![Diagnostic {
             rule_id: "FNDEF",
             message: format!(
                 "Function name {} is known to MATLAB by its file name: {}.",
-                main.name, stem
+                name, stem
             ),
             severity: Severity::Warning,
-            byte_range: main.byte_range.clone(),
-            line: main.line,
+            byte_range,
+            line,
             column: 1,
             fix: None,
         }]
     }
+}
+
+/// The name, line and byte range of a function whose header tree-sitter could
+/// not parse: the root is an `ERROR` node that starts with `function`, with no
+/// outputs (`function t3(x)`). A later syntax error makes the whole file an
+/// error, and MATLAB still names the function (probed with `fprintf' hi;` in
+/// the body).
+fn broken_function_header(
+    root: tree_sitter::Node,
+    source: &str,
+) -> Option<(String, usize, std::ops::Range<usize>)> {
+    if root.kind() != "ERROR" || root.child(0)?.kind() != "function" {
+        return None;
+    }
+    let mut cursor = root.walk();
+    let children: Vec<_> = root.children(&mut cursor).collect();
+    if children.iter().any(|c| c.kind() == "function_output") {
+        return None;
+    }
+    let name = children.iter().find(|c| c.kind() == "identifier")?;
+    let text = source[name.start_byte()..name.end_byte()].to_string();
+    Some((text, root.start_position().row + 1, name.byte_range()))
+}
+
+/// True when a line that starts with `function` lies inside an `arguments`
+/// block: the block starts at a line that is `arguments` (with an optional
+/// attribute list) and ends at the next line that is `end`.
+fn function_keyword_in_arguments_block(source: &str) -> bool {
+    let mut in_arguments = false;
+    for line in source.lines() {
+        let trimmed = line.trim();
+        if in_arguments {
+            if trimmed == "end" {
+                in_arguments = false;
+            } else if trimmed
+                .strip_prefix("function")
+                .is_some_and(|rest| rest.starts_with([' ', '\t']))
+            {
+                return true;
+            }
+        } else if trimmed == "arguments"
+            || trimmed
+                .strip_prefix("arguments")
+                .is_some_and(|rest| rest.starts_with(['(', ' ']))
+        {
+            in_arguments = true;
+        }
+    }
+    false
 }
 
 /// True when `s` is a MATLAB identifier: a letter, then letters, digits or `_`.
@@ -105,5 +164,36 @@ mod tests {
             &fndef("function a()\nend\nfunction b()\nend\n", "a.m"),
             "FNDEF"
         ));
+    }
+
+    #[test]
+    fn fndef_fires_for_a_broken_header_with_a_later_syntax_error() {
+        // MATLAB probe (readability__t3f): `function t3(x, ...)` in a file t3f.m
+        // gets FNDEF on line 1 although a later line is a parse error.
+        let src = "function t3(x)\nr1 = 1;\nz = fprintf' hi;\n";
+        let d = fndef(src, "t3f.m");
+        let m = d.iter().find(|d| d.rule_id == "FNDEF").expect("FNDEF");
+        assert_eq!(m.line, 1, "{}", m.message);
+        assert!(
+            m.message.contains("t3") && m.message.ends_with(": t3f."),
+            "{}",
+            m.message
+        );
+    }
+
+    #[test]
+    fn fndef_silent_when_a_function_line_sits_in_an_arguments_block() {
+        // MATLAB probe (t__fv4, and the same shape in a file pf5.m): no FNDEF
+        // when `function q = inner()` is written inside the arguments block.
+        let src = "function r = fvA(n)\n  arguments\n    n\n    function q = inner(), q = 1; end\n  end\n  r = 1;\nend\n";
+        assert!(!has_id(&fndef(src, "pf5.m"), "FNDEF"));
+    }
+
+    #[test]
+    fn fndef_fires_when_the_arguments_block_is_closed_before_a_function() {
+        // MATLAB probe (pf4.m): the block is closed by its `end`, so the nested
+        // function after it does not hide FNDEF.
+        let src = "function r = fvA(n)\narguments\n n\nend\nfunction q = inner(), q = 1; end\nr = 1;\nend\n";
+        assert!(has_id(&fndef(src, "pf4.m"), "FNDEF"));
     }
 }

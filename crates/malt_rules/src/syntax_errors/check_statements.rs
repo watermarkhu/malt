@@ -174,6 +174,23 @@ impl SyntaxErrorsEngine {
             }
         }
 
+        // REDEF: a `for` loop variable is a definition too (`k += 1` in its body
+        // is inconsistent with `for k = 1:3`, as with `k = 1; k += 1`).
+        if kind == "for_statement" && self.is_check_enabled("REDEF") {
+            let mut cursor = node.walk();
+            let iterator = node
+                .children(&mut cursor)
+                .find(|child| child.kind() == "iterator");
+            if let Some(name_node) = iterator.and_then(|it| it.named_child(0)) {
+                if name_node.kind() == "identifier" {
+                    let name = source[name_node.start_byte()..name_node.end_byte()].to_string();
+                    variable_names
+                        .entry(name)
+                        .or_insert(name_node.start_position().row + 1);
+                }
+            }
+        }
+
         // SEPEXR: Missing separator between statements.
         // Check consecutive children of block/source_file that are statements
         // on the same line without separator.
@@ -343,5 +360,28 @@ mod redef_tests {
     fn redef_fires_for_command_syntax_on_variable() {
         let diags = lint_file(&*engine(), "psd = 5;\npsd x\n");
         assert!(has_id(&diags, "REDEF"));
+    }
+
+    #[test]
+    fn redef_fires_for_augmented_assignment_on_loop_variable() {
+        // MATLAB probe: `for k=1:3` then `k += 1;` in the body reports REDEF at
+        // `k` on the `+=` line (`k += 1` parses as a command here).
+        let diags = lint_file(&*engine(), "for k=1:3\n  k += 1;\nend\n");
+        let redef = diags.iter().find(|d| d.rule_id == "REDEF");
+        assert_eq!(redef.map(|d| d.line), Some(2), "got: {diags:?}");
+    }
+
+    #[test]
+    fn redef_fires_for_augmented_assignment_after_the_loop() {
+        // MATLAB probe: the loop variable stays defined after the loop ends.
+        let diags = lint_file(&*engine(), "for k=1:3\nend\nk += 1;\n");
+        assert!(has_id(&diags, "REDEF"), "got: {diags:?}");
+    }
+
+    #[test]
+    fn redef_ok_for_loop_variable_used_as_an_index() {
+        // An assignment through the loop variable is not a command word.
+        let diags = lint_file(&*engine(), "for k=1:3\n  k(2) = 1;\nend\n");
+        assert!(!has_id(&diags, "REDEF"), "got: {diags:?}");
     }
 }

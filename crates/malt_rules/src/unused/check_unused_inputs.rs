@@ -5,9 +5,11 @@
 //! An input that the block does not declare is INUSD's.
 
 use super::*;
+use crate::analysis::liveness::dead_stores;
 use malt_core::Fix;
 use std::collections::HashMap;
 use std::ops::Range;
+use tree_sitter::Tree;
 
 /// A name declared in an `arguments` block: where it is declared.
 pub(crate) struct BlockDecl {
@@ -32,7 +34,7 @@ impl UnusedEngine {
     pub(crate) fn check_unused_inputs(
         &self,
         table: &SymbolTable,
-        root: Node,
+        tree: &Tree,
         source: &str,
         diagnostics: &mut Vec<Diagnostic>,
     ) {
@@ -42,7 +44,7 @@ impl UnusedEngine {
             return;
         }
         let manu_enabled = !self.is_check_disabled("MANU");
-        let blocks = collect_arguments_blocks(root, source);
+        let blocks = collect_arguments_blocks(tree.root_node(), source);
 
         for (index, scope) in table.scopes.iter().enumerate() {
             if !matches!(
@@ -57,6 +59,11 @@ impl UnusedEngine {
             let declared = blocks
                 .by_function
                 .get(&(scope.byte_range.start, scope.byte_range.end));
+            // The names read with their entry value. MATLAB reports an input whose
+            // entry value is overwritten before any read, or read only after
+            // `error(...)`, as unused. Where the analysis cannot follow the scope,
+            // only a name with no use at all is unused.
+            let entry_reads = dead_stores(table, index, tree, source).map(|d| d.entry);
 
             for def in &scope.defs {
                 if def.kind != DefKind::InputArg {
@@ -98,7 +105,11 @@ impl UnusedEngine {
                 {
                     continue;
                 }
-                if !scope.is_used(name) {
+                let unread = !scope.is_used(name)
+                    || entry_reads
+                        .as_ref()
+                        .is_some_and(|reads| !reads.contains(name));
+                if unread {
                     diagnostics.push(Diagnostic {
                         rule_id: "INUSD",
                         message: format!(
@@ -393,5 +404,35 @@ mod tests {
             "function r = foo(n, opts)\narguments (Input)\n    n\n    opts.?matlab.graphics.chart.primitive.Line = 1\nend\nr = n;\nend\n",
         );
         assert!(has_id(&diags, "INUSA"), "got: {diags:?}");
+    }
+
+    #[test]
+    fn inusd_fires_when_entry_value_is_overwritten_before_read() {
+        // Probe (gp-b__t1): `x = 1` overwrites the input before any read of it.
+        let diags = lint_file(
+            &*engine(),
+            "function r = foo(x)\n    x = 1;\n    r = x;\nend\n",
+        );
+        assert_eq!(lines_of(&diags, "INUSD"), vec![1], "got: {diags:?}");
+    }
+
+    #[test]
+    fn inusd_fires_when_input_read_only_after_error() {
+        // Probe (s5): a read after `error(...)` is unreachable, so the input is unused.
+        let diags = lint_file(
+            &*engine(),
+            "function foo(x)\n    error('a');\n    disp(x);\nend\n",
+        );
+        assert_eq!(lines_of(&diags, "INUSD"), vec![1], "got: {diags:?}");
+    }
+
+    #[test]
+    fn inusd_ok_when_entry_value_read_before_overwrite() {
+        // Probe: `x = x + 1` reads the entry value before it is overwritten.
+        let diags = lint_file(
+            &*engine(),
+            "function r = foo(x)\n    x = x + 1;\n    r = x;\nend\n",
+        );
+        assert!(!has_id(&diags, "INUSD"), "got: {diags:?}");
     }
 }

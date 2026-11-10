@@ -500,7 +500,11 @@ pub(crate) fn check_one_mfamb(
 
 /// Whether a variable `name` is already in effect at `byte_offset`, in its scope
 /// or an enclosing one.
-fn is_variable_defined_before(name: &str, byte_offset: usize, table: &SymbolTable) -> bool {
+pub(crate) fn is_variable_defined_before(
+    name: &str,
+    byte_offset: usize,
+    table: &SymbolTable,
+) -> bool {
     let mut current = table.scope_at(byte_offset);
     while let Some(scope) = current {
         if scope.defs.iter().any(|d| {

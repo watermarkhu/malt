@@ -73,7 +73,9 @@ fn text_of<'a>(node: Node, source: &'a str) -> &'a str {
     node.utf8_text(source.as_bytes()).unwrap_or("")
 }
 
-/// Whether `name` is a variable of the scope enclosing `node` (or `ans`).
+/// Whether `name` is a variable of the scope enclosing `node` (or `ans`) at
+/// `node`: an input argument, or assigned before `node`. Probed: `f(1)` followed
+/// by `f = 2;` in a script is silent (`f` is not a variable yet).
 fn is_variable_name(node: Node, name: &str, source: &str) -> bool {
     if name == "ans" {
         return true;
@@ -88,7 +90,9 @@ fn is_variable_name(node: Node, name: &str, source: &str) -> bool {
         current = parent.parent();
     }
     scope_declares_parameter(scope, name, source)
-        || crate::good_practices::is_assigned_in_body(scope, name, source)
+        || crate::good_practices::collect_simple_lhs_assignments(scope, source)
+            .iter()
+            .any(|(n, lhs)| n == name && lhs.end_byte() <= node.start_byte())
 }
 
 /// Whether `name` is an input argument of the function `scope`. Probed: a bare
@@ -151,5 +155,21 @@ mod tests {
         let source = "function f()\n    x = 5\nend\n";
         let diags = lint(source);
         assert!(!has_id(&diags, "NOPTS"), "got: {diags:?}");
+    }
+
+    #[test]
+    fn nopts_fires_on_indexing_of_variable_assigned_before() {
+        // Probed in MATLAB: `f = 2;` then `f(1)` in a script is reported (np n3).
+        let diags = lint("f = 2;\nf(1)\n");
+        assert!(has_id(&diags, "NOPTS"), "got: {diags:?}");
+    }
+
+    #[test]
+    fn nopts_silent_on_indexing_of_variable_assigned_later() {
+        // Probed in MATLAB: `f(1)` before `f = 2;` is silent (ls-c__scr1:8).
+        for source in ["f(1)\nf = 2;\n", "if true\n  f(1)\nend\nf = 2;\n"] {
+            let diags = lint(source);
+            assert!(!has_id(&diags, "NOPTS"), "{source}: got: {diags:?}");
+        }
     }
 }

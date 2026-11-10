@@ -395,7 +395,10 @@ impl GoodPracticesEngine {
     pub(crate) fn is_check_enabled(&self, check_id: &str) -> bool {
         // MATLAB reported none of these in the nested-function probes (r7_U:
         // six shapes for SHVAU, its SHVAI counterpart too), so they are not emitted.
-        const NOT_REPRODUCED: &[&str] = &["SHVAU"];
+        // LNGNM: MATLAB reported no name longer than 63 characters in about 35 probes
+        // (63 to 120 characters; script, function, right-hand side, field, loop
+        // variable, input, global, cell, collisions in the first 63 characters).
+        const NOT_REPRODUCED: &[&str] = &["SHVAU", "LNGNM"];
         !NOT_REPRODUCED.contains(&check_id)
             && !self.config.disabled_checks.iter().any(|id| id == check_id)
     }

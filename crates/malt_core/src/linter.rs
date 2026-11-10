@@ -13,7 +13,7 @@ use crate::Severity;
 /// Checks that report a token MATLAB cannot lex or parse. The statement holding
 /// such a token is not analysed by any other check.
 const STATEMENT_ERROR_IDS: &[&str] = &[
-    "SYNER", "BADCH", "BADFP", "BADHBH", "BADHBB", "BADHBHT", "BADHBBT",
+    "SYNER", "BADCH", "BADFP", "BADHBH", "BADHBB", "BADHBHT", "BADHBBT", "STRIN",
 ];
 
 /// Number-literal checks whose range covers the rest of a malformed literal. A
@@ -33,10 +33,12 @@ const STATEMENT_ERROR_KEPT_IDS: &[&str] = &[
 /// it on the same line: statements are separated by `;`, `,` or a newline. So
 /// the broken statement runs from the separator before the token to the next one.
 fn drop_statements_with_errors(diagnostics: &mut Vec<Diagnostic>, source: &str) {
+    // MATLAB drops every SYNER of the statement that holds the literal error
+    // (`y = 0b102;` reports BADHBB only; `x = 0xFG;` reports BADHBH only).
     let literal_spans: Vec<Range<usize>> = diagnostics
         .iter()
         .filter(|d| NUMBER_LITERAL_IDS.contains(&d.rule_id))
-        .map(|d| d.byte_range.clone())
+        .map(|d| statement_span(source, d.byte_range.start))
         .collect();
     diagnostics.retain(|d| {
         d.rule_id != "SYNER"
@@ -667,6 +669,36 @@ mod statement_error_tests {
         bad.byte_range = 4..9;
         let diags = vec![bad, diag("SYNER", 8)];
         assert_eq!(remaining(source, diags), ["BADHBB"]);
+    }
+
+    #[test]
+    fn syner_later_in_a_statement_with_a_malformed_number_is_dropped() {
+        // MATLAB probe on `x = 0xFG;`: BADHBH at `0x`, no SYNER at `G`.
+        let source = "x = 0xFG;\n";
+        let mut bad = diag("BADHBH", 4);
+        bad.byte_range = 4..8;
+        let diags = vec![bad, diag("SYNER", 7)];
+        assert_eq!(remaining(source, diags), ["BADHBH"]);
+    }
+
+    #[test]
+    fn syner_on_a_later_line_than_a_malformed_number_is_kept() {
+        // The literal's statement ends at the newline: the next line is analysed.
+        let source = "x = 0xFG;\nu = 1 @ 2;\n";
+        let mut bad = diag("BADHBH", 4);
+        bad.byte_range = 4..8;
+        let diags = vec![bad, diag("SYNER", 17)];
+        assert_eq!(remaining(source, diags), ["BADHBH", "SYNER"]);
+    }
+
+    #[test]
+    fn statement_with_an_unterminated_string_is_not_analysed() {
+        // MATLAB probe on `x = 'abc` then `y = 2;`: STRIN only, no NOPTS on `x`.
+        let source = "x = 'abc\ny = 2;\n";
+        let mut strin = diag("STRIN", 4);
+        strin.byte_range = 4..8;
+        let diags = vec![diag("NOPTS", 0), strin, diag("NOPTS", 9)];
+        assert_eq!(remaining(source, diags), ["STRIN", "NOPTS"]);
     }
 
     #[test]
