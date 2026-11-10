@@ -374,7 +374,8 @@ impl GoodPracticesEngine {
             .extend(crate::off_under_mathworks(
                 config,
                 &[
-                    "ERTAG", "WNTAG", "CTCH", "BDLOG2", "COMPNOP", "COMPNOT", "CTOINW",
+                    "ERTAG", "WNTAG", "CTCH", "BDLOG2", "COMPNOP", "COMPNOT", "CTOINW", "DUALC",
+                    "GTARG", "LTARG", "BDLGI", "SIMPT", "STRSZ", "ELARLOG",
                 ],
             ));
         Box::new(Self {
@@ -1954,6 +1955,59 @@ mod tests {
             .unwrap();
         let diags = eng.check_stfld(fc, source);
         assert!(diags.is_empty());
+    }
+
+    #[test]
+    fn test_never_emitted_ids_off_under_mathworks() {
+        // Probed: MATLAB reports none of these forms by default (GTARG/LTARG with
+        // a local function and builtins, BDLGI for `b = x + 1; if b`, SIMPT for an
+        // `import` after other code, STRSZ for `'abc' == 'abcd'`, ELARLOG for
+        // `if (x & ok) || r, r = 2; end`). Each sample fires under `all` and is
+        // silent under `mathworks`.
+        use crate::test_util::{has_id, lint_file, lint_nodes};
+        let cases = [
+            (
+                "GTARG",
+                "function f()\n helper(1,2,3);\nend\nfunction r = helper(a)\n r = a;\nend\n",
+            ),
+            (
+                "LTARG",
+                "function f()\n y = helper();\nend\nfunction r = helper(a)\n r = a;\nend\n",
+            ),
+            (
+                "BDLGI",
+                "function f(x)\n b = x + 1;\n if b, r = 1; end\nend\n",
+            ),
+            ("SIMPT", "function f()\n x = 1;\n import a.b.*\nend\n"),
+            ("STRSZ", "function f(s)\n if 'abc' == 'abcd', end\nend\n"),
+            (
+                "ELARLOG",
+                "function f(x, ok, r)\n if (x & ok) || r, r = 2; end\nend\n",
+            ),
+        ];
+        let engine_for = |preset: &str| {
+            GoodPracticesEngine::from_config(
+                &Config::from_toml(&format!("[lint]\npreset = \"{preset}\"\n")).unwrap(),
+            )
+        };
+        let all = engine_for("all");
+        let mathworks = engine_for("mathworks");
+        for (id, source) in cases {
+            let on_all = [lint_nodes(&*all, source), lint_file(&*all, source)].concat();
+            let on_mathworks = [
+                lint_nodes(&*mathworks, source),
+                lint_file(&*mathworks, source),
+            ]
+            .concat();
+            assert!(
+                has_id(&on_all, id),
+                "{id} should fire under all: {on_all:?}"
+            );
+            assert!(
+                !has_id(&on_mathworks, id),
+                "{id} should be off under mathworks: {on_mathworks:?}"
+            );
+        }
     }
 
     #[test]

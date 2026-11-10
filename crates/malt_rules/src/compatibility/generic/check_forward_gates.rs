@@ -414,8 +414,9 @@ fn global_declared_earlier<'a>(current: Node<'a>, name: &str, source: &'a str) -
             cur = prev;
         } else {
             match cur.parent() {
-                Some(parent) => cur = parent,
-                None => return false,
+                // Code before a function is another scope: stop at its header.
+                Some(parent) if parent.kind() != "function_definition" => cur = parent,
+                _ => return false,
             }
         }
     }

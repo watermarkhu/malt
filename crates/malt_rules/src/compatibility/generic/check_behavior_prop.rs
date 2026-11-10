@@ -390,11 +390,10 @@ mod tests {
     use super::*;
     use crate::test_util::{has_id, lint_file};
 
+    /// The engine with the low-reliability messages on (the `all` preset).
     fn diags(source: &str) -> Vec<Diagnostic> {
-        lint_file(
-            CompatibilityEngine::from_config(&malt_core::Config::default()).as_ref(),
-            source,
-        )
+        let config = malt_core::Config::from_toml("[lint]\npreset = \"all\"\n").unwrap();
+        lint_file(CompatibilityEngine::from_config(&config).as_ref(), source)
     }
 
     fn fires(source: &str, id: &str) {

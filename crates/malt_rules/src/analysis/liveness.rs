@@ -12,39 +12,49 @@
 //! `for`, `while`, `try`, `break`, `continue` and `return`; the constructs it
 //! cannot see through make the whole scope unanalysable (`None`):
 //!
-//! - calls that read or create variables by name (`eval`, `evalin`, `assignin`,
-//!   `load`, `save`, ...),
-//! - nested functions, `parfor` and `spmd` blocks,
+//! - calls that read or create variables by name (`evalin`, `assignin`, `save`, ...),
+//! - `parfor` and `spmd` blocks,
 //! - `break` or `continue` outside a loop.
 //!
-//! Names that are `global` or `persistent`, or that a nested function or lambda
-//! uses, are never reported. A partial store (`x(i) = v`, `s.f = v`) reads the
-//! old value, so it keeps earlier stores alive; it is itself dead when the
-//! variable is not read after it (see [`Dead::partial`]). Constant conditions are
-//! not evaluated: every branch counts as possible.
+//! `eval` and `load` do not stop the analysis: probed, MATLAB still reports the
+//! stores around them.
+//!
+//! Names that are `global` or `persistent`, or that a nested function uses, are
+//! never reported. A variable that an anonymous function uses is never reported (probed:
+//! MATLAB does not report all of them, so the conservative choice is kept). A partial store (`x(i) = v`, `s.f = v`) reads
+//! the old value, so it keeps earlier stores alive; it is itself dead when the
+//! variable is not read after it (see [`Dead::partial`]).
+//!
+//! Constant conditions are evaluated by [`scope_truths`]: literals (`1`, `0`,
+//! `true`, `false`, and `~` of them) and variables with a known truth value at
+//! that point (`k = 1; if k`). A branch whose condition is constant false never
+//! runs, and a constant true condition makes the branches after it, and the
+//! fall-through, unreachable. Other conditions, such as `1 == 1`, are not
+//! evaluated (probed: MATLAB reports the store before `if 1 == 1`).
 //!
 //! A `try` body can be left at any statement, so the variables live in the
 //! catch body are live after every statement of the try body.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::ops::Range;
 
 use tree_sitter::{Node, Tree};
 
-use super::symbols::{DefKind, Scope, ScopeKind, SymbolTable};
+use super::symbols::{is_qualified_call, DefKind, Scope, ScopeKind, SymbolTable};
 
 /// The variables that may still be read before they are overwritten.
 type Live = HashSet<String>;
 
-/// Calls that read or create variables by name, or end the flow in a way not
-/// probed against MATLAB (`error` is a terminator; see `is_error_call`). A scope
+/// The variables with a known truth value at one point of a scope.
+type Known = HashMap<String, bool>;
+
+/// Calls that read or create variables by name, or otherwise cannot be followed
+/// (probed: `eval` and `load` are not in this list, see the module docs). A scope
 /// that uses one is not analysed.
 const DYNAMIC_CALLS: &[&str] = &[
-    "eval",
     "evalc",
     "evalin",
     "assignin",
-    "load",
     "save",
     "clearvars",
     "who",
@@ -57,6 +67,10 @@ const DYNAMIC_CALLS: &[&str] = &[
     "exit",
     "quit",
 ];
+
+/// Calls that may set variables by name. They do not stop the analysis, but
+/// the truth values known before them are forgotten.
+const ASSIGNING_CALLS: &[&str] = &["eval", "load"];
 
 /// Words after `clear` that do not name a single variable.
 const CLEAR_KEYWORDS: &[&str] = &[
@@ -92,14 +106,8 @@ pub fn dead_stores(table: &SymbolTable, index: usize, tree: &Tree, source: &str)
     ) {
         return None;
     }
-    let root = scope_root(tree, scope)?;
-    let body = if root.kind() == "source_file" {
-        root
-    } else {
-        match named(root).into_iter().find(|n| n.kind() == "block") {
-            Some(block) => block,
-            None => return Some(Dead::default()),
-        }
+    let Some(body) = scope_body(scope, tree) else {
+        return Some(Dead::default());
     };
     if calls_dynamic(body, source) {
         return None;
@@ -132,6 +140,7 @@ pub fn dead_stores(table: &SymbolTable, index: usize, tree: &Tree, source: &str)
         source,
         exit: exit.clone(),
         excluded,
+        truths: scope_truths(table, index, tree, source),
         loops: Vec::new(),
         extra: Live::new(),
         reports: Vec::new(),
@@ -150,6 +159,49 @@ pub fn dead_stores(table: &SymbolTable, index: usize, tree: &Tree, source: &str)
         full: analysis.reports,
         partial: analysis.partial_reports,
     })
+}
+
+/// The truth value of every constant condition in the file, keyed by the start
+/// byte of the condition node. See the module docs for what counts as constant.
+pub fn constant_truths(table: &SymbolTable, tree: &Tree, source: &str) -> HashMap<usize, bool> {
+    let mut truths = HashMap::new();
+    for index in 0..table.scopes.len() {
+        truths.extend(scope_truths(table, index, tree, source));
+    }
+    truths
+}
+
+/// The truth value of the constant conditions of scope `index`, keyed by the
+/// start byte of the condition node. Conditions in unreachable code are absent.
+pub fn scope_truths(
+    table: &SymbolTable,
+    index: usize,
+    tree: &Tree,
+    source: &str,
+) -> HashMap<usize, bool> {
+    let Some(scope) = table.scopes.get(index) else {
+        return HashMap::new();
+    };
+    if !matches!(
+        scope.kind,
+        ScopeKind::Script
+            | ScopeKind::Function
+            | ScopeKind::LocalFunction
+            | ScopeKind::Method
+            | ScopeKind::NestedFunction
+    ) {
+        return HashMap::new();
+    }
+    let Some(body) = scope_body(scope, tree) else {
+        return HashMap::new();
+    };
+    let mut pass = ConstPass {
+        scope,
+        source,
+        truths: HashMap::new(),
+    };
+    pass.sequence(&named(body), Some(Known::new()));
+    pass.truths
 }
 
 /// Whether the assignment whose target covers `range` stores into a field
@@ -193,20 +245,37 @@ fn scope_root<'t>(tree: &'t Tree, scope: &Scope) -> Option<Node<'t>> {
     Some(node)
 }
 
-/// Whether a call under `node` reads or creates variables by name.
-///
-/// Function definitions are skipped: local functions are separate scopes, and
-/// a nested function makes its enclosing scope unanalysable on its own.
+/// The node whose named children are the statements of a scope: the
+/// `source_file` of a script, the `block` of a function.
+fn scope_body<'t>(scope: &Scope, tree: &'t Tree) -> Option<Node<'t>> {
+    let root = scope_root(tree, scope)?;
+    if root.kind() == "source_file" {
+        Some(root)
+    } else {
+        named(root).into_iter().find(|n| n.kind() == "block")
+    }
+}
+
+/// Whether a call under `node` reads or creates variables by name, or cannot
+/// be followed. Function definitions are skipped: local functions are separate
+/// scopes, and a nested function is excluded from the analysis of its parent.
 fn calls_dynamic(node: Node, source: &str) -> bool {
+    calls_any(node, source, DYNAMIC_CALLS)
+}
+
+/// Whether a call under `node` is one of `names`. Function definitions are skipped.
+fn calls_any(node: Node, source: &str, names: &[&str]) -> bool {
     if node.kind() == "function_definition" {
         return false;
     }
-    if callee_name(node, source).is_some_and(|name| DYNAMIC_CALLS.contains(&name)) {
+    // `obj.save(1)` calls a method, not the function `save`.
+    let qualified = node.kind() == "function_call" && is_qualified_call(node);
+    if !qualified && callee_name(node, source).is_some_and(|name| names.contains(&name)) {
         return true;
     }
     children(node)
         .into_iter()
-        .any(|child| calls_dynamic(child, source))
+        .any(|child| calls_any(child, source, names))
 }
 
 /// The name of the function a `function_call` or `command` node calls.
@@ -277,16 +346,69 @@ fn is_condition(parent: Node, child: Node) -> bool {
         .any(|condition| condition.id() == child.id())
 }
 
-/// The statements of a block, or of a `source_file` without its function definitions.
+/// The statements of a block, or of a `source_file`, without its function
+/// definitions. A nested function is a scope of its own.
 fn statements(node: Node) -> Vec<Node> {
     named(node)
         .into_iter()
-        .filter(|s| !(node.kind() == "source_file" && s.kind() == "function_definition"))
+        .filter(|s| s.kind() != "function_definition")
         .collect()
 }
 
 fn has_block(node: Node) -> bool {
     node.kind() == "block" || children(node).into_iter().any(has_block)
+}
+
+fn has_break(node: Node) -> bool {
+    node.kind() == "break_statement" || children(node).into_iter().any(has_break)
+}
+
+/// A clause of an `if` statement: its condition (`None` for `else`) and its statements.
+struct Clause<'t> {
+    condition: Option<Node<'t>>,
+    is_else: bool,
+    parts: Vec<Node<'t>>,
+}
+
+/// The clauses of an `if` statement in order. The statements after the first
+/// condition, before any `elseif` or `else`, belong to the first clause.
+fn if_clauses(node: Node) -> Vec<Clause> {
+    let mut clauses: Vec<Clause> = Vec::new();
+    for child in named(node) {
+        if is_condition(node, child) {
+            clauses.push(Clause {
+                condition: Some(child),
+                is_else: false,
+                parts: Vec::new(),
+            });
+        } else if matches!(child.kind(), "elseif_clause" | "else_clause") {
+            let condition = child.child_by_field_name("condition");
+            let parts = clause_body(child, condition);
+            clauses.push(Clause {
+                condition,
+                is_else: child.kind() == "else_clause",
+                parts,
+            });
+        } else {
+            match clauses.last_mut() {
+                Some(clause) => clause.parts.push(child),
+                None => clauses.push(Clause {
+                    condition: None,
+                    is_else: false,
+                    parts: vec![child],
+                }),
+            }
+        }
+    }
+    clauses
+}
+
+/// The named children of a clause other than its condition.
+fn clause_body<'t>(clause: Node<'t>, condition: Option<Node<'t>>) -> Vec<Node<'t>> {
+    named(clause)
+        .into_iter()
+        .filter(|part| condition.is_none_or(|c| c.id() != part.id()))
+        .collect()
 }
 
 /// Where `break` and `continue` of the innermost loop go.
@@ -303,6 +425,8 @@ struct Analysis<'a> {
     exit: Live,
     /// Names that are never reported.
     excluded: Live,
+    /// The truth value of each constant condition, see [`scope_truths`].
+    truths: HashMap<usize, bool>,
     loops: Vec<LoopTargets>,
     /// Live in the catch body of each enclosing `try`.
     extra: Live,
@@ -351,6 +475,7 @@ impl Analysis<'_> {
                 stmt.kind(),
                 "return_statement" | "break_statement" | "continue_statement"
             ) || is_error_call(*stmt, self.source)
+                || self.is_infinite_loop(*stmt)
             {
                 flows = false;
             }
@@ -365,13 +490,21 @@ impl Analysis<'_> {
         live
     }
 
+    /// A `while` whose condition is constant true and that has no `break`: the
+    /// statements after it cannot run.
+    fn is_infinite_loop(&self, node: Node) -> bool {
+        node.kind() == "while_statement"
+            && !has_break(node)
+            && named(node)
+                .into_iter()
+                .filter(|c| is_condition(node, *c))
+                .any(|c| self.truths.get(&c.start_byte()) == Some(&true))
+    }
+
     fn stmt(&mut self, node: Node, after: Live, report: bool) -> Live {
         let source = self.source;
         let head = &source[node.byte_range()];
-        if head.starts_with("parfor")
-            || head.starts_with("spmd")
-            || node.kind() == "function_definition"
-        {
+        if head.starts_with("parfor") || head.starts_with("spmd") {
             self.bail = true;
             return after;
         }
@@ -399,6 +532,8 @@ impl Analysis<'_> {
             "while_statement" => self.while_statement(node, after, report),
             "switch_statement" => self.switch_statement(node, after, report),
             "try_statement" => self.try_statement(node, after, report),
+            // An `arguments` block only declares and checks the inputs.
+            "arguments_statement" => self.leaf(node, after, report),
             _ if has_block(node) => {
                 self.bail = true;
                 after
@@ -425,11 +560,19 @@ impl Analysis<'_> {
             self.uses_in(range.clone())
         };
         let after = self.finish(after);
+        // An `onCleanup` object is kept for its destructor, MATLAB does not report it.
+        let object = source[range.clone()]
+            .split_once('=')
+            .is_some_and(|(_, rhs)| rhs.trim_start().starts_with("onCleanup"));
         for (index, def) in self.scope.defs.iter().enumerate() {
             if def.kind != DefKind::Assignment
                 || def.byte_range.start < range.start
                 || def.byte_range.end > range.end
             {
+                continue;
+            }
+            if object {
+                kills.insert(def.name.clone());
                 continue;
             }
             if def.partial {
@@ -468,27 +611,40 @@ impl Analysis<'_> {
             .collect()
     }
 
+    /// The constant truth value of a clause. `else` always runs when reached.
+    fn clause_truth(&self, clause: &Clause) -> Option<bool> {
+        if clause.is_else {
+            return Some(true);
+        }
+        clause
+            .condition
+            .and_then(|c| self.truths.get(&c.start_byte()).copied())
+    }
+
+    /// Only the clauses that can run contribute. A constant true clause ends
+    /// the chain: the clauses after it and the fall-through are unreachable.
     fn if_statement(&mut self, node: Node, after: Live, report: bool) -> Live {
         let mut reads = Live::new();
         let mut out = Live::new();
-        let mut has_else = false;
-        for child in named(node) {
-            match child.kind() {
-                _ if is_condition(node, child) => reads.extend(self.uses_in(child.byte_range())),
-                "elseif_clause" => {
-                    let parts = self.clause_parts(child, &mut reads);
-                    out.extend(self.branch(&parts, after.clone(), report));
+        let mut reachable = true;
+        for clause in if_clauses(node) {
+            if !reachable {
+                break;
+            }
+            if let Some(condition) = clause.condition {
+                reads.extend(self.uses_in(condition.byte_range()));
+            }
+            match self.clause_truth(&clause) {
+                Some(false) => {}
+                Some(true) => {
+                    out.extend(self.branch(&clause.parts, after.clone(), report));
+                    reachable = false;
                 }
-                "else_clause" => {
-                    has_else = true;
-                    let parts = self.clause_parts(child, &mut reads);
-                    out.extend(self.branch(&parts, after.clone(), report));
-                }
-                _ => out.extend(self.branch(&[child], after.clone(), report)),
+                None => out.extend(self.branch(&clause.parts, after.clone(), report)),
             }
         }
-        // Without an else branch the condition may be false: nothing runs.
-        if !has_else {
+        // The condition of the last clause may be false: nothing runs.
+        if reachable {
             out.extend(after);
         }
         out.extend(reads);
@@ -520,16 +676,27 @@ impl Analysis<'_> {
     fn while_statement(&mut self, node: Node, after: Live, report: bool) -> Live {
         let mut reads = Live::new();
         let mut body = Vec::new();
+        let mut condition = None;
         for child in named(node) {
             if is_condition(node, child) {
                 reads.extend(self.uses_in(child.byte_range()));
+                condition = Some(child);
             } else {
                 body.push(child);
             }
         }
-        // The condition is evaluated before every pass, so it is live at the head.
-        let base: Live = after.union(&reads).cloned().collect();
-        let top = self.loop_head(&body, &after, base, None, report);
+        let truth = condition.and_then(|c| self.truths.get(&c.start_byte()).copied());
+        let top = match truth {
+            // The body never runs.
+            Some(false) => after.union(&reads).cloned().collect(),
+            // The loop is left only by `break`, so `after` is reached only through one.
+            Some(true) => self.loop_head(&body, &after, reads, None, report),
+            // The condition is evaluated before every pass, so it is live at the head.
+            None => {
+                let base: Live = after.union(&reads).cloned().collect();
+                self.loop_head(&body, &after, base, None, report)
+            }
+        };
         self.finish(top)
     }
 
@@ -646,5 +813,234 @@ impl Analysis<'_> {
     fn finish(&self, mut live: Live) -> Live {
         live.extend(self.extra.iter().cloned());
         live
+    }
+}
+
+/// The forward pass that finds constant conditions: the variables with a known
+/// truth value, merged over the branches of each statement.
+struct ConstPass<'a> {
+    scope: &'a Scope,
+    source: &'a str,
+    truths: HashMap<usize, bool>,
+}
+
+impl ConstPass<'_> {
+    /// The known truth values after `parts` (blocks are flattened), given those
+    /// before. `None` when the end of `parts` cannot be reached.
+    fn sequence(&mut self, parts: &[Node], env: Option<Known>) -> Option<Known> {
+        let mut env = env;
+        for part in parts {
+            let stmts = if part.kind() == "block" {
+                named(*part)
+            } else {
+                vec![*part]
+            };
+            for stmt in stmts {
+                env = self.stmt(stmt, env?);
+            }
+        }
+        env
+    }
+
+    fn stmt(&mut self, node: Node, env: Known) -> Option<Known> {
+        match node.kind() {
+            "return_statement" | "break_statement" | "continue_statement" => None,
+            _ if is_error_call(node, self.source) => None,
+            "if_statement" => self.if_statement(node, env),
+            "for_statement" => {
+                let head = self.remove_defs(env, node);
+                let body: Vec<Node> = named(node)
+                    .into_iter()
+                    .filter(|c| c.kind() != "iterator")
+                    .collect();
+                self.sequence(&body, Some(head.clone()));
+                Some(head)
+            }
+            "while_statement" => self.while_statement(node, env),
+            "switch_statement" => self.switch_statement(node, env),
+            "try_statement" => self.try_statement(node, env),
+            _ if has_block(node) => Some(self.remove_defs(env, node)),
+            _ => Some(self.leaf(node, env)),
+        }
+    }
+
+    /// A statement without nested blocks: an assignment of a known value, or
+    /// anything else, which makes every variable it defines unknown.
+    fn leaf(&mut self, node: Node, mut env: Known) -> Known {
+        let source = self.source;
+        let text = &source[node.byte_range()];
+        let assigned = (node.kind() == "assignment")
+            .then(|| {
+                let left = node.child_by_field_name("left")?;
+                let right = node.child_by_field_name("right")?;
+                (left.kind() == "identifier").then(|| {
+                    (
+                        source[left.byte_range()].to_string(),
+                        self.eval(right, &env),
+                    )
+                })
+            })
+            .flatten();
+        if calls_any(node, source, ASSIGNING_CALLS) {
+            env.clear();
+        }
+        if clear_names(text).is_none() && text.split_whitespace().next() == Some("clear") {
+            env.clear();
+        }
+        if let Some(names) = clear_names(text) {
+            for name in names {
+                env.remove(&name);
+            }
+        }
+        env = self.remove_defs(env, node);
+        if let Some((name, Some(truth))) = assigned {
+            env.insert(name, truth);
+        }
+        env
+    }
+
+    fn if_statement(&mut self, node: Node, env: Known) -> Option<Known> {
+        let mut out = None;
+        let mut reachable = true;
+        for clause in if_clauses(node) {
+            if !reachable {
+                break;
+            }
+            match self.clause_truth(&clause, &env) {
+                Some(false) => {}
+                Some(true) => {
+                    out = join(out, self.sequence(&clause.parts, Some(env.clone())));
+                    reachable = false;
+                }
+                None => out = join(out, self.sequence(&clause.parts, Some(env.clone()))),
+            }
+        }
+        if reachable {
+            out = join(out, Some(env));
+        }
+        out
+    }
+
+    fn clause_truth(&mut self, clause: &Clause, env: &Known) -> Option<bool> {
+        if clause.is_else {
+            return Some(true);
+        }
+        let condition = clause.condition?;
+        let truth = self.eval(condition, env)?;
+        self.truths.insert(condition.start_byte(), truth);
+        Some(truth)
+    }
+
+    fn while_statement(&mut self, node: Node, env: Known) -> Option<Known> {
+        let head = self.remove_defs(env, node);
+        let mut condition = None;
+        let mut body = Vec::new();
+        for child in named(node) {
+            if is_condition(node, child) {
+                condition = Some(child);
+            } else {
+                body.push(child);
+            }
+        }
+        let truth = condition.and_then(|c| self.eval(c, &head));
+        if let (Some(c), Some(t)) = (condition, truth) {
+            self.truths.insert(c.start_byte(), t);
+        }
+        if truth != Some(false) {
+            self.sequence(&body, Some(head.clone()));
+        }
+        // Only a `break` leaves a loop whose condition is always true.
+        if truth == Some(true) && !has_break(node) {
+            return None;
+        }
+        Some(head)
+    }
+
+    fn switch_statement(&mut self, node: Node, env: Known) -> Option<Known> {
+        let mut out = None;
+        let mut has_otherwise = false;
+        for child in named(node) {
+            if matches!(child.kind(), "case_clause" | "otherwise_clause") {
+                has_otherwise |= child.kind() == "otherwise_clause";
+                let parts = clause_body(child, child.child_by_field_name("condition"));
+                out = join(out, self.sequence(&parts, Some(env.clone())));
+            }
+        }
+        if !has_otherwise {
+            out = join(out, Some(env));
+        }
+        out
+    }
+
+    fn try_statement(&mut self, node: Node, env: Known) -> Option<Known> {
+        let mut body = Vec::new();
+        let mut catch_parts = None;
+        for child in named(node) {
+            if child.kind() == "catch_clause" {
+                catch_parts = Some(named(child));
+            } else {
+                body.push(child);
+            }
+        }
+        // An error can leave the body at any statement, so the catch body
+        // starts with what the body defines unknown.
+        let mut catch_env = env.clone();
+        for part in &body {
+            catch_env = self.remove_defs(catch_env, *part);
+        }
+        let body_out = self.sequence(&body, Some(env));
+        let catch_out = catch_parts.and_then(|parts| self.sequence(&parts, Some(catch_env)));
+        join(body_out, catch_out)
+    }
+
+    /// `env` without the variables that the statements under `node` define.
+    fn remove_defs(&self, mut env: Known, node: Node) -> Known {
+        let range = node.byte_range();
+        for def in &self.scope.defs {
+            if range.start <= def.byte_range.start && def.byte_range.end <= range.end {
+                env.remove(&def.name);
+            }
+        }
+        env
+    }
+
+    /// The truth value of a literal or a known variable, `None` for anything else.
+    fn eval(&self, node: Node, env: &Known) -> Option<bool> {
+        let text = &self.source[node.byte_range()];
+        match node.kind() {
+            "number" => text.parse::<f64>().ok().map(|v| v != 0.0),
+            "identifier" => {
+                if self.scope.defs.iter().any(|d| d.name == text) {
+                    env.get(text).copied()
+                } else {
+                    match text {
+                        "true" => Some(true),
+                        "false" => Some(false),
+                        _ => None,
+                    }
+                }
+            }
+            "not_operator" | "unary_operator" if text.starts_with(['~', '!']) => node
+                .named_child(0)
+                .and_then(|operand| self.eval(operand, env))
+                .map(|v| !v),
+            "parenthesized_expression" => {
+                node.named_child(0).and_then(|inner| self.eval(inner, env))
+            }
+            _ => None,
+        }
+    }
+}
+
+/// The known values of two paths merged: a value survives only where both agree.
+/// `None` is a path that does not reach the point, and is dropped.
+fn join(a: Option<Known>, b: Option<Known>) -> Option<Known> {
+    match (a, b) {
+        (None, other) | (other, None) => other,
+        (Some(a), Some(b)) => Some(
+            a.into_iter()
+                .filter(|(name, value)| b.get(name) == Some(value))
+                .collect(),
+        ),
     }
 }

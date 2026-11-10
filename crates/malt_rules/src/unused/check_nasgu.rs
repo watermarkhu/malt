@@ -220,9 +220,9 @@ mod tests {
     }
 
     #[test]
-    fn nasgu_script_eval_is_not_analysed() {
-        // MATLAB reports line 1 here; eval may read `a`, so nothing is reported.
-        assert!(nasgu_lines("a = 1;\neval('disp(2)');\na = 2;\n").is_empty());
+    fn nasgu_script_eval_does_not_stop_analysis() {
+        // Probed: MATLAB reports line 1; eval does not stop the analysis.
+        assert_eq!(nasgu_lines("a = 1;\neval('disp(2)');\na = 2;\n"), vec![1]);
     }
 
     // -- Probes: functions ---------------------------------------------------
@@ -324,12 +324,14 @@ mod tests {
     }
 
     #[test]
-    fn asglu_not_reported_when_a_dynamic_call_is_in_scope() {
-        // MATLAB reports this one (eval does not stop it); malt keeps its bail-out.
-        assert!(asglu_positions(
-            "function f(x)\n    [a, b] = size(x);\n    eval('1');\n    disp(a);\nend\n"
-        )
-        .is_empty());
+    fn asglu_reported_when_eval_is_in_scope() {
+        // Probed: MATLAB reports `b` (eval does not stop the analysis).
+        assert_eq!(
+            asglu_positions(
+                "function f(x)\n    [a, b] = size(x);\n    eval('1');\n    disp(a);\nend\n"
+            ),
+            vec![(2, 9)]
+        );
     }
 
     // -- Partial stores: dead indexed stores are NASGU -----------------------
@@ -442,8 +444,87 @@ mod tests {
     }
 
     #[test]
-    fn nasgu_function_eval_is_not_analysed() {
+    fn nasgu_function_eval_does_not_stop_analysis() {
+        // Probed: MATLAB reports the store that only eval reads.
         let source = "function f13()\n    a = 1;\n    eval('disp(a)');\nend\n";
+        assert_eq!(nasgu_lines(source), vec![2]);
+    }
+
+    #[test]
+    fn nasgu_function_constant_true_if_kills_earlier_store() {
+        // Probed: `if 1` always runs its body, so the store before it is dead.
+        let source = "function r = f(x)\nr = 0;\nif 1\n  r = 1;\nend\nend\n";
+        assert_eq!(nasgu_lines(source), vec![2]);
+    }
+
+    #[test]
+    fn nasgu_function_constant_variable_condition() {
+        // Probed: `k = 1; if k` runs its body; the store before it is dead.
+        let source = "function r = f(x)\nr = 0;\nk = 1;\nif k\n  r = 1;\nend\nend\n";
+        assert_eq!(nasgu_lines(source), vec![2]);
+    }
+
+    #[test]
+    fn nasgu_function_unknown_variable_condition_keeps_store() {
+        // Probed: `k` is assigned under a condition, so it is not constant.
+        let source =
+            "function r = f(x)\nr = 0;\nk = 1;\nif x\n  k = 0;\nend\nif k\n  r = 1;\nend\nend\n";
+        assert!(nasgu_lines(source).is_empty());
+    }
+
+    #[test]
+    fn nasgu_function_constant_false_branch_is_not_reported() {
+        // Probed: the store in `if 0` is unreachable, and so reports nothing.
+        assert!(nasgu_lines("function r = f(x)\nr = 0;\nif 0\n  r = 1;\nend\nend\n").is_empty());
+    }
+
+    #[test]
+    fn nasgu_function_comparison_is_not_folded() {
+        // Probed: `1 == 1` is not evaluated, so the store before it stays live.
+        assert!(
+            nasgu_lines("function r = f(x)\nr = 0;\nif 1 == 1\n  r = 1;\nend\nend\n").is_empty()
+        );
+    }
+
+    #[test]
+    fn nasgu_function_constant_true_else_is_dead() {
+        // Probed: the `else` of `if 1` never runs, so both stores before the end are kept only by the body.
+        let source = "function r = f(x)\nr = 0;\nif 1\n  r = 1;\nelse\n  r = 2;\nend\nend\n";
+        assert_eq!(nasgu_lines(source), vec![2]);
+    }
+
+    #[test]
+    fn nasgu_function_while_true_store_before_break() {
+        // Probed: a `while 1` body always runs, so the store before it is dead.
+        let source = "function r = f(x)\nr = 0;\nwhile 1\n  r = 1;\n  break;\nend\nend\n";
+        assert_eq!(nasgu_lines(source), vec![2]);
+    }
+
+    #[test]
+    fn nasgu_function_on_cleanup_is_not_reported() {
+        // Probed: MATLAB does not report a dead `onCleanup` object.
+        assert!(nasgu_lines("function f()\n    c = onCleanup(@() disp(1));\nend\n").is_empty());
+    }
+
+    #[test]
+    fn nasgu_function_arguments_block_does_not_stop_analysis() {
+        // Probed (codegen fixture): MATLAB reports the dead store after an `arguments` block.
+        let source = "function r = f2(a)\narguments\n    a (1,1) double\nend\np = mobileRobotPRM;\nr = a;\nend\n";
+        assert_eq!(nasgu_lines(source), vec![5]);
+    }
+
+    #[test]
+    fn nasgu_function_method_named_save_is_not_dynamic() {
+        // Probed (codegen fixture): `obj.save(1)` is a method call, not the function `save`.
+        let source = "function f()\n    y = 1;\n    z = obj.save(1);\nend\n";
+        assert_eq!(nasgu_lines(source), vec![2, 3]);
+    }
+
+    #[test]
+    fn nasgu_function_after_infinite_loop_is_unreachable() {
+        // Probed: MATLAB reports nothing after a `while true` without `break`.
+        let source =
+            "function f()\n    k = 1;\n    while true\n        disp(k)\n    end\n    a = 2;\nend\n";
         assert!(nasgu_lines(source).is_empty());
     }
 

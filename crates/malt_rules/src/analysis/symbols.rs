@@ -282,13 +282,20 @@ impl SymbolTable {
     /// Performs a single DFS traversal of the tree-sitter parse tree, tracking
     /// scopes and collecting variable definitions and usages.
     pub fn build(tree: &Tree, source: &str) -> Self {
+        Self::build_from_root(tree.root_node(), source)
+    }
+
+    /// Build a symbol table from the root node of a parse tree.
+    ///
+    /// For callers that hold a node rather than the whole tree.
+    pub(crate) fn build_from_root<'a>(root: tree_sitter::Node<'a>, source: &'a str) -> Self {
         let mut builder = Builder {
             source,
             scopes: Vec::new(),
             scope_stack: Vec::new(),
             first_file_function_seen: false,
         };
-        builder.run(tree);
+        builder.run(root);
         SymbolTable {
             scopes: builder.scopes,
         }
@@ -359,9 +366,7 @@ impl<'a> Builder<'a> {
     // -- main entry ---------------------------------------------------------
 
     /// Run the full build.
-    fn run(&mut self, tree: &'a Tree) {
-        let root = tree.root_node();
-
+    fn run(&mut self, root: tree_sitter::Node<'a>) {
         // Determine if this is a script or function file.
         // A function file starts with a `function_definition` as the first
         // meaningful child of `source_file`. Otherwise it's a script.

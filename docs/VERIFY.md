@@ -30,7 +30,7 @@ outside the repository (`~/.local/share/malt-reference/`).
 - The `mathworks` preset mirrors MATLAB's factory configuration. Checks MATLAB never
   reports by default are off under it and on under `--preset all`: ERTAG, WNTAG,
   BDLOG2, CTCH, VANUS, FVNIV, SUSENS, IDISVARHIGH, USESWNS, NOEFF, PUSE, COMPNOP,
-  COMPNOT, CTOINW, BDSCA2, LOGSUM, the forward-compatibility gates (FCLEN, FCCPV,
+  COMPNOT, CTOINW, BDSCA2, LOGSUM, DUALC, GTARG, LTARG, BDLGI, SIMPT, STRSZ, ELARLOG, the forward-compatibility gates (FCLEN, FCCPV,
   FCDQS, FCFAV, FCHBL, FCLFS, FCNVA) and the 897 compatibility entries MATLAB lists as
   "low reliability" (`low_reliability = true` in `data/compatibility.toml`; also on
   with the `behavior-changes` category).
@@ -68,7 +68,7 @@ Per check; the full list is the backlog file.
 
 | Check | Difference |
 | --- | --- |
-| NASGU | Liveness analysis (`analysis/liveness.rs`). Not done: MATLAB's constant propagation (`k = 1; if k ...`), so misses remain; bails out on dynamic code (`eval`, `evalin`, `assignin`, `load`, `clearvars`, ...), `parfor`, `spmd`, nested functions, lambdas, `global`, `persistent`. A few false positives on `elseif` chains. |
+| NASGU | Liveness analysis with constant folding (`analysis/liveness.rs`): `if 1`, `if true`, `k = 1; if k` kill the dead branch; `1 == 1` is not folded (as in MATLAB). Remaining misses are in `parfor`/`spmd` regions (the analysis bails out), in lambda-captured variables (reporting them caused false positives) and in files with deliberate syntax errors; a few false positives on an `elseif` chain (`formatting__b.m`). |
 | ASGLU, STRNU | Rebuilt on the liveness analysis; recall lost under `eval` (ASGLU) and on some struct cases (STRNU). |
 | Suggested improvements (EV2IN, FSTR, GVMIS, TLEV, ...) | MATLAB reports them by default; malt's engine is off by default until each entry's condition is narrowed. Same root cause for qualified names (`sigwin.hamming`) as the one fixed in the compatibility engine. |
 | SYNER, NOPAR, EOLPAR | Message shows malt's error-node text, MATLAB names the offending token. `end` in value position, `[x](1)` and missing lexical checks (BADFP, BADCH) cause false positives; unclosed `{`, `max(1 2)` and an unclosed bracket at a line end (EOLPAR) are missed. |
@@ -84,3 +84,12 @@ Per check; the full list is the backlog file.
 | FVSOR | One extra finding in `fix/t__fv2.m` (name-value `.?` form), undiagnosed. |
 | `analysis/control_flow.rs` | Matches `kind() == "condition"`, but `condition` is a field name in this tree-sitter-matlab version; the effect on unset-variable and unreachable analysis is unverified. |
 | Message tables | Explanations removed from the Check IDs tables to match MATLAB's templates (SHOCIRT, DEBUGFUN, CTRUE, CHAIN, ...) are not yet moved into the `## Rule` sections. |
+
+## Compatibility data: conditions and object members
+
+Entries in `data/compatibility.toml` can carry `min_args`, `max_args`, `args_any`, `args_all`, `unless_args`,
+`second_arg`, `script_only` and a `pattern` (`generic`, `object`, `unverified`; only entries without a pattern are
+looked up by name). The `object` entries (`tcpclient`, `visadev`, `Session` members, INTLPOUTA) are reported by MATLAB only
+on a variable of that class and are not matched until class tracking exists. A variable or local function with the same
+name shadows a removed function. `unverified` entries (INTRPC, ADTPATH, MATPOOL, SESSION\*) were never reported by
+MATLAB in the probes (some need toolboxes that are not installed).

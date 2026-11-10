@@ -80,7 +80,8 @@ fn legacy_globals_nargin_varargin_and_eval() {
     // no TLEV on a top-level eval.
     // `out = eval(expr)` and the two-argument eval are not EVLCS in MATLAB.
     // ERTAG is off under the mathworks preset: MATLAB never reports it.
-    assert_eq!(ids("legacy1.m"), vec!["AGROW"]);
+    // GVMIS: MATLAB reports the `global` declaration itself (legacy1.m:2).
+    assert_eq!(ids("legacy1.m"), vec!["AGROW", "GVMIS"]);
 }
 
 #[test]

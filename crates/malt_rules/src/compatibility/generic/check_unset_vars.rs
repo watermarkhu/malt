@@ -413,8 +413,9 @@ mod tests {
     use crate::test_util::{has_id, lint_file};
     use malt_core::Config;
 
+    /// The engine with the low-reliability messages on (the `all` preset).
     fn engine() -> Box<dyn malt_core::Rule> {
-        CompatibilityEngine::from_config(&Config::default())
+        CompatibilityEngine::from_config(&Config::from_toml("[lint]\npreset = \"all\"\n").unwrap())
     }
 
     // -- IDISVARLOW: indexing before definition -----------------------------
@@ -511,7 +512,11 @@ mod tests {
 
     #[test]
     fn idisvarhigh_off_under_mathworks() {
-        let d = lint_file(&*engine(), "function f()\n y = x + 1;\n x = 5;\nend\n");
+        let default = CompatibilityEngine::from_config(&Config::default());
+        let d = lint_file(
+            default.as_ref(),
+            "function f()\n y = x + 1;\n x = 5;\nend\n",
+        );
         assert!(!has_id(&d, "IDISVARHIGH"), "got: {d:?}");
     }
 

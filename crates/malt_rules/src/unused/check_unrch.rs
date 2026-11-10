@@ -2,6 +2,9 @@
 
 use super::*;
 use crate::analysis::control_flow::is_script_body;
+use crate::analysis::liveness::constant_truths;
+use crate::analysis::symbols::SymbolTable;
+use std::collections::HashMap;
 
 impl UnusedEngine {
     /// Run UNRCH check: statements that cannot be reached because they follow a
@@ -27,8 +30,16 @@ impl UnusedEngine {
         // Statements after `error(...)` calls (which always throw).
         collect_unreachable_after_error(ctx.tree.root_node(), ctx.source, &mut seen, diagnostics);
 
-        // Dead branches of constant conditions (`if true ... else`, `if 0 ...`).
-        collect_constant_branches(ctx.tree.root_node(), ctx.source, &mut seen, diagnostics);
+        // Dead branches of constant conditions (`if true ... else`, `k = 0; if k`).
+        let table = SymbolTable::build(ctx.tree, ctx.source);
+        let truths = constant_truths(&table, ctx.tree, ctx.source);
+        collect_constant_branches(
+            ctx.tree.root_node(),
+            ctx.source,
+            &truths,
+            &mut seen,
+            diagnostics,
+        );
     }
 }
 
@@ -36,10 +47,11 @@ impl UnusedEngine {
 fn collect_constant_branches(
     node: Node,
     source: &str,
+    truths: &HashMap<usize, bool>,
     seen: &mut std::collections::HashSet<(usize, usize)>,
     diagnostics: &mut Vec<Diagnostic>,
 ) {
-    if let Some(dead) = dead_constant_branch(node, source) {
+    if let Some(dead) = dead_constant_branch(node, source, truths) {
         emit_unrch(
             dead.start_byte()..dead.end_byte(),
             dead.start_position().row + 1,
@@ -49,15 +61,20 @@ fn collect_constant_branches(
         );
     }
     for child in named_children(node) {
-        collect_constant_branches(child, source, seen, diagnostics);
+        collect_constant_branches(child, source, truths, seen, diagnostics);
     }
 }
 
-/// The first statement of the branch that a literal condition never runs, for an
+/// The first statement of the branch that a constant condition never runs, for an
 /// `if` with no `elseif`. Probed: `if true ... else y = 1; end` reports the `else`
 /// statement, `if false y = 1; end` and `if 0 disp(1) else ... end` the body.
-/// Only `true`, `false` and numeric literals count; variables are not evaluated.
-fn dead_constant_branch<'a>(node: Node<'a>, source: &str) -> Option<Node<'a>> {
+/// Numeric literals, `true` and `false` count, and so do variables whose value is
+/// known at the condition (`k = 0; if k`), see `constant_truths`.
+fn dead_constant_branch<'a>(
+    node: Node<'a>,
+    source: &str,
+    truths: &HashMap<usize, bool>,
+) -> Option<Node<'a>> {
     if node.kind() != "if_statement" {
         return None;
     }
@@ -67,7 +84,7 @@ fn dead_constant_branch<'a>(node: Node<'a>, source: &str) -> Option<Node<'a>> {
         "true" => true,
         "false" => false,
         _ if text.starts_with(|c: char| c.is_ascii_digit()) => text.parse::<f64>().ok()? != 0.0,
-        _ => return None,
+        _ => *truths.get(&condition.start_byte())?,
     };
     let children = named_children(node);
     if children.iter().any(|c| c.kind() == "elseif_clause") {
@@ -211,6 +228,27 @@ mod tests {
         assert!(has_id(&lint_file(&*engine(), src), "UNRCH"));
         let src = "function f()\nif 0\n    disp(1)\nelse\n    y = 1;\nend\nend\n";
         assert!(has_id(&lint_file(&*engine(), src), "UNRCH"));
+    }
+
+    #[test]
+    fn unrch_dead_body_of_variable_known_false() {
+        // Probed: `k = 0; if k` never runs its body.
+        let src = "function f()\n  k = 0;\n  if k\n    disp(1)\n  end\nend\n";
+        assert_eq!(unrch_lines(&lint_file(&*engine(), src)), vec![4]);
+    }
+
+    #[test]
+    fn unrch_dead_body_of_negated_variable() {
+        // Probed: `k = 1; if ~k` never runs its body.
+        let src = "function f()\n  k = 1;\n  if ~k\n    disp(1)\n  end\nend\n";
+        assert_eq!(unrch_lines(&lint_file(&*engine(), src)), vec![4]);
+    }
+
+    #[test]
+    fn unrch_silent_on_variable_assigned_under_condition() {
+        let src =
+            "function f(x)\n  k = 0;\n  if x\n    k = 1;\n  end\n  if k\n    disp(1)\n  end\nend\n";
+        assert!(!has_id(&lint_file(&*engine(), src), "UNRCH"));
     }
 
     #[test]

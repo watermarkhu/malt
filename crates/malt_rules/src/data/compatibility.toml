@@ -9,7 +9,17 @@
 #   severity      - "error" or "warning"
 #   message       - Human-readable diagnostic message
 #   category      - "compatibility", "forward-compatibility", or "behavior-changes"
-#   pattern       - (optional) "generic" for checks that cannot be matched by function name alone
+#   pattern       - (optional) why the name lookup does not match the entry: "generic" (an
+#                   AST check in compatibility/generic), "object" (a method or property of an
+#                   object, which needs the variable's class: not tracked), "unverified" (MATLAB
+#                   did not report it in any probe). Only entries without a pattern are looked up.
+#   args_any      - (optional) the call has one of these string arguments (any case)
+#   args_all      - (optional) the call has all of these string arguments
+#   unless_args   - (optional) the call has none of these string arguments
+#   min_args      - (optional) fewest arguments the call has
+#   max_args      - (optional) most arguments the call has
+#   second_arg    - (optional) shape of the second argument: "string" or "optimoptions"
+#   script_only   - (optional) reported only in a script file
 
 # =============================================================================
 # Compatibility Considerations (891 checks)
@@ -77,6 +87,7 @@ function_name = "matlabpool"
 severity = "error"
 message = "'matlabpool' has been removed. Use 'pool' instead."
 category = "compatibility"
+pattern = "unverified"
 
 [[checks]]
 id = "OBJMPOOL"
@@ -210,6 +221,7 @@ function_name = "opengl"
 severity = "error"
 message = "'opengl('info')' has been removed. With appropriate code changes, use 'rendererinfo' instead."
 category = "compatibility"
+args_any = ["info"]
 
 [[checks]]
 id = "CNNCGD"
@@ -409,7 +421,7 @@ category = "compatibility"
 
 [[checks]]
 id = "DPOOL"
-function_name = "parpool"
+function_name = "matlabpool"
 severity = "warning"
 message = "'matlabpool' has been removed. With appropriate code changes, use 'parpool' instead."
 category = "compatibility"
@@ -1501,6 +1513,7 @@ function_name = "nargoutchk"
 severity = "warning"
 message = "NARGOUTCHK using more than two inputs will be removed in a future release. There is no simple replacement for this."
 category = "compatibility"
+min_args = 3
 
 [[checks]]
 id = "HESST"
@@ -1524,6 +1537,7 @@ function_name = "textscan"
 severity = "error"
 message = "Option 'Bufsize' has been removed. Manual buffering in 'textscan' is no longer needed."
 category = "compatibility"
+args_any = ["Bufsize"]
 
 [[checks]]
 id = "FEGLO"
@@ -1563,6 +1577,7 @@ function_name = "inputname"
 severity = "error"
 message = "Support for 'inputname' in a script has been removed."
 category = "compatibility"
+script_only = true
 
 [[checks]]
 id = "FINSNI"
@@ -1570,6 +1585,7 @@ function_name = "nargin"
 severity = "error"
 message = "Support for 'nargin' in a script has been removed."
 category = "compatibility"
+pattern = "generic"
 
 [[checks]]
 id = "FINSNO"
@@ -1598,6 +1614,7 @@ function_name = "feature"
 severity = "error"
 message = "feature('EightyColumns') and feature('EightyColumns', VALUE) are unsupported and have been removed. With appropriate code changes, use 'settings' object instead."
 category = "compatibility"
+args_any = ["EightyColumns"]
 
 [[checks]]
 id = "REPUDD"
@@ -1930,6 +1947,7 @@ function_name = "interp1"
 severity = "warning"
 message = "'interp1(...,'cubic')' changed in R2020b to perform cubic convolution. To continue using shape-preserving piecewise cubic interpolation, use 'interp1(...,'pchip')' instead."
 category = "behavior-changes"
+pattern = "unverified"
 
 [[checks]]
 id = "IDISVARHIGH"
@@ -11670,6 +11688,7 @@ function_name = "tcpclient"
 severity = "warning"
 message = "Manually setting 'Terminator' property of 'tcpclient' class will be removed in a future release. With appropriate code changes, use 'configureTerminator' method of 'tcpclient' class to set value instead."
 category = "compatibility"
+pattern = "object"
 
 [[checks]]
 id = "TCIBS"
@@ -11677,6 +11696,7 @@ function_name = "tcpclient"
 severity = "warning"
 message = "'InputBufferSize' property of 'tcpclient' class will be removed in a future release. There is no simple replacement for this."
 category = "compatibility"
+pattern = "object"
 
 [[checks]]
 id = "TSTMT"
@@ -11712,6 +11732,7 @@ function_name = "visadev"
 severity = "warning"
 message = "Manually setting 'Terminator' property of 'visadev' class will be removed in a future release. With appropriate code changes, use 'configureTerminator' method of 'visadev' class to set value instead."
 category = "compatibility"
+pattern = "object"
 
 [[checks]]
 id = "VSIBS"
@@ -11719,6 +11740,7 @@ function_name = "visadev"
 severity = "warning"
 message = "'InputBufferSize' property of 'visadev' class will be removed in a future release. There is no simple replacement for this."
 category = "compatibility"
+pattern = "object"
 
 [[checks]]
 id = "VSBYA"
@@ -11726,6 +11748,7 @@ function_name = "visadev"
 severity = "warning"
 message = "'BytesAvailable' property of 'visadev' class will be removed in a future release. There is no simple replacement for this."
 category = "compatibility"
+pattern = "object"
 
 [[checks]]
 id = "VLSBC"
@@ -11810,6 +11833,7 @@ function_name = "Session"
 severity = "warning"
 message = "'queueOutputData' method of 'Session' class will be removed in a future release. With appropriate code changes, use 'write' method of 'DataAcquisition' class instead."
 category = "compatibility"
+pattern = "object"
 
 [[checks]]
 id = "SESSIONACC"
@@ -11817,6 +11841,7 @@ function_name = "Session"
 severity = "warning"
 message = "'addClockConnection' method of 'Session' class will be removed in a future release. With appropriate code changes, use 'addclock' method of 'DataAcquisition' class instead."
 category = "compatibility"
+pattern = "object"
 
 [[checks]]
 id = "SESSIONATC"
@@ -11824,6 +11849,7 @@ function_name = "Session"
 severity = "warning"
 message = "'addTriggerConnection' method of 'Session' class will be removed in a future release. With appropriate code changes, use 'addtrigger' method of 'DataAcquisition' class instead."
 category = "compatibility"
+pattern = "object"
 
 [[checks]]
 id = "SESSIONISS"
@@ -11831,6 +11857,7 @@ function_name = "Session"
 severity = "warning"
 message = "'inputSingleScan' method of 'Session' class will be removed in a future release. With appropriate code changes, use 'read' method of 'DataAcquisition' class instead."
 category = "compatibility"
+pattern = "object"
 
 [[checks]]
 id = "SESSIONOSS"
@@ -11838,6 +11865,7 @@ function_name = "Session"
 severity = "warning"
 message = "'outputSingleScan' method of 'Session' class will be removed in a future release. With appropriate code changes, use 'write' method of 'DataAcquisition' class instead."
 category = "compatibility"
+pattern = "object"
 
 [[checks]]
 id = "SESSIONSB"
@@ -11845,6 +11873,7 @@ function_name = "Session"
 severity = "warning"
 message = "'startBackground' method of 'Session' class will be removed in a future release. With appropriate code changes, use 'start' method of 'DataAcquisition' class instead."
 category = "compatibility"
+pattern = "object"
 
 [[checks]]
 id = "SESSIONSF"
@@ -11852,6 +11881,7 @@ function_name = "Session"
 severity = "warning"
 message = "'startForeground' method of 'Session' class will be removed in a future release. With appropriate code changes, use 'write' method of 'DataAcquisition' class instead."
 category = "compatibility"
+pattern = "object"
 
 [[checks]]
 id = "BLFWR"
@@ -11880,6 +11910,7 @@ function_name = "tcpclient"
 severity = "warning"
 message = "'scanstr' method of 'tcpclient' class will be removed in a future release. With appropriate code changes, use 'readline' method of 'tcpclient' class instead."
 category = "compatibility"
+pattern = "object"
 
 [[checks]]
 id = "TSSTR"
@@ -11901,6 +11932,7 @@ function_name = "visadev"
 severity = "warning"
 message = "'scanstr' method of 'visadev' class will be removed in a future release. With appropriate code changes, use 'readline' method of 'visadev' class instead."
 category = "compatibility"
+pattern = "object"
 
 [[checks]]
 id = "SESSIONAIC"
@@ -11908,6 +11940,7 @@ function_name = "Session"
 severity = "warning"
 message = "'addAnalogInputChannel' method of 'Session' class will be removed in a future release. Use 'addinput' of 'DataAcquisition' class instead, which is a direct replacement."
 category = "compatibility"
+pattern = "object"
 
 [[checks]]
 id = "SESSIONADIC"
@@ -11915,6 +11948,7 @@ function_name = "Session"
 severity = "warning"
 message = "'addAudioInputChannel' method of 'Session' class will be removed in a future release. Use 'addinput' of 'DataAcquisition' class instead, which is a direct replacement."
 category = "compatibility"
+pattern = "object"
 
 [[checks]]
 id = "SESSIONAOC"
@@ -11922,6 +11956,7 @@ function_name = "Session"
 severity = "warning"
 message = "'addAnalogOutputChannel' method of 'Session' class will be removed in a future release. Use 'addoutput' of 'DataAcquisition' class instead, which is a direct replacement."
 category = "compatibility"
+pattern = "object"
 
 [[checks]]
 id = "SESSIONADOC"
@@ -11929,6 +11964,7 @@ function_name = "Session"
 severity = "warning"
 message = "'addAudioOutputChannel' method of 'Session' class will be removed in a future release. Use 'addoutput' of 'DataAcquisition' class instead, which is a direct replacement."
 category = "compatibility"
+pattern = "object"
 
 [[checks]]
 id = "SESSIONCOC"
@@ -11936,6 +11972,7 @@ function_name = "Session"
 severity = "warning"
 message = "'addCounterOutputChannel' method of 'Session' class will be removed in a future release. Use 'addoutput' of 'DataAcquisition' class instead, which is a direct replacement."
 category = "compatibility"
+pattern = "object"
 
 [[checks]]
 id = "SESSIONFGC"
@@ -11943,6 +11980,7 @@ function_name = "Session"
 severity = "warning"
 message = "'addFunctionGeneratorChannel' method of 'Session' class will be removed in a future release. Use 'addoutput' of 'DataAcquisition' class instead, which is a direct replacement."
 category = "compatibility"
+pattern = "object"
 
 [[checks]]
 id = "SESSIONRC"
@@ -11950,6 +11988,7 @@ function_name = "Session"
 severity = "warning"
 message = "'removeChannel' method of 'Session' class will be removed in a future release. Use 'removechannel' of 'DataAcquisition' class instead, which is a direct replacement."
 category = "compatibility"
+pattern = "object"
 
 [[checks]]
 id = "SESSIONRSC"
@@ -11957,6 +11996,7 @@ function_name = "Session"
 severity = "warning"
 message = "'resetCounters' method of 'Session' class will be removed in a future release. Use 'resetcounters' of 'DataAcquisition' class instead, which is a direct replacement."
 category = "compatibility"
+pattern = "object"
 
 [[checks]]
 id = "SESSIONCIC"
@@ -11964,6 +12004,7 @@ function_name = "Session"
 severity = "warning"
 message = "'addCounterInputChannel' method of 'Session' class will be removed in a future release. Use 'addinput' of 'DataAcquisition' class instead, which is a direct replacement."
 category = "compatibility"
+pattern = "object"
 
 [[checks]]
 id = "SESSIONDIS"
@@ -11971,6 +12012,7 @@ function_name = "Session"
 severity = "warning"
 message = "'DurationInSeconds' property of 'Session' class will be removed in a future release. With appropriate code changes, specify 'Duration' as argument to 'read' or 'start' instead."
 category = "compatibility"
+pattern = "object"
 
 [[checks]]
 id = "SESSIONNOS"
@@ -11978,6 +12020,7 @@ function_name = "Session"
 severity = "warning"
 message = "'NumberOfScans' property of 'Session' class will be removed in a future release. With appropriate code changes, specify 'NumScans' as argument to 'read' or 'start' instead."
 category = "compatibility"
+pattern = "object"
 
 [[checks]]
 id = "SESSIONADC"
@@ -11985,6 +12028,7 @@ function_name = "Session"
 severity = "warning"
 message = "'addDigitalChannel' method of 'Session' class will be removed in a future release. With appropriate code changes, use 'addinput' or 'addoutput' of 'DataAcquisition' class instead."
 category = "compatibility"
+pattern = "object"
 
 [[checks]]
 id = "SESSIONRCON"
@@ -11992,6 +12036,7 @@ function_name = "Session"
 severity = "warning"
 message = "'removeConnection' method of 'Session' class will be removed in a future release. With appropriate code changes, use 'removeclock' or 'removetrigger' of 'DataAcquisition' class instead."
 category = "compatibility"
+pattern = "object"
 
 [[checks]]
 id = "SESSIONAL"
@@ -11999,6 +12044,7 @@ function_name = "Session"
 severity = "warning"
 message = "'addlistener' method of 'Session' class will be removed in a future release. With appropriate code changes, use the DataAcquisition interface and its callback properties instead."
 category = "compatibility"
+pattern = "object"
 
 [[checks]]
 id = "PRINTRAS01"
@@ -12006,6 +12052,7 @@ function_name = "print"
 severity = "error"
 message = "'-dbmpmono' has been removed. With appropriate code changes, use 'imwrite' instead."
 category = "compatibility"
+args_any = ["-dbmpmono"]
 
 [[checks]]
 id = "PRINTRAS02"
@@ -12013,6 +12060,7 @@ function_name = "print"
 severity = "error"
 message = "'-dbmp' has been removed. With appropriate code changes, use 'imwrite' instead."
 category = "compatibility"
+args_any = ["-dbmp"]
 
 [[checks]]
 id = "PRINTRAS03"
@@ -12020,6 +12068,7 @@ function_name = "print"
 severity = "error"
 message = "'-dbmp16m' has been removed. With appropriate code changes, use 'imwrite' instead."
 category = "compatibility"
+args_any = ["-dbmp16m"]
 
 [[checks]]
 id = "PRINTRAS04"
@@ -12027,6 +12076,7 @@ function_name = "print"
 severity = "error"
 message = "'-dbmp256' has been removed. With appropriate code changes, use 'imwrite' instead."
 category = "compatibility"
+args_any = ["-dbmp256"]
 
 [[checks]]
 id = "PRINTRAS05"
@@ -12034,6 +12084,7 @@ function_name = "print"
 severity = "error"
 message = "'-dhdf' has been removed. With appropriate code changes, use 'imwrite' instead."
 category = "compatibility"
+args_any = ["-dhdf"]
 
 [[checks]]
 id = "PRINTRAS06"
@@ -12041,6 +12092,7 @@ function_name = "print"
 severity = "error"
 message = "'-dpbm' has been removed. With appropriate code changes, use 'imwrite' instead."
 category = "compatibility"
+args_any = ["-dpbm"]
 
 [[checks]]
 id = "PRINTRAS07"
@@ -12048,6 +12100,7 @@ function_name = "print"
 severity = "error"
 message = "'-dpbmraw' has been removed. With appropriate code changes, use 'imwrite' instead."
 category = "compatibility"
+args_any = ["-dpbmraw"]
 
 [[checks]]
 id = "PRINTRAS08"
@@ -12055,6 +12108,7 @@ function_name = "print"
 severity = "error"
 message = "'-dpcxmono' has been removed. With appropriate code changes, use 'imwrite' instead."
 category = "compatibility"
+args_any = ["-dpcxmono"]
 
 [[checks]]
 id = "PRINTRAS09"
@@ -12062,6 +12116,7 @@ function_name = "print"
 severity = "error"
 message = "'-dpcx24b' has been removed. With appropriate code changes, use 'imwrite' instead."
 category = "compatibility"
+args_any = ["-dpcx24b"]
 
 [[checks]]
 id = "PRINTRAS10"
@@ -12069,6 +12124,7 @@ function_name = "print"
 severity = "error"
 message = "'-dpcx256' has been removed. With appropriate code changes, use 'imwrite' instead."
 category = "compatibility"
+args_any = ["-dpcx256"]
 
 [[checks]]
 id = "PRINTRAS11"
@@ -12076,6 +12132,7 @@ function_name = "print"
 severity = "error"
 message = "'-dpcx16' has been removed. With appropriate code changes, use 'imwrite' instead."
 category = "compatibility"
+args_any = ["-dpcx16"]
 
 [[checks]]
 id = "PRINTRAS12"
@@ -12083,6 +12140,7 @@ function_name = "print"
 severity = "error"
 message = "'-dpgm' has been removed. With appropriate code changes, use 'imwrite' instead."
 category = "compatibility"
+args_any = ["-dpgm"]
 
 [[checks]]
 id = "PRINTRAS13"
@@ -12090,6 +12148,7 @@ function_name = "print"
 severity = "error"
 message = "'-dpgmraw' has been removed. With appropriate code changes, use 'imwrite' instead."
 category = "compatibility"
+args_any = ["-dpgmraw"]
 
 [[checks]]
 id = "PRINTRAS14"
@@ -12097,6 +12156,7 @@ function_name = "print"
 severity = "error"
 message = "'-dppm' has been removed. With appropriate code changes, use 'imwrite' instead."
 category = "compatibility"
+args_any = ["-dppm"]
 
 [[checks]]
 id = "PRINTRAS15"
@@ -12104,6 +12164,7 @@ function_name = "print"
 severity = "error"
 message = "'-dppmraw' has been removed. With appropriate code changes, use 'imwrite' instead."
 category = "compatibility"
+args_any = ["-dppmraw"]
 
 [[checks]]
 id = "PRINTPS1"
@@ -12111,6 +12172,7 @@ function_name = "print"
 severity = "error"
 message = "'-dps' has been removed. With appropriate code changes, use '-deps' or '-dpdf' instead."
 category = "compatibility"
+args_any = ["-dps"]
 
 [[checks]]
 id = "PRINTPS2"
@@ -12118,6 +12180,7 @@ function_name = "print"
 severity = "error"
 message = "'-dpsc' has been removed. With appropriate code changes, use '-deps' or '-dpdf' instead."
 category = "compatibility"
+args_any = ["-dpsc"]
 
 [[checks]]
 id = "PRINTPS3"
@@ -12125,6 +12188,7 @@ function_name = "print"
 severity = "error"
 message = "'-dps2' has been removed. With appropriate code changes, use '-deps' or '-dpdf' instead."
 category = "compatibility"
+args_any = ["-dps2"]
 
 [[checks]]
 id = "PRINTPS4"
@@ -12132,6 +12196,7 @@ function_name = "print"
 severity = "error"
 message = "'-dpsc2' has been removed. With appropriate code changes, use '-deps' or '-dpdf' instead."
 category = "compatibility"
+args_any = ["-dpsc2"]
 
 [[checks]]
 id = "SVFIGC"
@@ -12203,157 +12268,179 @@ category = "compatibility"
 
 [[checks]]
 id = "INTLLEG1"
-function_name = "intlinprog"
+function_name = "optimoptions"
 severity = "error"
 message = "'Algorithm' option for the 'intlinprog' solver has been removed. The 'intlinprog' solver always uses the 'highs' algorithm."
 category = "compatibility"
+args_all = ["intlinprog", "Algorithm"]
 
 [[checks]]
 id = "INTLLEG2"
-function_name = "intlinprog"
+function_name = "optimoptions"
 severity = "error"
 message = "'BranchRule' option for the 'intlinprog' solver has been removed. There is no simple replacement for this."
 category = "compatibility"
+args_all = ["intlinprog", "BranchRule"]
 
 [[checks]]
 id = "INTLLEG3"
-function_name = "intlinprog"
+function_name = "optimoptions"
 severity = "error"
 message = "'BranchingRule' option for the 'intlinprog' solver has been removed. There is no simple replacement for this."
 category = "compatibility"
+args_all = ["intlinprog", "BranchingRule"]
 
 [[checks]]
 id = "INTLLEG4"
-function_name = "intlinprog"
+function_name = "optimoptions"
 severity = "error"
 message = "'CutGeneration' option for the 'intlinprog' solver has been removed. There is no simple replacement for this."
 category = "compatibility"
+args_all = ["intlinprog", "CutGeneration"]
 
 [[checks]]
 id = "INTLLEG5"
-function_name = "intlinprog"
+function_name = "optimoptions"
 severity = "error"
 message = "'CutGenMaxIter' option for the 'intlinprog' solver has been removed. There is no simple replacement for this."
 category = "compatibility"
+args_all = ["intlinprog", "CutGenMaxIter"]
 
 [[checks]]
 id = "INTLLEG6"
-function_name = "intlinprog"
+function_name = "optimoptions"
 severity = "error"
 message = "'CutMaxIterations' option for the 'intlinprog' solver has been removed. There is no simple replacement for this."
 category = "compatibility"
+args_all = ["intlinprog", "CutMaxIterations"]
 
 [[checks]]
 id = "INTLLEG7"
-function_name = "intlinprog"
+function_name = "optimoptions"
 severity = "error"
 message = "'Heuristics' option for the 'intlinprog' solver has been removed. There is no simple replacement for this."
 category = "compatibility"
+args_all = ["intlinprog", "Heuristics"]
 
 [[checks]]
 id = "INTLLEG8"
-function_name = "intlinprog"
+function_name = "optimoptions"
 severity = "error"
 message = "'HeuristicsMaxNodes' option for the 'intlinprog' solver has been removed. There is no simple replacement for this."
 category = "compatibility"
+args_all = ["intlinprog", "HeuristicsMaxNodes"]
 
 [[checks]]
 id = "INTLLEG9"
-function_name = "intlinprog"
+function_name = "optimoptions"
 severity = "error"
 message = "'IPPreprocess' option for the 'intlinprog' solver has been removed. There is no simple replacement for this."
 category = "compatibility"
+args_all = ["intlinprog", "IPPreprocess"]
 
 [[checks]]
 id = "INTLLEG10"
-function_name = "intlinprog"
+function_name = "optimoptions"
 severity = "error"
 message = "'IntegerPreprocess' option for the 'intlinprog' solver has been removed. There is no simple replacement for this."
 category = "compatibility"
+args_all = ["intlinprog", "IntegerPreprocess"]
 
 [[checks]]
 id = "INTLLEG11"
-function_name = "intlinprog"
+function_name = "optimoptions"
 severity = "error"
 message = "'TolInteger' option for the 'intlinprog' solver has been removed. There is no simple replacement for this."
 category = "compatibility"
+args_all = ["intlinprog", "TolInteger"]
 
 [[checks]]
 id = "INTLLEG12"
-function_name = "intlinprog"
+function_name = "optimoptions"
 severity = "error"
 message = "'IntegerTolerance' option for the 'intlinprog' solver has been removed. There is no simple replacement for this."
 category = "compatibility"
+args_all = ["intlinprog", "IntegerTolerance"]
 
 [[checks]]
 id = "INTLLEG13"
-function_name = "intlinprog"
+function_name = "optimoptions"
 severity = "error"
 message = "'LPMaxIter' option for the 'intlinprog' solver has been removed. There is no simple replacement for this."
 category = "compatibility"
+args_all = ["intlinprog", "LPMaxIter"]
 
 [[checks]]
 id = "INTLLEG14"
-function_name = "intlinprog"
+function_name = "optimoptions"
 severity = "error"
 message = "'LPMaxIterations' option for the 'intlinprog' solver has been removed. There is no simple replacement for this."
 category = "compatibility"
+args_all = ["intlinprog", "LPMaxIterations"]
 
 [[checks]]
 id = "INTLLEG15"
-function_name = "intlinprog"
+function_name = "optimoptions"
 severity = "error"
 message = "'TolFunLP' option for the 'intlinprog' solver has been removed. There is no simple replacement for this."
 category = "compatibility"
+args_all = ["intlinprog", "TolFunLP"]
 
 [[checks]]
 id = "INTLLEG16"
-function_name = "intlinprog"
+function_name = "optimoptions"
 severity = "error"
 message = "'LPOptimalityTolerance' option for the 'intlinprog' solver has been removed. There is no simple replacement for this."
 category = "compatibility"
+args_all = ["intlinprog", "LPOptimalityTolerance"]
 
 [[checks]]
 id = "INTLLEG17"
-function_name = "intlinprog"
+function_name = "optimoptions"
 severity = "error"
 message = "'NodeSelection' option for the 'intlinprog' solver has been removed. There is no simple replacement for this."
 category = "compatibility"
+args_all = ["intlinprog", "NodeSelection"]
 
 [[checks]]
 id = "INTLLEG18"
-function_name = "intlinprog"
+function_name = "optimoptions"
 severity = "error"
 message = "'RelObjThreshold' option for the 'intlinprog' solver has been removed. There is no simple replacement for this."
 category = "compatibility"
+args_all = ["intlinprog", "RelObjThreshold"]
 
 [[checks]]
 id = "INTLLEG19"
-function_name = "intlinprog"
+function_name = "optimoptions"
 severity = "error"
 message = "'ObjectiveImprovementThreshold' option for the 'intlinprog' solver has been removed. There is no simple replacement for this."
 category = "compatibility"
+args_all = ["intlinprog", "ObjectiveImprovementThreshold"]
 
 [[checks]]
 id = "INTLLEG20"
-function_name = "intlinprog"
+function_name = "optimoptions"
 severity = "error"
 message = "'RootLPAlgorithm' option for the 'intlinprog' solver has been removed. There is no simple replacement for this."
 category = "compatibility"
+args_all = ["intlinprog", "RootLPAlgorithm"]
 
 [[checks]]
 id = "INTLLEG21"
-function_name = "intlinprog"
+function_name = "optimoptions"
 severity = "error"
 message = "'RootLPMaxIter' option for the 'intlinprog' solver has been removed. There is no simple replacement for this."
 category = "compatibility"
+args_all = ["intlinprog", "RootLPMaxIter"]
 
 [[checks]]
 id = "INTLLEG22"
-function_name = "intlinprog"
+function_name = "optimoptions"
 severity = "error"
 message = "'RootLPMaxIterations' option for the 'intlinprog' solver has been removed. There is no simple replacement for this."
 category = "compatibility"
+args_all = ["intlinprog", "RootLPMaxIterations"]
 
 [[checks]]
 id = "INTLPOUTA"
@@ -12361,6 +12448,7 @@ function_name = "intlinprog"
 severity = "error"
 message = "'algorithm' field of the 'intlinprog' solution process summary has been removed. 'intlinprog' always uses the 'highs' algorithm."
 category = "compatibility"
+pattern = "object"
 
 [[checks]]
 id = "COEFFS"
@@ -12464,6 +12552,9 @@ function_name = "solve"
 severity = "error"
 message = "solve(PROBLEM, OPTIONS) has been removed. Use solve(PROBLEM, 'Options', OPTIONS) instead."
 category = "compatibility"
+min_args = 2
+max_args = 2
+second_arg = "optimoptions"
 
 [[checks]]
 id = "OPTMSLV"
@@ -12471,6 +12562,10 @@ function_name = "solve"
 severity = "error"
 message = "solve(PROBLEM, SOLVER) has been removed. Use solve(PROBLEM, 'Solver', SOLVER) instead."
 category = "compatibility"
+min_args = 2
+max_args = 2
+second_arg = "string"
+unless_args = ["Options", "Solver"]
 
 [[checks]]
 id = "OPTMNVP"
@@ -12478,6 +12573,9 @@ function_name = "solve"
 severity = "error"
 message = "solve(PROBLEM, SOLVER, OPTIONS) has been removed. Use solve(PROBLEM, 'Solver', SOLVER, 'Options', OPTIONS) instead."
 category = "compatibility"
+min_args = 3
+second_arg = "string"
+unless_args = ["Options", "Solver"]
 
 [[checks]]
 id = "POLYREP"
@@ -12499,6 +12597,7 @@ function_name = "path"
 severity = "warning"
 message = "'path' will be removed in a future release. Use 'trajectory' instead."
 category = "compatibility"
+pattern = "unverified"
 
 [[checks]]
 id = "FPRENAME"
@@ -12787,6 +12886,7 @@ function_name = "opengl"
 severity = "error"
 message = "'opengl('data')' has been removed. With appropriate code changes, use 'rendererinfo' instead."
 category = "compatibility"
+args_any = ["data"]
 
 [[checks]]
 id = "OPGLO"
@@ -12794,6 +12894,7 @@ function_name = "opengl"
 severity = "error"
 message = "'opengl' has been removed. There is no simple replacement for this."
 category = "compatibility"
+unless_args = ["info", "data"]
 
 [[checks]]
 id = "PMRTM1"
@@ -12850,6 +12951,7 @@ function_name = "tcpclient"
 severity = "warning"
 message = "'fopen' method of 'tcpclient' class will be removed in a future release. With appropriate code changes, use 'tcpclient' constructor instead."
 category = "compatibility"
+pattern = "object"
 
 [[checks]]
 id = "TSFOP"
@@ -12871,6 +12973,7 @@ function_name = "visadev"
 severity = "warning"
 message = "'fopen' method of 'visadev' class will be removed in a future release. With appropriate code changes, use 'visadev' constructor instead."
 category = "compatibility"
+pattern = "object"
 
 [[checks]]
 id = "SPFWR"
@@ -12885,6 +12988,7 @@ function_name = "tcpclient"
 severity = "warning"
 message = "'fwrite' method of 'tcpclient' class will be removed in a future release. With appropriate code changes, use 'write' method of 'tcpclient' class instead."
 category = "compatibility"
+pattern = "object"
 
 [[checks]]
 id = "TSFWR"
@@ -12906,6 +13010,7 @@ function_name = "visadev"
 severity = "warning"
 message = "'fwrite' method of 'visadev' class will be removed in a future release. With appropriate code changes, use 'write' method of 'visadev' class instead."
 category = "compatibility"
+pattern = "object"
 
 [[checks]]
 id = "BLFRD"
@@ -12927,6 +13032,7 @@ function_name = "tcpclient"
 severity = "warning"
 message = "'fread' method of 'tcpclient' class will be removed in a future release. With appropriate code changes, use 'read' method of 'tcpclient' class instead."
 category = "compatibility"
+pattern = "object"
 
 [[checks]]
 id = "TSFRD"
@@ -12948,6 +13054,7 @@ function_name = "visadev"
 severity = "warning"
 message = "'fread' method of 'visadev' class will be removed in a future release. With appropriate code changes, use 'read' method of 'visadev' class instead."
 category = "compatibility"
+pattern = "object"
 
 [[checks]]
 id = "BLFPR"
@@ -12969,6 +13076,7 @@ function_name = "tcpclient"
 severity = "warning"
 message = "'fprintf' method of 'tcpclient' class will be removed in a future release. With appropriate code changes, use 'writeline' method of 'tcpclient' class instead."
 category = "compatibility"
+pattern = "object"
 
 [[checks]]
 id = "TSFPR"
@@ -12990,6 +13098,7 @@ function_name = "visadev"
 severity = "warning"
 message = "'fprintf' method of 'visadev' class will be removed in a future release. With appropriate code changes, use 'writeline' method of 'visadev' class instead."
 category = "compatibility"
+pattern = "object"
 
 [[checks]]
 id = "BLFSF"
@@ -13011,6 +13120,7 @@ function_name = "tcpclient"
 severity = "warning"
 message = "'fscanf' method of 'tcpclient' class will be removed in a future release. With appropriate code changes, use 'readline' method of 'tcpclient' class instead."
 category = "compatibility"
+pattern = "object"
 
 [[checks]]
 id = "TSFSF"
@@ -13032,6 +13142,7 @@ function_name = "visadev"
 severity = "warning"
 message = "'fscanf' method of 'visadev' class will be removed in a future release. With appropriate code changes, use 'readline' method of 'visadev' class instead."
 category = "compatibility"
+pattern = "object"
 
 [[checks]]
 id = "BLFGL"
@@ -13053,6 +13164,7 @@ function_name = "tcpclient"
 severity = "warning"
 message = "'fgetl' method of 'tcpclient' class will be removed in a future release. With appropriate code changes, use 'readline' method of 'tcpclient' class instead."
 category = "compatibility"
+pattern = "object"
 
 [[checks]]
 id = "TSFGL"
@@ -13074,6 +13186,7 @@ function_name = "visadev"
 severity = "warning"
 message = "'fgetl' method of 'visadev' class will be removed in a future release. With appropriate code changes, use 'readline' method of 'visadev' class instead."
 category = "compatibility"
+pattern = "object"
 
 [[checks]]
 id = "BLFGT"
@@ -13095,6 +13208,7 @@ function_name = "tcpclient"
 severity = "warning"
 message = "'fgets' method of 'tcpclient' class will be removed in a future release. With appropriate code changes, use 'readline' method of 'tcpclient' class instead."
 category = "compatibility"
+pattern = "object"
 
 [[checks]]
 id = "TSFGT"
@@ -13116,6 +13230,7 @@ function_name = "visadev"
 severity = "warning"
 message = "'fgets' method of 'visadev' class will be removed in a future release. With appropriate code changes, use 'readline' method of 'visadev' class instead."
 category = "compatibility"
+pattern = "object"
 
 [[checks]]
 id = "BLFLI"
@@ -13137,6 +13252,7 @@ function_name = "tcpclient"
 severity = "warning"
 message = "'flushinput' method of 'tcpclient' class will be removed in a future release. With appropriate code changes, use 'flush' method of 'tcpclient' class instead."
 category = "compatibility"
+pattern = "object"
 
 [[checks]]
 id = "TSFLI"
@@ -13158,6 +13274,7 @@ function_name = "visadev"
 severity = "warning"
 message = "'flushinput' method of 'visadev' class will be removed in a future release. With appropriate code changes, use 'flush' method of 'visadev' class instead."
 category = "compatibility"
+pattern = "object"
 
 [[checks]]
 id = "BLFCS"
@@ -13179,6 +13296,7 @@ function_name = "tcpclient"
 severity = "warning"
 message = "'fclose' method of 'tcpclient' class will be removed in a future release. There is no simple replacement for this."
 category = "compatibility"
+pattern = "object"
 
 [[checks]]
 id = "TSFCS"
@@ -13200,6 +13318,7 @@ function_name = "visadev"
 severity = "warning"
 message = "'fclose' method of 'visadev' class will be removed in a future release. There is no simple replacement for this."
 category = "compatibility"
+pattern = "object"
 
 [[checks]]
 id = "SPBBW"
@@ -13214,6 +13333,7 @@ function_name = "tcpclient"
 severity = "warning"
 message = "'binblockwrite' method of 'tcpclient' class will be removed in a future release. With appropriate code changes, use 'writebinblock' method of 'tcpclient' class instead."
 category = "compatibility"
+pattern = "object"
 
 [[checks]]
 id = "TSBBW"
@@ -13228,6 +13348,7 @@ function_name = "visadev"
 severity = "warning"
 message = "'binblockwrite' method of 'visadev' class will be removed in a future release. With appropriate code changes, use 'writebinblock' method of 'visadev' class instead."
 category = "compatibility"
+pattern = "object"
 
 [[checks]]
 id = "SPBBR"
@@ -13242,6 +13363,7 @@ function_name = "tcpclient"
 severity = "warning"
 message = "'binblockread' method of 'tcpclient' class will be removed in a future release. With appropriate code changes, use 'readbinblock' method of 'tcpclient' class instead."
 category = "compatibility"
+pattern = "object"
 
 [[checks]]
 id = "TSBBR"
@@ -13256,6 +13378,7 @@ function_name = "visadev"
 severity = "warning"
 message = "'binblockread' method of 'visadev' class will be removed in a future release. With appropriate code changes, use 'readbinblock' method of 'visadev' class instead."
 category = "compatibility"
+pattern = "object"
 
 [[checks]]
 id = "TCQRY"
@@ -13263,6 +13386,7 @@ function_name = "tcpclient"
 severity = "warning"
 message = "'query' method of 'tcpclient' class will be removed in a future release. With appropriate code changes, use 'writeread' method of 'tcpclient' class instead."
 category = "compatibility"
+pattern = "object"
 
 [[checks]]
 id = "VSQRY"
@@ -13270,6 +13394,7 @@ function_name = "visadev"
 severity = "warning"
 message = "'query' method of 'visadev' class will be removed in a future release. With appropriate code changes, use 'writeread' method of 'visadev' class instead."
 category = "compatibility"
+pattern = "object"
 
 [[checks]]
 id = "VSCRD"
@@ -13277,6 +13402,7 @@ function_name = "visadev"
 severity = "warning"
 message = "'clrdevice' method of 'visadev' class will be removed in a future release. With appropriate code changes, use 'flush' method of 'visadev' class instead."
 category = "compatibility"
+pattern = "object"
 
 [[checks]]
 id = "VSSPL"
@@ -13284,6 +13410,7 @@ function_name = "visadev"
 severity = "warning"
 message = "'spoll' method of 'visadev' class will be removed in a future release. With appropriate code changes, use 'visastatus' method of 'visadev' class instead."
 category = "compatibility"
+pattern = "object"
 
 [[checks]]
 id = "VSTGR"
@@ -13291,6 +13418,7 @@ function_name = "visadev"
 severity = "warning"
 message = "'trigger' method of 'visadev' class will be removed in a future release. With appropriate code changes, use 'visatrigger' method of 'visadev' class instead."
 category = "compatibility"
+pattern = "object"
 
 [[checks]]
 id = "SPBAF"
@@ -13305,6 +13433,7 @@ function_name = "tcpclient"
 severity = "warning"
 message = "Manually setting 'BytesAvailableFcnCount' property of 'tcpclient' class will be removed in a future release. With appropriate code changes, use 'configureCallback' method of 'tcpclient' class to set value instead."
 category = "compatibility"
+pattern = "object"
 
 [[checks]]
 id = "TSBAF"
@@ -13340,6 +13469,7 @@ function_name = "tcpclient"
 severity = "warning"
 message = "Manually setting 'BytesAvailableFcn' property of 'tcpclient' class will be removed in a future release. With appropriate code changes, use 'configureCallback' method of 'tcpclient' class to set value instead."
 category = "compatibility"
+pattern = "object"
 
 [[checks]]
 id = "TSBAN"
@@ -13375,6 +13505,7 @@ function_name = "tcpclient"
 severity = "warning"
 message = "Manually setting 'BytesAvailableFcnMode' property of 'tcpclient' class will be removed in a future release. With appropriate code changes, use 'configureCallback' method of 'tcpclient' class to set value instead."
 category = "compatibility"
+pattern = "object"
 
 [[checks]]
 id = "TSBAM"
@@ -13410,6 +13541,7 @@ function_name = "tcpclient"
 severity = "warning"
 message = "'BytesAvailable' property of 'tcpclient' class will be removed in a future release. With appropriate code changes, use 'NumBytesAvailable' property of 'tcpclient' class instead."
 category = "compatibility"
+pattern = "object"
 
 [[checks]]
 id = "TSBAB"
@@ -13445,6 +13577,7 @@ function_name = "tcpclient"
 severity = "warning"
 message = "'ErrorFcn' property of 'tcpclient' class will be removed in a future release. With appropriate code changes, use 'ErrorOccurredFcn' property of 'tcpclient' class instead."
 category = "compatibility"
+pattern = "object"
 
 [[checks]]
 id = "TSEFN"
@@ -13466,6 +13599,7 @@ function_name = "visadev"
 severity = "warning"
 message = "'ErrorFcn' property of 'visadev' class will be removed in a future release. With appropriate code changes, use 'ErrorOccurredFcn' property of 'visadev' class instead."
 category = "compatibility"
+pattern = "object"
 
 [[checks]]
 id = "BLREN"
@@ -13487,6 +13621,7 @@ function_name = "visadev"
 severity = "warning"
 message = "'PinStatus' property of 'visadev' class will be removed in a future release. With appropriate code changes, use 'getpinstatus' method of 'visadev' class instead."
 category = "compatibility"
+pattern = "object"
 
 [[checks]]
 id = "SPDTR"
@@ -13501,6 +13636,7 @@ function_name = "visadev"
 severity = "warning"
 message = "'DataTerminalReady' property of 'visadev' class will be removed in a future release. With appropriate code changes, use 'setDTR' method of 'visadev' class instead."
 category = "compatibility"
+pattern = "object"
 
 [[checks]]
 id = "SPRTS"
@@ -13515,6 +13651,7 @@ function_name = "visadev"
 severity = "warning"
 message = "'RequestToSend' property of 'visadev' class will be removed in a future release. With appropriate code changes, use 'setRTS' method of 'visadev' class instead."
 category = "compatibility"
+pattern = "object"
 
 [[checks]]
 id = "TCNTR"
@@ -13522,6 +13659,7 @@ function_name = "tcpclient"
 severity = "warning"
 message = "'NetworkRole' property of 'tcpclient' class will be removed in a future release. With appropriate code changes, use 'tcpclient' constructor instead."
 category = "compatibility"
+pattern = "object"
 
 [[checks]]
 id = "TSNTR"
@@ -13536,6 +13674,7 @@ function_name = "tcpclient"
 severity = "warning"
 message = "'TransferDelay' property of 'tcpclient' class will be removed in a future release. With appropriate code changes, use 'EnableTransferDelay' property of 'tcpclient' class instead."
 category = "compatibility"
+pattern = "object"
 
 [[checks]]
 id = "TCRPT"
@@ -13543,6 +13682,7 @@ function_name = "tcpclient"
 severity = "warning"
 message = "'RemotePort' property of 'tcpclient' class will be removed in a future release. With appropriate code changes, use 'Port' property of 'tcpclient' class instead."
 category = "compatibility"
+pattern = "object"
 
 [[checks]]
 id = "TSRPT"
@@ -13557,6 +13697,7 @@ function_name = "tcpclient"
 severity = "warning"
 message = "'RemoteHost' property of 'tcpclient' class will be removed in a future release. With appropriate code changes, use 'Address' property of 'tcpclient' class instead."
 category = "compatibility"
+pattern = "object"
 
 [[checks]]
 id = "TSRHT"
@@ -13606,6 +13747,7 @@ function_name = "visadev"
 severity = "warning"
 message = "'EOSMode' property of 'visadev' class will be removed in a future release. With appropriate code changes, use 'configureTerminator' method and 'EOIMode' property of 'visadev' class instead."
 category = "compatibility"
+pattern = "object"
 
 [[checks]]
 id = "VSECC"
@@ -13613,6 +13755,7 @@ function_name = "visadev"
 severity = "warning"
 message = "'EOSCharCode' property of 'visadev' class will be removed in a future release. With appropriate code changes, use 'configureTerminator' method of 'visadev' class instead."
 category = "compatibility"
+pattern = "object"
 
 [[checks]]
 id = "VSMID"
@@ -13620,6 +13763,7 @@ function_name = "visadev"
 severity = "warning"
 message = "'ManufacturerID' property of 'visadev' class will be removed in a future release. With appropriate code changes, use 'VendorID' property of 'visadev' class instead."
 category = "compatibility"
+pattern = "object"
 
 [[checks]]
 id = "VSMLC"
@@ -13627,6 +13771,7 @@ function_name = "visadev"
 severity = "warning"
 message = "'ModelCode' property of 'visadev' class will be removed in a future release. With appropriate code changes, use 'ProductID' property of 'visadev' class instead."
 category = "compatibility"
+pattern = "object"
 
 [[checks]]
 id = "BLFLO"
@@ -13648,6 +13793,7 @@ function_name = "tcpclient"
 severity = "warning"
 message = "'flushoutput' method of 'tcpclient' class will be removed in a future release. With appropriate code changes, use 'flush' method of 'tcpclient' class instead."
 category = "compatibility"
+pattern = "object"
 
 [[checks]]
 id = "TSFLO"
@@ -13669,6 +13815,7 @@ function_name = "visadev"
 severity = "warning"
 message = "'flushoutput' method of 'visadev' class will be removed in a future release. With appropriate code changes, use 'flush' method of 'visadev' class instead."
 category = "compatibility"
+pattern = "object"
 
 [[checks]]
 id = "UDDRF"
@@ -13683,6 +13830,7 @@ function_name = "visadev"
 severity = "warning"
 message = "'RsrcName' property of 'visadev' class will be removed in a future release. With appropriate code changes, use 'ResourceName' property of 'visadev' class instead."
 category = "compatibility"
+pattern = "object"
 
 [[checks]]
 id = "ELEVT"

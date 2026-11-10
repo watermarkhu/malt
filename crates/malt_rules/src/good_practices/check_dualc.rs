@@ -47,6 +47,23 @@ mod tests {
     }
 
     #[test]
+    fn test_dualc_off_under_mathworks_on_under_all() {
+        // Probed: MATLAB never reports DUALC by default (`disp hi, disp there`,
+        // `clear, x=1`, `hold on, plot(1)` and others gave no DUALC), so it is off
+        // under the mathworks preset and on under `all`.
+        use crate::test_util::{has_id, lint_nodes};
+        let source = "disp hi, disp there\n";
+        let mathworks = GoodPracticesEngine::from_config(
+            &Config::from_toml("[lint]\npreset = \"mathworks\"\n").unwrap(),
+        );
+        assert!(!has_id(&lint_nodes(&*mathworks, source), "DUALC"));
+        let all = GoodPracticesEngine::from_config(
+            &Config::from_toml("[lint]\npreset = \"all\"\n").unwrap(),
+        );
+        assert!(has_id(&lint_nodes(&*all, source), "DUALC"));
+    }
+
+    #[test]
     fn test_dualc_silent_without_comma() {
         let source = "disp hello\n";
         let tree = parse(source);

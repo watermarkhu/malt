@@ -71,6 +71,8 @@ use std::collections::HashMap;
 use std::sync::LazyLock;
 
 use malt_core::{Category, Config, Diagnostic, FileContext, NodeContext, Rule, Severity};
+
+use crate::analysis::symbols::{ScopeKind, SymbolTable};
 use serde::Deserialize;
 
 /// Generic (AST-pattern) compatibility checks that the name-lookup table cannot
@@ -104,6 +106,27 @@ struct CompatEntry {
     /// Reliability Messages" and does not report it by default.
     #[serde(default)]
     low_reliability: bool,
+    /// Fewest arguments the call must have.
+    #[serde(default)]
+    min_args: Option<usize>,
+    /// Most arguments the call may have.
+    #[serde(default)]
+    max_args: Option<usize>,
+    /// The call has one of these string arguments (compared without case).
+    #[serde(default)]
+    args_any: Vec<String>,
+    /// The call has every one of these string arguments.
+    #[serde(default)]
+    args_all: Vec<String>,
+    /// The call has none of these string arguments.
+    #[serde(default)]
+    unless_args: Vec<String>,
+    /// Shape of the second argument: `"string"` or `"optimoptions"`.
+    #[serde(default)]
+    second_arg: String,
+    /// Reported only in a script file.
+    #[serde(default)]
+    script_only: bool,
 }
 
 /// Top-level structure of the compatibility.toml data file.
@@ -127,7 +150,7 @@ static COMPAT_DATA: LazyLock<CompatData> = LazyLock::new(|| {
 
 /// Lookup table: function_name → matching `CompatEntry` list.
 ///
-/// Only entries with a non-empty `function_name` and no "generic" pattern are
+/// Only entries with a non-empty `function_name` and no pattern are
 /// included. A function name may map to multiple check IDs (e.g., "tcpip"
 /// maps to both TCPC and TCPS); all matching entries are stored so the engine
 /// emits every applicable diagnostic.
@@ -137,7 +160,7 @@ static COMPAT_TABLE: LazyLock<HashMap<&'static str, Vec<&'static CompatEntry>>> 
         let mut map: HashMap<&'static str, Vec<&'static CompatEntry>> =
             HashMap::with_capacity(data.checks.len());
         for entry in &data.checks {
-            if !entry.function_name.is_empty() && entry.pattern != "generic" {
+            if !entry.function_name.is_empty() && entry.pattern.is_empty() {
                 map.entry(entry.function_name.as_str())
                     .or_default()
                     .push(entry);
@@ -286,6 +309,7 @@ impl Rule for CompatibilityEngine {
             !FORWARD_GATE_IDS.contains(&d.rule_id) || self.forward_gates.contains(&d.rule_id)
         });
         diagnostics.retain(|d| d.rule_id != "IDISVARHIGH" || self.idisvar_high);
+        diagnostics.retain(|d| self.low_reliability || !is_low_reliability(d.rule_id));
         diagnostics
     }
 
@@ -316,8 +340,19 @@ impl Rule for CompatibilityEngine {
         let start = anchor.start_position();
         let mut diagnostics = Vec::with_capacity(entries.len());
 
+        // A variable or a local function of the same name shadows the removed one.
+        let table = SymbolTable::build_from_root(root_of(ctx.node), ctx.source);
+        if is_shadowed(&table, ctx.node, func_name) {
+            return Vec::new();
+        }
+        let script = matches!(table.root_scope().kind, ScopeKind::Script);
+        let args = call_args(ctx.node);
+
         for entry in entries {
             if entry.low_reliability && !self.low_reliability {
+                continue;
+            }
+            if !applies(entry, &args, ctx.source, script) {
                 continue;
             }
             let severity = parse_severity(&entry.severity);
@@ -378,6 +413,105 @@ fn extract_func_name<'a>(node: tree_sitter::Node<'a>, source: &'a str) -> Option
             }
         }
         _ => None,
+    }
+}
+
+/// Whether the data file lists `id` under MATLAB's low-reliability messages,
+/// which are off by default. The generic checks honour the same switch.
+fn is_low_reliability(id: &str) -> bool {
+    COMPAT_DATA
+        .checks
+        .iter()
+        .any(|entry| entry.low_reliability && entry.id == id)
+}
+
+/// The root node of the tree that `node` belongs to.
+fn root_of(node: tree_sitter::Node) -> tree_sitter::Node {
+    let mut root = node;
+    while let Some(parent) = root.parent() {
+        root = parent;
+    }
+    root
+}
+
+/// Whether a call's name is shadowed where it is used: a variable of that name
+/// in its scope, or a local function. MATLAB then calls that variable or
+/// function, not the removed one.
+fn is_shadowed(table: &SymbolTable, node: tree_sitter::Node, name: &str) -> bool {
+    if name.contains('.') {
+        return false;
+    }
+    table
+        .scope_at(node.start_byte())
+        .is_some_and(|scope| scope.is_defined(name))
+        || table.function_scopes().iter().any(|scope| {
+            matches!(scope.kind, ScopeKind::Function | ScopeKind::LocalFunction)
+                && scope.name == name
+        })
+}
+
+/// The arguments of a `function_call` or `command` node, without comments.
+fn call_args(node: tree_sitter::Node) -> Vec<tree_sitter::Node> {
+    match node.kind() {
+        "function_call" => (0..node.child_count())
+            .filter_map(|i| node.child(i))
+            .find(|c| c.kind() == "arguments")
+            .map(|args| {
+                (0..args.named_child_count())
+                    .filter_map(|i| args.named_child(i))
+                    .filter(|c| c.kind() != "comment")
+                    .collect()
+            })
+            .unwrap_or_default(),
+        "command" => (0..node.child_count())
+            .filter_map(|i| node.child(i))
+            .filter(|c| c.kind() == "command_argument")
+            .collect(),
+        _ => Vec::new(),
+    }
+}
+
+/// The value of a string literal argument without its quotes, or the text of a
+/// command-syntax word.
+fn literal<'a>(arg: tree_sitter::Node, source: &'a str) -> Option<&'a str> {
+    let text = &source[arg.start_byte()..arg.end_byte()];
+    match arg.kind() {
+        "string" => text.get(1..text.len().saturating_sub(1)),
+        "command_argument" => Some(text),
+        _ => None,
+    }
+}
+
+/// Whether an entry's argument conditions hold for a call with these arguments.
+fn applies(entry: &CompatEntry, args: &[tree_sitter::Node], source: &str, script: bool) -> bool {
+    if entry.script_only && !script {
+        return false;
+    }
+    if entry.min_args.is_some_and(|min| args.len() < min)
+        || entry.max_args.is_some_and(|max| args.len() > max)
+    {
+        return false;
+    }
+    let words: Vec<&str> = args
+        .iter()
+        .filter_map(|arg| literal(*arg, source))
+        .collect();
+    let given = |value: &String| words.iter().any(|word| word.eq_ignore_ascii_case(value));
+    if !entry.args_any.is_empty() && !entry.args_any.iter().any(given) {
+        return false;
+    }
+    if !entry.args_all.iter().all(given) || entry.unless_args.iter().any(given) {
+        return false;
+    }
+    match entry.second_arg.as_str() {
+        "string" => args.get(1).is_some_and(|arg| arg.kind() == "string"),
+        "optimoptions" => args.get(1).is_some_and(|arg| {
+            arg.kind() == "function_call"
+                && arg.child_by_field_name("name").is_some_and(|name| {
+                    &source[name.start_byte()..name.end_byte()] == "optimoptions"
+                })
+        }),
+        _ => true,
     }
 }
 
@@ -476,8 +610,13 @@ mod tests {
     }
 
     #[test]
-    fn matlabpool_fires_matpool() {
-        assert_call_fires("matlabpool", "MATPOOL");
+    fn matlabpool_fires_dpool() {
+        assert_call_fires("matlabpool", "DPOOL");
+        assert!(!has_id(
+            &lint_nodes(&*engine(), "matlabpool('open')\n"),
+            "MATPOOL"
+        ));
+        assert!(!has_id(&lint_nodes(&*engine(), "parpool\n"), "DPOOL"));
     }
 
     #[test]
@@ -508,8 +647,8 @@ mod tests {
     // -- command form --------------------------------------------------------
 
     #[test]
-    fn command_form_matlabpool_fires_matpool() {
-        assert_command_fires("matlabpool", "MATPOOL");
+    fn command_form_matlabpool_fires_dpool() {
+        assert_command_fires("matlabpool", "DPOOL");
     }
 
     #[test]
@@ -646,5 +785,112 @@ mod tests {
             out
         };
         assert!(has_id(&diags, "JAPIEXT15"), "got: {diags:?}");
+    }
+
+    /// Whether linting `source` with the engine reports `id`.
+    fn fires(source: &str, id: &str) -> bool {
+        has_id(&lint_nodes(&*engine(), source), id)
+    }
+
+    #[test]
+    fn variable_of_the_same_name_shadows_the_function() {
+        // `psd` is a variable on every line, so none of the uses calls the function.
+        assert!(!fires("psd = 5;\nx = psd(3);\npsd x\n", "DPSD"));
+    }
+
+    #[test]
+    fn parameter_shadows_the_function_in_its_function_only() {
+        let source = "function r = f(psd)\nr = psd(2);\nend\nfunction r = g(a)\nr = psd(a);\nend\n";
+        let diags = lint_nodes(&*engine(), source);
+        assert_eq!(
+            diags.iter().filter(|d| d.rule_id == "DPSD").count(),
+            1,
+            "got: {diags:?}"
+        );
+    }
+
+    #[test]
+    fn local_function_shadows_the_function() {
+        assert!(!fires(
+            "y = inline(2);\nfunction y = inline(a)\ny = a;\nend\n",
+            "DINLN"
+        ));
+    }
+
+    #[test]
+    fn min_args_nargoutchk_fires_with_three_arguments() {
+        assert!(!fires("nargoutchk(0, 1);\n", "NCHKNO"));
+        assert!(fires("nargoutchk(0, 1, 'x');\n", "NCHKNO"));
+    }
+
+    #[test]
+    fn args_any_print_option_fires_only_for_that_option() {
+        assert!(fires("print('-dps', 'x.ps');\n", "PRINTPS1"));
+        assert!(fires("print -dps x.ps\n", "PRINTPS1"));
+        assert!(!fires("print('-deps', 'x.ps');\n", "PRINTPS1"));
+        assert!(!fires("print(1);\n", "PRINTPS1"));
+    }
+
+    #[test]
+    fn args_any_matches_literals_without_case() {
+        assert!(fires("t = textscan(s, '%d', 'bufsize', 5);\n", "BUFSIZE"));
+        assert!(!fires("t = textscan(s, '%d');\n", "BUFSIZE"));
+        assert!(fires("feature eightycolumns\n", "EITYCN"));
+        assert!(!fires("feature('version')\n", "EITYCN"));
+    }
+
+    #[test]
+    fn unless_args_opengl_info_and_data_are_not_software_options() {
+        let info = lint_nodes(&*engine(), "opengl('info');\n");
+        assert!(
+            has_id(&info, "OPGLI") && !has_id(&info, "OPGLO"),
+            "got: {info:?}"
+        );
+        let data = lint_nodes(&*engine(), "opengl data\n");
+        assert!(
+            has_id(&data, "OPGLD") && !has_id(&data, "OPGLO"),
+            "got: {data:?}"
+        );
+        assert!(fires("opengl software\n", "OPGLO"));
+    }
+
+    #[test]
+    fn args_all_intlinprog_option_on_optimoptions() {
+        assert!(fires(
+            "o = optimoptions('intlinprog', 'Algorithm', 'basic');\n",
+            "INTLLEG1"
+        ));
+        assert!(!fires(
+            "o = optimoptions('fmincon', 'Algorithm', 'basic');\n",
+            "INTLLEG1"
+        ));
+        assert!(!fires("k = intlinprog(1);\n", "INTLLEG1"));
+    }
+
+    #[test]
+    fn second_arg_shape_for_the_removed_solve_forms() {
+        assert!(fires("x = solve(p, 'linprog');\n", "OPTMSLV"));
+        assert!(fires("x = solve(p, optimoptions('linprog'));\n", "OPTMOPT"));
+        assert!(fires("x = solve(p, 'linprog', o);\n", "OPTMNVP"));
+        // The name-value form and an unknown second argument are not removed.
+        assert!(!fires("x = solve(p, 'Options', o);\n", "OPTMSLV"));
+        assert!(!fires("x = solve(p, 'Options', o);\n", "OPTMNVP"));
+        assert!(!fires("x = solve(p, o);\n", "OPTMOPT"));
+        assert!(!fires("x = solve(p);\n", "OPTMSLV"));
+    }
+
+    #[test]
+    fn script_only_inputname_fires_in_a_script_only() {
+        assert!(fires("x = inputname(1);\n", "FINSI"));
+        assert!(!fires(
+            "function r = f(a)\nr = inputname(1);\nend\n",
+            "FINSI"
+        ));
+    }
+
+    #[test]
+    fn object_members_are_not_matched_by_the_constructor() {
+        let diags = lint_nodes(&*engine(), "t = tcpclient('a', 1);\nv = visadev('x');\n");
+        assert!(diags.is_empty(), "got: {diags:?}");
     }
 }

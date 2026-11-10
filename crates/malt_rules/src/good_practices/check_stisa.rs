@@ -27,8 +27,16 @@ impl GoodPracticesEngine {
         };
 
         let is_class_call = |arg: &Node| get_function_call_name(*arg, source) == Some("class");
-        let is_char_literal =
-            |arg: &Node| arg.kind() == "string" && node_text(*arg, source).starts_with('\'');
+        // Probed: `char`, `cell`, `struct` and `logical` have their own IDs
+        // (ISCHR, ISCELL, ISSTR, ISLOG), so STISA does not report them.
+        let is_char_literal = |arg: &Node| {
+            arg.kind() == "string"
+                && node_text(*arg, source).starts_with('\'')
+                && !matches!(
+                    node_text(*arg, source),
+                    "'char'" | "'cell'" | "'struct'" | "'logical'"
+                )
+        };
         let compares_class_name = (is_class_call(first) && is_char_literal(second))
             || (is_char_literal(first) && is_class_call(second));
         if !compares_class_name {
@@ -85,6 +93,23 @@ mod tests {
             0
         );
         assert_eq!(stisa_count("b = strcmp(class(o), class(p));\n"), 0);
+    }
+
+    #[test]
+    fn test_stisa_fires_on_other_classes() {
+        // Probed: `single`, `int32` and `function_handle` are reported (fix/gp-b__t1.m).
+        assert_eq!(stisa_count("b = strcmp(class(o), 'single');\n"), 1);
+        assert_eq!(stisa_count("b = strcmp(class(o), 'int32');\n"), 1);
+        assert_eq!(stisa_count("b = strcmp(class(o), 'function_handle');\n"), 1);
+    }
+
+    #[test]
+    fn test_stisa_no_fire_on_classes_with_own_id() {
+        // Probed: `char`, `cell`, `struct` and `logical` give ISCHR, ISCELL, ISSTR and ISLOG.
+        assert_eq!(stisa_count("b = strcmp(class(o), 'char');\n"), 0);
+        assert_eq!(stisa_count("b = strcmp('cell', class(o));\n"), 0);
+        assert_eq!(stisa_count("b = strcmp(class(o), 'struct');\n"), 0);
+        assert_eq!(stisa_count("b = strcmp(class(o), 'logical');\n"), 0);
     }
 
     #[test]
