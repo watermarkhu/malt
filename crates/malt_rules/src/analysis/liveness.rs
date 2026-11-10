@@ -141,11 +141,12 @@ pub fn dead_stores(table: &SymbolTable, index: usize, tree: &Tree, source: &str)
     for &child in &scope.children {
         // A lambda captures its variables when it is created. The enclosing scope
         // already records them as reads at that point, so they are not excluded.
-        if let Some(child) = table
-            .scopes
-            .get(child)
-            .filter(|c| !matches!(c.kind, ScopeKind::Lambda))
-        {
+        // A local function of a script has its own workspace: only a nested
+        // function shares the variables of its parent.
+        if let Some(child) = table.scopes.get(child).filter(|c| {
+            !matches!(c.kind, ScopeKind::Lambda)
+                && (scope.kind != ScopeKind::Script || c.kind == ScopeKind::NestedFunction)
+        }) {
             excluded.extend(child.uses.iter().map(|u| u.name.clone()));
             excluded.extend(child.defs.iter().map(|d| d.name.clone()));
         }
@@ -433,6 +434,21 @@ fn has_block(node: Node) -> bool {
     node.kind() == "block" || children(node).into_iter().any(has_block)
 }
 
+/// Whether an `ERROR` statement holds a `function_definition` and nothing else
+/// with a block. Probed (`elseif x, c = 2; end` after a `try` closed the
+/// function): MATLAB ends the function at that `end`, and the statements after
+/// the error are a script's, so their stores are reported only when overwritten.
+fn ends_function_early(node: Node) -> bool {
+    node.kind() == "ERROR"
+        && children(node)
+            .into_iter()
+            .any(|child| child.kind() == "function_definition")
+        && children(node)
+            .into_iter()
+            .filter(|child| child.kind() != "function_definition")
+            .all(|child| !has_block(child))
+}
+
 fn has_break(node: Node) -> bool {
     node.kind() == "break_statement" || children(node).into_iter().any(has_break)
 }
@@ -619,6 +635,10 @@ impl Analysis<'_> {
             "spmd_statement" => self.spmd_statement(node, after, report),
             // An `arguments` block only declares and checks the inputs.
             "arguments_statement" => self.leaf(node, after, report),
+            // A stray `end` after a broken `elseif` closes the function before it:
+            // the function is its own scope, and the rest of the node is a plain
+            // statement of this scope (see `ends_function_early`).
+            "ERROR" if ends_function_early(node) => self.leaf(node, after, report),
             _ if has_block(node) => {
                 self.bail = true;
                 after

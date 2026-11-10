@@ -37,10 +37,15 @@ impl UnusedEngine {
             .scopes
             .first()
             .is_some_and(|s| s.kind == ScopeKind::Script);
+        // Probes (r10_D a1-a7, c1-c5, d1-d5): with a `function` line inside the
+        // primary function's `arguments` block, MATLAB checks the primary function
+        // like a local function: DEFNU at its name (line 1, column 14) when no call
+        // reaches it, and the file name does not shadow it (probe c2).
+        let open_arguments = table.arguments_unclosed;
         for (position, scope) in table.scopes.iter().enumerate() {
             let local = match scope.kind {
                 ScopeKind::LocalFunction | ScopeKind::NestedFunction => true,
-                ScopeKind::Function => in_script,
+                ScopeKind::Function => in_script || open_arguments,
                 _ => false,
             };
             if !local {
@@ -64,7 +69,7 @@ impl UnusedEngine {
                 || if in_script {
                     !table.root_scope().defs_of(name).is_empty()
                 } else {
-                    name == file_stem
+                    !open_arguments && name == file_stem
                 };
             if !all_uses.contains(name.as_str()) && !shadowed {
                 diagnostics.push(Diagnostic {
@@ -254,5 +259,45 @@ mod tests {
         // Probe (naming__e): a function after a classdef `end` is a local function.
         let diags = lint_file(&*engine(), "classdef Cl\nend\nfunction helper()\nend\n");
         assert!(has_id(&diags, "DEFNU"), "got: {diags:?}");
+    }
+
+    fn defnu_lines(src: &str) -> Vec<usize> {
+        lint_file(&*engine(), src)
+            .iter()
+            .filter(|d| d.rule_id == "DEFNU")
+            .map(|d| d.line)
+            .collect()
+    }
+
+    #[test]
+    fn defnu_fires_on_primary_when_arguments_block_is_open() {
+        // Fixture t__fv4: a `function` line inside the arguments block. MATLAB
+        // reports the primary function at line 1 (uncalled) and the nested one at 5.
+        let src = "function r = fvA(n, m)\n    arguments\n        n (1,1) {mustBeNumeric} = nargin\n        m = max(nargin, 2)\n        function q = inner(), q = 1; end\n    end\n    r = 1;\nend\n";
+        assert_eq!(defnu_lines(src), vec![1, 5]);
+    }
+
+    #[test]
+    fn defnu_primary_silent_when_called_with_open_arguments_block() {
+        // Probe a2: a later function calls the primary function, so only the
+        // uncalled caller (line 9) and the nested function (line 4) are reported.
+        let src = "function r = fvA(n)\n    arguments\n        n (1,1) double\n        function q = inner(), q = 1; end\n    end\n    r = 1;\nend\n\nfunction z = caller()\n    z = fvA(1);\nend\n";
+        assert_eq!(defnu_lines(src), vec![4, 9]);
+    }
+
+    #[test]
+    fn defnu_primary_silent_without_parse_error() {
+        // Probe a4: the arguments block is left open, but the file has no
+        // parse error. MATLAB keeps the primary function a file function (FNDEF,
+        // no DEFNU at line 1); the nested function is reported at line 4.
+        let src = "function r = fvC(n)\n    arguments\n        n (1,1) double\n        function q = inner()\n    end\n    r = 1;\nend\n";
+        assert_eq!(defnu_lines(src), vec![4]);
+    }
+
+    #[test]
+    fn defnu_primary_not_shadowed_by_file_name_with_open_arguments_block() {
+        // Probe c2: the primary function named like its file is still DEFNU.
+        let src = "function r = c2(n)\n    arguments\n        n (1,1) double\n        function q = inner(), q = 1; end\n    end\n    r = 1;\nend\n";
+        assert_eq!(defnu_lines(src), vec![1, 4]);
     }
 }

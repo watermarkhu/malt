@@ -250,6 +250,10 @@ impl Scope {
 pub struct SymbolTable {
     /// All scopes in the file, indexed by position in this vec.
     pub scopes: Vec<Scope>,
+    /// Whether the primary function's `arguments` block is left open (a
+    /// `function` line inside it, see `Builder::has_unclosed_arguments_block`).
+    /// MATLAB then checks the primary function like a local function.
+    pub arguments_unclosed: bool,
 }
 
 impl SymbolTable {
@@ -302,10 +306,12 @@ impl SymbolTable {
             scopes: Vec::new(),
             scope_stack: Vec::new(),
             first_file_function_seen: false,
+            arguments_unclosed: false,
         };
         builder.run(root);
         SymbolTable {
             scopes: builder.scopes,
+            arguments_unclosed: builder.arguments_unclosed,
         }
     }
 }
@@ -322,6 +328,8 @@ struct Builder<'a> {
     scope_stack: Vec<usize>,
     /// Whether we have seen the first file-level `function_definition`.
     first_file_function_seen: bool,
+    /// Set when the primary function's `arguments` block is left open (see `SymbolTable`).
+    arguments_unclosed: bool,
 }
 
 impl<'a> Builder<'a> {
@@ -379,6 +387,9 @@ impl<'a> Builder<'a> {
         // A function file starts with a `function_definition` as the first
         // meaningful child of `source_file`. Otherwise it's a script.
         let is_function_file = Self::first_meaningful_child_is_function(&root);
+        if is_function_file && Self::has_unclosed_arguments_block(root) {
+            self.arguments_unclosed = true;
+        }
 
         if !is_function_file && self.is_broken_function_root(root) {
             self.visit_broken_function(root);
@@ -435,6 +446,28 @@ impl<'a> Builder<'a> {
             }
         }
         false
+    }
+
+    /// Whether a function file's first function has an `arguments` block with no
+    /// `end`, and the file has a top-level `ERROR` (a statement MATLAB cannot
+    /// parse). A `function` line inside the block (probed: `function q = inner()`)
+    /// leaves it open; MATLAB then checks the primary function like a local
+    /// function. Without the `ERROR` (probe a4) the primary stays the file's function.
+    fn has_unclosed_arguments_block(root: tree_sitter::Node) -> bool {
+        let children: Vec<tree_sitter::Node> = (0..root.child_count())
+            .filter_map(|i| root.child(i))
+            .collect();
+        let has_error = children.iter().any(|c| c.kind() == "ERROR");
+        let first_function = children.iter().find(|c| c.kind() == "function_definition");
+        has_error
+            && first_function.is_some_and(|f| {
+                (0..f.child_count()).filter_map(|i| f.child(i)).any(|c| {
+                    c.kind() == "arguments_statement"
+                        && (0..c.child_count())
+                            .filter_map(|i| c.child(i))
+                            .any(|m| m.is_missing())
+                })
+            })
     }
 
     /// Whether the tree root is an `ERROR` node that starts with the `function`

@@ -24,6 +24,9 @@ struct ClassCtx {
     constant_props: std::collections::HashSet<String>,
     /// Whether the class is a handle class.
     is_handle: bool,
+    /// Whether any methods block declares a signature without a body (`f(obj)`).
+    /// MATLAB reports no MCNPN anywhere in such a class.
+    has_signature_only: bool,
 }
 
 impl GoodPracticesEngine {
@@ -78,6 +81,11 @@ impl GoodPracticesEngine {
                 .collect(),
             constant_props: collect_constant_properties(class_node, source),
             is_handle: class.is_handle(),
+            has_signature_only: {
+                let mut signatures = Vec::new();
+                collect_nodes_of_kind(class_node, "function_signature", &mut signatures);
+                !signatures.is_empty()
+            },
         };
 
         // Index methods by their function_definition start byte.
@@ -352,8 +360,10 @@ fn check_method_body(
         return;
     }
 
-    // MCNPN: member access on the object whose name is not declared.
+    // MCNPN: member access on the object whose name is not declared. Silent in a
+    // class with a signature-only declaration (MATLAB's behaviour, probed).
     if eng.is_check_enabled("MCNPN")
+        && !ctx.has_signature_only
         && node.kind() == "field_expression"
         && is_object_field_access(node, source, info)
     {
@@ -475,6 +485,36 @@ mod tests {
     #[test]
     fn test_mcnpn_silent_on_declared_member() {
         let source = "classdef Foo\n    properties\n        X\n    end\n    methods\n        function r = getIt(obj)\n            r = obj.X;\n        end\n    end\nend\n";
+        assert!(oop_ids_for(source, "MCNPN").is_empty());
+    }
+
+    #[test]
+    fn test_mcnpn_fires_on_abstract_method_with_body() {
+        // MATLAB reports this (probe K2).
+        let source = "classdef Foo\n    methods (Abstract)\n        function f2(obj)\n            x = obj.undefinedThing;\n        end\n    end\nend\n";
+        let ids = oop_ids_for(source, "MCNPN");
+        assert_eq!(ids.len(), 1, "got: {:?}", oop_ids(source));
+    }
+
+    #[test]
+    fn test_mcnpn_silent_when_abstract_block_has_signature_only() {
+        // MATLAB is silent for the body method once a signature-only line is in the class (probe K8).
+        let source = "classdef Foo\n    methods (Abstract)\n        f2(obj)\n        function g(obj)\n            y = obj.foo;\n        end\n    end\nend\n";
+        assert!(oop_ids_for(source, "MCNPN").is_empty());
+    }
+
+    #[test]
+    fn test_mcnpn_silent_when_plain_block_has_signature_only() {
+        // Probe L4: the signature-only line is in a plain methods block.
+        let source = "classdef Foo\n    methods\n        function g(obj)\n            y = obj.foo;\n        end\n        f2(obj)\n    end\nend\n";
+        assert!(oop_ids_for(source, "MCNPN").is_empty());
+    }
+
+    #[test]
+    fn test_mcnpn_silent_in_class_with_signature_only_setter_and_getter() {
+        // Shape of ls-c__V1.m: `v.b` in a method is silent because of the
+        // `set.k(obj, v)` / `get.k2(obj)` signatures later in the class.
+        let source = "classdef Foo\n    methods\n        function validateW(v)\n            s = struct('a', v.b);\n        end\n    end\n    methods (Abstract)\n        set.k(obj, v)\n        v = get.k2(obj)\n    end\nend\n";
         assert!(oop_ids_for(source, "MCNPN").is_empty());
     }
 

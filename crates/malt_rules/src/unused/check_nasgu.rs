@@ -157,6 +157,33 @@ mod tests {
         assert!(nasgu_lines(source).contains(&2));
     }
 
+    // Probes (checkcode R2026b): a stray `elseif x, c=2; end` after a closed
+    // `if` ends the function at its `end`. The statements after it are a
+    // script's: their stores are reported only when overwritten.
+
+    #[test]
+    fn stray_elseif_keeps_function_stores_before_it() {
+        // `a = 1` is overwritten; `c = 2` is never read in the function.
+        let src = "function t12(x)\na = 1;\na = 2;\ndisp(a);\nif x, disp(1); end\nelseif x, c=2; end\nb = 4;\n[p,q] = 5;\n[p,q] = x;\n";
+        assert_eq!(nasgu_lines(src), vec![2, 6]);
+    }
+
+    #[test]
+    fn stray_elseif_multi_output_overwritten_after_is_asglu() {
+        // MATLAB: ASGLU at 8:2 and 8:4, the first store of `[p, q]`.
+        let src = "function t13(x)\na = 1;\na = 2;\ndisp(a);\nif x, disp(1); end\nelseif x, c=2; end\nc = a || a;\n[p,q] = 5;\n[p,q] = x;\n";
+        assert_eq!(asglu_positions(src), vec![(8, 2), (8, 4)]);
+    }
+
+    #[test]
+    fn stray_elseif_final_stores_after_it_stay_in_workspace() {
+        // MATLAB: `b = 4`, `[p, q] = 5` and `r = 6` are live at the end of the
+        // script part, so nothing is reported for them.
+        let src = "function t8(x)\na = 1;\na = 2;\ndisp(a);\nif x, disp(1); end\nelseif x, c=2; end\nb = 4;\n[p,q] = 5;\nr = 6;\n";
+        assert_eq!(nasgu_lines(src), vec![2, 6]);
+        assert!(asglu_positions(src).is_empty());
+    }
+
     #[test]
     fn nasgu_script_cleared_before_use() {
         assert_eq!(nasgu_lines("e = 7;\nclear e\n"), vec![1]);

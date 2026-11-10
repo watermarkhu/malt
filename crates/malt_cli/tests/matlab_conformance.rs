@@ -3,17 +3,11 @@
 //! `fixtures/matlab_expected.tsv` holds what MATLAB R2026b's `checkcode` reports
 //! for every file under `tests/fixtures` (path, line, check ID: facts only, no
 //! message text). This test lints the same files with the default configuration
-//! and compares the (path, line, ID) sets:
+//! and requires the (path, line, ID) sets to be identical. Any difference, a missed
+//! finding or an extra one, fails the test.
 //!
-//! - a **difference that is not listed** in `fixtures/matlab_known_differences.tsv`
-//!   fails the test (a regression, or a new fixture that nobody compared with
-//!   MATLAB);
-//! - the known list is the backlog towards zero; the ignored test
-//!   `no_known_differences_remain` fails until it is empty.
-//!
-//! Regenerate the expectations with `docs/scripts/matlab_probe.m` (see
-//! `docs/VERIFY.md`) and the known list with
-//! `UPDATE_KNOWN_DIFFERENCES=1 cargo test -p malt-cli --test matlab_conformance`.
+//! A new fixture needs its MATLAB expectations: run `docs/scripts/matlab_probe.m`
+//! over it and append the result to `matlab_expected.tsv` (see `docs/VERIFY.md`).
 
 use std::collections::BTreeSet;
 use std::fs;
@@ -27,24 +21,16 @@ fn fixtures() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures")
 }
 
-fn read_triples(file: &str, skip_kind_column: bool) -> BTreeSet<(String, Triple)> {
-    let text = fs::read_to_string(fixtures().join(file)).unwrap_or_default();
+fn read_expected() -> BTreeSet<Triple> {
+    let text = fs::read_to_string(fixtures().join("matlab_expected.tsv")).unwrap_or_default();
     text.lines()
         .filter(|l| !l.starts_with('#') && !l.trim().is_empty())
         .map(|l| {
             let cols: Vec<&str> = l.split('\t').collect();
-            let (kind, rest) = if skip_kind_column {
-                (cols[0].to_string(), &cols[1..])
-            } else {
-                (String::new(), &cols[..])
-            };
             (
-                kind,
-                (
-                    rest[0].to_string(),
-                    rest[1].parse().unwrap(),
-                    rest[2].to_string(),
-                ),
+                cols[0].to_string(),
+                cols[1].parse().unwrap(),
+                cols[2].to_string(),
             )
         })
         .collect()
@@ -87,10 +73,7 @@ fn malt_findings() -> BTreeSet<Triple> {
 
 /// All differences with MATLAB: ("matlab-only" | "malt-only", triple).
 fn differences() -> BTreeSet<(String, Triple)> {
-    let matlab: BTreeSet<Triple> = read_triples("matlab_expected.tsv", false)
-        .into_iter()
-        .map(|(_, t)| t)
-        .collect();
+    let matlab = read_expected();
     let malt = std::thread::Builder::new()
         .stack_size(256 * 1024 * 1024)
         .spawn(malt_findings)
@@ -108,39 +91,16 @@ fn differences() -> BTreeSet<(String, Triple)> {
 }
 
 #[test]
-fn no_new_differences_with_matlab() {
+fn no_differences_with_matlab() {
     let diff = differences();
-    if std::env::var_os("UPDATE_KNOWN_DIFFERENCES").is_some() {
-        let mut text = String::from(
-            "# Known differences with MATLAB on the fixtures: kind, path, line, check ID.\n# This is the backlog; it should shrink to nothing.\n",
-        );
-        for (kind, (path, line, id)) in &diff {
-            text.push_str(&format!("{kind}\t{path}\t{line}\t{id}\n"));
-        }
-        fs::write(fixtures().join("matlab_known_differences.tsv"), text).unwrap();
-        return;
-    }
-    let known = read_triples("matlab_known_differences.tsv", true);
-    let new: Vec<_> = diff.difference(&known).collect();
     assert!(
-        new.is_empty(),
-        "{} difference(s) with MATLAB that are not in matlab_known_differences.tsv:\n{}",
-        new.len(),
-        new.iter()
+        diff.is_empty(),
+        "{} difference(s) with MATLAB:\n{}",
+        diff.len(),
+        diff.iter()
             .take(40)
             .map(|(k, (p, l, i))| format!("  {k}\t{p}:{l}\t{i}"))
             .collect::<Vec<_>>()
             .join("\n")
-    );
-}
-
-#[test]
-#[ignore = "backlog: fails until every difference with MATLAB is fixed"]
-fn no_known_differences_remain() {
-    let diff = differences();
-    assert!(
-        diff.is_empty(),
-        "{} differences with MATLAB remain",
-        diff.len()
     );
 }

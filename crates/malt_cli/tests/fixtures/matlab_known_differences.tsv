@@ -1,6 +1,0 @@
-# Known differences with MATLAB on the fixtures: kind, path, line, check ID.
-# This is the backlog; it should shrink to nothing.
-malt-only	fix/ls-c__V1.m	33	MCNPN
-matlab-only	fix/bugs__f1.m	44	ASGLU
-matlab-only	fix/bugs__f2.m	44	ASGLU
-matlab-only	fix/t__fv4.m	1	DEFNU
