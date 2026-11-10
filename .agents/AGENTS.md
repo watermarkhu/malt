@@ -263,9 +263,17 @@ Add the rule page to the `Rules` section of the sidebar in `docs/.vitepress/conf
 
 ```bash
 cargo build
-cargo clippy
-cargo test
+cargo clippy --all-targets -- -D warnings
+cargo test --workspace --locked
+bun docs/scripts/gen_rules_docs.ts --check
 ```
+
+`cargo test` includes `crates/malt_cli/tests/matlab_conformance.rs`: malt must report exactly what
+MATLAB's Code Analyzer reports on every fixture under `crates/malt_cli/tests/fixtures`
+(`matlab_expected.tsv`). A new fixture needs its MATLAB expectations; see `docs/VERIFY.md`, which
+also lists the policy (which checks are off under the default `mathworks` preset and why) and the
+known gaps. Probe MATLAB (`checkcode`, through the `matlab` MCP server) before you change what a
+check reports.
 
 ## Key Patterns and Conventions
 

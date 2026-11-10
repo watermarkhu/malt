@@ -2246,9 +2246,9 @@ behavior-changes = "off"
 ```
 
 The specialized engines `CODEGEN_ENGINE`, `DEPLOYMENT_ENGINE`,
-`SYSTEM_OBJECTS_ENGINE`, `SUGGESTED_IMPROVEMENTS`, and
-`UNSUPPORTED_ENGINE` are off by default, and the default `mathworks` preset also
-turns off `NAMING_ENGINE` and `CUSTOM_CHECKS`. Re-enable one per rule or per
+`SYSTEM_OBJECTS_ENGINE` and `UNSUPPORTED_ENGINE` are off by default, and the default `mathworks`
+preset also turns off `NAMING_ENGINE`, `CUSTOM_CHECKS` and the individual checks MATLAB's default
+Code Analyzer never reports. Re-enable one per rule or per
 category (or use `preset = "all"` to turn everything on):
 
 ```toml

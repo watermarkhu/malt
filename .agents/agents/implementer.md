@@ -31,12 +31,16 @@ You will be given: the rule ID, the category/module, and the Reviewer's approved
 
 ## Ground truth
 
-The official Code Analyzer index is available locally as
-`~/.local/share/malt-reference/mathworks-checks.csv` (columns: category, check_id,
-severity, message, message_release, can_be_disabled, related_docs). Look an ID up with
-`grep '"ID"' <file>`. Use its severity and message. It is not part of the repository
-(MathWorks content); regenerate it with the script next to it.
-If an ID cannot be matched to the code, do not invent one: delete the check.
+MATLAB's real Code Analyzer is the ground truth, through the `matlab` MCP server
+(`tools.matlab.evaluate_matlab_code`; see `docs/VERIFY.md`). Probe before you implement
+or change a check: write a small `.m` file, run `checkcode(file, '-id')` (or
+`docs/scripts/matlab_probe.m` over a file list), and record exactly when the ID fires and on
+which line. MATLAB's own list of checks (ID, severity, message template) is local at
+`~/.local/share/malt-reference/matlab-checks.csv` (columns: category, check_id, severity,
+message, ...; made from `matlab-allmsg.txt` with `docs/scripts/make-allmsg-csv.ts`). It is
+MathWorks content and not part of the repository. Look an ID up with `grep '"ID"' <file>` and
+compare with `bun docs/scripts/check_against_mathworks.ts <csv>`.
+If an ID cannot be matched or reproduced, do not invent behaviour: leave the check out.
 
 ## Steps
 
@@ -55,7 +59,8 @@ If an ID cannot be matched to the code, do not invent one: delete the check.
    ```bash
    cargo build
    cargo clippy --all-targets   # must pass with zero warnings
-   cargo test --workspace --locked   # includes crates/malt_rules/tests/conformance.rs
+   cargo test --workspace --locked   # includes crates/malt_rules/tests/conformance.rs and
+                                     # crates/malt_cli/tests/matlab_conformance.rs (MATLAB parity on the fixtures)
    ```
    Fix any compile, clippy, or test failures until everything is clean.
 

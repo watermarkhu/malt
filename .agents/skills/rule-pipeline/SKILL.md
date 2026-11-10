@@ -29,13 +29,12 @@ mode, model, and permissions are registered in the root `opencode.json`.
 
 ## Rule context lookup (main session only)
 
-Before planning, look the rule up in the official index. MathWorks returns HTTP 403 to
-`webfetch` and the Playwright MCP needs a Chrome that is not installed here, so use the
-local copy: `~/.local/share/malt-reference/mathworks-checks.csv` (see its `make-csv.ts` to
-regenerate it from the Wayback Machine snapshot of
-`https://www.mathworks.com/help/matlab/matlab_env/index-of-code-analyzer-checks.html`).
-The CSV has the ID, category, severity, message and whether the check can be disabled.
-It does not have code examples; derive MUST/MUST NOT examples from the message.
+Before planning, look the rule up in MATLAB's own list and probe the real Code Analyzer: the
+local copy is `~/.local/share/malt-reference/matlab-checks.csv` (ID, category, severity, message;
+regenerate it with `docs/scripts/make-allmsg-csv.ts` from the output of `checkcode('-allmsg')`),
+and the `matlab` MCP server runs `checkcode` on small probe files (see `docs/VERIFY.md`).
+MathWorks returns HTTP 403 to `webfetch`, so do not browse the documentation.
+The list has no code examples: derive MUST/MUST NOT examples from probes of the real analyzer.
 
 Subagents must not browse; pass the rule context to them as plan text.
 

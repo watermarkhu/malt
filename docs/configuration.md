@@ -24,7 +24,7 @@ config file.
 
 | Preset | Disabled categories | Description |
 | ------ | ------------------- | ----------- |
-| `mathworks` *(default)* | `custom-checks`, `naming` | Matches MATLAB Code Analyzer's factory configuration: complexity metrics and naming conventions are opt-in. |
+| `mathworks` *(default)* | `custom-checks`, `naming` | Matches MATLAB Code Analyzer's factory configuration: complexity metrics and naming conventions are opt-in, and the individual checks MATLAB's default analysis never reports are off too (see [Default Behavior](#default-behavior)). |
 | `all` | — | Every rule enabled, including the [default-off engines](#default-behavior). |
 | `recommended` | `performance`, `readability`, `formatting`, `suggested-improvements`, `naming`, `custom-checks` | Errors and warnings on; Info-level style/suggestion checks off. |
 
@@ -199,15 +199,18 @@ All other keys in the table are rule-specific parameters (see **Per-Engine Param
 
 When no `.malt.toml` is present:
 
-- The **`mathworks`** preset is active, so `custom-checks` and `naming` are off
+- The **`mathworks`** preset is active, so `custom-checks` and `naming` are off, as are the individual checks that
+  MATLAB's default Code Analyzer never reports (for example `ERTAG`, `WNTAG`, `CTCH`, `BDLOG2`, `LOGSUM`, the
+  forward-compatibility gates `FC*`, and the behavior-change entries MATLAB lists as low reliability). The `all`
+  preset turns them back on, and so does an explicit `[lint.rules]` entry
 - These specialized engines are **off by default** under every preset except
   `all` (opt in per rule or per category):
   - `CODEGEN_ENGINE` (`code-generation`) — MATLAB Coder constraints
   - `DEPLOYMENT_ENGINE` (`deployment`) — MATLAB Compiler constraints
   - `SYSTEM_OBJECTS_ENGINE` (`system-objects`) — `matlab.System` validation
-  - `SUGGESTED_IMPROVEMENTS` (`suggested-improvements`) — replacement hints
   - `UNSUPPORTED_ENGINE` (`unsupported`) — platform-specific features
-- All other rules are **enabled** at their default severity
+- All other rules are **enabled** at their default severity, including `SUGGESTED_IMPROVEMENTS` (replacement hints,
+  which MATLAB reports by default)
 - No files are excluded
 - No rule-specific parameters are set
 
