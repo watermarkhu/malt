@@ -13,10 +13,14 @@ impl LanguageSpecEngine {
                 .attributes
                 .iter()
                 .any(|a| a.name == "Abstract" && !a.negated);
-            let is_private = mb
-                .attributes
-                .iter()
-                .any(|a| a.name == "Access" && !a.negated && a.value.as_deref() == Some("private"));
+            let is_private = mb.attributes.iter().any(|a| {
+                a.name == "Access"
+                    && !a.negated
+                    && a.value
+                        .as_deref()
+                        .map(|v| v.trim_matches(|c| c == '\'' || c == '"'))
+                        == Some("private")
+            });
             if is_abstract && is_private {
                 for method in &mb.methods {
                     diagnostics.push(Diagnostic {
@@ -70,5 +74,17 @@ end
         let diags = check_source(source, "Foo.m");
         let hits = filter_by_id(&diags, "MCMSP");
         assert!(hits.is_empty(), "MCMSP should NOT fire for private only");
+    }
+}
+
+#[cfg(test)]
+mod quoted_access_tests {
+    use crate::language_spec::tests::{check_source, filter_by_id};
+
+    #[test]
+    fn mcmsp_fires_for_quoted_private_access() {
+        let source = "classdef V1\n    methods (Access = 'private', Abstract = true)\n        f1(obj)\n    end\nend\n";
+        let diags = check_source(source, "V1.m");
+        assert!(!filter_by_id(&diags, "MCMSP").is_empty());
     }
 }

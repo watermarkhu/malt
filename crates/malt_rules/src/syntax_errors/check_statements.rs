@@ -8,8 +8,41 @@ impl SyntaxErrorsEngine {
 
         // Collect function names and variable assignments for REDEF.
         let mut function_names: HashSet<String> = HashSet::new();
-        let mut variable_names: HashSet<String> = HashSet::new();
+        let mut variable_names: std::collections::HashMap<String, usize> =
+            std::collections::HashMap::new();
         let mut redef_reported: HashSet<String> = HashSet::new();
+
+        // REDEF: a top-level function defined again later in the file.
+        let mut first_definitions: std::collections::HashMap<String, usize> =
+            std::collections::HashMap::new();
+        let mut cursor = root.walk();
+        for child in root.children(&mut cursor) {
+            if child.kind() != "function_definition" {
+                continue;
+            }
+            let Some(name_node) = child.child_by_field_name("name") else {
+                continue;
+            };
+            let name = source[name_node.start_byte()..name_node.end_byte()].to_string();
+            if let Some(&first_line) = first_definitions.get(&name) {
+                if self.is_check_enabled("REDEF") {
+                    let pos = name_node.start_position();
+                    diagnostics.push(Diagnostic {
+                        rule_id: "REDEF",
+                        message: format!(
+                            "The current use of {name} is inconsistent with its previous use or definition (line {first_line})."
+                        ),
+                        severity: Severity::Error,
+                        byte_range: name_node.byte_range(),
+                        line: pos.row + 1,
+                        column: pos.column + 1,
+                        fix: None,
+                    });
+                }
+            } else {
+                first_definitions.insert(name, name_node.start_position().row + 1);
+            }
+        }
 
         self.walk_statements(
             root,
@@ -29,7 +62,7 @@ impl SyntaxErrorsEngine {
         source: &str,
         diagnostics: &mut Vec<Diagnostic>,
         function_names: &mut HashSet<String>,
-        variable_names: &mut HashSet<String>,
+        variable_names: &mut std::collections::HashMap<String, usize>,
         redef_reported: &mut HashSet<String>,
     ) {
         let kind = node.kind();
@@ -58,7 +91,7 @@ impl SyntaxErrorsEngine {
             if let Some(name_node) = node.child_by_field_name("name") {
                 let name = source[name_node.start_byte()..name_node.end_byte()].to_string();
                 if self.is_check_enabled("REDEF")
-                    && variable_names.contains(&name)
+                    && variable_names.contains_key(&name)
                     && !redef_reported.contains(&name)
                 {
                     let pos = name_node.start_position();
@@ -78,6 +111,34 @@ impl SyntaxErrorsEngine {
                     redef_reported.insert(name.clone());
                 }
                 function_names.insert(name);
+            }
+        }
+
+        // REDEF: a command-syntax word that is a variable (`psd x` after `psd = 5`).
+        if kind == "command" && self.is_check_enabled("REDEF") {
+            let text = &source[node.start_byte()..node.end_byte()];
+            let command_word = text.split_whitespace().next().filter(|w| {
+                w.chars().all(|c| c.is_alphanumeric() || c == '_')
+                    && text[w.len()..].starts_with([' ', '\t'])
+            });
+            if let Some(name) = command_word {
+                if let Some(&def_line) = variable_names.get(name) {
+                    if !redef_reported.contains(name) {
+                        let pos = node.start_position();
+                        diagnostics.push(Diagnostic {
+                            rule_id: "REDEF",
+                            message: format!(
+                                "The current use of {name} is inconsistent with its previous use or definition (line {def_line})."
+                            ),
+                            severity: Severity::Error,
+                            byte_range: node.byte_range(),
+                            line: pos.row + 1,
+                            column: pos.column + 1,
+                            fix: None,
+                        });
+                        redef_reported.insert(name.to_string());
+                    }
+                }
             }
         }
 
@@ -106,7 +167,9 @@ impl SyntaxErrorsEngine {
                         });
                         redef_reported.insert(name.clone());
                     }
-                    variable_names.insert(name);
+                    variable_names
+                        .entry(name)
+                        .or_insert(lhs.start_position().row + 1);
                 }
             }
         }
@@ -251,5 +314,34 @@ mod tests {
     fn redef_ok_on_distinct_names() {
         let diags = lint_file(&*engine(), "function foo()\n    x = 1;\nend\n");
         assert!(!has_id(&diags, "REDEF"), "got: {diags:?}");
+    }
+}
+
+#[cfg(test)]
+mod redef_tests {
+    use super::*;
+    use crate::test_util::{has_id, lint_file};
+    use malt_core::Config;
+
+    fn engine() -> Box<dyn Rule> {
+        SyntaxErrorsEngine::from_config(&Config::default())
+    }
+
+    #[test]
+    fn redef_fires_for_duplicate_top_level_function() {
+        let diags = lint_file(&*engine(), "function f1()\nend\nfunction f1()\nend\n");
+        assert!(has_id(&diags, "REDEF"));
+    }
+
+    #[test]
+    fn redef_does_not_fire_for_distinct_functions() {
+        let diags = lint_file(&*engine(), "function f1()\nend\nfunction f2()\nend\n");
+        assert!(!has_id(&diags, "REDEF"));
+    }
+
+    #[test]
+    fn redef_fires_for_command_syntax_on_variable() {
+        let diags = lint_file(&*engine(), "psd = 5;\npsd x\n");
+        assert!(has_id(&diags, "REDEF"));
     }
 }

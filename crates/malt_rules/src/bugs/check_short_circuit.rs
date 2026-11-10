@@ -33,6 +33,15 @@ impl BugsEngine {
         } else {
             return Vec::new();
         };
+        // Probed: MATLAB reports LOGEMP, not SHOCIRF, for `isempty(a && b)`.
+        if self
+            .config
+            .disabled_checks
+            .iter()
+            .any(|c| c.as_str() == rule_id)
+        {
+            return Vec::new();
+        }
         let args = arg_nodes(node);
         let [arg] = args.as_slice() else {
             return Vec::new();

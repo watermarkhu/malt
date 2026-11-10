@@ -219,8 +219,10 @@ impl FormattingEngine {
             self.check_no4lp(node, source, diagnostics);
         }
 
-        // ALIGN: elseif/else alignment with parent if
-        if kind == "if_statement" && self.enabled.align {
+        // ALIGN: a block keyword whose matching END is indented differently
+        if matches!(kind, "if_statement" | "for_statement" | "while_statement")
+            && self.enabled.align
+        {
             self.check_align(node, source, diagnostics);
         }
 

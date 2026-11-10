@@ -85,7 +85,8 @@ impl UnsetVariablesEngine {
                     })
                     .map(|d| d.byte_range.start)
                     .collect();
-                !assigns.is_empty() && assigns.iter().all(|&start| start > use_start)
+                (!assigns.is_empty() && assigns.iter().all(|&start| start > use_start))
+                    || Self::cleared_before(func_node, source, scope, name, use_start)
             };
             self.emit_possibly_unset_diagnostics(&da, nodef_applies, &mut diagnostics);
 
@@ -97,6 +98,43 @@ impl UnsetVariablesEngine {
         }
 
         diagnostics
+    }
+
+    /// Whether a plain `clear name` statement of the function body comes before
+    /// the use, and no assignment of `name` comes between the last such clear and
+    /// the use: no definition reaches the use, so MATLAB reports NODEF.
+    fn cleared_before(
+        func: tree_sitter::Node,
+        source: &str,
+        scope: &crate::analysis::symbols::Scope,
+        name: &str,
+        use_start: usize,
+    ) -> bool {
+        let mut func_cursor = func.walk();
+        let Some(block) = func
+            .named_children(&mut func_cursor)
+            .find(|n| n.kind() == "block")
+        else {
+            return false;
+        };
+        let mut cursor = block.walk();
+        let last_clear = block
+            .named_children(&mut cursor)
+            .filter(|s| s.kind() == "command" && s.end_byte() <= use_start)
+            .filter(|s| {
+                crate::analysis::liveness::clear_names(&source[s.byte_range()])
+                    .is_some_and(|names| names.iter().any(|n| n == name))
+            })
+            .map(|s| s.end_byte())
+            .max();
+        last_clear.is_some_and(|clear| {
+            !scope.defs.iter().any(|d| {
+                d.name == name
+                    && d.kind == crate::analysis::symbols::DefKind::Assignment
+                    && d.byte_range.start >= clear
+                    && d.byte_range.start < use_start
+            })
+        })
     }
 
     /// Whether `func` is the constructor of the classdef it sits in: a method named

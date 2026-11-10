@@ -49,6 +49,8 @@ pub(crate) fn is_expression_statement(node: Node, source: &str) -> bool {
     }
     match node.kind() {
         "comparison_operator" | "binary_operator" | "unary_operator" | "boolean_operator" => true,
+        // Probed: a number literal (`2`) and a transposed value (`x'`) echo too.
+        "number" | "postfix_operator" => true,
         "string" => text_of(node, source).starts_with('\''),
         "identifier" => is_variable_name(node, text_of(node, source), source),
         // A bare word such as `x` parses as a command; it is a variable statement
@@ -125,6 +127,15 @@ mod tests {
     fn nopts_assignment_in_script_without_semicolon() {
         let source = "x = 5\n";
         let diags = lint(source);
+        assert!(has_id(&diags, "NOPTS"), "got: {diags:?}");
+    }
+
+    #[test]
+    fn nopts_fires_on_number_and_transpose_statements() {
+        // Probed: MATLAB reports NOPTS for `2` (incomplete__e2:1) and for `x'` (np_tr).
+        let diags = lint("x = 1;\n2\n");
+        assert!(has_id(&diags, "NOPTS"), "got: {diags:?}");
+        let diags = lint("x = 1;\nx'\n");
         assert!(has_id(&diags, "NOPTS"), "got: {diags:?}");
     }
 

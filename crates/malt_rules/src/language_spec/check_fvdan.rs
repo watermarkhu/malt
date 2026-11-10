@@ -16,7 +16,7 @@ impl LanguageSpecEngine {
         let positional_names: Vec<String> = input_props
             .iter()
             .filter_map(|p| {
-                if prop_has_ignored(*p) || prop_has_name_value(*p) {
+                if prop_has_ignored(*p) || prop_has_name_value_src(*p, source) {
                     None
                 } else {
                     prop_plain_name(*p, source)
@@ -25,10 +25,10 @@ impl LanguageSpecEngine {
             .collect();
         let mut reported: Vec<String> = Vec::new();
         for prop in input_props {
-            if !prop_has_name_value(*prop) {
+            if !prop_has_name_value_src(*prop, source) {
                 continue;
             }
-            let Some(struct_name) = prop_name_value_struct(*prop, source) else {
+            let Some(struct_name) = prop_name_value_struct_src(*prop, source) else {
                 continue;
             };
             if positional_names.contains(&struct_name) && !reported.contains(&struct_name) {

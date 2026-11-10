@@ -345,4 +345,26 @@ end
             "ignored variable should not be flagged, got: {diags:?}"
         );
     }
+    #[test]
+    fn nodef_after_clear_of_defined_variable() {
+        // Probe (unset__g7): `clear x` kills the value; the later use is NODEF.
+        let diags = lint("function f()\n x = 1;\n clear x\n disp(x)\nend\n");
+        assert!(diags.iter().any(|d| d.rule_id == "NODEF"), "got: {diags:?}");
+    }
+
+    #[test]
+    fn nodef_after_clear_of_input_argument() {
+        // Probe (bugs__t2): `clear n` kills the input; `lower(n)` in a switch is NODEF.
+        let diags = lint("function f(n)\nclear n\nswitch lower(n)\ncase 1\nend\nend\n");
+        assert!(diags.iter().any(|d| d.rule_id == "NODEF"), "got: {diags:?}");
+    }
+
+    #[test]
+    fn no_nodef_when_cleared_variable_is_assigned_again() {
+        let diags = lint("function f()\n x = 1;\n clear x\n x = 2;\n disp(x)\nend\n");
+        assert!(
+            !diags.iter().any(|d| d.rule_id == "NODEF"),
+            "got: {diags:?}"
+        );
+    }
 }

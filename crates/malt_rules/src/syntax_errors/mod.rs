@@ -55,6 +55,7 @@
 //! | SEPEXC | error | no | Use comma to separate between input arguments. |
 //! | SBTMP | error | no | Invalid array indexing or function call. Chaining outputs after parenthesis is not supported. |
 //! | FVSYN | error | no | Invalid function argument syntax at VAR_RESERVED_WORD. |
+//! | FVAPN | error | no | Move name-value arguments that use the name=value syntax to the end of the argument list. |
 //! | FVACI | error | no | Use of name-value arguments in cell indexing is not supported. |
 //! | FVACS | error | no | Using a character vector or string as a name in name=value syntax is not supported. Remove the quotes around the name. |
 //! | FVAMI | error | no | Name in name-value argument syntax must be a valid MATLAB identifier. |
@@ -185,31 +186,6 @@ const BLOCK_OPENERS: &[&str] = &[
     "methods",
     "events",
     "enumeration",
-];
-
-/// in an arguments block.
-const KNOWN_CLASS_NAMES: &[&str] = &[
-    "double",
-    "single",
-    "int8",
-    "int16",
-    "int32",
-    "int64",
-    "uint8",
-    "uint16",
-    "uint32",
-    "uint64",
-    "char",
-    "string",
-    "logical",
-    "cell",
-    "struct",
-    "function_handle",
-    "table",
-    "timetable",
-    "categorical",
-    "datetime",
-    "duration",
 ];
 
 // ---------------------------------------------------------------------------
@@ -782,12 +758,21 @@ impl SyntaxErrorsEngine {
         None
     }
 
-    pub(crate) fn push_vtpod(&self, node: Node, diagnostics: &mut Vec<Diagnostic>) {
+    /// A class name after the validation functions (`x {mustBeReal} double`) is an
+    /// invalid argument syntax in MATLAB, reported as FVSYN at the class name.
+    pub(crate) fn push_fvsyn_class(
+        &self,
+        node: Node,
+        source: &str,
+        diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let pos = node.start_position();
         diagnostics.push(Diagnostic {
-            rule_id: "VTPOD",
-            message: "Specify validation in the following order: size, then class, then functions."
-                .to_string(),
+            rule_id: "FVSYN",
+            message: format!(
+                "Invalid function argument syntax at {}.",
+                &source[node.start_byte()..node.end_byte()]
+            ),
             severity: Severity::Error,
             byte_range: node.byte_range(),
             line: pos.row + 1,

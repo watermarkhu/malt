@@ -179,12 +179,17 @@ impl BugsEngine {
     /// Factory constructor. Reads rule-specific params from config.
     pub fn from_config(config: &Config) -> Box<dyn Rule> {
         let mut rule_config: BugsConfig = config.rule_params("BUGS_ENGINE");
+        // SHOCIRF: MATLAB reports LOGEMP for `isempty(a && b)` in all six probes.
+        // MOCUP: MATLAB stayed silent on onCleanup with `clear n` in four probes and bugs__t2:17.
         // MATLAB reports `&&`/`||` operands with BDSCI/BDLGI instead (probed).
         // STCUL: MATLAB stayed silent on `strcmp('abc', 'ABC')`, `strcmp('a', 'A')`
         // and `strcmp(x, 'ABC')` with `x = 'abc'` (probed) and never in the fixtures.
         rule_config
             .disabled_checks
-            .extend(crate::off_under_mathworks(config, &["BDSCA2", "STCUL"]));
+            .extend(crate::off_under_mathworks(
+                config,
+                &["BDSCA2", "STCUL", "SHOCIRF", "MOCUP"],
+            ));
         Box::new(Self {
             config: rule_config,
         })

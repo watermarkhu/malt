@@ -17,8 +17,8 @@ fn block_input_elements<'a>(
         for prop in block_properties(block.node) {
             let name = if prop_has_ignored(prop) {
                 Some("~".to_string())
-            } else if prop_has_name_value(prop) {
-                prop_name_value_struct(prop, source)
+            } else if prop_has_name_value_src(prop, source) {
+                prop_name_value_struct_src(prop, source)
             } else {
                 prop_plain_name(prop, source)
             };

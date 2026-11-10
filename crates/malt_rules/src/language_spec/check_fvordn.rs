@@ -17,8 +17,9 @@ impl LanguageSpecEngine {
             if !self.fv_is_positional_prop(*prop, source) {
                 continue;
             }
-            let has_earlier_name_value =
-                input_props[..index].iter().any(|p| prop_has_name_value(*p));
+            let has_earlier_name_value = input_props[..index]
+                .iter()
+                .any(|p| prop_has_name_value_src(*p, source));
             if has_earlier_name_value {
                 self.push_diag(
                     *prop,

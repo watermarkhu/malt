@@ -15,6 +15,9 @@ impl BugsEngine {
     /// produce a false positive. There is no static type or data-flow analysis,
     /// so "is still live" is inferred from a name match rather than proved.
     pub(crate) fn check_mocup(&self, root: Node, source: &str) -> Vec<Diagnostic> {
+        if self.config.disabled_checks.iter().any(|c| c == "MOCUP") {
+            return Vec::new();
+        }
         // First pass: collect variable names referenced by onCleanup cleanup
         // functions.
         let mut cleanup_refs: HashSet<String> = HashSet::new();

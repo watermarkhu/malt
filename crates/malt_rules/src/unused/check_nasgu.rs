@@ -119,6 +119,45 @@ mod tests {
     }
 
     #[test]
+    fn nasgu_load_named_variable_is_a_store() {
+        // Probe: `x = 1` is dead because `load` stores `x`; MATLAB reports the
+        // store at the opening quote of the name, `'x'` on line 3 column 14.
+        let source = "function f()\nx = 1;\nload('a.mat', 'x')\nend\n";
+        assert_eq!(nasgu_lines(source), vec![2, 3]);
+    }
+
+    #[test]
+    fn nasgu_load_command_form_stores_named_variable() {
+        // Probe: `load a.mat x` reports the name `x` on line 3 column 12.
+        let source = "function f()\nx = 1;\nload a.mat x\nend\n";
+        assert_eq!(nasgu_lines(source), vec![2, 3]);
+    }
+
+    #[test]
+    fn nasgu_load_with_output_stores_nothing() {
+        // Probe: `y = load(...)` stores no variable by name, so `x = 1` is kept
+        // alive by nothing and reported; MATLAB also reports the unused `y`.
+        let source = "function f()\nx = 1;\ny = load('a.mat', 'x');\nend\n";
+        assert_eq!(nasgu_lines(source), vec![2, 3]);
+    }
+
+    #[test]
+    fn nasgu_load_read_after_keeps_store_alive() {
+        // Probe: `x = 1; load('a.mat', 'x'); disp(x)` reports only `x = 1`.
+        let source = "function f()\nx = 1;\nload('a.mat', 'x');\ndisp(x)\nend\n";
+        assert_eq!(nasgu_lines(source), vec![2]);
+    }
+
+    #[test]
+    fn nasgu_in_function_whose_header_is_a_syntax_error() {
+        // Probe (readability__t3f): a later statement with a parse error made the
+        // whole file an error node; the function body is still analysed, and only
+        // the broken statements are dropped by the linter (line 4 here).
+        let source = "function t3(x)\nr1 = 1;\nfprintf'hi %d', 3;\nw = fprintf'hi';\n";
+        assert!(nasgu_lines(source).contains(&2));
+    }
+
+    #[test]
     fn nasgu_script_cleared_before_use() {
         assert_eq!(nasgu_lines("e = 7;\nclear e\n"), vec![1]);
     }

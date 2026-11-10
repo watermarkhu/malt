@@ -23,7 +23,8 @@ impl FormattingEngine {
 
         for pair in elements.windows(2) {
             let gap = &source[pair[0].end_byte()..pair[1].start_byte()];
-            if gap.contains(',') {
+            // A `;` in the gap is a row break: MATLAB reports LHROW there, not NCOMMA.
+            if gap.contains(',') || gap.contains(';') {
                 continue;
             }
             let pos = pair[1].start_position();
@@ -53,6 +54,13 @@ mod tests {
     use crate::formatting::tests::{has_id, lint};
 
     // -- NCOMMA --------------------------------------------------------------
+
+    #[test]
+    fn ncomma_row_break_is_not_ncomma() {
+        // Probed: MATLAB reports only LHROW for `[a, b; c]` (syntax__t19:2).
+        let diags = lint("[a, b; c] = deal(1,2);\n");
+        assert!(!has_id(&diags, "NCOMMA"), "got: {diags:?}");
+    }
 
     #[test]
     fn ncomma_space_separated_output() {

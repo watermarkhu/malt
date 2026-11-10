@@ -596,6 +596,13 @@ fn walk_statement(
             // "possibly unset" entries because the variables they reference
             // would also be unreachable. This is acceptable for now.
         }
+        "command" if super::liveness::clear_names(node_text(node, source)).is_some() => {
+            // `clear x` leaves x unset again (probed: `x = 1; clear x; disp(x)`
+            // reports NODEF). The name itself is not a use.
+            for name in super::liveness::clear_names(node_text(node, source)).unwrap_or_default() {
+                assigned.remove(&name);
+            }
+        }
         "function_call" | "command" => {
             // Check all arguments for uses of unset variables.
             collect_uses_in_expr(node, source, assigned, uses);
@@ -717,12 +724,10 @@ fn walk_switch_statement(
 ) {
     let children = named_children(node);
 
-    // Check the switch expression for uses.
-    for child in &children {
-        if child.kind() == "condition" {
-            collect_uses_in_expr(*child, source, assigned, uses);
-            break;
-        }
+    // Check the switch expression for uses. The grammar names it by the field
+    // `condition`, not by a node kind.
+    if let Some(subject) = node.child_by_field_name("condition") {
+        collect_uses_in_expr(subject, source, assigned, uses);
     }
 
     let mut branch_sets: Vec<HashSet<String>> = Vec::new();

@@ -1651,6 +1651,7 @@ impl LanguageSpecEngine {
         }
 
         // PFUTMP: temporary variable used before it is set in the body
+        let mut pfutmp_vars: Vec<String> = Vec::new();
         for (var, set_starts) in &analysis.temp_assigns {
             if predefined.contains(var) {
                 continue;
@@ -1665,6 +1666,27 @@ impl LanguageSpecEngine {
             }
             if let (Some(fs), Some(fr)) = (first_set, read_starts.into_iter().min()) {
                 if fr < fs {
+                    pfutmp_vars.push(var.clone());
+                    self.push_diag_bytes(
+                        source,
+                        fr,
+                        fr + 1,
+                        "PFUTMP",
+                        &format!("Temporary variable {var} must be set inside the parfor loop before it is used."),
+                        diagnostics,
+                    );
+                }
+            }
+            // `k = k(i) + 1`: the indexed read on the right of a whole-variable set comes first.
+            if let Some(fs) = first_set {
+                let same_statement_read = analysis.indexed_reads.get(var).and_then(|rs| {
+                    rs.iter()
+                        .map(|(_, s, _, _)| *s)
+                        .filter(|&s| s > fs && !source[fs..s].contains('\n'))
+                        .min()
+                });
+                if let Some(fr) = same_statement_read.filter(|_| !pfutmp_vars.contains(var)) {
+                    pfutmp_vars.push(var.clone());
                     self.push_diag_bytes(
                         source,
                         fr,
@@ -1711,7 +1733,10 @@ impl LanguageSpecEngine {
 
         // PFSLO: indexed with the parfor loop variable but not a sliced output
         for (var, reads) in &analysis.indexed_reads {
-            if analysis.temp_assigns.contains_key(var) && !analysis.sliced_lhs.contains_key(var) {
+            if analysis.temp_assigns.contains_key(var)
+                && !analysis.sliced_lhs.contains_key(var)
+                && !pfutmp_vars.contains(var)
+            {
                 if let Some(first) = reads
                     .iter()
                     .filter(|(args, _, _, _)| args_tokens(args).contains(&parfor_var))
@@ -2213,7 +2238,7 @@ impl LanguageSpecEngine {
     /// name-value argument, and not `varargin`).
     pub(crate) fn fv_is_positional_prop(&self, prop: tree_sitter::Node, source: &str) -> bool {
         !prop_has_ignored(prop)
-            && !prop_has_name_value(prop)
+            && !prop_has_name_value_src(prop, source)
             && prop_plain_name(prop, source)
                 .map(|n| n != "varargin")
                 .unwrap_or(false)
@@ -2803,6 +2828,25 @@ pub(crate) fn prop_has_ignored(prop: tree_sitter::Node) -> bool {
 /// Whether the property is a name-value argument (`struct.field`).
 pub(crate) fn prop_has_name_value(prop: tree_sitter::Node) -> bool {
     find_child_kind(prop, "property_name").is_some()
+}
+
+/// Whether the property is a name-value argument, including the class form `struct.?Class`.
+pub(crate) fn prop_has_name_value_src(prop: tree_sitter::Node, source: &str) -> bool {
+    prop_has_name_value(prop) || prop_meta_class_struct(prop, source).is_some()
+}
+
+/// The struct name of a name-value property, including the class form `struct.?Class`.
+pub(crate) fn prop_name_value_struct_src(prop: tree_sitter::Node, source: &str) -> Option<String> {
+    prop_name_value_struct(prop, source).or_else(|| prop_meta_class_struct(prop, source))
+}
+
+/// The struct name of `struct.?Class`, which the grammar does not give a `property_name`.
+fn prop_meta_class_struct(prop: tree_sitter::Node, source: &str) -> Option<String> {
+    let text = source.get(prop.start_byte()..prop.end_byte())?;
+    let (head, rest) = text.split_once('.')?;
+    let head = head.trim();
+    let is_name = !head.is_empty() && head.chars().all(|c| c.is_alphanumeric() || c == '_');
+    (is_name && rest.trim_start().starts_with('?')).then(|| head.to_string())
 }
 
 /// The full dotted text of a name-value property.
@@ -4902,5 +4946,33 @@ end
             filter_by_id(&diags, "PFANSLP").is_empty(),
             "PFANSLP should be disabled via config disabled_checks"
         );
+    }
+}
+
+#[cfg(test)]
+mod r8_recovery_tests {
+    use crate::language_spec::tests::{check_source, filter_by_id};
+
+    #[test]
+    fn pfutmp_fires_for_indexed_read_before_whole_set() {
+        let source = "function p1(n)\nparfor i = 1:n\n  k = k(i) + 1;\nend\nend\n";
+        let diags = check_source(source, "p1.m");
+        assert!(!filter_by_id(&diags, "PFUTMP").is_empty());
+        assert!(filter_by_id(&diags, "PFSLO").is_empty());
+    }
+
+    #[test]
+    fn pfutmp_does_not_fire_for_sliced_output() {
+        let source = "function p2(n)\nk = zeros(n,1);\nparfor i = 1:n\n  k(i) = i;\nend\nend\n";
+        let diags = check_source(source, "p2.m");
+        assert!(filter_by_id(&diags, "PFUTMP").is_empty());
+    }
+
+    #[test]
+    fn fvdan_and_fvordn_treat_struct_dot_question_as_name_value() {
+        let source = "function f(a, opts)\n    arguments\n        a\n        opts.alpha = 1\n        opts.?double\n    end\n    r = 1;\nend\n";
+        let diags = check_source(source, "f.m");
+        assert!(filter_by_id(&diags, "FVDAN").is_empty());
+        assert!(filter_by_id(&diags, "FVORDN").is_empty());
     }
 }

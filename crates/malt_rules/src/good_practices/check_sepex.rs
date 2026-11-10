@@ -9,6 +9,9 @@ const CONDITIONAL_PARENTS: &[&str] = &[
     "while_statement",
     "for_statement",
     "parfor_statement",
+    // `else` and `otherwise` take no condition: the keyword is the anchor (probed).
+    "else_clause",
+    "otherwise_clause",
 ];
 
 impl GoodPracticesEngine {
@@ -54,7 +57,8 @@ fn missing_separator(block: Node, source: &str) -> Option<Diagnostic> {
     // The node right before the body is the condition. A separator token (`,`
     // or `;`) or a keyword is not a named node: nothing is missing then.
     let condition = block.prev_sibling()?;
-    if !condition.is_named() || condition.kind() == "comment" {
+    let keyword_anchor = matches!(condition.kind(), "else" | "otherwise");
+    if !keyword_anchor && (!condition.is_named() || condition.kind() == "comment") {
         return None;
     }
     let mut cursor = block.walk();
@@ -91,6 +95,18 @@ mod tests {
     fn sepex(source: &str) -> Vec<Diagnostic> {
         let tree = parse(source);
         engine().check_sepex(&tree, source)
+    }
+
+    #[test]
+    fn fires_after_else_and_otherwise_keywords() {
+        // Probed: MATLAB reports SEPEX for `else a = 1` and `otherwise a = 2`,
+        // and not for the comma forms (bugs__t1:28).
+        assert_eq!(sepex("if x, a = 1; else a = 1; end\n").len(), 1);
+        assert_eq!(
+            sepex("switch x, case 1, a = 1; otherwise a = 2; end\n").len(),
+            1
+        );
+        assert!(sepex("if x, a = 1; else, a = 1; end\n").is_empty());
     }
 
     #[test]

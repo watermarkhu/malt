@@ -380,6 +380,10 @@ impl GoodPracticesEngine {
                     "GTARG", "LTARG", "BDLGI", "SIMPT", "STRSZ", "ELARLOG",
                     // Never reported by MATLAB in the probes or the fixtures.
                     "ITERS",
+                    // ADAPPREF: silent in three probes, with and without an app argument.
+                    // MIPC1: silent for computer('arch') in four probes.
+                    // VTFIN: silent in three validator probes and c4__m1.
+                    "ADAPPREF", "MIPC1", "VTFIN",
                 ],
             ));
         Box::new(Self {

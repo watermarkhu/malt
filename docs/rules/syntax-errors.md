@@ -193,6 +193,12 @@ Severity: **error** · Auto-fix: **no**
 
 Invalid function argument syntax at VAR_RESERVED_WORD.
 
+### FVAPN
+
+Severity: **error** · Auto-fix: **no**
+
+Move name-value arguments that use the name=value syntax to the end of the argument list.
+
 ### FVACI
 
 Severity: **error** · Auto-fix: **no**

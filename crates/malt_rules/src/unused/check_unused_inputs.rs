@@ -133,11 +133,29 @@ fn collect_arguments_dfs(node: Node, source: &str, blocks: &mut ArgumentsBlocks)
                 .entry((function.start_byte(), function.end_byte()))
                 .or_default();
             let mut cursor = node.walk();
+            let mut declarations: Vec<Node> = Vec::new();
             for child in node.children(&mut cursor) {
-                if child.kind() != "property" {
-                    continue;
+                // `opts.?x = 1` does not parse: the declaration is inside an error.
+                if child.kind() == "ERROR" {
+                    let mut inner = child.walk();
+                    declarations.extend(
+                        child
+                            .children(&mut inner)
+                            .filter(|c| c.kind() == "class_property"),
+                    );
+                } else {
+                    declarations.push(child);
                 }
-                let Some(name_node) = child.child_by_field_name("name") else {
+            }
+            for child in declarations {
+                // `opts.?double` and `opts.?matlab.graphics...` parse as
+                // `class_property`, whose first identifier is the declared name.
+                let name_node = match child.kind() {
+                    "property" => child.child_by_field_name("name"),
+                    "class_property" => child.named_child(0),
+                    _ => None,
+                };
+                let Some(name_node) = name_node else {
                     continue;
                 };
                 // `opts.Mode` declares `opts`.
@@ -356,5 +374,24 @@ mod tests {
         );
         assert!(!has_id(&diags, "INUSD"), "got: {diags:?}");
         assert_eq!(lines_of(&diags, "INUSA"), vec![3], "got: {diags:?}");
+    }
+    #[test]
+    fn inusa_fires_on_unused_dotted_metaclass_declaration() {
+        // Probe (t__fv3): `opts.?matlab.graphics...` parses as a class property.
+        let diags = lint_file(
+            &*engine(),
+            "function r = foo(n, opts)\narguments (Input)\n    n\n    opts.?matlab.graphics.chart.primitive.Line\nend\nr = n;\nend\n",
+        );
+        assert!(has_id(&diags, "INUSA"), "got: {diags:?}");
+    }
+
+    #[test]
+    fn inusa_fires_on_unused_metaclass_declaration_with_default() {
+        // Probe (t__fv2): a default value makes the declaration an error node.
+        let diags = lint_file(
+            &*engine(),
+            "function r = foo(n, opts)\narguments (Input)\n    n\n    opts.?matlab.graphics.chart.primitive.Line = 1\nend\nr = n;\nend\n",
+        );
+        assert!(has_id(&diags, "INUSA"), "got: {diags:?}");
     }
 }

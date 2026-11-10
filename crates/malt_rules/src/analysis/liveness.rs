@@ -261,7 +261,12 @@ fn scope_root<'t>(tree: &'t Tree, scope: &Scope) -> Option<Node<'t>> {
         .root_node()
         .descendant_for_byte_range(scope.byte_range.start, scope.byte_range.end)?;
     while !matches!(node.kind(), "source_file" | "function_definition") {
-        node = node.parent()?;
+        // The root of a broken function header is an `ERROR` node, see
+        // `SymbolTable::build`.
+        match node.parent() {
+            Some(parent) => node = parent,
+            None => break,
+        }
     }
     Some(node)
 }
@@ -272,8 +277,10 @@ fn scope_body<'t>(scope: &Scope, tree: &'t Tree) -> Option<Node<'t>> {
     let root = scope_root(tree, scope)?;
     if root.kind() == "source_file" {
         Some(root)
-    } else {
+    } else if root.kind() == "function_definition" || scope.kind != ScopeKind::Script {
         named(root).into_iter().find(|n| n.kind() == "block")
+    } else {
+        None
     }
 }
 
@@ -359,7 +366,7 @@ fn is_error_call(node: Node, source: &str) -> bool {
 ///
 /// `None` for any other statement, including `clear`, `clear all` and
 /// `clear -regexp`. Those are read as ordinary uses, which is conservative.
-fn clear_names(text: &str) -> Option<Vec<String>> {
+pub(crate) fn clear_names(text: &str) -> Option<Vec<String>> {
     let mut words = text
         .split(|c: char| c.is_whitespace() || c == ';')
         .filter(|w| !w.is_empty());

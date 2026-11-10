@@ -198,7 +198,10 @@ fn follows_extra_context(token: Node, source: &str) -> bool {
     let Some(prev) = token.prev_sibling() else {
         return false;
     };
-    if prev.kind() == ";" {
+    // `;,;`: the second `;` follows a comma that itself follows an empty `;` (probed).
+    let after_empty_comma =
+        prev.kind() == "," && prev.prev_sibling().is_some_and(|p| p.kind() == ";");
+    if prev.kind() == ";" || after_empty_comma {
         let gap = &source[prev.end_byte()..token.start_byte()];
         return gap.chars().all(|c| c == ' ' || c == '\t');
     }
@@ -268,6 +271,15 @@ mod tests {
 
     fn fixed(source: &str) -> String {
         apply_fixes(source, &nosemi(source))
+    }
+
+    #[test]
+    fn flags_semicolon_after_empty_comma() {
+        // Probed: MATLAB reports NOCOMMA at the comma and NOSEMI at the last `;`
+        // (nosemi2), and NOSEMI at it in `elseif x;,; a=2` (bugs__f2:27).
+        let diags = nosemi("x = 1;,;\n");
+        assert_eq!(diags.len(), 1, "got: {diags:?}");
+        assert_eq!(diags[0].column, 8);
     }
 
     #[test]

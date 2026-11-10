@@ -48,6 +48,7 @@ impl GoodPracticesEngine {
                     });
                 }
                 if self.is_check_enabled("PFRUS")
+                    && !has_dynamic_call(body, source)
                     && uses_after_parfor(&sym, &name, parfor.end_byte(), tree, true).is_empty()
                 {
                     let pos = lhs_node.start_position();
@@ -68,6 +69,25 @@ impl GoodPracticesEngine {
 
         diagnostics
     }
+}
+
+/// Whether a parfor body calls `evalin` or `assignin`, which MATLAB reports as
+/// PFEVC; it then gives no PFRUS (c3__p1fix:9-12). `eval`, `who` and `save` do
+/// not suppress PFRUS (bugs__t2:3-7).
+fn has_dynamic_call(body: Node, source: &str) -> bool {
+    let mut stack = vec![body];
+    while let Some(node) = stack.pop() {
+        if node.kind() == "function_call"
+            && node
+                .child(0)
+                .is_some_and(|name| matches!(node_text(name, source), "evalin" | "assignin"))
+        {
+            return true;
+        }
+        let mut cursor = node.walk();
+        stack.extend(node.children(&mut cursor));
+    }
+    false
 }
 
 /// Collect reduction assignments (`x = x op ...`) inside a parfor body.
@@ -220,6 +240,13 @@ mod tests {
     fn test_pfrus_silent_on_explicit_step() {
         let source =
             "function f()\ntotal = 0;\nparfor i = 1:2:10\n    total = total + i;\nend\nend\n";
+        assert!(pfr_ids_for(source, "PFRUS").is_empty());
+    }
+
+    #[test]
+    fn test_pfrus_silent_when_body_calls_assignin() {
+        // Probed: MATLAB reports PFEVC here and no PFRUS (c3__p1fix:11-12).
+        let source = "function f(n)\ns = 0;\nparfor i = 1:n\n    assignin('caller', 'x', 1);\n    s = s + i;\nend\nend\n";
         assert!(pfr_ids_for(source, "PFRUS").is_empty());
     }
 

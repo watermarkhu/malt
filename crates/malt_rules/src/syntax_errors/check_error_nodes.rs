@@ -61,8 +61,22 @@ impl SyntaxErrorsEngine {
                 None
             };
 
+            // FVSYN: `{@...}` validation syntax in an arguments block.
+            if Self::is_lambda_in_arguments(&node, source) {
+                if self.is_check_enabled("FVSYN") {
+                    diagnostics.push(Diagnostic {
+                        rule_id: "FVSYN",
+                        message: "Invalid function argument syntax at '@'.".to_string(),
+                        severity: Severity::Error,
+                        byte_range: start..end,
+                        line: pos.row + 1,
+                        column: pos.column + 1,
+                        fix: None,
+                    });
+                }
+            }
             // NOPAR2: Looks like a missing closing bracket.
-            if Self::looks_like_missing_bracket(text) {
+            else if Self::looks_like_missing_bracket(text) {
                 let is_last = last.is_some_and(|l| l.id() == node.id());
                 if self.is_check_enabled("NOPAR2") && !is_last {
                     let bracket = Self::bracket_kinds(text)
@@ -117,12 +131,28 @@ impl SyntaxErrorsEngine {
                     fix: None,
                 });
             }
-            // FVSYN: Invalid function argument syntax. Fires for ERROR nodes
-            // that appear inside a function call's argument list. Replaces
-            // SYNER for these nodes (no double-fire).
+            // FVAPN: a positional argument after a name=value argument in a call.
+            // Other ERROR nodes in a call's argument list fall through to SYNER.
+            else if self.is_check_enabled("FVAPN")
+                && Self::is_in_function_call_args(&node)
+                && Self::follows_name_value_argument(&node, source)
+            {
+                diagnostics.push(Diagnostic {
+                    rule_id: "FVAPN",
+                    message: "Move name-value arguments that use the name=value syntax to the end of the argument list.".to_string(),
+                    severity: Severity::Error,
+                    byte_range: start..end,
+                    line: pos.row + 1,
+                    column: pos.column + 1,
+                    fix: None,
+                });
+            }
+            // FVSYN: Invalid function argument syntax inside a call's argument list.
+            // A value glued to a name (`1x=2`) is a SYNER instead (MATLAB: at `x`).
             else if self.is_check_enabled("FVSYN")
                 && Self::is_in_function_call_args(&node)
                 && !text.contains('=')
+                && !source[end..].starts_with(char::is_alphabetic)
             {
                 diagnostics.push(Diagnostic {
                     rule_id: "FVSYN",
@@ -222,6 +252,32 @@ impl SyntaxErrorsEngine {
                             });
                     }
                 }
+            } else if node.kind() == "end"
+                && source[node.start_byte()..]
+                    .trim_start()
+                    .starts_with("function")
+                && Self::enclosing_arguments_statement(&node).is_some()
+            {
+                // A missing END before a FUNCTION inside an arguments block: MATLAB
+                // reports ENDCT3 at the ARGUMENTS keyword and no SYNER here.
+                if let (true, Some(block)) = (
+                    self.is_check_enabled("ENDCT3"),
+                    Self::enclosing_arguments_statement(&node),
+                ) {
+                    let pos = block.start_position();
+                    diagnostics.push(Diagnostic {
+                        rule_id: "ENDCT3",
+                        message: format!(
+                            "An END might be missing (before FUNCTION on line {}), possibly matching ARGUMENTS.",
+                            node.start_position().row + 1
+                        ),
+                        severity: Severity::Error,
+                        byte_range: block.byte_range(),
+                        line: pos.row + 1,
+                        column: pos.column + 1,
+                        fix: None,
+                    });
+                }
             } else if self.is_check_enabled("SYNER")
                 // MATLAB does not report a missing `,` or `;` as a syntax error
                 // (probe: `x = 1; 2` with no final newline gets no SYNER).
@@ -253,10 +309,40 @@ impl SyntaxErrorsEngine {
 }
 
 impl SyntaxErrorsEngine {
+    /// The `arguments` statement that encloses `node`, if any.
+    fn enclosing_arguments_statement<'a>(node: &Node<'a>) -> Option<Node<'a>> {
+        let mut current = node.parent();
+        while let Some(ancestor) = current {
+            if ancestor.kind() == "arguments_statement" {
+                return Some(ancestor);
+            }
+            current = ancestor.parent();
+        }
+        None
+    }
+
+    /// True for a lambda (`@`) validator inside an `arguments` block.
+    fn is_lambda_in_arguments(node: &Node, source: &str) -> bool {
+        source[node.start_byte()..].starts_with('@')
+            && Self::enclosing_arguments_statement(node).is_some()
+    }
+
+    /// True when the ERROR node follows a `name=value` argument of the same call.
+    fn follows_name_value_argument(node: &Node, source: &str) -> bool {
+        let mut current = node.parent();
+        while let Some(ancestor) = current {
+            if ancestor.kind() == "function_call" {
+                return source[ancestor.start_byte()..node.start_byte()].contains('=');
+            }
+            current = ancestor.parent();
+        }
+        false
+    }
+
     /// True for an ERROR node that MATLAB accepts. Tree-sitter does not parse
     /// these, so SYNER would be a false positive. Probed against R2026b:
     /// - validation syntax inside an `arguments` block (`x (1,2) double`,
-    ///   `x {@(v) v > 0}`, `arguments (Input = true)`, `opts.?cls = 1`);
+    ///   `arguments (Input = true)`, `opts.?cls = 1`);
     /// - colon chains such as `1:2:3:4` (MATLAB reports M3COL instead);
     /// - `spmd (1, 2, 3)` (MATLAB reports SPDEC3 instead).
     ///
@@ -657,5 +743,56 @@ mod tests {
         assert!(!has_id(&diags, "ENDCT2"), "got: {diags:?}");
         assert!(!has_id(&diags, "ENDCT3"), "got: {diags:?}");
         assert!(!has_id(&diags, "ENDCT4"), "got: {diags:?}");
+    }
+}
+
+#[cfg(test)]
+mod recovery_tests {
+    use super::*;
+    use crate::test_util::{has_id, lint_file};
+    use malt_core::Config;
+
+    fn engine() -> Box<dyn Rule> {
+        SyntaxErrorsEngine::from_config(&Config::default())
+    }
+
+    #[test]
+    fn endct3_fires_for_function_inside_arguments_block() {
+        let src = "function r = f(a)\n    arguments\n        a\n    function q = g(), q = 1; end\n    end\n    r = 1;\nend\n";
+        let diags = lint_file(&*engine(), src);
+        assert!(has_id(&diags, "ENDCT3"));
+        // The stray final `end` still gets SYNER (MATLAB reports it too); line 4 must not.
+        assert!(
+            !diags.iter().any(|d| d.rule_id == "SYNER" && d.line == 4),
+            "got: {diags:?}"
+        );
+    }
+
+    #[test]
+    fn endct3_does_not_fire_for_closed_arguments_block() {
+        let src = "function r = f(a)\n    arguments\n        a\n    end\n    function q = g(), q = 1; end\n    r = 1;\nend\n";
+        let diags = lint_file(&*engine(), src);
+        assert!(!has_id(&diags, "ENDCT3"));
+    }
+
+    #[test]
+    fn fvsyn_fires_for_lambda_validator_in_arguments_block() {
+        let src = "function f(x)\n    arguments\n        x {@(v) v > 0}\n    end\nend\n";
+        let diags = lint_file(&*engine(), src);
+        assert!(has_id(&diags, "FVSYN"));
+        assert!(!has_id(&diags, "NOPAR2"));
+    }
+
+    #[test]
+    fn fvapn_fires_for_positional_after_name_value_in_call() {
+        let diags = lint_file(&*engine(), "f(1, Name=2, 'b', 3);\n");
+        assert!(has_id(&diags, "FVAPN"));
+        assert!(!has_id(&diags, "FVSYN"));
+    }
+
+    #[test]
+    fn fvapn_does_not_fire_for_name_value_at_end_of_call() {
+        let diags = lint_file(&*engine(), "f(1, Name=2);\n");
+        assert!(!has_id(&diags, "FVAPN"));
     }
 }

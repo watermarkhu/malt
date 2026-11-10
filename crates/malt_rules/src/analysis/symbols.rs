@@ -59,6 +59,14 @@ pub(crate) fn is_field_name(node: tree_sitter::Node) -> bool {
     })
 }
 
+/// Whether `word` is a variable name: a letter, then letters, digits or `_`.
+/// Options such as `-mat` are not.
+fn is_plain_name(word: &str) -> bool {
+    let mut chars = word.chars();
+    chars.next().is_some_and(|c| c.is_ascii_alphabetic())
+        && chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
+}
+
 // ---------------------------------------------------------------------------
 // Definition kinds
 // ---------------------------------------------------------------------------
@@ -372,6 +380,11 @@ impl<'a> Builder<'a> {
         // meaningful child of `source_file`. Otherwise it's a script.
         let is_function_file = Self::first_meaningful_child_is_function(&root);
 
+        if !is_function_file && self.is_broken_function_root(root) {
+            self.visit_broken_function(root);
+            return;
+        }
+
         if !is_function_file {
             // Script file: the entire file is one Script scope.
             let pos = root.start_position();
@@ -424,6 +437,56 @@ impl<'a> Builder<'a> {
         false
     }
 
+    /// Whether the tree root is an `ERROR` node that starts with the `function`
+    /// keyword and has no outputs: a function whose header tree-sitter could not
+    /// parse. A later statement can make the whole file an error (probed:
+    /// `fprintf'hi %d', 3;` in the body). MATLAB still analyses it as a function.
+    fn is_broken_function_root(&self, root: tree_sitter::Node<'a>) -> bool {
+        if root.kind() != "ERROR" || root.child(0).map(|c| c.kind()) != Some("function") {
+            return false;
+        }
+        let kinds: Vec<&str> = (0..root.child_count())
+            .filter_map(|i| root.child(i).map(|c| c.kind()))
+            .collect();
+        !kinds.contains(&"function_output") && kinds.contains(&"block")
+    }
+
+    /// Analyse a function whose header is an `ERROR` root: the inputs come from
+    /// its `function_arguments` child, the name and the keyword are not reads.
+    /// The statements are visited as in any function body.
+    fn visit_broken_function(&mut self, root: tree_sitter::Node<'a>) {
+        let pos = root.start_position();
+        let name = (1..root.child_count())
+            .filter_map(|i| root.child(i))
+            .find(|c| c.kind() == "identifier")
+            .map(|c| self.node_text(c).to_string())
+            .unwrap_or_default();
+        self.push_scope(Scope {
+            name,
+            kind: ScopeKind::Function,
+            byte_range: root.start_byte()..root.end_byte(),
+            line: pos.row + 1,
+            defs: Vec::new(),
+            uses: Vec::new(),
+            children: Vec::new(),
+            parent: None,
+        });
+        self.first_file_function_seen = true;
+        let mut name_seen = false;
+        for i in 0..root.child_count() {
+            let Some(child) = root.child(i) else {
+                continue;
+            };
+            match child.kind() {
+                "function" => {}
+                "function_arguments" => self.extract_input_identifiers(child),
+                "identifier" if !name_seen => name_seen = true,
+                _ => self.visit_node(child),
+            }
+        }
+        self.pop_scope();
+    }
+
     // -- recursive visitor --------------------------------------------------
 
     /// Visit all children of a node, dispatching each to the appropriate handler.
@@ -446,6 +509,11 @@ impl<'a> Builder<'a> {
             "global_operator" => self.visit_global_persistent(node, DefKind::Global),
             "persistent_operator" => self.visit_global_persistent(node, DefKind::Persistent),
             "identifier" => self.visit_identifier(node),
+            // `load('a.mat', 'x')` as a statement stores each variable it names.
+            "function_call" | "command" if Self::is_load_statement(node, self.source) => {
+                self.record_load_stores(node);
+                self.visit_children(node);
+            }
             // `a;` is a command with one `command_name` in this grammar: a read of `a`.
             "command" if node.named_child_count() == 1 => {
                 if let Some(name) = node
@@ -1234,6 +1302,74 @@ impl<'a> Builder<'a> {
     }
 
     /// Record a variable usage at the given identifier node.
+    /// Whether `node` is a `load` call or command that is a whole statement.
+    /// With an output (`y = load(...)`) it stores nothing by name.
+    fn is_load_statement(node: tree_sitter::Node, source: &str) -> bool {
+        let statement = node
+            .parent()
+            .is_some_and(|p| matches!(p.kind(), "block" | "source_file"));
+        let callee = match node.kind() {
+            "function_call" => node
+                .child_by_field_name("name")
+                .map(|n| &source[n.byte_range()]),
+            _ => node
+                .named_child(0)
+                .filter(|c| c.kind() == "command_name")
+                .map(|c| &source[c.byte_range()]),
+        };
+        statement && callee == Some("load")
+    }
+
+    /// Adds the variables that a `load` statement stores: the names after the
+    /// file name, quoted or as command words (`load('a.mat', 'x')`, `load a.mat x`).
+    /// Each is a full assignment at the position of its name, so MATLAB reports
+    /// an unread store there (probed: `x = 1; load('a.mat', 'x')` reports both).
+    /// Options (`-mat`) store nothing.
+    fn record_load_stores(&mut self, node: tree_sitter::Node<'a>) {
+        let mut cursor = node.walk();
+        let args: Vec<tree_sitter::Node<'a>> = match node.kind() {
+            "function_call" => node
+                .children(&mut cursor)
+                .filter(|c| c.kind() == "arguments")
+                .flat_map(|args| {
+                    let mut inner = args.walk();
+                    args.named_children(&mut inner)
+                        .filter(|a| a.kind() == "string")
+                        .collect::<Vec<_>>()
+                })
+                .collect(),
+            _ => node
+                .children(&mut cursor)
+                .filter(|c| c.kind() == "command_argument")
+                .collect(),
+        };
+        // The first argument is the file name.
+        for arg in args.into_iter().skip(1) {
+            let raw = self.node_text(arg);
+            let name = if arg.kind() == "string" {
+                raw.trim_matches(|c| c == '\'' || c == '"')
+            } else {
+                raw
+            };
+            if !is_plain_name(name) {
+                continue;
+            }
+            let pos = arg.start_position();
+            self.add_def(VarDef {
+                name: name.to_string(),
+                kind: DefKind::Assignment,
+                byte_range: arg.byte_range(),
+                effect_start: arg.end_byte(),
+                partial: false,
+                multi_output: false,
+                prealloc: false,
+                block_start: 0,
+                line: pos.row + 1,
+                column: pos.column + 1,
+            });
+        }
+    }
+
     fn record_use(&mut self, node: tree_sitter::Node) {
         self.record_use_as(node, false);
     }

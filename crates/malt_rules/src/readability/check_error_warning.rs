@@ -26,6 +26,11 @@ impl ReadabilityEngine {
                 if !self.is_check_enabled(check_id) {
                     return;
                 }
+                // Probed: MATLAB reports SPERR only when sprintf takes arguments;
+                // `error(sprintf('a:b'))` (format only) is silent (gp-b__t1:29).
+                if check_id == "SPERR" && call_args(inner).len() < 2 {
+                    return;
+                }
                 let message = if check_id == "SPERR" {
                     "ERROR takes SPRINTF-like arguments directly."
                 } else {
@@ -72,6 +77,7 @@ mod tests {
             "error('my message');\n",
             "error('MyComp:myID', 'message');\n",
             "error('MyComp:myID', sprintf('bad %d', n));\n",
+            "error(sprintf('a:b'));\n",
         ] {
             assert!(!has_id(&lint_nodes(&*engine(), src), "SPERR"), "{src}");
         }
