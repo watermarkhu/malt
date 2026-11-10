@@ -11,7 +11,7 @@ impl LanguageSpecEngine {
         if class
             .attributes
             .iter()
-            .any(|a| a.name == "AllowedSubclasses" && !a.negated)
+            .any(|a| a.name == "AllowedSubclasses" && a.is_set())
         {
             diagnostics.push(Diagnostic {
                 rule_id: "MCSWA",

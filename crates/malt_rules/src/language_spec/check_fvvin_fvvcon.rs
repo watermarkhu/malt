@@ -3,8 +3,8 @@
 use super::*;
 
 impl LanguageSpecEngine {
-    /// FVVIN / FVVCON / FVUBD: input validation function rules.
-    pub(crate) fn check_fvvin_fvvcon_fvubd(
+    /// FVVIN / FVVCON: input validation function rules.
+    pub(crate) fn check_fvvin_fvvcon(
         &self,
         blocks: &[ArgumentsBlockMeta],
         source: &str,
@@ -12,8 +12,7 @@ impl LanguageSpecEngine {
     ) {
         let vin = self.is_check_enabled("FVVIN");
         let vcon = self.is_check_enabled("FVVCON");
-        let ubd = self.is_check_enabled("FVUBD");
-        if !vin && !vcon && !ubd {
+        if !vin && !vcon {
             return;
         }
 
@@ -23,13 +22,16 @@ impl LanguageSpecEngine {
                 continue;
             }
             for prop in block_properties(block.node) {
-                if prop_has_ignored(prop) || prop_has_name_value(prop) {
+                if prop_has_ignored(prop) {
                     continue;
                 }
-                if let Some(name) = prop_plain_name(prop, source) {
-                    if name != "varargin" {
-                        input_props.push((prop, name));
-                    }
+                let name = if prop_has_name_value(prop) {
+                    Some(prop_name_value_text(prop, source))
+                } else {
+                    prop_plain_name(prop, source).filter(|n| n != "varargin")
+                };
+                if let Some(name) = name {
+                    input_props.push((prop, name));
                 }
             }
         }
@@ -41,13 +43,13 @@ impl LanguageSpecEngine {
             }
             let previously_declared: Vec<&String> =
                 input_props[..index].iter().map(|(_, n)| n).collect();
-            let declared_later: Vec<&String> =
-                input_props[index + 1..].iter().map(|(_, n)| n).collect();
             for call in &calls {
-                let uses_arg = call
-                    .references
-                    .iter()
-                    .any(|r| matches!(r, CallReference::Identifier(n) if n == name));
+                let uses_arg = call.references.iter().any(|r| {
+                    matches!(
+                        r,
+                        CallReference::Identifier(n) | CallReference::Field(n) if n == name
+                    )
+                });
                 if vin && !uses_arg {
                     self.push_diag(
                         *prop,
@@ -56,39 +58,24 @@ impl LanguageSpecEngine {
                         diagnostics,
                     );
                 }
+                if !vcon {
+                    continue;
+                }
                 for reference in &call.references {
-                    match reference {
+                    let allowed = match reference {
                         CallReference::Identifier(ref_name) => {
-                            if ref_name == name {
-                                continue;
-                            }
-                            if ubd && declared_later.contains(&ref_name) {
-                                self.push_diag(
-                                    *prop,
-                                    "FVUBD",
-                                    "Argument is referenced before it is declared in the arguments block.",
-                                    diagnostics,
-                                );
-                            }
-                            if vcon && !previously_declared.contains(&ref_name) {
-                                self.push_diag(
-                                    *prop,
-                                    "FVVCON",
-                                    "For input arguments, validation functions must only use previously declared positional arguments, the argument being validated, or literals.",
-                                    diagnostics,
-                                );
-                            }
+                            ref_name == name || previously_declared.contains(&ref_name)
                         }
-                        CallReference::Field => {
-                            if vcon {
-                                self.push_diag(
-                                    *prop,
-                                    "FVVCON",
-                                    "For input arguments, validation functions must only use previously declared positional arguments, the argument being validated, or literals.",
-                                    diagnostics,
-                                );
-                            }
-                        }
+                        CallReference::Field(ref_name) => ref_name == name,
+                        CallReference::Other => false,
+                    };
+                    if !allowed {
+                        self.push_diag(
+                            *prop,
+                            "FVVCON",
+                            "For input arguments, validation functions must only use previously declared positional arguments, the argument being validated, or literals.",
+                            diagnostics,
+                        );
                     }
                 }
             }
@@ -102,7 +89,7 @@ mod tests {
     use crate::language_spec::tests::{check_source, filter_by_id};
 
     #[test]
-    fn test_fvubd_fires_reference_before_declaration() {
+    fn test_fvvcon_fires_forward_reference() {
         let source = "\
 function f(a, b)
     arguments
@@ -113,13 +100,17 @@ end
 ";
         let diags = check_source(source, "f.m");
         assert!(
-            !filter_by_id(&diags, "FVUBD").is_empty(),
-            "FVUBD should fire when a validator references a later argument"
+            !filter_by_id(&diags, "FVVCON").is_empty(),
+            "FVVCON should fire when a validator references a later argument"
+        );
+        assert!(
+            filter_by_id(&diags, "FVUBD").is_empty(),
+            "FVUBD is never reported by MATLAB for validators"
         );
     }
 
     #[test]
-    fn test_fvubd_no_fire_reference_after_declaration() {
+    fn test_fvvcon_no_fire_reference_after_declaration() {
         let source = "\
 function f(a, b)
     arguments
@@ -130,8 +121,8 @@ end
 ";
         let diags = check_source(source, "f.m");
         assert!(
-            filter_by_id(&diags, "FVUBD").is_empty(),
-            "FVUBD should NOT fire when a validator references an earlier argument"
+            filter_by_id(&diags, "FVVCON").is_empty(),
+            "FVVCON should NOT fire when a validator references an earlier argument"
         );
     }
 
@@ -152,6 +143,37 @@ end
     }
 
     #[test]
+    fn test_fvvcon_fires_nested_call_and_builtin_constant() {
+        let source = "\
+function f(y, z, w)
+    arguments
+        y
+        z (1,1) {mustBeInRange(z, 0, numel(y))}
+        w (1,1) {mustBeLessThan(w, pi)}
+    end
+end
+";
+        let diags = check_source(source, "f.m");
+        assert_eq!(filter_by_id(&diags, "FVVCON").len(), 2);
+    }
+
+    #[test]
+    fn test_fvvcon_fires_metaclass_operator() {
+        let source = "\
+function f(x)
+    arguments
+        x {mustBeA(x, ?matlab.System)}
+    end
+end
+";
+        let diags = check_source(source, "f.m");
+        assert!(
+            !filter_by_id(&diags, "FVVCON").is_empty(),
+            "FVVCON should fire for a metaclass operator in a validator"
+        );
+    }
+
+    #[test]
     fn test_fvvcon_no_fire_self_and_prior() {
         let source = "\
 function f(a, b)
@@ -166,6 +188,47 @@ end
             filter_by_id(&diags, "FVVCON").is_empty(),
             "FVVCON should NOT fire when validators use the argument or literals"
         );
+    }
+
+    #[test]
+    fn test_fvvcon_no_fire_literal_matrix() {
+        let source = "\
+function f(z)
+    arguments
+        z (1,1) {mustBeMember(z, [1 2 3])}
+    end
+end
+";
+        let diags = check_source(source, "f.m");
+        assert!(filter_by_id(&diags, "FVVCON").is_empty());
+    }
+
+    #[test]
+    fn test_fvvin_and_fvvcon_dotted_name_value() {
+        let source = "\
+function f(opts)
+    arguments
+        opts.A (1,1) {mustBeNumeric(A)}
+    end
+end
+";
+        let diags = check_source(source, "f.m");
+        assert!(!filter_by_id(&diags, "FVVIN").is_empty());
+        assert!(!filter_by_id(&diags, "FVVCON").is_empty());
+    }
+
+    #[test]
+    fn test_fvvin_and_fvvcon_no_fire_dotted_self() {
+        let source = "\
+function f(opts)
+    arguments
+        opts.B (1,1) {mustBeNumeric(opts.B)}
+    end
+end
+";
+        let diags = check_source(source, "f.m");
+        assert!(filter_by_id(&diags, "FVVIN").is_empty());
+        assert!(filter_by_id(&diags, "FVVCON").is_empty());
     }
 
     #[test]

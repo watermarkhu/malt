@@ -22,8 +22,9 @@ impl GoodPracticesEngine {
         let mut cursor = range.walk();
         let parts: Vec<Node> = range.named_children(&mut cursor).collect();
         let step = node_text(parts[1], source).replace(' ', "");
-        if matches!(step.as_str(), "1" | "-1" | "+1") {
-            return Vec::new();
+        match step.parse::<f64>() {
+            Ok(value) if value != 1.0 && value != -1.0 => {}
+            _ => return Vec::new(),
         }
 
         let pos = node.start_position();
@@ -63,6 +64,8 @@ mod tests {
         for source in [
             "parfor i = n:-1:1\n    x(i) = i;\nend\n",
             "parfor i = 1:1:n\n    x(i) = i;\nend\n",
+            "parfor i = 1:1.0:5\n    x(i) = i;\nend\n",
+            "parfor i = 1:(n+1):10\n    x(i) = i;\nend\n",
         ] {
             let tree = parse(source);
             let parfor = find_child_of_kind(tree.root_node(), "for_statement").unwrap();

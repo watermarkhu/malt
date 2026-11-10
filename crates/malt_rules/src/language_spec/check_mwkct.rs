@@ -12,11 +12,11 @@ impl LanguageSpecEngine {
             let is_weak = pb
                 .attributes
                 .iter()
-                .any(|a| a.name == "WeakHandle" && !a.negated);
+                .any(|a| a.name == "WeakHandle" && a.is_set());
             let is_constant = pb
                 .attributes
                 .iter()
-                .any(|a| a.name == "Constant" && !a.negated);
+                .any(|a| a.name == "Constant" && a.is_set());
             if is_weak && is_constant {
                 diagnostics.push(Diagnostic {
                     rule_id: "MWKCT",

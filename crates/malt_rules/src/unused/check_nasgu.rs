@@ -36,9 +36,12 @@ impl UnusedEngine {
                 continue;
             };
             let scope = &table.scopes[index];
+            // `varargout` is only live as an output (probed: `varargout{1} = 1`
+            // in a function without it as output is NASGU).
+            let ignored = |name: &str| name != "varargout" && self.should_ignore_name(name);
             for def_index in dead.full {
                 let def = &scope.defs[def_index];
-                if self.should_ignore_name(&def.name) {
+                if ignored(&def.name) {
                     continue;
                 }
                 if def.multi_output {
@@ -63,7 +66,7 @@ impl UnusedEngine {
                 // has no official probe, so it is left alone.
                 if nasgu_off
                     || def.multi_output
-                    || self.should_ignore_name(&def.name)
+                    || ignored(&def.name)
                     || is_field_store(tree, def.byte_range.clone())
                 {
                     continue;
@@ -544,6 +547,20 @@ mod tests {
     fn nasgu_function_partial_store_is_not_reported() {
         // The partial store reads `x`, so the later full store is still read by disp.
         let source = "function f16()\n    x.a = 1;\n    x = 2;\n    disp(x)\nend\n";
+        assert!(nasgu_lines(source).is_empty());
+    }
+
+    #[test]
+    fn nasgu_fires_on_varargout_store_when_not_an_output() {
+        // Probe t11: `varargout{1} = 1` is unused when `varargout` is not an output.
+        let source = "function v = f()\nv = 1;\nvarargout{1} = 1;\nend\n";
+        assert_eq!(nasgu_lines(source), vec![3]);
+    }
+
+    #[test]
+    fn nasgu_silent_on_varargout_store_when_an_output() {
+        // Probe t12: the outputs are live at the end of the function.
+        let source = "function varargout = f()\nvarargout{1} = 1;\nend\n";
         assert!(nasgu_lines(source).is_empty());
     }
 

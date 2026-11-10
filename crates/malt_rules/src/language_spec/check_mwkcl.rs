@@ -12,7 +12,7 @@ impl LanguageSpecEngine {
             let is_weak = pb
                 .attributes
                 .iter()
-                .any(|a| a.name == "WeakHandle" && !a.negated);
+                .any(|a| a.name == "WeakHandle" && a.is_set());
             if !is_weak {
                 continue;
             }
@@ -72,5 +72,18 @@ end
             hits.is_empty(),
             "MWKCL should NOT fire for a typed property"
         );
+    }
+
+    #[test]
+    fn test_mwkcl_no_fire_weak_handle_set_false() {
+        let source = "\
+classdef C < handle
+    properties (WeakHandle = false)
+        p
+    end
+end
+";
+        let diags = check_source(source, "C.m");
+        assert!(filter_by_id(&diags, "MWKCL").is_empty());
     }
 }

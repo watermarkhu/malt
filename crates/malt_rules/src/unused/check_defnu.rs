@@ -37,7 +37,7 @@ impl UnusedEngine {
             .scopes
             .first()
             .is_some_and(|s| s.kind == ScopeKind::Script);
-        for scope in &table.scopes {
+        for (position, scope) in table.scopes.iter().enumerate() {
             let local = match scope.kind {
                 ScopeKind::LocalFunction | ScopeKind::NestedFunction => true,
                 ScopeKind::Function => in_script,
@@ -56,11 +56,16 @@ impl UnusedEngine {
             // Probes: MATLAB reports no DEFNU for a script function whose name the
             // script assigned first (`scr = 1; function scr()`, with FCONF and
             // REDEF), nor for a local function named like its function file.
-            let shadowed = if in_script {
-                !table.root_scope().defs_of(name).is_empty()
-            } else {
-                name == file_stem
-            };
+            // Probe ls-b__t6: a second `function t6()` is REDEF, not DEFNU.
+            let duplicate = table.scopes[..position].iter().any(|s| {
+                matches!(s.kind, ScopeKind::Function | ScopeKind::LocalFunction) && s.name == *name
+            });
+            let shadowed = duplicate
+                || if in_script {
+                    !table.root_scope().defs_of(name).is_empty()
+                } else {
+                    name == file_stem
+                };
             if !all_uses.contains(name.as_str()) && !shadowed {
                 diagnostics.push(Diagnostic {
                     rule_id: "DEFNU",
@@ -95,6 +100,13 @@ mod tests {
             "function main()\n    disp(1);\nend\n\nfunction helper()\n    disp(2);\nend\n",
         );
         assert!(has_id(&diags, "DEFNU"), "got: {diags:?}");
+    }
+
+    #[test]
+    fn defnu_silent_on_duplicate_function_name() {
+        // Probe ls-b__t6: the second `function t6()` is REDEF, not DEFNU.
+        let diags = lint_file(&*engine(), "function t6()\nend\nfunction t6()\nend\n");
+        assert!(!has_id(&diags, "DEFNU"), "got: {diags:?}");
     }
 
     #[test]

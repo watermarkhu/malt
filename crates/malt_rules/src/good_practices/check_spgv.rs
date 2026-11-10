@@ -11,12 +11,9 @@ impl GoodPracticesEngine {
         if globals.is_empty() {
             return Vec::new();
         }
-        let body = match find_child_of_kind(node, "block") {
-            Some(b) => b,
-            None => return Vec::new(),
-        };
+        let body = find_child_of_kind(node, "block").unwrap_or(node);
 
-        collect_global_use_diagnostics(body, source, &globals, "SPGV", false)
+        collect_global_use_diagnostics(body, source, &globals, "SPGV", true)
     }
 }
 
@@ -35,6 +32,17 @@ mod tests {
         let diags = eng.check_spgv(spmd, source);
         assert_eq!(diags.len(), 1);
         assert_eq!(diags[0].rule_id, "SPGV");
+    }
+
+    #[test]
+    fn test_spgv_silent_on_global_write_in_spmd() {
+        let source = "global g2;\nspmd\n    g2 = 1;\nend\n";
+        let tree = parse(source);
+        let root = tree.root_node();
+        let eng = engine();
+
+        let spmd = find_child_of_kind(root, "spmd_statement").unwrap();
+        assert!(eng.check_spgv(spmd, source).is_empty());
     }
 
     #[test]

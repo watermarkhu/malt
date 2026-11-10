@@ -44,6 +44,7 @@ const PROPERTY_ATTRS: &[&str] = &[
     "Abstract",
     "Constant",
     "Dependent",
+    "WeakHandle",
     "GetAccess",
     "SetAccess",
     "Access",
@@ -337,6 +338,7 @@ impl LanguageSpecEngine {
 /// keywords, a single meta-class object (`?Class`), or a cell array of
 /// meta-classes (`{...}`).
 fn access_value_is_valid(value: &str, allowed: &[&str]) -> bool {
+    let value = value.trim_matches(|c| c == '\'' || c == '"');
     allowed.contains(&value) || value.starts_with('?') || value.starts_with('{')
 }
 
@@ -708,5 +710,32 @@ end
             filter_by_id(&diags, "ATUNK").is_empty(),
             "ATUNK should be disabled via config disabled_checks"
         );
+    }
+
+    #[test]
+    fn test_atunk_no_fire_weak_handle_property_attribute() {
+        let source = "\
+classdef C
+    properties (WeakHandle = true)
+        p
+    end
+end
+";
+        let diags = check_source(source, "C.m");
+        assert!(filter_by_id(&diags, "ATUNK").is_empty());
+    }
+
+    #[test]
+    fn test_atppp_no_fire_quoted_access_value() {
+        let source = "\
+classdef C
+    methods (Access = 'private')
+        function f(obj)
+        end
+    end
+end
+";
+        let diags = check_source(source, "C.m");
+        assert!(filter_by_id(&diags, "ATPPP").is_empty());
     }
 }

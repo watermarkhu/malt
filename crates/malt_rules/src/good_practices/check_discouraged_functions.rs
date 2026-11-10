@@ -1,5 +1,16 @@
 use super::*;
 
+/// `true` when the file assigns `name` somewhere: MATLAB then reads it as a variable.
+fn assigns_name(node: Node, name: &str, source: &str) -> bool {
+    let mut root = node;
+    while let Some(parent) = root.parent() {
+        root = parent;
+    }
+    collect_simple_lhs_assignments(root, source)
+        .iter()
+        .any(|(assigned, _)| assigned == name)
+}
+
 impl GoodPracticesEngine {
     /// ADAPPREF: Avoid `addpref` (use settings API).
     /// KEYBOARDFUN: `keyboard` left in production code.
@@ -39,6 +50,9 @@ impl GoodPracticesEngine {
             Some(n) => n,
             None => return Vec::new(),
         };
+        if func_name == "keyboard" && assigns_name(node, "keyboard", source) {
+            return Vec::new();
+        }
 
         let (check_id, message): (&'static str, String) = match func_name {
             "addpref" if self.is_check_enabled("ADAPPREF") => (
@@ -105,5 +119,18 @@ mod tests {
         let diags = eng.check_discouraged_functions(node, source);
         assert_eq!(diags.len(), 1);
         assert_eq!(diags[0].rule_id, "KEYBOARDFUN");
+    }
+
+    #[test]
+    fn test_keyboardfun_silent_when_keyboard_is_a_variable() {
+        let source = "keyboard;\nkeyboard = 3;\n";
+        let tree = parse(source);
+        let root = tree.root_node();
+        let eng = engine();
+
+        let node = find_child_of_kind(root, "function_call")
+            .or_else(|| find_child_of_kind(root, "command"));
+        let node = node.expect("keyboard should parse as function_call or command");
+        assert!(eng.check_discouraged_functions(node, source).is_empty());
     }
 }

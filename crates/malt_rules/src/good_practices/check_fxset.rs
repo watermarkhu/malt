@@ -3,7 +3,10 @@ use super::*;
 impl GoodPracticesEngine {
     /// FXSETA: the `for` loop iterator variable is assigned inside the loop body.
     pub(crate) fn check_fxset(&self, node: Node, source: &str) -> Vec<Diagnostic> {
-        if !self.is_check_enabled("FXSETA") || node.kind() != "for_statement" {
+        if !self.is_check_enabled("FXSETA")
+            || node.kind() != "for_statement"
+            || in_unreachable_code(node, source)
+        {
             return Vec::new();
         }
 
@@ -43,6 +46,20 @@ mod tests {
         let diags = eng.check_fxset(for_node, source);
         assert_eq!(diags.len(), 1);
         assert_eq!(diags[0].rule_id, "FXSETA");
+    }
+
+    #[test]
+    fn test_fxseta_silent_after_endless_loop() {
+        let source = "while true\n  x = 1;\nend\nfor i = 1:10\n  i = 5;\nend\n";
+        let tree = parse(source);
+        let eng = engine();
+        let for_node = find_child_of_kind(tree.root_node(), "for_statement").unwrap();
+        assert!(eng.check_fxset(for_node, source).is_empty());
+
+        let source = "while true\n  if x, break; end\nend\nfor i = 1:10\n  i = 5;\nend\n";
+        let tree = parse(source);
+        let for_node = find_child_of_kind(tree.root_node(), "for_statement").unwrap();
+        assert_eq!(eng.check_fxset(for_node, source).len(), 1);
     }
 
     #[test]

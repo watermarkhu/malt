@@ -2,7 +2,7 @@
 
 use super::*;
 use crate::analysis::control_flow::is_script_body;
-use crate::analysis::liveness::constant_truths;
+use crate::analysis::liveness::{constant_truths, if_clauses};
 use crate::analysis::symbols::SymbolTable;
 use std::collections::HashMap;
 
@@ -65,9 +65,12 @@ fn collect_constant_branches(
     }
 }
 
-/// The first statement of the branch that a constant condition never runs, for an
-/// `if` with no `elseif`. Probed: `if true ... else y = 1; end` reports the `else`
-/// statement, `if false y = 1; end` and `if 0 disp(1) else ... end` the body.
+/// The first statement that a constant condition makes unreachable, walking the
+/// clauses of an `if` in order. A constant false clause never runs: its first
+/// statement is reported (probed: `if 0 disp(1) else ... end`, `x = 0; if x a = 1
+/// elseif y ... end` reports `a = 1`). After a constant true clause the next clause
+/// is dead: an `elseif` is reported at its keyword, an `else` at its first statement
+/// (probed: `if 1 ... elseif y ... else a = 3 end` reports the `elseif` line).
 /// Numeric literals, `true` and `false` count, and so do variables whose value is
 /// known at the condition (`k = 0; if k`), see `constant_truths`.
 fn dead_constant_branch<'a>(
@@ -78,28 +81,57 @@ fn dead_constant_branch<'a>(
     if node.kind() != "if_statement" {
         return None;
     }
-    let condition = node.child_by_field_name("condition")?;
-    let text = source[condition.start_byte()..condition.end_byte()].trim();
-    let truth = match text {
-        "true" => true,
-        "false" => false,
-        _ if text.starts_with(|c: char| c.is_ascii_digit()) => text.parse::<f64>().ok()? != 0.0,
-        _ => *truths.get(&condition.start_byte())?,
-    };
-    let children = named_children(node);
-    if children.iter().any(|c| c.kind() == "elseif_clause") {
-        return None;
+    let mut after_true = false;
+    for clause in if_clauses(node) {
+        if after_true {
+            return if clause.is_else {
+                first_statement(&clause.parts)
+            } else {
+                Some(clause.node)
+            };
+        }
+        let truth = match clause.condition {
+            None => Some(true),
+            Some(condition) => constant_truth(condition, source, truths),
+        };
+        match truth {
+            Some(false) => {
+                if let Some(first) = first_statement(&clause.parts) {
+                    return Some(first);
+                }
+            }
+            Some(true) => after_true = true,
+            None => {}
+        }
     }
-    let block = if truth {
-        let else_clause = children.iter().find(|c| c.kind() == "else_clause")?;
-        named_children(*else_clause)
-            .into_iter()
-            .find(|c| c.kind() == "block")?
-    } else {
-        *children.iter().find(|c| c.kind() == "block")?
-    };
-    named_children(block)
-        .into_iter()
+    None
+}
+
+/// The truth value of a condition that is a literal or a known variable.
+fn constant_truth(condition: Node, source: &str, truths: &HashMap<usize, bool>) -> Option<bool> {
+    let text = source[condition.start_byte()..condition.end_byte()].trim();
+    match text {
+        "true" => Some(true),
+        "false" => Some(false),
+        _ if text.starts_with(|c: char| c.is_ascii_digit()) => {
+            text.parse::<f64>().ok().map(|v| v != 0.0)
+        }
+        _ => truths.get(&condition.start_byte()).copied(),
+    }
+}
+
+/// The first statement of a clause body: its block's first named child, or the
+/// statement written after the clause header on the same line.
+fn first_statement<'a>(parts: &[Node<'a>]) -> Option<Node<'a>> {
+    parts
+        .iter()
+        .flat_map(|part| {
+            if part.kind() == "block" {
+                named_children(*part)
+            } else {
+                vec![*part]
+            }
+        })
         .find(|c| c.kind() != "comment")
 }
 
@@ -361,10 +393,105 @@ mod tests {
     }
 
     #[test]
-    fn unrch_ok_after_top_level_break_in_script() {
-        // Probe: MATLAB reports nothing after a break outside a loop (a syntax error).
+    fn unrch_fires_after_top_level_break_in_script() {
+        // Probe: a `break` outside a loop is BRKFOR, and the statement after it is UNRCH.
         let diags = lint_file(&*engine(), "disp(1);\nbreak\ndisp(2);\n");
-        assert!(!has_id(&diags, "UNRCH"), "got: {diags:?}");
+        assert_eq!(unrch_lines(&diags), vec![3], "got: {diags:?}");
+    }
+
+    #[test]
+    fn unrch_fires_after_top_level_break_in_script_with_syntax_error() {
+        // Probe t__t1: the `break` ends the flow even though the file has a syntax error.
+        let diags = lint_file(&*engine(), "disp(1);\nbreak\ncontinue\ng = end;\n");
+        assert_eq!(unrch_lines(&diags), vec![3], "got: {diags:?}");
+    }
+
+    #[test]
+    fn unrch_fires_after_top_level_continue_in_script() {
+        // Probe: `for ... break ... end; break; continue; a = 1;` reports the `continue`.
+        let diags = lint_file(
+            &*engine(),
+            "for i = 1:2\n  break\n  disp(3)\nend\nbreak\ncontinue\na = 1;\n",
+        );
+        let mut lines = unrch_lines(&diags);
+        lines.sort_unstable();
+        assert_eq!(lines, vec![3, 6], "got: {diags:?}");
+    }
+
+    #[test]
+    fn unrch_fires_after_if_where_all_branches_return() {
+        // Probe unused__a3: both branches of the `if` return, so `disp(1)` is unreachable.
+        let diags = lint_file(
+            &*engine(),
+            "function r = a3(x)\nr = 1;\nif x\n    return\nelse\n    return\nend\ndisp(1);\nend\n",
+        );
+        assert_eq!(unrch_lines(&diags), vec![8], "got: {diags:?}");
+    }
+
+    #[test]
+    fn unrch_ok_after_if_where_one_branch_falls_through() {
+        let diags = lint_file(
+            &*engine(),
+            "function r = f(x)\nif x\n    return\nend\ndisp(1);\nend\n",
+        );
+        assert!(unrch_lines(&diags).is_empty(), "got: {diags:?}");
+    }
+
+    #[test]
+    fn unrch_ok_for_nested_function_after_return() {
+        // Probe custom__a: `function g()` nested after `return` is not unreachable code.
+        let diags = lint_file(&*engine(), "function f()\nreturn\nfunction g()\nend\nend\n");
+        assert!(unrch_lines(&diags).is_empty(), "got: {diags:?}");
+    }
+
+    #[test]
+    fn unrch_fires_at_elseif_after_constant_true_if() {
+        // Probe formatting__b / s6: `x = 1` makes `if x` true, so `elseif y` is unreachable.
+        let diags = lint_file(
+            &*engine(),
+            "function f(y)\nx = 1;\nif x\n  a = 1;\nelseif y\n  a = 2;\nelse\n  a = 3;\nend\ndisp(a)\nend\n",
+        );
+        assert_eq!(unrch_lines(&diags), vec![5], "got: {diags:?}");
+    }
+
+    #[test]
+    fn unrch_fires_at_else_body_after_constant_true_elseif() {
+        // Probe t7: the `elseif x` is true, so the `else` body is unreachable.
+        let diags = lint_file(
+            &*engine(),
+            "function f(y)\nx = 1;\nif y\n  a = 1;\nelseif x\n  a = 2;\nelse\n  a = 3;\nend\ndisp(a)\nend\n",
+        );
+        assert_eq!(unrch_lines(&diags), vec![8], "got: {diags:?}");
+    }
+
+    #[test]
+    fn unrch_fires_in_body_of_constant_false_first_clause_with_elseif() {
+        // Probe t5: `x = 0; if x a = 1 elseif y a = 2 end` reports the first body statement.
+        let diags = lint_file(
+            &*engine(),
+            "function f(y)\nx = 0;\nif x\n  a = 1;\nelseif y\n  a = 2;\nend\ndisp(a)\nend\n",
+        );
+        assert_eq!(unrch_lines(&diags), vec![4], "got: {diags:?}");
+    }
+
+    #[test]
+    fn unrch_fires_in_body_of_constant_false_elseif() {
+        // Probe t8: `elseif 0` makes its body unreachable.
+        let diags = lint_file(
+            &*engine(),
+            "function f(y)\nx = 1;\nif y\n  a = 1;\nelseif 0\n  a = 2;\nend\ndisp(a)\nend\n",
+        );
+        assert_eq!(unrch_lines(&diags), vec![6], "got: {diags:?}");
+    }
+
+    #[test]
+    fn unrch_ok_after_loop_assigns_different_value() {
+        // Probe t1: `x = 0; for ... x = 1; end` leaves `x` unknown, so no branch is dead.
+        let diags = lint_file(
+            &*engine(),
+            "function f(y)\nx = 0;\nfor i = 1:3\n  x = 1;\nend\nif x\n  a = 1;\nelseif y\n  a = 2;\nend\ndisp(a)\nend\n",
+        );
+        assert!(unrch_lines(&diags).is_empty(), "got: {diags:?}");
     }
 
     #[test]

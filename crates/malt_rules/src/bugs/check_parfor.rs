@@ -195,6 +195,18 @@ impl BugsEngine {
                     calls.push(diag("PFBFN", node, PFBFN_MSG.to_string()));
                 }
             }
+            "identifier" => {
+                let text = node_text(node, source);
+                let statement_or_callee = node.parent().is_none_or(|p| {
+                    matches!(
+                        p.kind(),
+                        "block" | "source_file" | "command" | "function_call"
+                    )
+                });
+                if (text == "who" || text == "whos") && !statement_or_callee {
+                    calls.push(diag("PFWHOS", node, PFWHOS_MSG.to_string()));
+                }
+            }
             "command" => {
                 let text = node_text(node, source).trim();
                 let first = text.split_whitespace().next().unwrap_or("");
@@ -243,7 +255,14 @@ impl BugsEngine {
         diagnostics.extend(calls);
 
         // PFTUSE: temporary variables assigned in the loop but read after it.
-        for var in temps.iter().filter(|v| !reductions.contains(v)) {
+        let globals = crate::good_practices::collect_global_persistent_vars(
+            crate::good_practices::root_node_of(parfor),
+            source,
+        );
+        for var in temps
+            .iter()
+            .filter(|v| !reductions.contains(v) && !globals.contains(v.as_str()))
+        {
             if let Some(use_node) = later_use(parfor, var, source) {
                 diagnostics.push(diag(
                     "PFTUSE",
@@ -337,6 +356,12 @@ mod tests {
     #[test]
     fn pfwhos_fires_on_whos_command_form() {
         let diags = file_diags("parfor i = 1:10\n    whos\nend\n");
+        assert!(has_id(&diags, "PFWHOS"), "got: {diags:?}");
+    }
+
+    #[test]
+    fn pfwhos_fires_on_who_used_as_value() {
+        let diags = file_diags("parfor i = 1:10\n    s = who;\nend\n");
         assert!(has_id(&diags, "PFWHOS"), "got: {diags:?}");
     }
 

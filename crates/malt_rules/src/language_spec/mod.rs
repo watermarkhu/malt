@@ -2818,19 +2818,6 @@ pub(crate) fn prop_name_value_struct(prop: tree_sitter::Node, source: &str) -> O
     find_child_kind(pn, "identifier").map(|n| node_text(n, source).to_string())
 }
 
-/// The field name of a name-value property (after the last dot).
-pub(crate) fn prop_name_value_field(prop: tree_sitter::Node, source: &str) -> Option<String> {
-    let pn = find_child_kind(prop, "property_name")?;
-    let mut last = None;
-    let mut cursor = pn.walk();
-    for child in pn.children(&mut cursor) {
-        if child.kind() == "identifier" {
-            last = Some(node_text(child, source).to_string());
-        }
-    }
-    last
-}
-
 /// The plain identifier name of a positional property.
 pub(crate) fn prop_plain_name(prop: tree_sitter::Node, source: &str) -> Option<String> {
     let name = prop
@@ -2884,10 +2871,12 @@ pub(crate) fn attributes_have_value(block_node: tree_sitter::Node, source: &str)
 /// A reference made inside a validation function call.
 #[derive(Debug, Clone)]
 enum CallReference {
-    /// A plain identifier reference.
+    /// A plain identifier reference, or the callee of a nested call.
     Identifier(String),
     /// A dotted field reference such as `opts.Name`.
-    Field,
+    Field(String),
+    /// Any other non-literal expression, such as a metaclass operator.
+    Other,
 }
 
 /// A validation function call extracted from an arguments block property.
@@ -2920,23 +2909,44 @@ pub(crate) fn extract_validator_call(
     source: &str,
 ) -> Option<ValidatorCall> {
     let mut references = Vec::new();
-    if let Some(args_node) = find_child_kind(call_node, "arguments") {
-        let mut cursor = args_node.walk();
-        for arg in args_node.children(&mut cursor) {
-            match arg.kind() {
-                "identifier" => {
-                    references.push(CallReference::Identifier(
-                        node_text(arg, source).to_string(),
-                    ));
-                }
-                "field_expression" => {
-                    references.push(CallReference::Field);
-                }
-                _ => {}
+    collect_validator_references(call_node, source, &mut references);
+    Some(ValidatorCall { references })
+}
+
+/// Collect the references made by the arguments of a validation call, descending into nested calls.
+fn collect_validator_references(
+    call_node: tree_sitter::Node,
+    source: &str,
+    references: &mut Vec<CallReference>,
+) {
+    let Some(args_node) = find_child_kind(call_node, "arguments") else {
+        return;
+    };
+    let mut cursor = args_node.walk();
+    let children: Vec<tree_sitter::Node> = args_node.children(&mut cursor).collect();
+    for arg in children {
+        match arg.kind() {
+            "identifier" => {
+                references.push(CallReference::Identifier(
+                    node_text(arg, source).to_string(),
+                ));
             }
+            "field_expression" => {
+                references.push(CallReference::Field(node_text(arg, source).to_string()));
+            }
+            "function_call" => {
+                match find_child_kind(arg, "identifier") {
+                    Some(callee) => references.push(CallReference::Identifier(
+                        node_text(callee, source).to_string(),
+                    )),
+                    None => references.push(CallReference::Other),
+                }
+                collect_validator_references(arg, source, references);
+            }
+            "metaclass_operator" => references.push(CallReference::Other),
+            _ => {}
         }
     }
-    Some(ValidatorCall { references })
 }
 
 /// Collect all `function_call` nodes within a subtree.
@@ -3164,7 +3174,6 @@ mod check_fvnsc;
 mod check_fvnst;
 mod check_fvobi;
 mod check_fvond;
-mod check_fvonv;
 mod check_fvood_fvooi_fvoon;
 mod check_fvordi;
 mod check_fvordn;
@@ -3177,7 +3186,7 @@ mod check_fvsor;
 mod check_fvsoro;
 mod check_fvtinvaldim_ttoofewdims;
 mod check_fvvin_fvocon;
-mod check_fvvin_fvvcon_fvubd;
+mod check_fvvin_fvvcon;
 mod check_fvvrep;
 mod check_global_persistent_rules;
 mod check_gpfst;

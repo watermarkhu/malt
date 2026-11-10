@@ -10,7 +10,7 @@ impl LanguageSpecEngine {
                 let is_abstract = pb
                     .attributes
                     .iter()
-                    .any(|a| a.name == "Abstract" && !a.negated);
+                    .any(|a| a.name == "Abstract" && a.is_set());
                 if is_abstract {
                     for prop in &pb.properties {
                         diagnostics.push(Diagnostic {

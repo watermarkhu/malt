@@ -1,5 +1,7 @@
 use super::*;
 
+use crate::analysis::control_flow::is_script_body;
+
 impl GoodPracticesEngine {
     /// PFRIN / PFRUS: PARFOR reduction variable data-flow checks.
     ///
@@ -19,11 +21,15 @@ impl GoodPracticesEngine {
         let sym = SymbolTable::build(tree, source);
         let mut diagnostics = Vec::new();
         let parfors = collect_parfor_nodes(tree.root_node(), source);
+        let script = is_script_body(tree.root_node());
 
         for parfor in &parfors {
             let Some(body) = find_child_of_kind(*parfor, "block") else {
                 continue;
             };
+            if script || has_explicit_step(*parfor, source) {
+                continue;
+            }
             for (name, lhs_node) in collect_reduction_assignments(body, source) {
                 if self.is_check_enabled("PFRIN")
                     && !is_defined_before_parfor(&sym, &name, parfor.start_byte())
@@ -83,12 +89,28 @@ fn collect_reduction_assignments<'a>(node: Node<'a>, source: &str) -> Vec<(Strin
             continue;
         };
         // The classic reduction shape: `x = x op ...` with a binary operator
-        // at the top of the right-hand side.
-        if rhs_root_is_binary(rhs) && expression_uses_variable(rhs, name, source) {
+        // at the top of the right-hand side, or `x = max(x, ...)` / `min`.
+        let min_max = get_function_call_name(rhs, source).is_some_and(|f| f == "max" || f == "min");
+        if (rhs_root_is_binary(rhs) || min_max) && expression_uses_variable(rhs, name, source) {
             out.push((name.to_string(), lhs));
         }
     }
     out
+}
+
+/// `true` for a parfor whose range has a literal step other than 1 or -1 (PFRNI).
+/// MATLAB does not analyse the reductions of such a loop (fixture c3__p1.m:12).
+fn has_explicit_step(parfor: Node, source: &str) -> bool {
+    let Some(range) = find_iterator_range(parfor) else {
+        return false;
+    };
+    if count_named_children(range) != 3 {
+        return false;
+    }
+    let mut cursor = range.walk();
+    let parts: Vec<Node> = range.named_children(&mut cursor).collect();
+    let step = node_text(parts[1], source).replace(' ', "");
+    matches!(step.parse::<f64>(), Ok(value) if value != 1.0 && value != -1.0)
 }
 
 /// Check whether a node is a binary operator expression, unwrapping any
@@ -113,7 +135,14 @@ fn rhs_root_is_binary(mut node: Node) -> bool {
 fn expression_uses_variable(node: Node, name: &str, source: &str) -> bool {
     let mut identifiers = Vec::new();
     collect_plain_identifiers(node, &mut identifiers);
-    identifiers.iter().any(|id| node_text(*id, source) == name)
+    identifiers.iter().any(|id| {
+        let indexed = id.parent().is_some_and(|p| {
+            p.kind() == "function_call"
+                && p.child_by_field_name("name")
+                    .is_some_and(|n| n.id() == id.id())
+        });
+        !indexed && node_text(*id, source) == name
+    })
 }
 
 /// Collect identifier descendants, pruning nested functions and lambdas.
@@ -156,7 +185,7 @@ mod tests {
 
     #[test]
     fn test_pfrin_fires_on_uninitialized_reduction_variable() {
-        let source = "parfor i = 1:10\n    total = total + i;\nend\n";
+        let source = "function f()\nparfor i = 1:10\n    total = total + i;\nend\nend\n";
         let ids = pfr_ids_for(source, "PFRIN");
         assert_eq!(ids.len(), 1, "got: {:?}", pfr_ids(source));
     }
@@ -169,9 +198,35 @@ mod tests {
 
     #[test]
     fn test_pfrus_fires_when_reduction_result_unused() {
-        let source = "total = 0;\nparfor i = 1:10\n    total = total + i;\nend\n";
+        let source =
+            "function f()\ntotal = 0;\nparfor i = 1:10\n    total = total + i;\nend\nend\n";
         let ids = pfr_ids_for(source, "PFRUS");
         assert_eq!(ids.len(), 1, "got: {:?}", pfr_ids(source));
+    }
+
+    #[test]
+    fn test_pfrus_fires_on_min_max_reduction() {
+        let source = "function f()\nu = 0;\nparfor i = 1:10\n    u = max(u, i);\nend\nend\n";
+        assert_eq!(pfr_ids_for(source, "PFRUS").len(), 1);
+    }
+
+    #[test]
+    fn test_pfrus_silent_on_indexed_self_reference() {
+        let source = "function f()\nparfor i = 1:10\n    k = k(i) + 1;\nend\nend\n";
+        assert!(pfr_ids_for(source, "PFRUS").is_empty());
+    }
+
+    #[test]
+    fn test_pfrus_silent_on_explicit_step() {
+        let source =
+            "function f()\ntotal = 0;\nparfor i = 1:2:10\n    total = total + i;\nend\nend\n";
+        assert!(pfr_ids_for(source, "PFRUS").is_empty());
+    }
+
+    #[test]
+    fn test_pfrus_silent_in_script() {
+        let source = "total = 0;\nparfor i = 1:10\n    total = total + i;\nend\n";
+        assert!(pfr_ids_for(source, "PFRUS").is_empty());
     }
 
     #[test]

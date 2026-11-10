@@ -174,7 +174,7 @@ pub fn find_unreachable(tree: &Tree, source: &str) -> Vec<UnreachableSpan> {
 /// DFS helper that visits every node and, for `block` nodes, checks for
 /// unreachable code after terminating statements.
 fn collect_unreachable_dfs(node: Node, source: &str, spans: &mut Vec<UnreachableSpan>) {
-    if node.kind() == "block" || is_script_body(node) {
+    if node.kind() == "block" || is_flow_root(node) {
         check_block_unreachable(node, source, spans);
     }
 
@@ -188,8 +188,8 @@ fn collect_unreachable_dfs(node: Node, source: &str, spans: &mut Vec<Unreachable
 
 /// `true` for a script's body: a file with no function definitions and no
 /// syntax errors, whose top-level statements are direct children of the file.
-/// Probes: MATLAB flags statements after `return` and `error` at script level,
-/// but not after a top-level `break` (a syntax error outside a loop).
+/// Probes: MATLAB flags statements after `return`, `break`, `continue` and `error`
+/// at script level (a top-level `break` is a syntax error, BRKFOR, but still ends the flow).
 pub fn is_script_body(node: Node) -> bool {
     if node.kind() != "source_file" || node.has_error() {
         return false;
@@ -197,6 +197,16 @@ pub fn is_script_body(node: Node) -> bool {
     !named_children(node)
         .iter()
         .any(|c| c.kind() == "function_definition")
+}
+
+/// `true` for a file without function definitions, syntax errors allowed: its
+/// top-level statements are a flow that a `break` or `return` ends (probed: t__t1,
+/// whose statement after a top-level `break` is UNRCH though the file has an error).
+fn is_flow_root(node: Node) -> bool {
+    node.kind() == "source_file"
+        && !named_children(node)
+            .iter()
+            .any(|c| c.kind() == "function_definition")
 }
 
 /// `true` for a statement-level unary `+x` or `-x` (not `++x`/`--x`) that
@@ -227,9 +237,30 @@ pub fn is_split_statement_continuation(node: Node, source: &str) -> bool {
     (op.starts_with('+') || op.starts_with('-')) && !is_incr_decr && follows_statement
 }
 
+/// `true` for `while true ... end` without a `break` that leaves that loop:
+/// the statements after it can never run.
+fn is_endless_loop(node: Node, source: &str) -> bool {
+    node.kind() == "while_statement"
+        && node
+            .child_by_field_name("condition")
+            .is_some_and(|c| node_text(c, source) == "true")
+        && !contains_loop_break(node)
+}
+
+/// `true` when `node` holds a `break` that belongs to it (nested loops own their breaks).
+fn contains_loop_break(node: Node) -> bool {
+    let mut cursor = node.walk();
+    let children: Vec<Node> = node.named_children(&mut cursor).collect();
+    children.into_iter().any(|child| match child.kind() {
+        "break_statement" => true,
+        "for_statement" | "while_statement" => false,
+        _ => contains_loop_break(child),
+    })
+}
+
 /// `true` when the statement holding `node` follows a `return`, `break`,
-/// `continue` or `error(...)` in the same block. MATLAB's style checks skip
-/// such statements (only UNRCH reports them).
+/// `continue`, `error(...)` or an endless `while true` loop in the same block.
+/// MATLAB's style checks skip such statements (only UNRCH reports them).
 pub fn in_unreachable_code(node: Node, source: &str) -> bool {
     let mut statement = node;
     while let Some(parent) = statement.parent() {
@@ -238,19 +269,19 @@ pub fn in_unreachable_code(node: Node, source: &str) -> bool {
         }
         statement = parent;
     }
-    let script = statement
-        .parent()
-        .is_some_and(|p| p.kind() == "source_file");
     let mut previous = statement.prev_named_sibling();
     while let Some(sibling) = previous {
         previous = sibling.prev_named_sibling();
         if sibling.kind() == "comment" {
             continue;
         }
-        if let Some(cause) = termination_cause(sibling.kind()) {
-            if !(script && matches!(cause, "break" | "continue")) {
-                return true;
-            }
+        if termination_cause(sibling.kind()).is_some()
+            || (sibling.kind() == "if_statement" && if_terminates(sibling))
+        {
+            return true;
+        }
+        if is_endless_loop(sibling, source) {
+            return true;
         }
         let callee = match sibling.kind() {
             "function_call" => sibling.child_by_field_name("name"),
@@ -269,12 +300,12 @@ pub fn in_unreachable_code(node: Node, source: &str) -> bool {
 fn check_block_unreachable(block: Node, source: &str, spans: &mut Vec<UnreachableSpan>) {
     let children = named_children(block);
     let mut terminator_found: Option<&'static str> = None;
-    let script = block.kind() == "source_file";
 
     for child in &children {
         if let Some(cause) = terminator_found {
-            // Skip comment nodes — they are not "code".
-            if child.kind() == "comment" {
+            // Skip comment nodes — they are not "code". A nested function is not
+            // code of this flow either (probed: `return` then `function g()` in f).
+            if matches!(child.kind(), "comment" | "function_definition") {
                 continue;
             }
             // MATLAB reports only the first statement of an unreachable run:
@@ -288,11 +319,9 @@ fn check_block_unreachable(block: Node, source: &str, spans: &mut Vec<Unreachabl
             });
             break;
         } else if let Some(cause) = termination_cause(child.kind()) {
-            // `break` and `continue` outside a loop are syntax errors.
-            if script && matches!(cause, "break" | "continue") {
-                continue;
-            }
             terminator_found = Some(cause);
+        } else if child.kind() == "if_statement" && if_terminates(*child) {
+            terminator_found = Some("return");
         }
     }
 

@@ -423,20 +423,30 @@ fn has_break(node: Node) -> bool {
     node.kind() == "break_statement" || children(node).into_iter().any(has_break)
 }
 
+fn contains_jump(node: Node) -> bool {
+    matches!(
+        node.kind(),
+        "break_statement" | "continue_statement" | "return_statement"
+    ) || children(node).into_iter().any(contains_jump)
+}
+
 /// A clause of an `if` statement: its condition (`None` for `else`) and its statements.
-struct Clause<'t> {
-    condition: Option<Node<'t>>,
-    is_else: bool,
-    parts: Vec<Node<'t>>,
+pub(crate) struct Clause<'t> {
+    /// The `if_statement` for the first clause, else the `elseif_clause` or `else_clause`.
+    pub(crate) node: Node<'t>,
+    pub(crate) condition: Option<Node<'t>>,
+    pub(crate) is_else: bool,
+    pub(crate) parts: Vec<Node<'t>>,
 }
 
 /// The clauses of an `if` statement in order. The statements after the first
 /// condition, before any `elseif` or `else`, belong to the first clause.
-fn if_clauses(node: Node) -> Vec<Clause> {
+pub(crate) fn if_clauses(node: Node) -> Vec<Clause> {
     let mut clauses: Vec<Clause> = Vec::new();
     for child in named(node) {
         if is_condition(node, child) {
             clauses.push(Clause {
+                node,
                 condition: Some(child),
                 is_else: false,
                 parts: Vec::new(),
@@ -445,6 +455,7 @@ fn if_clauses(node: Node) -> Vec<Clause> {
             let condition = child.child_by_field_name("condition");
             let parts = clause_body(child, condition);
             clauses.push(Clause {
+                node: child,
                 condition,
                 is_else: child.kind() == "else_clause",
                 parts,
@@ -453,6 +464,7 @@ fn if_clauses(node: Node) -> Vec<Clause> {
             match clauses.last_mut() {
                 Some(clause) => clause.parts.push(child),
                 None => clauses.push(Clause {
+                    node,
                     condition: None,
                     is_else: false,
                     parts: vec![child],
@@ -943,15 +955,7 @@ impl ConstPass<'_> {
             "return_statement" | "break_statement" | "continue_statement" => None,
             _ if is_error_call(node, self.source) => None,
             "if_statement" => self.if_statement(node, env),
-            "for_statement" => {
-                let head = self.remove_defs(env, node);
-                let body: Vec<Node> = named(node)
-                    .into_iter()
-                    .filter(|c| c.kind() != "iterator")
-                    .collect();
-                self.sequence(&body, Some(head.clone()));
-                Some(head)
-            }
+            "for_statement" => self.for_statement(node, env),
             "while_statement" => self.while_statement(node, env),
             "switch_statement" => self.switch_statement(node, env),
             "try_statement" => self.try_statement(node, env),
@@ -993,6 +997,38 @@ impl ConstPass<'_> {
             env.insert(name, truth);
         }
         env
+    }
+
+    /// A `for` loop without `break`, `continue` or `return` in its body: the
+    /// values known at the head are the values before the loop joined with those
+    /// at the end of the body, and the values after the loop are those at the
+    /// head (probed: `x = 0; for i = 1:3, x = 1; end; if x` does not fold). A
+    /// jump makes the loop exit from the middle of the body, so nothing the body
+    /// defines stays known.
+    fn for_statement(&mut self, node: Node, env: Known) -> Option<Known> {
+        let body: Vec<Node> = named(node)
+            .into_iter()
+            .filter(|c| c.kind() != "iterator")
+            .collect();
+        let pre = match named(node).into_iter().find(|c| c.kind() == "iterator") {
+            Some(iterator) => self.remove_defs(env.clone(), iterator),
+            None => env,
+        };
+        if body.iter().any(|stmt| contains_jump(*stmt)) {
+            let head = self.remove_defs(pre, node);
+            self.sequence(&body, Some(head.clone()));
+            return Some(head);
+        }
+        let mut head = pre.clone();
+        for _ in 0..16 {
+            let out = self.sequence(&body, Some(head.clone()));
+            let next = join(Some(pre.clone()), out).unwrap_or_default();
+            if next == head {
+                break;
+            }
+            head = next;
+        }
+        Some(head)
     }
 
     fn if_statement(&mut self, node: Node, env: Known) -> Option<Known> {

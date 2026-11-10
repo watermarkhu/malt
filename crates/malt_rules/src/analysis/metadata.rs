@@ -110,6 +110,13 @@ pub struct AttributeMeta {
     pub negated: bool,
 }
 
+impl AttributeMeta {
+    /// Whether the attribute is set: not negated (`~Name`) and not assigned `false`.
+    pub fn is_set(&self) -> bool {
+        !self.negated && self.value.as_deref() != Some("false")
+    }
+}
+
 /// Metadata about a class property.
 #[derive(Debug, Clone)]
 pub struct PropertyMeta {
@@ -980,7 +987,7 @@ impl ClassMeta {
     pub fn is_sealed(&self) -> bool {
         self.attributes
             .iter()
-            .any(|a| a.name == "Sealed" && !a.negated)
+            .any(|a| a.name == "Sealed" && a.is_set())
     }
 
     /// Check if the class is `Abstract`.

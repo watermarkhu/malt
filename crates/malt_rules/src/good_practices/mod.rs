@@ -482,6 +482,7 @@ impl GoodPracticesEngine {
         let sym = SymbolTable::build(tree, source);
         let mut diagnostics = Vec::new();
         let parfors = collect_parfor_nodes(tree.root_node(), source);
+        let script = crate::analysis::control_flow::is_script_body(tree.root_node());
 
         for parfor in &parfors {
             let idx_var = extract_parfor_index_var(*parfor, source);
@@ -489,7 +490,7 @@ impl GoodPracticesEngine {
 
             // PFIIN: input variable read in the body but never initialized
             // before the loop and not assigned inside the loop.
-            if self.is_check_enabled("PFIIN") {
+            if !script && self.is_check_enabled("PFIIN") {
                 if let Some(body_node) = body {
                     let mut skip = std::collections::HashSet::new();
                     if let Some(ref idx) = idx_var {
@@ -499,6 +500,7 @@ impl GoodPracticesEngine {
                     for (name, read_node) in reads {
                         if is_defined_before_parfor(&sym, &name, parfor.start_byte())
                             || is_assigned_in_body(body_node, &name, source)
+                            || matches!(name.as_str(), "nargin" | "nargout" | "who" | "whos")
                         {
                             continue;
                         }
@@ -520,7 +522,7 @@ impl GoodPracticesEngine {
 
             // PFOUS: a sliced output (`v(i) = ...`) that is not read after the
             // loop. A plain scalar assignment (`t = i`) is not reported.
-            if self.is_check_enabled("PFOUS") {
+            if !script && self.is_check_enabled("PFOUS") {
                 if let Some(body_node) = body {
                     for (name, lhs_node) in collect_indexed_lhs_assignments(body_node, source) {
                         if idx_var.as_deref() == Some(name.as_str()) {
@@ -2233,8 +2235,18 @@ z = f(eval(x + y));\nonCleanup(@f);\n[~] = onCleanup(@f);\nc = computer('arch');
     }
 
     #[test]
+    fn test_pfous_and_pfiin_silent_in_script() {
+        // Script-level parfor loops are not reported for these checks (fixtures ls-c__pf1, ls-c__Sp).
+        let source = "parfor i = 1:10\n    q(i) = i;\n    r = z + i;\nend\n";
+        let tree = parse(source);
+        let eng = engine();
+        assert!(g2_file_ids_with(&eng, &tree, source, "PFOUS").is_empty());
+        assert!(g2_file_ids_with(&eng, &tree, source, "PFIIN").is_empty());
+    }
+
+    #[test]
     fn test_pfiin_fires_on_uninitialized_input() {
-        let source = "parfor i = 1:10\n    q = z + i;\nend\n";
+        let source = "function f()\nparfor i = 1:10\n    q = z + i;\nend\nend\n";
         let tree = parse(source);
         let eng = engine();
 
@@ -2264,7 +2276,7 @@ z = f(eval(x + y));\nonCleanup(@f);\n[~] = onCleanup(@f);\nc = computer('arch');
     #[test]
     fn test_pfous_fires_on_output_not_used_after() {
         // Sliced output: `q(i) = i` is reported, a plain `q = i` is not (probes pfo1, pfo5).
-        let source = "parfor i = 1:10\n    q(i) = i;\nend\n";
+        let source = "function f()\nparfor i = 1:10\n    q(i) = i;\nend\nend\n";
         let tree = parse(source);
         let eng = engine();
 
