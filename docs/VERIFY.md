@@ -14,11 +14,10 @@ state only: settle an item, then delete its row.
 | Fixture regression test | `crates/malt_cli/tests/matlab_conformance.rs` |
 
 `tests/fixtures/matlab_expected.tsv` holds what MATLAB reports for every fixture
-(path, line, ID: facts only). The test fails on any difference that is not listed in
-`tests/fixtures/matlab_known_differences.tsv`, the backlog. The goal is an empty
-backlog; `cargo test -p malt-cli --test matlab_conformance -- --ignored` fails until
-it is. After fixing differences, shrink the backlog with
-`UPDATE_KNOWN_DIFFERENCES=1 cargo test -p malt-cli --test matlab_conformance`.
+(path, line, ID: facts only). The test fails on any difference, a missed finding or
+an extra one: malt matches MATLAB on all 209 fixtures. A new fixture needs its MATLAB
+expectations: run `docs/scripts/matlab_probe.m` over it and append the rows (relative
+path, line, ID; line 0 becomes 1) to `matlab_expected.tsv`.
 
 MATLAB's own message text and its full check list are MathWorks content: keep them
 outside the repository (`~/.local/share/malt-reference/`).
@@ -104,13 +103,15 @@ MATLAB in the probes (some need toolboxes that are not installed).
 | FVUBD, FVONV | MATLAB reports the forward-reference case as FVVCON. |
 | BADOT, SYNEND, EOFMI | No evidence in MATLAB's output; the syntax engine no longer emits them. |
 
-## Open rows (4 differences, see the backlog)
+## Known gaps (no fixture fails on them)
 
-| Row | Note |
+| Gap | Note |
 | --- | --- |
-| MCNPN `ls-c__V1.m:33` (malt-only) | MATLAB is silent for a signature-only declaration in a `methods (Abstract)` block (`f2(obj)` without the `function` keyword); abstract methods with a body and abstract properties are reported. Not implemented. |
-| ASGLU `bugs__f1.m:44`, `bugs__f2.m:44` (matlab-only) | MATLAB reports `[a,b] = 5` at line 44; malt drops the dead-store analysis after the parse error at lines 27-28 (a stray `elseif ... end`). Deleting those two lines makes malt report it. |
-| DEFNU `t__fv4.m:1` (matlab-only) | With a `function` line inside an `arguments` block MATLAB reports the primary function at line 1, column 14; malt reports at line 5. |
+| Statement right after a stray `end` | tree-sitter parses it as ERROR tokens plus a number, so malt misses MATLAB's NASGU for `z = 1;` there. |
+| `x = f(a.b=1);` | MATLAB reports SYNER at the `=`; malt reports nothing (only the statement-level call form is handled). |
+| Self-call after an unclosed `arguments` block | The statement is not visited by the symbol table, so DEFNU can report the primary function where MATLAB is silent. |
+| Message text | The conformance test compares file, line and ID, not the text of dynamic messages (for example MATLAB quotes names in MCNPN: `'foo' is referenced...`). |
+| Overfitting | The fixtures are what the rules were fitted to; a fresh MATLAB-checked corpus is the next measurement (plan step 4.1). |
 
 ## Rules worth knowing
 
