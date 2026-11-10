@@ -91,7 +91,7 @@ Input argument 'varargin' might be unused.
 
 Severity: **warning** · Auto-fix: **no**
 
-<operator> produces a value that might be unused.
+&lt;operator&gt; produces a value that might be unused.
 
 ### DEFNU
 

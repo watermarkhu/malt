@@ -555,7 +555,7 @@ function renderRuleTable(modules: RuleModule[]): string {
 }
 
 /**
- * MATLAB's official messages contain placeholders such as `<name>` and `<number>`.
+ * MATLAB's official messages contain placeholders such as `<name>`, `<number>` and `<operator>`.
  * VitePress reads them as HTML tags, so escape them outside code spans and fences.
  */
 function escapePlaceholders(md: string): string {
@@ -567,7 +567,7 @@ function escapePlaceholders(md: string): string {
       if (fenced) return line
       return line
         .split('`')
-        .map((part, i) => (i % 2 === 1 ? part : part.replace(/<(name|number|reserved word|file)>/gi, '&lt;$1&gt;')))
+        .map((part, i) => (i % 2 === 1 ? part : part.replace(/<([A-Za-z][A-Za-z0-9 ]*)>/g, '&lt;$1&gt;')))
         .join('`')
     })
     .join('\n')
