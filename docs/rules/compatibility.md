@@ -39,7 +39,7 @@ properties) and dispatched from `check_file`.
 
 ## Check IDs
 
-### Compatibility (899 checks)
+### Compatibility (925 checks)
 
 | Check ID | Severity | Description |
 | -------- | -------- | ----------- |
@@ -942,6 +942,32 @@ properties) and dispatched from `check_file`.
 | <a id="vsrsn"></a>`VSRSN` | warning | 'RsrcName' property of 'visadev' class will be removed in a future release. With appropriate code changes, use 'ResourceName' property of 'visadev' class instead. |
 | <a id="elevt"></a>`ELEVT` | error | 'elevation' has been removed. With appropriate code changes, use 'geodetic2aer' instead. |
 | <a id="insthwi2c"></a>`INSTHWI2C` | warning | 'instrhwinfo('i2c')' will be removed in a future release. With appropriate code changes, use 'ni845xlist' or 'aardvarklist' instead. |
+| <a id="evdofrc"></a>`EVDOFRC` | warning | 'evdoForwardReferenceChannels' will be removed in a future release. There is no simple replacement for this. |
+| <a id="evdofwg"></a>`EVDOFWG` | warning | 'evdoForwardWaveformGenerator' will be removed in a future release. There is no simple replacement for this. |
+| <a id="evdorrc"></a>`EVDORRC` | warning | 'evdoReverseReferenceChannels' will be removed in a future release. There is no simple replacement for this. |
+| <a id="evdorwg"></a>`EVDORWG` | warning | 'evdoReverseWaveformGenerator' will be removed in a future release. There is no simple replacement for this. |
+| <a id="cdma2kfrc"></a>`CDMA2KFRC` | warning | 'cdma2000ForwardReferenceChannels' will be removed in a future release. There is no simple replacement for this. |
+| <a id="cdma2kfwg"></a>`CDMA2KFWG` | warning | 'cdma2000ForwardWaveformGenerator' will be removed in a future release. There is no simple replacement for this. |
+| <a id="cdma2krrc"></a>`CDMA2KRRC` | warning | 'cdma2000ReverseReferenceChannels' will be removed in a future release. There is no simple replacement for this. |
+| <a id="cdma2krwg"></a>`CDMA2KRWG` | warning | 'cdma2000ReverseWaveformGenerator' will be removed in a future release. There is no simple replacement for this. |
+| <a id="algintrlv"></a>`ALGINTRLV` | warning | 'algintrlv' will be removed in a future release. With appropriate code changes, use 'intrlv' instead. |
+| <a id="algdeintrlv"></a>`ALGDEINTRLV` | warning | 'algdeintrlv' will be removed in a future release. With appropriate code changes, use 'deintrlv' instead. |
+| <a id="helscanintrlv"></a>`HELSCANINTRLV` | warning | 'helscanintrlv' will be removed in a future release. With appropriate code changes, use 'intrlv' instead. |
+| <a id="helscandeintrlv"></a>`HELSCANDEINTRLV` | warning | 'helscandeintrlv' will be removed in a future release. With appropriate code changes, use 'deintrlv' instead. |
+| <a id="muxintrlv"></a>`MUXINTRLV` | warning | 'muxintrlv' will be removed in a future release. With appropriate code changes, use 'convintrlv' instead. |
+| <a id="muxdeintrlv"></a>`MUXDEINTRLV` | warning | 'muxdeintrlv' will be removed in a future release. With appropriate code changes, use 'convdeintrlv' instead. |
+| <a id="commsohelintrlv"></a>`COMMSOHELINTRLV` | warning | 'comm.HelicalInterleaver' will be removed in a future release. With appropriate code changes, use 'comm.ConvolutionalInterleaver' instead. |
+| <a id="commsoheldeintrlv"></a>`COMMSOHELDEINTRLV` | warning | 'comm.HelicalDeinterleaver' will be removed in a future release. With appropriate code changes, use 'comm.ConvolutionalDeinterleaver' instead. |
+| <a id="commsomuxintrlv"></a>`COMMSOMUXINTRLV` | warning | 'comm.MultiplexedInterleaver' will be removed in a future release. With appropriate code changes, use 'comm.ConvolutionalInterleaver' instead. |
+| <a id="commsomuxdeintrlv"></a>`COMMSOMUXDEINTRLV` | warning | 'comm.MultiplexedDeinterleaver' will be removed in a future release. With appropriate code changes, use 'comm.ConvolutionalDeinterleaver' instead. |
+| <a id="pdschconfig"></a>`PDSCHCONFIG` | error | 'pre6GPDSCHConfig' has been removed. With appropriate code changes, use 'pre6GPhysicalChannelConfig' instead. |
+| <a id="wsdlclient"></a>`WSDLCLIENT` | error | 'matlab.wsdl.createWSDLClient' has been removed. Use MATLAB RESTful functions ('webread' and 'webwrite') or MATLAB HTTP interface instead. |
+| <a id="wsdltool"></a>`WSDLTOOL` | error | 'matlab.wsdl.setWSDLToolPath' has been removed. Use MATLAB RESTful functions ('webread' and 'webwrite') or MATLAB HTTP interface instead. |
+| <a id="cmamp"></a>`CMAMP` | warning | 'AMPMConversion' property of 'comm.MemorylessNonlinearity' class will be removed in a future release. There is no simple replacement for this. |
+| <a id="cmplw"></a>`CMPLW` | warning | 'PowerLowerLimit' property of 'comm.MemorylessNonlinearity' class will be removed in a future release. There is no simple replacement for this. |
+| <a id="cmpul"></a>`CMPUL` | warning | 'PowerUpperLimit' property of 'comm.MemorylessNonlinearity' class will be removed in a future release. There is no simple replacement for this. |
+| <a id="cmmht"></a>`CMMHT` | warning | 'Hyperbolic tangent' value for the 'Method' property on 'comm.MemorylessNonlinearity' class will be removed in a future release. There is no simple replacement for this. |
+| <a id="cmmgm"></a>`CMMGM` | warning | 'Ghorbani model' value for the 'Method' property on 'comm.MemorylessNonlinearity' class will be removed in a future release. There is no simple replacement for this. |
 
 ### Forward Compatibility (7 checks)
 

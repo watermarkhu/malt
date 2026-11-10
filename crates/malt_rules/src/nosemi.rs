@@ -11,7 +11,8 @@
 //!
 //! ## Rule
 //!
-//! Flags a semicolon that does nothing: one that follows another semicolon
+//! Flags a semicolon that does nothing: one that opens a line (`;` alone, or
+//! `;  if ready`), one that follows another semicolon
 //! (`x = 1;;`), or that ends a block statement or its header line (`end;`,
 //! `if ready;`, `function f;`). A semicolon that is the only separator on its
 //! line, as in `if ready; go(); end`, is not extra and is left alone.
@@ -187,6 +188,13 @@ impl Rule for Nosemi {
 /// Whether a separator in a statement sequence is extra: it repeats the one
 /// before it on the same line, or it closes a block statement (`end;`).
 fn follows_extra_context(token: Node, source: &str) -> bool {
+    // A `;` that opens its line is an empty statement: a lone `;`, or `;  if x`.
+    let line_start = source[..token.start_byte()]
+        .rfind('\n')
+        .map_or(0, |i| i + 1);
+    if source[line_start..token.start_byte()].trim().is_empty() {
+        return true;
+    }
     let Some(prev) = token.prev_sibling() else {
         return false;
     };
@@ -241,6 +249,14 @@ mod tests {
 
     fn engine() -> Box<dyn Rule> {
         Nosemi::from_config(&Config::default())
+    }
+
+    #[test]
+    fn nosemi_fires_on_semicolon_opening_a_line() {
+        // Probed: a lone `;` line, and `;` before a statement, are empty statements.
+        assert!(!nosemi("function f()\n    r = 0;\n;\n    r = 1;\nend\n").is_empty());
+        assert!(!nosemi("function f()\n    r = 0;\n;  if r, r = 3; end\nend\n").is_empty());
+        assert!(!nosemi(";\nx = 1;\n").is_empty());
     }
 
     fn nosemi(source: &str) -> Vec<Diagnostic> {

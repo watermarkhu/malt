@@ -541,11 +541,15 @@ impl SyntaxErrorsEngine {
 
     /// `properties` block.
     pub(crate) fn inside_property(node: Node) -> bool {
+        // Probed: MATLAB's MCPLD is silent in `arguments` blocks, which reuse the
+        // `property` node for their entries (`x (1,:)`, `opts.?double = 3`).
         let mut current = node.parent();
+        let mut in_property = false;
         while let Some(n) = current {
             match n.kind() {
-                "property" => return true,
-                "properties" => return false,
+                "arguments" | "arguments_statement" | "function_definition" => return false,
+                "property" => in_property = true,
+                "properties" => return in_property,
                 _ => {}
             }
             current = n.parent();

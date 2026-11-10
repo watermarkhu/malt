@@ -1,5 +1,11 @@
 //! NOEFF/EQEFF checks: statements with no effect.
+//!
+//! EQEFF is `==` with a reference on its left (`x == 1;`), reported at the `==`.
+//! Operator expressions with any other value are VUNUS (`check_vunus`), so NOEFF
+//! only covers the shapes VUNUS does not: constants, strings, field reads and
+//! lambdas.
 
+use super::check_vunus::{is_equality_on_reference, operator_token, unwrap_parens};
 use super::*;
 
 impl UnusedEngine {
@@ -27,14 +33,6 @@ impl UnusedEngine {
 // No-effect statement walker (free function to satisfy clippy)
 // ---------------------------------------------------------------------------
 
-/// Returns `true` if a `comparison_operator` node is an equality (`==`)
-/// comparison rather than `<`, `<=`, `>`, `>=`, or `~=`.
-fn comparison_is_equality(node: Node) -> bool {
-    // comparison_operator is `seq(expression, operator, expression)`; the
-    // operator token is the middle child and its kind is the literal text.
-    node.child(1).map(|op| op.kind() == "==").unwrap_or(false)
-}
-
 /// Recursively walk tree to find statement-level expressions with no effect.
 pub(crate) fn walk_for_no_effect(
     node: Node,
@@ -50,30 +48,35 @@ pub(crate) fn walk_for_no_effect(
         .unwrap_or(false);
 
     if is_statement_level {
-        let kind = node.kind();
+        let expr = unwrap_parens(node);
 
-        // EQEFF: `==` comparison at statement level (likely meant `=`).
-        if !eqeff_disabled && kind == COMPARISON_NODE && comparison_is_equality(node) {
-            let pos = node.start_position();
-            diagnostics.push(Diagnostic {
-                rule_id: "EQEFF",
-                message: "To assign values to variables, use =. The == operator compares equality of values.".to_string(),
-                severity: Severity::Warning,
-                byte_range: node.start_byte()..node.end_byte(),
-                line: pos.row + 1,
-                column: pos.column + 1,
-                fix: None,
-            });
+        // EQEFF: `==` with a reference on its left (likely meant `=`), at the `==`.
+        if !eqeff_disabled && is_equality_on_reference(expr, source) {
+            if let Some(op) = operator_token(expr) {
+                let pos = op.start_position();
+                diagnostics.push(Diagnostic {
+                    rule_id: "EQEFF",
+                    message: "To assign values to variables, use =. The == operator compares equality of values.".to_string(),
+                    severity: Severity::Warning,
+                    byte_range: op.start_byte()..op.end_byte(),
+                    line: pos.row + 1,
+                    column: pos.column + 1,
+                    fix: None,
+                });
+            }
         }
-        // NOEFF: other expression nodes at statement level that are not
-        // assignments, function_calls, or commands.
-        else if !noeff_disabled && NO_EFFECT_EXPR_NODES.contains(&kind) && !is_method_call(node) {
+        // NOEFF: the remaining expression nodes that are not assignments,
+        // function_calls, commands, or operator expressions (VUNUS).
+        else if !noeff_disabled
+            && NO_EFFECT_EXPR_NODES.contains(&expr.kind())
+            && !is_method_call(expr)
+        {
             let pos = node.start_position();
             diagnostics.push(Diagnostic {
                 rule_id: "NOEFF",
                 message: format!(
                     "The operation or expression {} has no evident effect.",
-                    operator_or_text(node, source)
+                    operator_or_text(expr, source)
                 ),
                 severity: Severity::Warning,
                 byte_range: node.start_byte()..node.end_byte(),
@@ -135,9 +138,17 @@ mod tests {
     // -- NOEFF: statement with no effect ------------------------------------
 
     #[test]
-    fn noeff_fires_on_discarded_expression() {
-        let diags = lint_file(&*engine(), "function foo()\n    1 + 2;\nend\n");
+    fn noeff_fires_on_discarded_constant() {
+        let diags = lint_file(&*engine(), "function foo()\n    5;\nend\n");
         assert!(has_id(&diags, "NOEFF"), "got: {diags:?}");
+    }
+
+    #[test]
+    fn noeff_not_on_discarded_operator_expression() {
+        // VUNUS owns operator expressions: one construct, one ID.
+        let diags = lint_file(&*engine(), "function foo()\n    1 + 2;\nend\n");
+        assert!(!has_id(&diags, "NOEFF"), "got: {diags:?}");
+        assert!(has_id(&diags, "VUNUS"), "got: {diags:?}");
     }
 
     #[test]
@@ -151,6 +162,21 @@ mod tests {
     #[test]
     fn eqeff_fires_on_discarded_comparison() {
         let diags = lint_file(&*engine(), "function foo()\n    a == b;\nend\n");
+        assert!(has_id(&diags, "EQEFF"), "got: {diags:?}");
+        assert!(!has_id(&diags, "VUNUS"), "got: {diags:?}");
+    }
+
+    #[test]
+    fn eqeff_reported_at_the_operator() {
+        let diags = lint_file(&*engine(), "a = 1; b = 2;\na == b;\n");
+        let d: Vec<_> = diags.iter().filter(|d| d.rule_id == "EQEFF").collect();
+        assert_eq!(d.len(), 1, "got: {diags:?}");
+        assert_eq!((d[0].line, d[0].column), (2, 3));
+    }
+
+    #[test]
+    fn eqeff_fires_in_parentheses() {
+        let diags = lint_file(&*engine(), "function foo(a, b)\n    (a == b);\nend\n");
         assert!(has_id(&diags, "EQEFF"), "got: {diags:?}");
     }
 
@@ -167,5 +193,6 @@ mod tests {
     fn eqeff_not_fire_on_other_comparisons() {
         let diags = lint_file(&*engine(), "function foo(a, b)\n    a < b;\nend\n");
         assert!(!has_id(&diags, "EQEFF"), "got: {diags:?}");
+        assert!(has_id(&diags, "VUNUS"), "got: {diags:?}");
     }
 }

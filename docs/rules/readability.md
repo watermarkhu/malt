@@ -154,6 +154,12 @@ Severity: **info** · Auto-fix: **yes**
 
 For improved robustness, consider replacing i and j by 1i.
 
+### ASGSL
+
+Severity: **info** · Auto-fix: **no**
+
+Assignment to variable might be unnecessary.
+
 ### ISMAT
 
 Severity: **info** · Auto-fix: **yes**

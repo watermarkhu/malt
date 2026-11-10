@@ -51,6 +51,7 @@
 //! | ISLOG | info | yes | Use ISLOGICAL instead of comparing the class to 'logical'. |
 //! | ISCEL | info | yes | Use ISCELL instead of comparing the class to 'cell'. |
 //! | IJCL | info | yes | For improved robustness, consider replacing i and j by 1i. |
+//! | ASGSL | info | no | Assignment to variable might be unnecessary. |
 //! | ISMAT | info | yes | When checking if a variable is a matrix consider using ISMATRIX. |
 //! | ISROW | info | yes | When checking if a variable is a row vector consider using ISROW. |
 //! | ISCOL | info | yes | When checking if a variable is a column vector consider using ISCOLUMN. |
@@ -121,6 +122,7 @@
 //! disabled_checks = ["IJCL", "NBRAK2"]
 //! ```
 
+mod check_asgsl;
 mod check_char_literal;
 mod check_class_compare;
 mod check_comnl;
@@ -180,6 +182,7 @@ pub(crate) const TARGET_NODES: &[&str] = &[
     "function_call",
     "comparison_operator",
     "matrix",
+    "cell",
     "arguments_statement",
 ];
 
@@ -205,7 +208,12 @@ pub struct ReadabilityEngine {
 impl ReadabilityEngine {
     /// Factory constructor called by the rule registry.
     pub fn from_config(config: &Config) -> Box<dyn Rule> {
-        let rule_config: ReadabilityConfig = config.rule_params("READABILITY_ENGINE");
+        let mut rule_config: ReadabilityConfig = config.rule_params("READABILITY_ENGINE");
+        // MATLAB reports LOGSUM for `sum(x(:) <= 1)` but not for `sum(x > 0.5)` or
+        // `sum(x.^2 + x <= 1)`; until the exact condition is known it is off by default.
+        rule_config
+            .disabled_checks
+            .extend(crate::off_under_mathworks(config, &["LOGSUM"]));
         Box::new(Self {
             config: rule_config,
         })
@@ -346,6 +354,7 @@ impl Rule for ReadabilityEngine {
         let mut results = Vec::new();
         self.check_mfamb(ctx.tree, ctx.source, &mut results);
         self.check_ijcl(ctx.tree, ctx.source, &mut results);
+        self.check_asgsl(ctx.tree, ctx.source, &mut results);
         results
     }
 
@@ -356,6 +365,8 @@ impl Rule for ReadabilityEngine {
             "function_call" => self.check_function_call(ctx, &mut results),
             "comparison_operator" => self.check_comparison(ctx, &mut results),
             "matrix" => self.check_matrix(ctx, &mut results),
+            // COMNL also fires for a comma before a newline inside `{ }` (probed).
+            "cell" => self.check_comnl_cell(ctx.node, ctx.source, &mut results),
             "arguments_statement" => self.check_fvinr(ctx, &mut results),
             _ => {}
         }
@@ -550,6 +561,20 @@ mod tests {
 
     fn engine() -> Box<dyn Rule> {
         ReadabilityEngine::from_config(&Config::default())
+    }
+
+    // -- ASGSL ---------------------------------------------------------------
+
+    #[test]
+    fn asgsl_self_assignment_fires() {
+        let diags = lint_file(&*engine(), "x = 1;\nx = x;\ndisp(x)\n");
+        assert!(has_id(&diags, "ASGSL"), "got: {diags:?}");
+    }
+
+    #[test]
+    fn asgsl_copy_assignment_not_flagged() {
+        let diags = lint_file(&*engine(), "a = 1;\nb = a;\ndisp(b)\n");
+        assert!(!has_id(&diags, "ASGSL"), "got: {diags:?}");
     }
 
     // -- MFAMB ---------------------------------------------------------------

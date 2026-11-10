@@ -1482,3 +1482,10 @@ id = "MINELV"
 function_name = ""
 message = "'MinElevationAngle' is not recommended. Use 'MaskElevationAngle' instead, which is a direct replacement when specified as scalar values. Row vector values must be transposed."
 replacement = "MaskElevationAngle"
+
+[[checks]]
+id = "BLCHID"
+function_name = "blfread"
+number_arg = 2
+message = "Specifying the channel ID as the second positional argument in 'blfread' is not recommended. With appropriate code changes, use the 'ChannelID' name-value argument instead."
+replacement = "ChannelID"

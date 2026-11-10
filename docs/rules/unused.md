@@ -87,6 +87,12 @@ Severity: **warning** · Auto-fix: **no**
 
 Input argument 'varargin' might be unused.
 
+### VUNUS
+
+Severity: **warning** · Auto-fix: **no**
+
+<operator> produces a value that might be unused.
+
 ### DEFNU
 
 Severity: **warning** · Auto-fix: **no**

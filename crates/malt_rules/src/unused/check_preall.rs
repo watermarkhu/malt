@@ -101,6 +101,14 @@ mod tests {
     }
 
     #[test]
+    fn preall_ok_for_rand_seed_call() {
+        // Probed: `rand('seed', n)` is not a preallocation.
+        assert!(!preall(
+            "function foo()\n    r = rand('twister', 5);\n    r = randn('state', 1);\n    disp(r);\nend\n"
+        ));
+    }
+
+    #[test]
     fn preall_ignores_unused_loop_variables() {
         assert!(!preall(
             "function foo()\n    for i = 1:10\n        disp('hi');\n    end\nend\n"

@@ -7,7 +7,7 @@ existing one) before it is fixed.
 
 | File | Exercises | Expected IDs and why |
 | --- | --- | --- |
-| `script1.m` | Script: `load`, `fprintf`, dynamic fields, `clear` | `CLEAR0ARGS` (`clear` with no arguments) |
+| `script1.m` | Script: `load`, `fprintf`, dynamic fields, `clear` | none (`clear` in a script is not CLEAR0ARGS) |
 | `script2.m` | Script: `tic`/`toc`, `containers.Map`, `cellfun`, `end:-1:1` | none (script workspace values are not dead stores) |
 | `func1.m` | Function: `inputParser`, `varargin`, `catch err`, `switch` | none |
 | `func2.m` | Function: `arguments` block, `parfor`, nested function, `switch`, lambda | `FVINR`, `PFNF` (nested function called in `parfor`) |
@@ -17,7 +17,7 @@ existing one) before it is fixed.
 | `legacy1.m` | `global`, `persistent`, `nargin`, `varargin` parsing, `eval` | `AGROW`, `ERTAG` |
 | `legacy2.m` | Old string handling: `findstr`, `\|`, growing char arrays | `AGROW`, `NASGU`, `OR2` |
 | `num1.m` | Conjugate gradient: `r' * r` products | none |
-| `num2.m` | Monte Carlo script: logical `sum`, tables, `rand(N, 2)` | `LOGSUM`, `STRNU` |
+| `num2.m` | Monte Carlo script: logical `sum`, tables, `rand(N, 2)` | none |
 | `coder1.m` | `%#codegen`, `coder.inline`, `persistent` | none |
 
 Rules for this directory:

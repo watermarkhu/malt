@@ -3,7 +3,9 @@ use std::collections::HashMap;
 
 /// Functions that access or modify the workspace non-transparently, which is
 /// invalid inside a `parfor` body.
-const NON_TRANSPARENT: &[&str] = &["eval", "evalc", "save", "clear", "clearvars", "inputname"];
+/// Probed: `eval`, `evalc` and `clear` give PFBFN. `save`, `load`, `inputname`,
+/// `evalin` and `assignin` get their own checks (PFSV, PFLD, PFINPT, PFEVB).
+const NON_TRANSPARENT: &[&str] = &["eval", "evalc", "clear", "clearvars"];
 
 /// Call `f` for `node` and every descendant, skipping nothing.
 fn visit<'a>(node: Node<'a>, f: &mut impl FnMut(Node<'a>)) {
@@ -296,9 +298,16 @@ mod tests {
     }
 
     #[test]
-    fn pfbfn_fires_on_save_in_parfor() {
-        let diags = file_diags("parfor i = 1:10\n    save('f.mat');\nend\n");
+    fn pfbfn_fires_on_evalc_in_parfor() {
+        let diags = file_diags("parfor i = 1:10\n    s = evalc('i');\nend\n");
         assert!(has_id(&diags, "PFBFN"), "got: {diags:?}");
+    }
+
+    #[test]
+    fn pfbfn_silent_on_save_in_parfor() {
+        // Probed: MATLAB reports `save` under PFSV, not PFBFN.
+        let diags = file_diags("parfor i = 1:10\n    save('f.mat');\nend\n");
+        assert!(!has_id(&diags, "PFBFN"), "got: {diags:?}");
     }
 
     #[test]

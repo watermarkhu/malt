@@ -51,6 +51,13 @@ pub(crate) fn is_expression_statement(node: Node, source: &str) -> bool {
         "comparison_operator" | "binary_operator" | "unary_operator" | "boolean_operator" => true,
         "string" => text_of(node, source).starts_with('\''),
         "identifier" => is_variable_name(node, text_of(node, source), source),
+        // A bare word such as `x` parses as a command; it is a variable statement
+        // when the word names one (probed: `x` in a function, with `x` an input).
+        "command" => {
+            let word = text_of(node, source).trim();
+            word.chars().all(|c| c.is_alphanumeric() || c == '_')
+                && is_variable_name(node, word, source)
+        }
         "function_call" => node
             .child_by_field_name("name")
             .filter(|name| name.kind() == "identifier")
@@ -78,13 +85,39 @@ fn is_variable_name(node: Node, name: &str, source: &str) -> bool {
         }
         current = parent.parent();
     }
-    crate::good_practices::is_assigned_in_body(scope, name, source)
+    scope_declares_parameter(scope, name, source)
+        || crate::good_practices::is_assigned_in_body(scope, name, source)
+}
+
+/// Whether `name` is an input argument of the function `scope`. Probed: a bare
+/// `x` statement is an expression statement when `x` is an input argument.
+fn scope_declares_parameter(scope: Node, name: &str, source: &str) -> bool {
+    if scope.kind() != "function_definition" {
+        return false;
+    }
+    let blocks: Vec<Node> = scope.children(&mut scope.walk()).collect();
+    blocks
+        .into_iter()
+        .filter(|c| c.kind() == "function_arguments")
+        .any(|args| {
+            let params: Vec<Node> = args.children(&mut args.walk()).collect();
+            params
+                .into_iter()
+                .any(|c| c.kind() == "identifier" && &source[c.start_byte()..c.end_byte()] == name)
+        })
 }
 
 #[cfg(test)]
 mod tests {
 
     use crate::formatting::tests::{has_id, lint};
+
+    #[test]
+    fn noprt_fires_on_bare_input_argument_statement() {
+        // Probed: `x` alone in a function, with `x` an input argument, gets NOPRT.
+        let diags = lint("function f(x)\n    x\nend\n");
+        assert!(has_id(&diags, "NOPRT"), "got: {diags:?}");
+    }
 
     // -- NOPTS ---------------------------------------------------------------
 

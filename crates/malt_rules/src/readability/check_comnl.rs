@@ -58,6 +58,45 @@ impl ReadabilityEngine {
     }
 }
 
+impl ReadabilityEngine {
+    /// COMNL inside `{ }`. Probed: `{ 'a',` + newline and `{` + `'a',` + newline
+    /// both fire. A cell holds its elements in one `row` node, so the commas are
+    /// read from that row and each is checked against the text up to the next element.
+    pub(crate) fn check_comnl_cell(
+        &self,
+        node: tree_sitter::Node,
+        source: &str,
+        results: &mut Vec<Diagnostic>,
+    ) {
+        if !self.is_check_enabled("COMNL") {
+            return;
+        }
+        for row in node
+            .children(&mut node.walk())
+            .filter(|c| c.kind() == "row")
+        {
+            let children: Vec<tree_sitter::Node> = row.children(&mut row.walk()).collect();
+            for (i, comma) in children.iter().enumerate() {
+                if comma.kind() != "," {
+                    continue;
+                }
+                let Some(next) = children.get(i + 1).filter(|n| n.is_named()) else {
+                    continue;
+                };
+                let gap = &source[comma.end_byte()..next.start_byte()];
+                if gap.contains('\n') && !gap.contains(';') && !gap.contains("...") {
+                    results.push(self.diag(
+                        "COMNL",
+                        "Newline following comma acts as a row separator. Replace the comma with a semicolon to make the row separation clearer. Alternatively, use an ellipsis (...) to continue the current row on the next line.",
+                        *comma,
+                        Some(Fix::new(comma.start_byte()..comma.end_byte(), ";")),
+                    ));
+                }
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -81,6 +120,21 @@ mod tests {
         let diags = lint_nodes(&*engine(), "x = [1, 2,\n3, 4,\n5, 6];\n");
         let count = diags.iter().filter(|d| d.rule_id == "COMNL").count();
         assert_eq!(count, 2, "got: {diags:?}");
+    }
+
+    #[test]
+    fn comnl_fires_for_comma_before_newline_in_cell() {
+        // Probed: `{ 'a',` + newline and `{` + `'a',` + newline both fire.
+        let diags = lint_nodes(&*engine(), "c = { 'a',\n 'b' };\n");
+        assert!(has_id(&diags, "COMNL"), "got: {diags:?}");
+        let diags = lint_nodes(&*engine(), "c = {\n 'a',\n 'b' };\n");
+        assert!(has_id(&diags, "COMNL"), "got: {diags:?}");
+    }
+
+    #[test]
+    fn comnl_cell_with_ellipsis_does_not_fire() {
+        let diags = lint_nodes(&*engine(), "c = { 'a', ...\n 'b' };\n");
+        assert!(!has_id(&diags, "COMNL"), "got: {diags:?}");
     }
 
     #[test]

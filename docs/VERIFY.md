@@ -74,3 +74,16 @@ verified against the documentation index only.
 | COMNL | MATLAB also fires for `{ 'a',` line continuation. |
 | `analysis/control_flow.rs` | Matches `kind() == "condition"`, but in this tree-sitter-matlab version `condition` is a field name; the effect on unset-variable and unreachable analysis is unverified (while-true and if-return probes agree with MATLAB). MATLAB also reports unreachable branches of constant conditions (`if true ... else y = 1; end`), which malt does not. |
 | FVSOR | One malt-only line in `fix/t__fv2.m` (name-value `.?` form) is undiagnosed. |
+
+## Settled in the fifth pass
+
+| Item | Note |
+| --- | --- |
+| RHSFN, PFRNI severities | MathWorks' documentation index and the numeric levels of `checkcode -allmsg` disagree, and `checkcode` exposes no severity field, so the editor's behaviour cannot be read from here. malt keeps the documentation's severities (RHSFN error, PFRNI warning). |
+| Low-reliability behavior changes | The 897 entries MATLAB lists under "(Upcoming) Behavior Changes with Low Reliability Messages" (JAPIEXT\*, CLB\*, ...) are not reported by default `checkcode`. They carry `low_reliability = true` in `data/compatibility.toml` and are reported under the `all` preset or with the `behavior-changes` category. |
+| Dotted compatibility entries | `extract_func_name` ignored qualified calls, so dotted entries (`dsp.DigitalFilter`) never fired. They now match; a 60-entry sample agrees with `checkcode` (the low-reliability ones are gated as above). The suggested-improvements engine has the same root cause (`sigwin.hamming`) and is unchanged. |
+| LOGSUM | MATLAB reported it for `sum(x(:) <= 1)` but not for `sum(x > 0.5)` or `sum(x.^2 + x <= 1)`; condition unknown, so it is off under `mathworks`. |
+| CLEAR0ARGS | Reported inside functions only (MATLAB is silent in scripts; `clear all` is CLALL). |
+| VUNUS, ASGLU, STRNU | VUNUS added; ASGLU and STRNU rebuilt on the liveness analysis (some recall lost: ASGLU under `eval`, STRNU on struct cases). EQEFF is `==` with a reference on the left; NOEFF is effectively malt-only and off by default. |
+| New IDs | ASGSL (self-assignment `x = x;`), BLCHID, 26 communications compatibility IDs. |
+| Still undeclared (33) | Coder EM\* (6), PSET, MSNU, MSNE (planned with suppression bookkeeping, Phase 3.4), INVALIDCHECK\* (4), XCREDS, VIDAF, VIDFH, FVOOOV, VINONA, PRTCAL, TNMLP, STRSET, DEBUGMSG, LLMCC (need a custom configuration), BDCFG, CFERR, BDOPT, CFIG (configuration files), CABE and the five other complexity metrics (only with `-cyc`/`-modcyc`). Reasons are in the tables above. |

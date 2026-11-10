@@ -34,6 +34,7 @@
 //! | INUSA | warning | no | Input argument might be unused after the function arguments block(s). |
 //! | INUSD | warning | no | Input argument might be unused. Consider replacing the argument with ~ instead. |
 //! | VANUS | warning | no | Input argument 'varargin' might be unused. |
+//! | VUNUS | warning | no | <operator> produces a value that might be unused. |
 //! | DEFNU | warning | no | Function might be unused. |
 //! | UNRCH | warning | no | This statement (and possibly following ones) cannot be reached. |
 //! | MANU | warning | no | Input argument might be unused. Consider replacing the argument with ~, or make this method Static instead. |
@@ -84,7 +85,6 @@ use crate::analysis::symbols::{DefKind, ScopeKind, SymbolTable};
 // Submodules: one file per independent check
 // ---------------------------------------------------------------------------
 
-mod check_asglu;
 mod check_defnu;
 mod check_manu;
 mod check_nasgu;
@@ -96,6 +96,7 @@ mod check_setnu;
 mod check_unrch;
 mod check_unused_inputs;
 mod check_vanus;
+mod check_vunus;
 
 // ---------------------------------------------------------------------------
 // Rule-specific configuration
@@ -126,24 +127,10 @@ pub(crate) const ALWAYS_USED: &[&str] = &["varargin", "varargout", "nargin", "na
 /// Statement-level parent node types.
 pub(crate) const STATEMENT_PARENTS: &[&str] = &["source_file", "block"];
 
-/// Node types representing discarded expressions at statement level.
-pub(crate) const NO_EFFECT_EXPR_NODES: &[&str] = &[
-    "binary_operator",
-    "unary_operator",
-    "postfix_operator",
-    "number",
-    "string",
-    "identifier",
-    "cell",
-    "matrix",
-    "range",
-    "lambda",
-    "field_expression",
-    "boolean_operator",
-];
-
-/// Node type for comparison operators (result discarded = EQEFF).
-pub(crate) const COMPARISON_NODE: &str = "comparison_operator";
+/// Node types of discarded expressions at statement level that NOEFF reports.
+/// Operator expressions are VUNUS, and variables in functions are VUNUS too.
+pub(crate) const NO_EFFECT_EXPR_NODES: &[&str] =
+    &["number", "string", "field_expression", "lambda"];
 
 // ---------------------------------------------------------------------------
 // Rule implementation
@@ -234,12 +221,12 @@ impl Rule for UnusedEngine {
         // 2. Run symbol-based checks.
         self.check_nasgu(&table, ctx.tree, ctx.source, &mut diagnostics);
         self.check_unused_inputs(&table, ctx.tree.root_node(), ctx.source, &mut diagnostics);
-        self.check_asglu(&table, &mut diagnostics);
         self.check_nused(&table, &mut diagnostics);
         self.check_puse(&table, &mut diagnostics);
         self.check_setnu(&table, &mut diagnostics);
         self.check_preall(&table, &mut diagnostics);
         self.check_vanus(&table, &mut diagnostics);
+        self.check_vunus(&table, ctx.tree, ctx.source, &mut diagnostics);
         self.check_defnu(&table, &mut diagnostics);
         self.check_manu(&table, &mut diagnostics);
 

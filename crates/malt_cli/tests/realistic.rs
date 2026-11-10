@@ -28,8 +28,9 @@ fn ids(file: &str) -> Vec<&'static str> {
 }
 
 #[test]
-fn script_has_only_the_clear_finding() {
-    assert_eq!(ids("script1.m"), vec!["CLEAR0ARGS"]);
+fn script_with_clear_and_clc_is_clean() {
+    // MATLAB reports CLEAR0ARGS inside functions only.
+    assert_eq!(ids("script1.m"), Vec::<&str>::new());
 }
 
 #[test]
@@ -84,7 +85,8 @@ fn legacy_globals_nargin_varargin_and_eval() {
 
 #[test]
 fn legacy_string_handling() {
-    assert_eq!(ids("legacy2.m"), vec!["AGROW", "NASGU", "OR2"]);
+    // No OR2: MATLAB is silent on `strcmp(...) | strcmp(...)` (a call operand).
+    assert_eq!(ids("legacy2.m"), vec!["AGROW", "NASGU"]);
 }
 
 #[test]
@@ -97,7 +99,9 @@ fn numeric_solver_has_no_hermitian_false_positive() {
 fn numeric_script_findings_are_real() {
     // rand(N, 2) is not the 'seed' form (RAND); the script's workspace values
     // are not dead stores.
-    assert_eq!(ids("num2.m"), vec!["LOGSUM", "STRNU"]);
+    // No STRNU on the table field (MATLAB is silent) and no LOGSUM (off by default:
+    // MATLAB reports it for `sum(x(:) <= 1)` but not for this comparison).
+    assert_eq!(ids("num2.m"), Vec::<&str>::new());
 }
 
 #[test]

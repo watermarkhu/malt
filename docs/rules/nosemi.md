@@ -12,7 +12,8 @@ icon: lucide/code
 
 ## What this rule does
 
-Flags a semicolon that does nothing: one that follows another semicolon
+Flags a semicolon that does nothing: one that opens a line (`;` alone, or
+`;  if ready`), one that follows another semicolon
 (`x = 1;;`), or that ends a block statement or its header line (`end;`,
 `if ready;`, `function f;`). A semicolon that is the only separator on its
 line, as in `if ready; go(); end`, is not extra and is left alone.

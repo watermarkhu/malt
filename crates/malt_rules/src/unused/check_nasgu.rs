@@ -6,12 +6,18 @@
 //! unread, except for its output arguments. The analysis is in
 //! [`crate::analysis::liveness`], which reports nothing for a scope whose
 //! control flow it cannot see through.
+//!
+//! One element of a `[a, b] = f()` output list that is dead is ASGLU, not NASGU
+//! (probed: MATLAB replaces the variable with `~`). An indexed partial store
+//! (`x(i) = v`, `c{i} = v`) that is dead is NASGU. A field store (`s.f = v`) is
+//! STRNU, reported by the good-practices engine.
 
 use super::*;
-use crate::analysis::liveness::dead_stores;
+use crate::analysis::liveness::{dead_stores, is_field_store};
+use malt_core::Fix;
 
 impl UnusedEngine {
-    /// Run NASGU check: value assigned to a variable might be unused.
+    /// Run NASGU and ASGLU checks: a value assigned to a variable might be unused.
     pub(crate) fn check_nasgu(
         &self,
         table: &SymbolTable,
@@ -19,7 +25,9 @@ impl UnusedEngine {
         source: &str,
         diagnostics: &mut Vec<Diagnostic>,
     ) {
-        if self.is_check_disabled("NASGU") {
+        let nasgu_off = self.is_check_disabled("NASGU");
+        let asglu_off = self.is_check_disabled("ASGLU");
+        if nasgu_off && asglu_off {
             return;
         }
 
@@ -28,22 +36,54 @@ impl UnusedEngine {
                 continue;
             };
             let scope = &table.scopes[index];
-            for def_index in dead {
+            for def_index in dead.full {
                 let def = &scope.defs[def_index];
                 if self.should_ignore_name(&def.name) {
                     continue;
                 }
-                diagnostics.push(Diagnostic {
-                    rule_id: "NASGU",
-                    message: "Value assigned to variable might be unused.".to_string(),
-                    severity: Severity::Warning,
-                    byte_range: def.byte_range.clone(),
-                    line: def.line,
-                    column: def.column,
-                    fix: None,
-                });
+                if def.multi_output {
+                    if !asglu_off {
+                        diagnostics.push(Diagnostic {
+                            rule_id: "ASGLU",
+                            message: "Value assigned to variable might be unused. Consider replacing the variable with ~ instead.".to_string(),
+                            severity: Severity::Warning,
+                            byte_range: def.byte_range.clone(),
+                            line: def.line,
+                            column: def.column,
+                            fix: Some(Fix::new(def.byte_range.clone(), "~")),
+                        });
+                    }
+                } else if !nasgu_off {
+                    diagnostics.push(nasgu_diagnostic(def));
+                }
+            }
+            for def_index in dead.partial {
+                let def = &scope.defs[def_index];
+                // Field stores are STRNU; a dead output of a multi-output store
+                // has no official probe, so it is left alone.
+                if nasgu_off
+                    || def.multi_output
+                    || self.should_ignore_name(&def.name)
+                    || is_field_store(tree, def.byte_range.clone())
+                {
+                    continue;
+                }
+                diagnostics.push(nasgu_diagnostic(def));
             }
         }
+    }
+}
+
+/// The NASGU diagnostic for a dead assignment `def`.
+fn nasgu_diagnostic(def: &crate::analysis::symbols::VarDef) -> Diagnostic {
+    Diagnostic {
+        rule_id: "NASGU",
+        message: "Value assigned to variable might be unused.".to_string(),
+        severity: Severity::Warning,
+        byte_range: def.byte_range.clone(),
+        line: def.line,
+        column: def.column,
+        fix: None,
     }
 }
 
@@ -186,6 +226,141 @@ mod tests {
     }
 
     // -- Probes: functions ---------------------------------------------------
+
+    /// The ASGLU diagnostics for `source`, as (line, column), sorted.
+    fn asglu_positions(source: &str) -> Vec<(usize, usize)> {
+        let mut found: Vec<(usize, usize)> = lint_file(&*engine(), source)
+            .iter()
+            .filter(|d| d.rule_id == "ASGLU")
+            .map(|d| (d.line, d.column))
+            .collect();
+        found.sort_unstable();
+        found
+    }
+
+    // -- ASGLU: an output of a multi-output call that is dead ----------------
+
+    #[test]
+    fn asglu_fires_on_unused_output_element() {
+        let src = "function foo(x)\n    [a, b] = size(x);\n    disp(a);\nend\n";
+        assert_eq!(asglu_positions(src), vec![(2, 9)]);
+        let diags = lint_file(&*engine(), src);
+        let d: Vec<_> = diags.iter().filter(|d| d.rule_id == "ASGLU").collect();
+        assert_eq!(&src[d[0].byte_range.clone()], "b");
+        assert_eq!(d[0].fix.as_ref().unwrap().replacement, "~");
+        assert!(!has_id(&diags, "NASGU"), "disjoint from NASGU: {diags:?}");
+    }
+
+    #[test]
+    fn asglu_message_is_the_official_one() {
+        let diags = lint_file(
+            &*engine(),
+            "function foo(x)\n    [a, b] = size(x);\n    disp(a);\nend\n",
+        );
+        let d = diags.iter().find(|d| d.rule_id == "ASGLU").unwrap();
+        assert_eq!(
+            d.message,
+            "Value assigned to variable might be unused. Consider replacing the variable with ~ instead."
+        );
+    }
+
+    #[test]
+    fn asglu_both_outputs_unused_at_function_end() {
+        assert_eq!(
+            asglu_positions("function f(x)\n    [a, b] = size(x);\nend\n"),
+            vec![(2, 6), (2, 9)]
+        );
+    }
+
+    #[test]
+    fn asglu_fires_on_first_element_overwritten_before_read() {
+        // Probed: MATLAB reports the first `a` and the first `b`, not the last stores.
+        assert_eq!(
+            asglu_positions(
+                "function f(x)\n    [a, b] = size(x);\n    a = 1;\n    disp(a + b);\nend\n"
+            ),
+            vec![(2, 6)]
+        );
+        assert_eq!(
+            asglu_positions(
+                "function f(x)\n    [a, b] = size(x);\n    disp(a);\n    b = 2;\nend\n"
+            ),
+            vec![(2, 9)]
+        );
+    }
+
+    #[test]
+    fn asglu_silent_in_a_script_when_value_stays_in_workspace() {
+        // Probed: MATLAB keeps the final values of a script in the workspace.
+        assert!(asglu_positions("[a, b] = size(1);\n").is_empty());
+        assert!(asglu_positions("[a, b] = size(1);\ndisp(a)\n").is_empty());
+    }
+
+    #[test]
+    fn asglu_script_overwritten_before_read() {
+        assert_eq!(
+            asglu_positions("[a, b] = size(1);\nb = 3;\ndisp(a + b)\n"),
+            vec![(1, 5)]
+        );
+    }
+
+    #[test]
+    fn asglu_silent_for_tilde_and_used_outputs() {
+        assert!(
+            asglu_positions("function f(x)\n    [~, b] = size(x);\n    disp(b);\nend\n").is_empty()
+        );
+        assert!(
+            asglu_positions("function f(x)\n    [a, b] = size(x);\n    disp(a + b);\nend\n")
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn asglu_dynamic_feval_call_is_a_multi_output_call() {
+        assert_eq!(
+            asglu_positions("function f(x)\n    [a, b] = feval('size', x);\n    disp(a);\nend\n"),
+            vec![(2, 9)]
+        );
+    }
+
+    #[test]
+    fn asglu_not_reported_when_a_dynamic_call_is_in_scope() {
+        // MATLAB reports this one (eval does not stop it); malt keeps its bail-out.
+        assert!(asglu_positions(
+            "function f(x)\n    [a, b] = size(x);\n    eval('1');\n    disp(a);\nend\n"
+        )
+        .is_empty());
+    }
+
+    // -- Partial stores: dead indexed stores are NASGU -----------------------
+
+    #[test]
+    fn nasgu_fires_on_dead_indexed_store_at_function_end() {
+        // Probed: `x(3) = 1` and `c{1} = 2` are NASGU, not STRNU.
+        assert_eq!(
+            nasgu_lines("function f()\n    x = zeros(1, 3);\n    x(2) = 1;\nend\n"),
+            vec![3]
+        );
+        assert_eq!(nasgu_lines("function f()\n    c{1} = 2;\nend\n"), vec![2]);
+    }
+
+    #[test]
+    fn nasgu_fires_on_indexed_store_overwritten_as_a_whole() {
+        assert_eq!(nasgu_lines("x(3) = 1;\nx = 2;\ndisp(x)\n"), vec![1]);
+    }
+
+    #[test]
+    fn nasgu_partial_store_read_later_is_not_dead() {
+        assert!(
+            nasgu_lines("function f()\n    x = 1;\n    x(2) = 2;\n    disp(x)\nend\n").is_empty()
+        );
+    }
+
+    #[test]
+    fn nasgu_ignores_field_stores() {
+        // Field stores are STRNU (check_strnu), so NASGU stays silent on them.
+        assert!(nasgu_lines("function f()\n    s.a = 1;\nend\n").is_empty());
+    }
 
     #[test]
     fn nasgu_fires_on_unused_assignment() {

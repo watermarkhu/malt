@@ -22,8 +22,11 @@ impl PerformanceEngine {
 
         let args = extract_command_args(node, source);
 
-        // CLEAR0ARGS: clear with no arguments
-        if self.is_enabled("CLEAR0ARGS") && args.is_empty() {
+        // CLEAR0ARGS: clear with no arguments. MATLAB reports it inside functions
+        // only (a script's `clear` is a common idiom; `clear all` is CLALL).
+        let in_function = std::iter::successors(node.parent(), |n| n.parent())
+            .any(|n| n.kind() == "function_definition");
+        if self.is_enabled("CLEAR0ARGS") && args.is_empty() && in_function {
             diags.push(make_diag("CLEAR0ARGS", node));
         }
 
@@ -64,10 +67,17 @@ mod tests {
     // -- clear-family commands -------------------------------------------------
 
     #[test]
-    fn clear0args_fires_on_bare_clear() {
-        let src = "clear;\n";
+    fn clear0args_fires_on_bare_clear_in_a_function() {
+        let src = "function f()\nclear;\nend\n";
         let diags = lint_nodes(&*engine(), src);
         assert!(has_id(&diags, "CLEAR0ARGS"), "got: {diags:?}");
+    }
+
+    #[test]
+    fn clear0args_is_silent_in_a_script() {
+        // MATLAB reports CLEAR0ARGS inside functions only (probed with checkcode).
+        let diags = lint_nodes(&*engine(), "clear;\nclc;\n");
+        assert!(!has_id(&diags, "CLEAR0ARGS"), "got: {diags:?}");
     }
 
     #[test]

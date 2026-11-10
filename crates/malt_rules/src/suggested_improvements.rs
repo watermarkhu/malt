@@ -91,13 +91,17 @@ struct SuggestedEntry {
     /// any call.
     #[serde(default)]
     literal_args: Vec<String>,
+    /// The usage is only discouraged when this 1-based positional argument is a
+    /// number literal (`blfread(file, 1)`). 0 means no such condition.
+    #[serde(default)]
+    number_arg: usize,
 }
 
 impl SuggestedEntry {
     /// Whether the call `node` is the discouraged usage, not just a call to
     /// the function.
     fn applies_to(&self, node: tree_sitter::Node, source: &str) -> bool {
-        if self.min_args == 0 && self.literal_args.is_empty() {
+        if self.min_args == 0 && self.literal_args.is_empty() && self.number_arg == 0 {
             return true;
         }
         let mut cursor = node.walk();
@@ -108,6 +112,14 @@ impl SuggestedEntry {
         };
         if args.named_child_count() < self.min_args {
             return false;
+        }
+        if self.number_arg > 0 {
+            let is_number = args
+                .named_child(self.number_arg - 1)
+                .is_some_and(|a| a.kind() == "number");
+            if !is_number {
+                return false;
+            }
         }
         if self.literal_args.is_empty() {
             return true;
@@ -565,5 +577,19 @@ mod tests {
         assert!(ids("eval('a = 1;');\n").is_empty());
         assert_eq!(ids("eval('a = 1;', 'a = 0;');\n"), vec!["EV2IN"]);
         assert!(ids("y = coder.inline('always');\n").is_empty());
+    }
+
+    #[test]
+    fn blfread_numeric_channel_fires_blchid() {
+        let diags = lint_nodes(&*engine(), "x = blfread('a.blf', 1);\n");
+        assert!(has_id(&diags, "BLCHID"), "got: {diags:?}");
+    }
+
+    #[test]
+    fn blfread_name_value_channel_does_not_fire_blchid() {
+        let diags = lint_nodes(&*engine(), "x = blfread('a.blf', 'ChannelID', 1);\n");
+        assert!(!has_id(&diags, "BLCHID"), "got: {diags:?}");
+        let diags = lint_nodes(&*engine(), "x = blfread('a.blf');\n");
+        assert!(!has_id(&diags, "BLCHID"), "got: {diags:?}");
     }
 }

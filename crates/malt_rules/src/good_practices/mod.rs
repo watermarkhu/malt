@@ -347,6 +347,9 @@ pub(crate) const TARGET_NODES: &[&str] = &[
     "spmd_statement",
     "comment",
     "matrix",
+    // TLEV (`check_tlev`) runs on these declaration nodes.
+    "global_operator",
+    "persistent_operator",
 ];
 
 // ---------------------------------------------------------------------------

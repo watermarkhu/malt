@@ -119,6 +119,10 @@ impl CompatibilityEngine {
     /// Removed name-value option/property names passed as string literals.
     fn check_removed_name(&self, node: Node, source: &str, diagnostics: &mut Vec<Diagnostic>) {
         let text = unquoted(node, source);
+        if let Some((id, msg)) = comm_memoryless_match(node, text, source) {
+            push_diag(id, msg, node, Severity::Warning, diagnostics);
+            return;
+        }
         for (name, id, msg) in REMOVED_NAMES {
             if text == *name {
                 // DSPIDF vs DSPFDF: distinguish by the owning class in the same call.
@@ -222,6 +226,43 @@ fn collect_constant_props(class: Node, source: &str) -> Vec<String> {
         }
     }
     out
+}
+
+/// Removed `comm.MemorylessNonlinearity` property names → (check ID, message).
+/// Matched only as name-value string literals in a call to the class.
+const COMM_MNL_NAMES: &[(&str, &str, &str)] = &[
+    ("AMPMConversion", "CMAMP", "'AMPMConversion' property of 'comm.MemorylessNonlinearity' class will be removed in a future release. There is no simple replacement for this."),
+    ("PowerLowerLimit", "CMPLW", "'PowerLowerLimit' property of 'comm.MemorylessNonlinearity' class will be removed in a future release. There is no simple replacement for this."),
+    ("PowerUpperLimit", "CMPUL", "'PowerUpperLimit' property of 'comm.MemorylessNonlinearity' class will be removed in a future release. There is no simple replacement for this."),
+];
+
+/// Removed `Method` values of `comm.MemorylessNonlinearity` → (check ID, message).
+/// Matched only when the value directly follows the `'Method'` name in a call
+/// to the class.
+const COMM_MNL_METHODS: &[(&str, &str, &str)] = &[
+    ("Hyperbolic tangent", "CMMHT", "'Hyperbolic tangent' value for the 'Method' property on 'comm.MemorylessNonlinearity' class will be removed in a future release. There is no simple replacement for this."),
+    ("Ghorbani model", "CMMGM", "'Ghorbani model' value for the 'Method' property on 'comm.MemorylessNonlinearity' class will be removed in a future release. There is no simple replacement for this."),
+];
+
+/// CMAMP / CMPLW / CMPUL / CMMHT / CMMGM: removed `comm.MemorylessNonlinearity`
+/// properties and `Method` values. Only the name-value form inside a call to the
+/// class is matched; property access on a variable (`m.AMPMConversion`) is not.
+fn comm_memoryless_match(
+    node: Node,
+    text: &str,
+    source: &str,
+) -> Option<(&'static str, &'static str)> {
+    let class = "comm.MemorylessNonlinearity";
+    if let Some((_, id, msg)) = COMM_MNL_NAMES.iter().find(|(name, _, _)| *name == text) {
+        return call_references_class(node, class, source).then_some((*id, *msg));
+    }
+    let (_, id, msg) = COMM_MNL_METHODS
+        .iter()
+        .find(|(value, _, _)| *value == text)?;
+    let after_method = node
+        .prev_named_sibling()
+        .is_some_and(|p| p.kind() == "string" && unquoted(p, source) == "Method");
+    (after_method && call_references_class(node, class, source)).then_some((*id, *msg))
 }
 
 /// Does the enclosing call reference the given dotted class name?
@@ -460,5 +501,41 @@ mod tests {
             "set(obj, 'CustomThirdFilterCoefficientsDataType', x);\n",
         );
         assert!(has_id(&d, "COEFFC3"), "got: {d:?}");
+    }
+
+    #[test]
+    fn comm_memoryless_properties_fire() {
+        let d = lint_file(
+            &*engine(),
+            "m = comm.MemorylessNonlinearity('AMPMConversion', 1, 'PowerLowerLimit', 1, 'PowerUpperLimit', 2);\n",
+        );
+        assert!(has_id(&d, "CMAMP"), "got: {d:?}");
+        assert!(has_id(&d, "CMPLW"), "got: {d:?}");
+        assert!(has_id(&d, "CMPUL"), "got: {d:?}");
+    }
+
+    #[test]
+    fn comm_memoryless_method_values_fire() {
+        let d = lint_file(
+            &*engine(),
+            "m = comm.MemorylessNonlinearity('Method', 'Hyperbolic tangent');\n",
+        );
+        assert!(has_id(&d, "CMMHT"), "got: {d:?}");
+        let d = lint_file(
+            &*engine(),
+            "m = comm.MemorylessNonlinearity('Method', 'Ghorbani model');\n",
+        );
+        assert!(has_id(&d, "CMMGM"), "got: {d:?}");
+    }
+
+    #[test]
+    fn comm_memoryless_other_uses_not_flagged() {
+        let d = lint_file(
+            &*engine(),
+            "m = comm.MemorylessNonlinearity('Method', 'Saleh model');\nx = 'Hyperbolic tangent';\nset(m, 'AMPMConversion', 1);\n",
+        );
+        for id in ["CMAMP", "CMPLW", "CMPUL", "CMMHT", "CMMGM"] {
+            assert!(!has_id(&d, id), "{id} should not fire: {d:?}");
+        }
     }
 }

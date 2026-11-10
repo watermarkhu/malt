@@ -441,6 +441,15 @@ impl<'a> Builder<'a> {
             "global_operator" => self.visit_global_persistent(node, DefKind::Global),
             "persistent_operator" => self.visit_global_persistent(node, DefKind::Persistent),
             "identifier" => self.visit_identifier(node),
+            // `a;` is a command with one `command_name` in this grammar: a read of `a`.
+            "command" if node.named_child_count() == 1 => {
+                if let Some(name) = node
+                    .named_child(0)
+                    .filter(|child| child.kind() == "command_name")
+                {
+                    self.record_use(name);
+                }
+            }
             // Class declarations: names, attributes and superclasses are not
             // reads; only property default values and method bodies are code.
             "attributes" | "superclasses" | "enum" | "events" => {}
@@ -842,7 +851,7 @@ impl<'a> Builder<'a> {
     /// Whether `node` is a call that creates a preallocated array.
     fn is_prealloc_call(&self, node: tree_sitter::Node<'a>) -> bool {
         const PREALLOC: &[&str] = &[
-            "zeros", "ones", "cell", "nan", "NaN", "inf", "Inf", "false", "true", "eye", "rand",
+            "zeros", "ones", "cell", "nan", "NaN", "inf", "Inf", "false", "true", "eye",
         ];
         node.kind() == "function_call"
             && node
@@ -888,6 +897,12 @@ impl<'a> Builder<'a> {
                                 line: pos.row + 1,
                                 column: pos.column + 1,
                             });
+                        } else if matches!(
+                            child.kind(),
+                            "field_expression" | "function_call" | "cell_index"
+                        ) {
+                            // `[s.a, b] = f()`: a partial store into `s`.
+                            self.partial_assignment(child, effect);
                         }
                         // Skip `ignored_argument` (~) and punctuation.
                     }

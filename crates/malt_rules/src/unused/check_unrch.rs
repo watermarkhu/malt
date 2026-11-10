@@ -26,7 +26,64 @@ impl UnusedEngine {
 
         // Statements after `error(...)` calls (which always throw).
         collect_unreachable_after_error(ctx.tree.root_node(), ctx.source, &mut seen, diagnostics);
+
+        // Dead branches of constant conditions (`if true ... else`, `if 0 ...`).
+        collect_constant_branches(ctx.tree.root_node(), ctx.source, &mut seen, diagnostics);
     }
+}
+
+/// Walk the tree and report the dead branch of each constant `if` condition.
+fn collect_constant_branches(
+    node: Node,
+    source: &str,
+    seen: &mut std::collections::HashSet<(usize, usize)>,
+    diagnostics: &mut Vec<Diagnostic>,
+) {
+    if let Some(dead) = dead_constant_branch(node, source) {
+        emit_unrch(
+            dead.start_byte()..dead.end_byte(),
+            dead.start_position().row + 1,
+            dead.start_position().column + 1,
+            seen,
+            diagnostics,
+        );
+    }
+    for child in named_children(node) {
+        collect_constant_branches(child, source, seen, diagnostics);
+    }
+}
+
+/// The first statement of the branch that a literal condition never runs, for an
+/// `if` with no `elseif`. Probed: `if true ... else y = 1; end` reports the `else`
+/// statement, `if false y = 1; end` and `if 0 disp(1) else ... end` the body.
+/// Only `true`, `false` and numeric literals count; variables are not evaluated.
+fn dead_constant_branch<'a>(node: Node<'a>, source: &str) -> Option<Node<'a>> {
+    if node.kind() != "if_statement" {
+        return None;
+    }
+    let condition = node.child_by_field_name("condition")?;
+    let text = source[condition.start_byte()..condition.end_byte()].trim();
+    let truth = match text {
+        "true" => true,
+        "false" => false,
+        _ if text.starts_with(|c: char| c.is_ascii_digit()) => text.parse::<f64>().ok()? != 0.0,
+        _ => return None,
+    };
+    let children = named_children(node);
+    if children.iter().any(|c| c.kind() == "elseif_clause") {
+        return None;
+    }
+    let block = if truth {
+        let else_clause = children.iter().find(|c| c.kind() == "else_clause")?;
+        named_children(*else_clause)
+            .into_iter()
+            .find(|c| c.kind() == "block")?
+    } else {
+        *children.iter().find(|c| c.kind() == "block")?
+    };
+    named_children(block)
+        .into_iter()
+        .find(|c| c.kind() != "comment")
 }
 
 /// Emit a single UNRCH diagnostic, deduplicating by byte range.
@@ -138,6 +195,29 @@ fn collect_unreachable_after_error(
 mod tests {
     use super::*;
     use crate::test_util::{has_id, lint_file};
+
+    #[test]
+    fn unrch_dead_else_of_constant_true() {
+        // Probed: MATLAB reports the `else` statement of `if true`.
+        let src = "function f()\nif true\n    disp(1);\nelse\n    y = 1;\nend\nend\n";
+        let diags = lint_file(&*engine(), src);
+        assert!(has_id(&diags, "UNRCH"), "got: {diags:?}");
+    }
+
+    #[test]
+    fn unrch_dead_body_of_constant_false_and_zero() {
+        // Probed: `if false` and `if 0` report the body; the `else` is live.
+        let src = "function f()\nif false\n    y = 1;\nend\nend\n";
+        assert!(has_id(&lint_file(&*engine(), src), "UNRCH"));
+        let src = "function f()\nif 0\n    disp(1)\nelse\n    y = 1;\nend\nend\n";
+        assert!(has_id(&lint_file(&*engine(), src), "UNRCH"));
+    }
+
+    #[test]
+    fn unrch_silent_on_variable_condition() {
+        let src = "function f(c)\nif c\n    disp(1);\nelse\n    y = 1;\nend\nend\n";
+        assert!(!has_id(&lint_file(&*engine(), src), "UNRCH"));
+    }
     use malt_core::Config;
 
     fn engine() -> Box<dyn Rule> {

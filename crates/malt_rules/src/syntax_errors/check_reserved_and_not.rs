@@ -137,6 +137,13 @@ impl SyntaxErrorsEngine {
 mod tests {
     use super::*;
     use crate::test_util::{has_id, lint_file};
+
+    #[test]
+    fn mcpld_silent_in_arguments_block() {
+        // Probed: MATLAB reports no MCPLD for entries of an `arguments` block.
+        let src = "function f(x)\narguments\n    x (1,:) double\nend\nend\n";
+        assert!(!has_id(&lint_file(&*engine(), src), "MCPLD"));
+    }
     use malt_core::Config;
 
     fn engine() -> Box<dyn Rule> {

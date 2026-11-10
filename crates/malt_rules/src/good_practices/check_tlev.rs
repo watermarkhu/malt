@@ -18,6 +18,12 @@ impl GoodPracticesEngine {
         let Some(parent) = node.parent() else {
             return Vec::new();
         };
+        // Probed: `persistent` in a script is NPERS (an error), not TLEV.
+        let in_function = std::iter::successors(node.parent(), |n| n.parent())
+            .any(|n| n.kind() == "function_definition");
+        if keyword == "PERSISTENT" && !in_function {
+            return Vec::new();
+        }
         // Top-level: a script statement, or a statement of a function's body block.
         let top_level = match parent.kind() {
             "source_file" | "function_definition" => true,
@@ -48,6 +54,26 @@ impl GoodPracticesEngine {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_tlev_silent_on_persistent_in_script() {
+        // Probed: MATLAB reports NPERS for `persistent` in a script, not TLEV.
+        let source = "if true\n  persistent p\nend\n";
+        let tree = parse(source);
+        let eng = engine();
+        let decl = find_descendant_of_kind(tree.root_node(), "persistent_operator").unwrap();
+        assert!(eng.check_tlev(decl, source).is_empty());
+    }
+
+    #[test]
+    fn test_tlev_fires_on_global_in_if_of_script() {
+        // Probed: MATLAB reports a nested `global` in a script as well as in a function.
+        let source = "if true\n  global h\nend\n";
+        let tree = parse(source);
+        let eng = engine();
+        let decl = find_descendant_of_kind(tree.root_node(), "global_operator").unwrap();
+        assert!(!eng.check_tlev(decl, source).is_empty());
+    }
 
     #[test]
     fn test_tlev_silent_on_top_level_global() {

@@ -18,9 +18,10 @@
 //! - `break` or `continue` outside a loop.
 //!
 //! Names that are `global` or `persistent`, or that a nested function or lambda
-//! uses, are never reported. Partial stores (`x(i) = v`, `s.f = v`) read the old
-//! value, so they are never dead. Constant conditions are not evaluated: every
-//! branch counts as possible.
+//! uses, are never reported. A partial store (`x(i) = v`, `s.f = v`) reads the
+//! old value, so it keeps earlier stores alive; it is itself dead when the
+//! variable is not read after it (see [`Dead::partial`]). Constant conditions are
+//! not evaluated: every branch counts as possible.
 //!
 //! A `try` body can be left at any statement, so the variables live in the
 //! catch body are live after every statement of the try body.
@@ -68,16 +69,22 @@ const CLEAR_KEYWORDS: &[&str] = &[
     "java",
 ];
 
-/// Indices into `scope.defs` of the full assignments in `index` whose value is never read.
+/// The dead assignments of one scope, as indices into `scope.defs`.
+#[derive(Debug, Default)]
+pub struct Dead {
+    /// Full assignments (`x = v`, `[a, b] = f()`) whose value is never read.
+    pub full: Vec<usize>,
+    /// Partial assignments (`x(i) = v`, `s.f = v`) after which the variable is
+    /// never read. A partial store is dead only if no later read of the
+    /// variable can see it, so `s.a = 1; s.a = 2; disp(s)` reports nothing.
+    pub partial: Vec<usize>,
+}
+
+/// The dead assignments of scope `index`.
 ///
 /// Returns `None` when the scope cannot be analysed with confidence. Nothing is
 /// then reported for it.
-pub fn dead_stores(
-    table: &SymbolTable,
-    index: usize,
-    tree: &Tree,
-    source: &str,
-) -> Option<Vec<usize>> {
+pub fn dead_stores(table: &SymbolTable, index: usize, tree: &Tree, source: &str) -> Option<Dead> {
     let scope = table.scopes.get(index)?;
     if !matches!(
         scope.kind,
@@ -91,7 +98,7 @@ pub fn dead_stores(
     } else {
         match named(root).into_iter().find(|n| n.kind() == "block") {
             Some(block) => block,
-            None => return Some(Vec::new()),
+            None => return Some(Dead::default()),
         }
     };
     if calls_dynamic(body, source) {
@@ -128,6 +135,7 @@ pub fn dead_stores(
         loops: Vec::new(),
         extra: Live::new(),
         reports: Vec::new(),
+        partial_reports: Vec::new(),
         bail: false,
     };
     analysis.block(body, exit, true);
@@ -136,7 +144,42 @@ pub fn dead_stores(
     }
     analysis.reports.sort_unstable();
     analysis.reports.dedup();
-    Some(analysis.reports)
+    analysis.partial_reports.sort_unstable();
+    analysis.partial_reports.dedup();
+    Some(Dead {
+        full: analysis.reports,
+        partial: analysis.partial_reports,
+    })
+}
+
+/// Whether the assignment whose target covers `range` stores into a field
+/// (`s.f = v`, `s(2).f = v`, `s.f(3) = v`) rather than only indexing (`x(i) = v`,
+/// `c{i} = v`). The target is the left-hand side of the enclosing `assignment`.
+pub fn is_field_store(tree: &Tree, range: Range<usize>) -> bool {
+    let Some(mut node) = tree
+        .root_node()
+        .descendant_for_byte_range(range.start, range.end)
+    else {
+        return false;
+    };
+    while node.kind() != "assignment" {
+        let Some(parent) = node.parent() else {
+            return false;
+        };
+        node = parent;
+    }
+    let Some(mut current) = node.child_by_field_name("left") else {
+        return false;
+    };
+    loop {
+        if current.kind() == "field_expression" {
+            return true;
+        }
+        match current.named_child(0) {
+            Some(next) => current = next,
+            None => return false,
+        }
+    }
 }
 
 /// The node holding a scope's statements: the `source_file`, or the `function_definition`.
@@ -263,8 +306,10 @@ struct Analysis<'a> {
     loops: Vec<LoopTargets>,
     /// Live in the catch body of each enclosing `try`.
     extra: Live,
-    /// Indices into `scope.defs` of the dead assignments found.
+    /// Indices into `scope.defs` of the dead full assignments found.
     reports: Vec<usize>,
+    /// Indices into `scope.defs` of the dead partial assignments found.
+    partial_reports: Vec<usize>,
     /// Set when control flow is not understood. The scope then reports nothing.
     bail: bool,
 }
@@ -388,15 +433,14 @@ impl Analysis<'_> {
                 continue;
             }
             if def.partial {
+                if report && !after.contains(&def.name) && !self.excluded.contains(&def.name) {
+                    self.partial_reports.push(index);
+                }
                 reads.insert(def.name.clone());
                 continue;
             }
             kills.insert(def.name.clone());
-            if report
-                && !def.multi_output
-                && !after.contains(&def.name)
-                && !self.excluded.contains(&def.name)
-            {
+            if report && !after.contains(&def.name) && !self.excluded.contains(&def.name) {
                 self.reports.push(index);
             }
         }

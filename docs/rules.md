@@ -38,7 +38,7 @@ generator in `docs/scripts/gen_rules_docs.ts`. Rebuild the docs (`bun run docs:g
 to refresh them whenever `data/compatibility.toml` or
 `data/suggested_improvements.toml` changes.
 
-### Compatibility Considerations (899 checks)
+### Compatibility Considerations (925 checks)
 
 | Check ID | Message |
 | -------- | ------- |
@@ -941,6 +941,32 @@ to refresh them whenever `data/compatibility.toml` or
 | [`VSRSN`](rules/compatibility.md#vsrsn) | 'RsrcName' property of 'visadev' class will be removed in a future release. With appropriate code changes, use 'ResourceName' property of 'visadev' class instead. |
 | [`ELEVT`](rules/compatibility.md#elevt) | 'elevation' has been removed. With appropriate code changes, use 'geodetic2aer' instead. |
 | [`INSTHWI2C`](rules/compatibility.md#insthwi2c) | 'instrhwinfo('i2c')' will be removed in a future release. With appropriate code changes, use 'ni845xlist' or 'aardvarklist' instead. |
+| [`EVDOFRC`](rules/compatibility.md#evdofrc) | 'evdoForwardReferenceChannels' will be removed in a future release. There is no simple replacement for this. |
+| [`EVDOFWG`](rules/compatibility.md#evdofwg) | 'evdoForwardWaveformGenerator' will be removed in a future release. There is no simple replacement for this. |
+| [`EVDORRC`](rules/compatibility.md#evdorrc) | 'evdoReverseReferenceChannels' will be removed in a future release. There is no simple replacement for this. |
+| [`EVDORWG`](rules/compatibility.md#evdorwg) | 'evdoReverseWaveformGenerator' will be removed in a future release. There is no simple replacement for this. |
+| [`CDMA2KFRC`](rules/compatibility.md#cdma2kfrc) | 'cdma2000ForwardReferenceChannels' will be removed in a future release. There is no simple replacement for this. |
+| [`CDMA2KFWG`](rules/compatibility.md#cdma2kfwg) | 'cdma2000ForwardWaveformGenerator' will be removed in a future release. There is no simple replacement for this. |
+| [`CDMA2KRRC`](rules/compatibility.md#cdma2krrc) | 'cdma2000ReverseReferenceChannels' will be removed in a future release. There is no simple replacement for this. |
+| [`CDMA2KRWG`](rules/compatibility.md#cdma2krwg) | 'cdma2000ReverseWaveformGenerator' will be removed in a future release. There is no simple replacement for this. |
+| [`ALGINTRLV`](rules/compatibility.md#algintrlv) | 'algintrlv' will be removed in a future release. With appropriate code changes, use 'intrlv' instead. |
+| [`ALGDEINTRLV`](rules/compatibility.md#algdeintrlv) | 'algdeintrlv' will be removed in a future release. With appropriate code changes, use 'deintrlv' instead. |
+| [`HELSCANINTRLV`](rules/compatibility.md#helscanintrlv) | 'helscanintrlv' will be removed in a future release. With appropriate code changes, use 'intrlv' instead. |
+| [`HELSCANDEINTRLV`](rules/compatibility.md#helscandeintrlv) | 'helscandeintrlv' will be removed in a future release. With appropriate code changes, use 'deintrlv' instead. |
+| [`MUXINTRLV`](rules/compatibility.md#muxintrlv) | 'muxintrlv' will be removed in a future release. With appropriate code changes, use 'convintrlv' instead. |
+| [`MUXDEINTRLV`](rules/compatibility.md#muxdeintrlv) | 'muxdeintrlv' will be removed in a future release. With appropriate code changes, use 'convdeintrlv' instead. |
+| [`COMMSOHELINTRLV`](rules/compatibility.md#commsohelintrlv) | 'comm.HelicalInterleaver' will be removed in a future release. With appropriate code changes, use 'comm.ConvolutionalInterleaver' instead. |
+| [`COMMSOHELDEINTRLV`](rules/compatibility.md#commsoheldeintrlv) | 'comm.HelicalDeinterleaver' will be removed in a future release. With appropriate code changes, use 'comm.ConvolutionalDeinterleaver' instead. |
+| [`COMMSOMUXINTRLV`](rules/compatibility.md#commsomuxintrlv) | 'comm.MultiplexedInterleaver' will be removed in a future release. With appropriate code changes, use 'comm.ConvolutionalInterleaver' instead. |
+| [`COMMSOMUXDEINTRLV`](rules/compatibility.md#commsomuxdeintrlv) | 'comm.MultiplexedDeinterleaver' will be removed in a future release. With appropriate code changes, use 'comm.ConvolutionalDeinterleaver' instead. |
+| [`PDSCHCONFIG`](rules/compatibility.md#pdschconfig) | 'pre6GPDSCHConfig' has been removed. With appropriate code changes, use 'pre6GPhysicalChannelConfig' instead. |
+| [`WSDLCLIENT`](rules/compatibility.md#wsdlclient) | 'matlab.wsdl.createWSDLClient' has been removed. Use MATLAB RESTful functions ('webread' and 'webwrite') or MATLAB HTTP interface instead. |
+| [`WSDLTOOL`](rules/compatibility.md#wsdltool) | 'matlab.wsdl.setWSDLToolPath' has been removed. Use MATLAB RESTful functions ('webread' and 'webwrite') or MATLAB HTTP interface instead. |
+| [`CMAMP`](rules/compatibility.md#cmamp) | 'AMPMConversion' property of 'comm.MemorylessNonlinearity' class will be removed in a future release. There is no simple replacement for this. |
+| [`CMPLW`](rules/compatibility.md#cmplw) | 'PowerLowerLimit' property of 'comm.MemorylessNonlinearity' class will be removed in a future release. There is no simple replacement for this. |
+| [`CMPUL`](rules/compatibility.md#cmpul) | 'PowerUpperLimit' property of 'comm.MemorylessNonlinearity' class will be removed in a future release. There is no simple replacement for this. |
+| [`CMMHT`](rules/compatibility.md#cmmht) | 'Hyperbolic tangent' value for the 'Method' property on 'comm.MemorylessNonlinearity' class will be removed in a future release. There is no simple replacement for this. |
+| [`CMMGM`](rules/compatibility.md#cmmgm) | 'Ghorbani model' value for the 'Method' property on 'comm.MemorylessNonlinearity' class will be removed in a future release. There is no simple replacement for this. |
 
 ### Forward Compatibility (7 checks)
 
@@ -1864,7 +1890,7 @@ to refresh them whenever `data/compatibility.toml` or
 | [`JAPIEXT884`](rules/compatibility.md#japiext884) | 'io.grpc.stub' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
 | [`JAPIEXT885`](rules/compatibility.md#japiext885) | 'io.grpc.util' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
 
-### Suggested Improvements (244 checks)
+### Suggested Improvements (245 checks)
 
 | Check ID | Message |
 | -------- | ------- |
@@ -2112,6 +2138,7 @@ to refresh them whenever `data/compatibility.toml` or
 | [`MDFCHL`](rules/suggested-improvements.md#mdfchl) | 'channelList' method of 'mdf' class is not recommended. With appropriate code changes, use 'mdfChannelInfo' function instead. |
 | [`MDFSVA`](rules/suggested-improvements.md#mdfsva) | 'saveAttachment' method of 'mdf' class is not recommended. With appropriate code changes, use 'mdfSaveAttachment' function instead. |
 | [`MINELV`](rules/suggested-improvements.md#minelv) | 'MinElevationAngle' is not recommended. Use 'MaskElevationAngle' instead, which is a direct replacement when specified as scalar values. Row vector values must be transposed. |
+| [`BLCHID`](rules/suggested-improvements.md#blchid) | Specifying the channel ID as the second positional argument in 'blfread' is not recommended. With appropriate code changes, use the 'ChannelID' name-value argument instead. |
 
 ## Rule Categories
 

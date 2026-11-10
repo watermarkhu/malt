@@ -100,6 +100,10 @@ struct CompatEntry {
     /// by function name alone.
     #[serde(default)]
     pattern: String,
+    /// MATLAB lists the entry under "(Upcoming) Behavior Changes with Low
+    /// Reliability Messages" and does not report it by default.
+    #[serde(default)]
+    low_reliability: bool,
 }
 
 /// Top-level structure of the compatibility.toml data file.
@@ -161,6 +165,9 @@ pub struct CompatibilityEngine {
     /// Whether IDISVARHIGH is reported. MATLAB's default `checkcode` never emits it
     /// (probed, also with `-allmsg`), so it is off unless the preset or the rule turns it on.
     idisvar_high: bool,
+    /// Whether the low-reliability behavior-change entries are reported (off by
+    /// default, as in MATLAB; on under `all` or with the behavior-changes category).
+    low_reliability: bool,
 }
 
 /// The forward-compatibility version-gate checks (MATLAB's "Forward
@@ -195,9 +202,14 @@ impl CompatibilityEngine {
                 .rules
                 .get("IDISVARHIGH")
                 .is_some_and(|rule| rule.enabled);
+        let low_reliability = match config.categories.get(&Category::BehaviorChanges) {
+            Some(severity) => severity.is_some(),
+            None => config.preset.enables_default_off,
+        };
         Box::new(Self {
             forward_gates,
             idisvar_high,
+            low_reliability,
         })
     }
 
@@ -290,10 +302,24 @@ impl Rule for CompatibilityEngine {
             None => return Vec::new(),
         };
 
-        let start = ctx.node.start_position();
+        // A dotted call is reported at the start of its package path (`comm` in
+        // `comm.HelicalInterleaver(...)`), as MATLAB does.
+        let anchor = match ctx.node.parent() {
+            Some(parent)
+                if ctx.node.kind() == "function_call"
+                    && crate::analysis::symbols::is_qualified_call(ctx.node) =>
+            {
+                parent.named_child(0).unwrap_or(ctx.node)
+            }
+            _ => ctx.node,
+        };
+        let start = anchor.start_position();
         let mut diagnostics = Vec::with_capacity(entries.len());
 
         for entry in entries {
+            if entry.low_reliability && !self.low_reliability {
+                continue;
+            }
             let severity = parse_severity(&entry.severity);
 
             // The entry's `id` field is a &str pointing into the static CompatData.
@@ -331,11 +357,17 @@ impl Rule for CompatibilityEngine {
 fn extract_func_name<'a>(node: tree_sitter::Node<'a>, source: &'a str) -> Option<&'a str> {
     match node.kind() {
         "function_call" => {
-            if crate::analysis::symbols::is_qualified_call(node) {
-                return None;
-            }
             let name_node = node.child_by_field_name("name")?;
-            Some(&source[name_node.start_byte()..name_node.end_byte()])
+            // `comm.HelicalInterleaver(x)`: the call is the trailing member of a
+            // dotted expression, so match the whole package path. A variable in
+            // front (`s.psd(x)`) yields a path that matches no entry.
+            let start = match node.parent() {
+                Some(parent) if crate::analysis::symbols::is_qualified_call(node) => {
+                    parent.named_child(0)?.start_byte()
+                }
+                _ => name_node.start_byte(),
+            };
+            Some(&source[start..name_node.end_byte()])
         }
         "command" => {
             let name_node = node.child(0)?;
@@ -550,5 +582,69 @@ mod tests {
     fn deprecated_name_as_variable_not_flagged() {
         let diags = lint_nodes(&*engine(), "psd = 5;\n");
         assert!(!has_id(&diags, "DPSD"), "got: {diags:?}");
+    }
+
+    #[test]
+    fn removed_toolbox_functions_fire_their_ids() {
+        // Probed in MATLAB R2026b without the Communications, Wireless or WSDL toolboxes.
+        let cases = [
+            ("evdoForwardReferenceChannels", "EVDOFRC"),
+            ("evdoForwardWaveformGenerator", "EVDOFWG"),
+            ("evdoReverseReferenceChannels", "EVDORRC"),
+            ("evdoReverseWaveformGenerator", "EVDORWG"),
+            ("cdma2000ForwardReferenceChannels", "CDMA2KFRC"),
+            ("cdma2000ForwardWaveformGenerator", "CDMA2KFWG"),
+            ("cdma2000ReverseReferenceChannels", "CDMA2KRRC"),
+            ("cdma2000ReverseWaveformGenerator", "CDMA2KRWG"),
+            ("algintrlv", "ALGINTRLV"),
+            ("algdeintrlv", "ALGDEINTRLV"),
+            ("helscanintrlv", "HELSCANINTRLV"),
+            ("helscandeintrlv", "HELSCANDEINTRLV"),
+            ("muxintrlv", "MUXINTRLV"),
+            ("muxdeintrlv", "MUXDEINTRLV"),
+            ("comm.HelicalInterleaver", "COMMSOHELINTRLV"),
+            ("comm.HelicalDeinterleaver", "COMMSOHELDEINTRLV"),
+            ("comm.MultiplexedInterleaver", "COMMSOMUXINTRLV"),
+            ("comm.MultiplexedDeinterleaver", "COMMSOMUXDEINTRLV"),
+            ("pre6GPDSCHConfig", "PDSCHCONFIG"),
+            ("matlab.wsdl.createWSDLClient", "WSDLCLIENT"),
+            ("matlab.wsdl.setWSDLToolPath", "WSDLTOOL"),
+        ];
+        for (name, id) in cases {
+            assert_call_fires(name, id);
+        }
+    }
+
+    #[test]
+    fn low_reliability_entries_follow_the_preset() {
+        // MATLAB lists JAPIEXT15 under "Behavior Changes with Low Reliability
+        // Messages" and its default checkcode does not report it.
+        let source = "x = org.ros.address();\n";
+        let default = CompatibilityEngine::from_config(&Config::default());
+        assert!(!has_id(
+            &crate::test_util::lint_file(default.as_ref(), source),
+            "JAPIEXT15"
+        ));
+        let all = CompatibilityEngine::from_config(
+            &Config::from_toml("[lint]\npreset = \"all\"\n").unwrap(),
+        );
+        let diags: Vec<_> = {
+            let tree = crate::test_util::parse(source);
+            let mut out = Vec::new();
+            let root = tree.root_node();
+            let mut cursor = root.walk();
+            let mut stack = vec![root];
+            while let Some(n) = stack.pop() {
+                let ctx = malt_core::NodeContext {
+                    node: n,
+                    source,
+                    file_path: std::path::Path::new("t.m"),
+                };
+                out.extend(all.check(&ctx));
+                stack.extend(n.children(&mut cursor));
+            }
+            out
+        };
+        assert!(has_id(&diags, "JAPIEXT15"), "got: {diags:?}");
     }
 }

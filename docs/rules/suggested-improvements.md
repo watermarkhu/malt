@@ -31,7 +31,7 @@ lookup-based check.
 
 ## Check IDs
 
-### Suggested Improvements (244 checks)
+### Suggested Improvements (245 checks)
 
 | Check ID | Severity | Description |
 | -------- | -------- | ----------- |
@@ -279,6 +279,7 @@ lookup-based check.
 | <a id="mdfchl"></a>`MDFCHL` | warning | 'channelList' method of 'mdf' class is not recommended. With appropriate code changes, use 'mdfChannelInfo' function instead. |
 | <a id="mdfsva"></a>`MDFSVA` | warning | 'saveAttachment' method of 'mdf' class is not recommended. With appropriate code changes, use 'mdfSaveAttachment' function instead. |
 | <a id="minelv"></a>`MINELV` | warning | 'MinElevationAngle' is not recommended. Use 'MaskElevationAngle' instead, which is a direct replacement when specified as scalar values. Row vector values must be transposed. |
+| <a id="blchid"></a>`BLCHID` | warning | Specifying the channel ID as the second positional argument in 'blfread' is not recommended. With appropriate code changes, use the 'ChannelID' name-value argument instead. |
 
 ## Examples
 

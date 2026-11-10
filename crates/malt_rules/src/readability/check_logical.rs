@@ -106,6 +106,20 @@ mod tests {
         }
     }
 
+    /// LOGSUM is off under the default preset (MATLAB reports it for
+    /// `sum(x(:) <= 1)` only), so its tests run under `all`.
+    fn engine_all() -> Box<dyn Rule> {
+        ReadabilityEngine::from_config(&Config::from_toml("[lint]\npreset = \"all\"\n").unwrap())
+    }
+
+    #[test]
+    fn logsum_is_off_by_default() {
+        assert!(!has_id(
+            &lint_nodes(&*engine(), "n = sum(x > 3);\n"),
+            "LOGSUM"
+        ));
+    }
+
     #[test]
     fn logsum_sum_of_comparison_fires() {
         for src in [
@@ -113,7 +127,7 @@ mod tests {
             "n = sum(a & b);\n",
             "if sum(x == 1) > 0, end\n",
         ] {
-            assert!(has_id(&lint_nodes(&*engine(), src), "LOGSUM"), "{src}");
+            assert!(has_id(&lint_nodes(&*engine_all(), src), "LOGSUM"), "{src}");
         }
     }
 
