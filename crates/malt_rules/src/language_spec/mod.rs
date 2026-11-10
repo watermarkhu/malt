@@ -895,6 +895,13 @@ impl LanguageSpecEngine {
             "identifier" if current_context == LoopContext::Parfor => {
                 // C1 checks: record whole (non-indexed) variable reads
                 self.check_parfor_identifier(node, source, context_stack);
+                // PFNAIO: bare `nargin`/`nargout` used as a value
+                self.check_parfor_bare_nargin(node, source, diagnostics);
+            }
+
+            "identifier" if current_context == LoopContext::Spmd => {
+                // SPWHOS: bare `who`/`whos` used as an assignment value
+                self.check_spmd_bare_who(node, source, diagnostics);
             }
 
             "lambda" if current_context == LoopContext::Parfor => {

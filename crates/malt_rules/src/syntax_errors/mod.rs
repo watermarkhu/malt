@@ -743,6 +743,10 @@ impl SyntaxErrorsEngine {
         if name.kind() == "identifier" {
             return;
         }
+        // `f(a.b=1)` assigns to a field, not a name: MATLAB reports SYNER/NOPAR.
+        if name.kind() == "field_expression" {
+            return;
+        }
         let is_string = name.kind() == "string" || Self::has_string_child(name);
         let check_id = if is_string { "FVACS" } else { "FVAMI" };
         if !self.is_check_enabled(check_id) {

@@ -17,6 +17,11 @@ impl FormattingEngine {
         if !is_in_function(node) {
             return;
         }
+        // `a = 1:2:3:4` parses as a range followed by an ERROR node, and MATLAB
+        // reports M3COL for the chain, not NOPRT.
+        if node.next_sibling().is_some_and(|s| s.kind() == "ERROR") {
+            return;
+        }
         if has_trailing_semicolon(node, source) {
             return;
         }
@@ -53,6 +58,14 @@ mod tests {
     #[test]
     fn noprt_ok_with_semicolon() {
         let source = "function f()\n    x = 5;\nend\n";
+        let diags = lint(source);
+        assert!(!has_id(&diags, "NOPRT"), "got: {diags:?}");
+    }
+
+    #[test]
+    fn noprt_colon_chain_does_not_fire() {
+        // Probed: MATLAB reports M3COL for `a:b:c:d`, never NOPRT.
+        let source = "function f()\n    a = 1:2:3:4;\n    b = 1:2:3:4:5;\nend\n";
         let diags = lint(source);
         assert!(!has_id(&diags, "NOPRT"), "got: {diags:?}");
     }

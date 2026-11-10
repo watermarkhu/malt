@@ -81,7 +81,7 @@
 //! max_file_size = 1048576
 //! max_paren_depth = 32
 //! max_function_depth = 20
-//! max_statement_depth = 15
+//! max_statement_depth = 240
 //! max_line_length = 4096
 //! ```
 
@@ -124,8 +124,9 @@ const fn default_max_paren_depth() -> usize {
 const fn default_max_function_depth() -> usize {
     20
 }
+/// MATLAB reports NOSPC (not DEEPS) for 250 nested `if` levels and nothing for 240.
 const fn default_max_statement_depth() -> usize {
-    15
+    240
 }
 const fn default_max_line_length() -> usize {
     4096

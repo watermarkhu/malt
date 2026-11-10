@@ -33,7 +33,10 @@ impl SyntaxErrorsEngine {
         // SBTMP: chaining outputs after parenthesis is not supported.
         if self.is_check_enabled("SBTMP") {
             if let Some(name) = node.child_by_field_name("name") {
-                if name.kind() == "function_call" {
+                // `c{1}(end)` and `x{1}{2}` are cell indexing, which MATLAB accepts.
+                let name_is_brace =
+                    (0..name.child_count()).any(|i| name.child(i).is_some_and(|c| c.kind() == "{"));
+                if name.kind() == "function_call" && !name_is_brace {
                     let pos = node.start_position();
                     diagnostics.push(Diagnostic {
                             rule_id: "SBTMP",
@@ -103,6 +106,12 @@ mod tests {
     }
 
     // -- SBTMP: chained call result indexing --------------------------------
+
+    #[test]
+    fn sbtmp_no_fire_on_cell_brace_chain() {
+        let diags = lint_file(&*engine(), "v = c{1}(end);\ny = [x{1}{2}];\n");
+        assert!(!has_id(&diags, "SBTMP"), "got: {diags:?}");
+    }
 
     #[test]
     fn sbtmp_fires_on_chained_call() {
@@ -219,6 +228,13 @@ mod tests {
     fn fvami_fires_on_number_name_no_space() {
         let diags = lint_file(&*engine(), "f(123=1);\n");
         assert!(has_id(&diags, "FVAMI"), "got: {diags:?}");
+    }
+
+    #[test]
+    fn fvami_ok_on_field_assignment_in_call() {
+        // MATLAB reports SYNER/NOPAR here, not FVAMI.
+        let diags = lint_file(&*engine(), "f(a.b=1);\n");
+        assert!(!has_id(&diags, "FVAMI"), "got: {diags:?}");
     }
 
     #[test]

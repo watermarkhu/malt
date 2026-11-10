@@ -368,7 +368,7 @@ impl Rule for ReadabilityEngine {
             "comparison_operator" => self.check_comparison(ctx, &mut results),
             "matrix" => self.check_matrix(ctx, &mut results),
             // COMNL also fires for a comma before a newline inside `{ }` (probed).
-            "cell" => self.check_comnl_cell(ctx.node, ctx.source, &mut results),
+            "cell" => self.check_comnl(ctx.node, ctx.source, &mut results),
             "arguments_statement" => self.check_fvinr(ctx, &mut results),
             _ => {}
         }
@@ -420,23 +420,6 @@ pub(crate) fn is_equality_operator(node: tree_sitter::Node, source: &str) -> boo
         .children(&mut cursor)
         .any(|c| !c.is_named() && &source[c.start_byte()..c.end_byte()] == "==");
     found
-}
-
-/// Find the trailing comma of a `row` node, skipping trailing `comment` and
-/// `line_continuation` children.
-///
-/// The comma token is unnamed, so all children (not just named children) must
-/// be inspected. Returns `None` when the row does not end in a comma.
-pub(crate) fn find_trailing_comma(row: tree_sitter::Node) -> Option<tree_sitter::Node> {
-    for j in (0..row.child_count()).rev() {
-        let child = row.child(j)?;
-        match child.kind() {
-            "comment" | "line_continuation" => continue,
-            "," => return Some(child),
-            _ => return None,
-        }
-    }
-    None
 }
 
 // ---------------------------------------------------------------------------

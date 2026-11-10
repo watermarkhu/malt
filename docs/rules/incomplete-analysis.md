@@ -148,7 +148,7 @@ max_node_count = 100000
 max_file_size = 1048576
 max_paren_depth = 32
 max_function_depth = 20
-max_statement_depth = 15
+max_statement_depth = 240
 max_line_length = 4096
 ```
 

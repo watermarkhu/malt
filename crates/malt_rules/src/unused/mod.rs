@@ -227,7 +227,12 @@ impl Rule for UnusedEngine {
         self.check_preall(&table, &mut diagnostics);
         self.check_vanus(&table, &mut diagnostics);
         self.check_vunus(&table, ctx.tree, ctx.source, &mut diagnostics);
-        self.check_defnu(&table, &mut diagnostics);
+        let file_stem = ctx
+            .file_path
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("");
+        self.check_defnu(&table, file_stem, &mut diagnostics);
         self.check_manu(&table, &mut diagnostics);
 
         // 3. Run tree-walk checks.

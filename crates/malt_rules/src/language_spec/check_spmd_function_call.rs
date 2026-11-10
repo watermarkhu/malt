@@ -62,12 +62,45 @@ impl LanguageSpecEngine {
             }
         }
     }
+
+    /// SPWHOS for a `who`/`whos` identifier used as an assignment value, such as
+    /// `[a, b] = who;`. A bare `who` statement is a call handled by
+    /// `check_spmd_function_call`.
+    pub(crate) fn check_spmd_bare_who(
+        &self,
+        node: tree_sitter::Node,
+        source: &str,
+        diagnostics: &mut Vec<Diagnostic>,
+    ) {
+        if !matches!(node_text(node, source), "who" | "whos") || !is_assignment_rhs(node) {
+            return;
+        }
+        self.push_diag(node, "SPWHOS", "Using \"who\" or \"whos\" without \"-file\" is invalid inside an SPMD block because it accesses the workspace in a non-transparent way.", diagnostics);
+    }
 }
 
 #[cfg(test)]
 mod tests {
 
     use crate::language_spec::tests::{check_source, filter_by_id};
+
+    #[test]
+    fn test_spwhos_fires_bare_who_assigned_in_spmd() {
+        // MATLAB probe: SPWHOS on lines 3, 4 and 5 (the bare `who` too).
+        let source = "\
+function foo()
+    spmd
+        [a, b] = who;
+        c = who;
+        who
+    end
+end
+";
+        let diags = check_source(source, "foo.m");
+        let spwhos = filter_by_id(&diags, "SPWHOS");
+        let lines: Vec<usize> = spwhos.iter().map(|d| d.line).collect();
+        assert_eq!(lines, vec![3, 4, 5], "got: {diags:?}");
+    }
 
     #[test]
     fn test_spevc_fires_in_spmd() {

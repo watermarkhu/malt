@@ -489,6 +489,8 @@ impl<'a> Builder<'a> {
                 for child in node.children(&mut cursor) {
                     if child.kind() == "default_value" {
                         self.visit_children(child);
+                    } else if child.kind() == "validation_functions" {
+                        self.record_validator_callees(child);
                     }
                 }
             }
@@ -1215,6 +1217,20 @@ impl<'a> Builder<'a> {
             }
         }
         None
+    }
+
+    /// Record the callee names of the function calls in a validator. Their
+    /// arguments are not uses: `mustBeX(o, x)` does not use input `x`.
+    fn record_validator_callees(&mut self, node: tree_sitter::Node<'a>) {
+        if node.kind() == "function_call" {
+            if let Some(name) = node.child_by_field_name("name") {
+                self.record_use_as(name, true);
+            }
+        }
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            self.record_validator_callees(child);
+        }
     }
 
     /// Record a variable usage at the given identifier node.

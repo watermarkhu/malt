@@ -10,16 +10,10 @@ impl IncompleteAnalysisEngine {
         source: &str,
         diagnostics: &mut Vec<Diagnostic>,
     ) {
-        let max_depth = metrics
-            .max_paren_depth
-            .max(metrics.max_function_depth)
-            .max(metrics.max_statement_depth);
-        // Use the most restrictive threshold as a combined depth limit.
-        let combined_limit = self
-            .config
-            .max_paren_depth
-            .min(self.config.max_function_depth)
-            .min(self.config.max_statement_depth);
+        // Only statement nesting counts: MATLAB reports no NOSPC for deep parentheses
+        // or function nesting within the limits probed.
+        let max_depth = metrics.max_statement_depth;
+        let combined_limit = self.config.max_statement_depth;
         if max_depth > combined_limit {
             diagnostics.push(Diagnostic {
                 rule_id: "NOSPC",
@@ -48,6 +42,22 @@ mod tests {
             &*engine,
             "if x\n    if x\n        if x\n            y = 1;\n        end\n    end\nend\n",
         );
+        assert!(has_id(&diags, "NOSPC"), "got: {diags:?}");
+    }
+
+    #[test]
+    fn nospc_ok_on_240_nested_ifs() {
+        // MATLAB probe: 240 nested `if` levels are not too complex.
+        let source = format!("{}y = 1;\n{}", "if x\n".repeat(240), "end\n".repeat(240));
+        let diags = lint_file(&*engine(), &source);
+        assert!(!has_id(&diags, "NOSPC"), "got: {diags:?}");
+    }
+
+    #[test]
+    fn nospc_fires_on_250_nested_ifs() {
+        // MATLAB probe: 250 nested `if` levels give NOSPC.
+        let source = format!("{}y = 1;\n{}", "if x\n".repeat(250), "end\n".repeat(250));
+        let diags = lint_file(&*engine(), &source);
         assert!(has_id(&diags, "NOSPC"), "got: {diags:?}");
     }
 
