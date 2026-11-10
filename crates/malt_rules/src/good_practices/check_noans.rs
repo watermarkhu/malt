@@ -11,7 +11,8 @@ impl GoodPracticesEngine {
         let mut diagnostics = Vec::new();
         let mut stack = vec![tree.root_node()];
         while let Some(node) = stack.pop() {
-            if node.kind() == "identifier"
+            // A bare `ans` statement is a `command_name` in this grammar.
+            if matches!(node.kind(), "identifier" | "command_name")
                 && &source[node.byte_range()] == "ans"
                 && !crate::analysis::symbols::is_field_name(node)
             {
@@ -37,6 +38,27 @@ impl GoodPracticesEngine {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn test_noans_fires_on_bare_ans_statement() {
+        // Probed inside a function: a bare `ans` statement is NOANS, like a read.
+        // NOANS is a file-level check, so it runs through `check_file`.
+        let source = "function f()\nans\nx = 1;\nans;\nend\n";
+        let tree = crate::test_util::parse(source);
+        let engine =
+            crate::good_practices::GoodPracticesEngine::from_config(&malt_core::Config::default());
+        let ctx = malt_core::FileContext {
+            tree: &tree,
+            source,
+            file_path: std::path::Path::new("test.m"),
+        };
+        let diags: Vec<_> = engine
+            .check_file(&ctx)
+            .into_iter()
+            .filter(|d| d.rule_id == "NOANS")
+            .collect();
+        assert_eq!(diags.len(), 2, "{diags:?}");
+    }
+
     use crate::test_util::{has_id, lint_file};
     use malt_core::Config;
 

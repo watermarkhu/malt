@@ -18,6 +18,15 @@ impl ReadabilityEngine {
             return;
         }
 
+        // A chained comparison `size(x, 1) == 1 == c` is CHAIN, not ISROW (probed
+        // in the fixtures: MATLAB reports CHAIN on that line only).
+        if node
+            .parent()
+            .is_some_and(|p| p.kind() == "comparison_operator")
+        {
+            return;
+        }
+
         // Only `==`. Look at the operator token: searching the text of the whole
         // comparison finds the `==` inside `size(x == 1, 1) ~= 1` as well.
         let is_equality = {
@@ -121,6 +130,13 @@ mod tests {
     }
 
     // -- ISROW ---------------------------------------------------------------
+
+    #[test]
+    fn isrow_silent_on_chained_comparison() {
+        // Probed in the fixtures: the chain `size(x, 1) == 1 == c` is CHAIN, not ISROW.
+        let diags = lint_nodes(&*engine(), "r7 = size(x, 1) == 1 == c;\n");
+        assert!(!has_id(&diags, "ISROW"), "got: {diags:?}");
+    }
 
     #[test]
     fn isrow_size_dim1_equals_one_fires() {

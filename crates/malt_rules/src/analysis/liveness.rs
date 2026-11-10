@@ -12,16 +12,22 @@
 //! `for`, `while`, `try`, `break`, `continue` and `return`; the constructs it
 //! cannot see through make the whole scope unanalysable (`None`):
 //!
-//! - calls that read or create variables by name (`evalin`, `assignin`, `save`, ...),
-//! - `parfor` and `spmd` blocks,
-//! - `break` or `continue` outside a loop.
+//! - calls that clear variables or end the flow (`clearvars`, `run`),
+//! - `break` or `continue` outside a loop, and `break` in a `parfor`.
 //!
-//! `eval` and `load` do not stop the analysis: probed, MATLAB still reports the
-//! stores around them.
+//! `eval`, `evalin`, `assignin`, `save`, `who` and `load` do not stop the
+//! analysis: probed, MATLAB still reports the stores around them.
+//!
+//! A `parfor` body runs once, with no back edge: iterations are independent
+//! (probed: `s = s + i` in the body is reported when `s` is not read after the
+//! loop). An `spmd` block runs once on each lab, so it is a plain sequence.
 //!
 //! Names that are `global` or `persistent`, or that a nested function uses, are
-//! never reported. A variable that an anonymous function uses is never reported (probed:
-//! MATLAB does not report all of them, so the conservative choice is kept). A partial store (`x(i) = v`, `s.f = v`) reads
+//! never reported. A variable that a compound assignment changes (`k += 1`) is
+//! never reported in its scope (probed: `k = 1; k = 2; k += 1` reports nothing).
+//! An anonymous function captures its variables when it is created, so its uses
+//! are reads at that point (probed: `u = 1; u = 2; f = @() u` reports only
+//! `u = 1`). A partial store (`x(i) = v`, `s.f = v`) reads
 //! the old value, so it keeps earlier stores alive; it is itself dead when the
 //! variable is not read after it (see [`Dead::partial`]).
 //!
@@ -48,18 +54,12 @@ type Live = HashSet<String>;
 /// The variables with a known truth value at one point of a scope.
 type Known = HashMap<String, bool>;
 
-/// Calls that read or create variables by name, or otherwise cannot be followed
-/// (probed: `eval` and `load` are not in this list, see the module docs). A scope
-/// that uses one is not analysed.
+/// Calls that end the flow or clear variables in a way the analysis cannot
+/// follow. A scope that uses one is not analysed. Probed: `eval`, `evalc`,
+/// `evalin`, `assignin`, `save`, `who` and `whos` are not in this list, MATLAB
+/// reports the stores around them (see the module docs).
 const DYNAMIC_CALLS: &[&str] = &[
-    "evalc",
-    "evalin",
-    "assignin",
-    "save",
     "clearvars",
-    "who",
-    "whos",
-    "inputname",
     "run",
     "rethrow",
     "throw",
@@ -102,7 +102,11 @@ pub fn dead_stores(table: &SymbolTable, index: usize, tree: &Tree, source: &str)
     let scope = table.scopes.get(index)?;
     if !matches!(
         scope.kind,
-        ScopeKind::Script | ScopeKind::Function | ScopeKind::LocalFunction | ScopeKind::Method
+        ScopeKind::Script
+            | ScopeKind::Function
+            | ScopeKind::LocalFunction
+            | ScopeKind::NestedFunction
+            | ScopeKind::Method
     ) {
         return None;
     }
@@ -119,8 +123,25 @@ pub fn dead_stores(table: &SymbolTable, index: usize, tree: &Tree, source: &str)
         .filter(|d| matches!(d.kind, DefKind::Global | DefKind::Persistent))
         .map(|d| d.name.clone())
         .collect();
+    compound_targets(body, source, &mut excluded);
+    // A nested function shares the variables of the functions around it.
+    let mut outer = match scope.kind {
+        ScopeKind::NestedFunction => scope.parent,
+        _ => None,
+    };
+    while let Some(index) = outer.and_then(|i| table.scopes.get(i)) {
+        excluded.extend(index.defs.iter().map(|d| d.name.clone()));
+        excluded.extend(index.uses.iter().map(|u| u.name.clone()));
+        outer = index.parent;
+    }
     for &child in &scope.children {
-        if let Some(child) = table.scopes.get(child) {
+        // A lambda captures its variables when it is created. The enclosing scope
+        // already records them as reads at that point, so they are not excluded.
+        if let Some(child) = table
+            .scopes
+            .get(child)
+            .filter(|c| !matches!(c.kind, ScopeKind::Lambda))
+        {
             excluded.extend(child.uses.iter().map(|u| u.name.clone()));
             excluded.extend(child.defs.iter().map(|d| d.name.clone()));
         }
@@ -261,6 +282,45 @@ fn scope_body<'t>(scope: &Scope, tree: &'t Tree) -> Option<Node<'t>> {
 /// scopes, and a nested function is excluded from the analysis of its parent.
 fn calls_dynamic(node: Node, source: &str) -> bool {
     calls_any(node, source, DYNAMIC_CALLS)
+}
+
+/// Adds the variables that a compound assignment (`k += 1`) changes under `node`.
+/// The grammar has no compound assignment: `k += 1` parses as a command and
+/// `x(2) -= 3` as a binary operator with an error. Function definitions are skipped.
+fn compound_targets(node: Node, source: &str, out: &mut Live) {
+    if node.kind() == "function_definition" {
+        return;
+    }
+    if matches!(node.kind(), "command" | "binary_operator" | "ERROR") {
+        if let Some(name) = compound_target(&source[node.byte_range()]) {
+            out.insert(name);
+        }
+    }
+    for child in children(node) {
+        compound_targets(child, source, out);
+    }
+}
+
+/// The variable that a statement such as `k += 1`, `k -= 1` or `x(2) *= 3`
+/// assigns, from the statement's text.
+fn compound_target(text: &str) -> Option<String> {
+    let text = text.trim_start();
+    let name: String = text
+        .chars()
+        .take_while(|c| c.is_alphanumeric() || *c == '_')
+        .collect();
+    if !is_identifier(&name) {
+        return None;
+    }
+    let mut rest = text[name.len()..].trim_start();
+    if rest.starts_with('(') {
+        rest = rest[rest.find(')')? + 1..].trim_start();
+    }
+    let mut chars = rest.chars();
+    if !matches!(chars.next()?, '+' | '-' | '*' | '/' | '^') || chars.next()? != '=' {
+        return None;
+    }
+    Some(name)
 }
 
 /// Whether a call under `node` is one of `names`. Function definitions are skipped.
@@ -503,11 +563,6 @@ impl Analysis<'_> {
 
     fn stmt(&mut self, node: Node, after: Live, report: bool) -> Live {
         let source = self.source;
-        let head = &source[node.byte_range()];
-        if head.starts_with("parfor") || head.starts_with("spmd") {
-            self.bail = true;
-            return after;
-        }
         match node.kind() {
             "return_statement" => self.finish(self.exit.clone()),
             "break_statement" | "continue_statement" => {
@@ -521,10 +576,13 @@ impl Analysis<'_> {
                         };
                         self.finish(live)
                     }
-                    None => {
-                        self.bail = true;
-                        after
-                    }
+                    // Outside a loop the flow ends (probed: the statements after it are
+                    // unreachable). Nothing stays live, not even a script's workspace
+                    // (`x = 1; break` reports `x = 1`), but a function keeps its outputs.
+                    None => match self.scope.kind {
+                        ScopeKind::Script => self.finish(Live::new()),
+                        _ => self.finish(self.exit.clone()),
+                    },
                 }
             }
             "if_statement" => self.if_statement(node, after, report),
@@ -532,6 +590,7 @@ impl Analysis<'_> {
             "while_statement" => self.while_statement(node, after, report),
             "switch_statement" => self.switch_statement(node, after, report),
             "try_statement" => self.try_statement(node, after, report),
+            "spmd_statement" => self.spmd_statement(node, after, report),
             // An `arguments` block only declares and checks the inputs.
             "arguments_statement" => self.leaf(node, after, report),
             _ if has_block(node) => {
@@ -667,10 +726,47 @@ impl Analysis<'_> {
                 body.push(child);
             }
         }
+        if source[node.byte_range()].starts_with("parfor") {
+            return self.parfor_statement(&body, var.as_deref(), reads, after, report);
+        }
         // The range is evaluated once, before the loop.
         let mut top = self.loop_head(&body, &after, after.clone(), var.as_deref(), report);
         top.extend(reads);
         self.finish(top)
+    }
+
+    /// A `parfor` loop. Iterations run on independent workers, so no value
+    /// travels from one iteration to the next: the body runs once, with the
+    /// loop's exit as its live-out, and has no back edge (probed: MATLAB reports
+    /// `s = s + i` in a body whose `s` is not read after the loop). The loop may
+    /// run zero times, so the exit stays live before it. `break` is not allowed
+    /// in a `parfor`, so the analysis gives up on it.
+    fn parfor_statement(
+        &mut self,
+        body: &[Node],
+        var: Option<&str>,
+        reads: Live,
+        after: Live,
+        report: bool,
+    ) -> Live {
+        if body.iter().any(|stmt| has_break(*stmt)) {
+            self.bail = true;
+            return after;
+        }
+        let mut top = self.branch(body, after.clone(), report);
+        if let Some(name) = var {
+            top.remove(name);
+        }
+        top.extend(after);
+        top.extend(reads);
+        self.finish(top)
+    }
+
+    /// An `spmd` block runs once on every lab: a plain sequence of statements.
+    fn spmd_statement(&mut self, node: Node, after: Live, report: bool) -> Live {
+        let parts = named(node);
+        let live = self.branch(&parts, after, report);
+        self.finish(live)
     }
 
     fn while_statement(&mut self, node: Node, after: Live, report: bool) -> Live {

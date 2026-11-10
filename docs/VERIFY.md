@@ -30,7 +30,7 @@ outside the repository (`~/.local/share/malt-reference/`).
 - The `mathworks` preset mirrors MATLAB's factory configuration. Checks MATLAB never
   reports by default are off under it and on under `--preset all`: ERTAG, WNTAG,
   BDLOG2, CTCH, VANUS, FVNIV, SUSENS, IDISVARHIGH, USESWNS, NOEFF, PUSE, COMPNOP,
-  COMPNOT, CTOINW, BDSCA2, LOGSUM, DUALC, GTARG, LTARG, BDLGI, SIMPT, STRSZ, ELARLOG, the forward-compatibility gates (FCLEN, FCCPV,
+  COMPNOT, CTOINW, BDSCA2, LOGSUM, DUALC, GTARG, LTARG, BDLGI, SIMPT, STRSZ, ELARLOG, MFAMB, STCUL, USENS, PFUTVR, VTPCON, VTPIN, VTPEAL, GPNES, the forward-compatibility gates (FCLEN, FCCPV,
   FCDQS, FCFAV, FCHBL, FCLFS, FCNVA) and the 897 compatibility entries MATLAB lists as
   "low reliability" (`low_reliability = true` in `data/compatibility.toml`; also on
   with the `behavior-changes` category).
@@ -68,7 +68,7 @@ Per check; the full list is the backlog file.
 
 | Check | Difference |
 | --- | --- |
-| NASGU | Liveness analysis with constant folding (`analysis/liveness.rs`): `if 1`, `if true`, `k = 1; if k` kill the dead branch; `1 == 1` is not folded (as in MATLAB). Remaining misses are in `parfor`/`spmd` regions (the analysis bails out), in lambda-captured variables (reporting them caused false positives) and in files with deliberate syntax errors; a few false positives on an `elseif` chain (`formatting__b.m`). |
+| NASGU | Liveness analysis with constant folding (`analysis/liveness.rs`): `if 1`, `if true`, `k = 1; if k` kill the dead branch (`1 == 1` is not folded, as in MATLAB); `parfor` bodies run once, `spmd` is a sequence, a lambda reads its captures at creation, `x += v` silences `x`, `eval`/`evalc`/`evalin`/`assignin`/`save`/`who` no longer stop the analysis (`clearvars` and `run` still do), nested functions are analysed. Not done: constant ranges (`for i = 1:3` makes the value after the loop constant) and a few lines in `bugs__t2`, `gp-a__t6`, `performance__t3`. |
 | ASGLU, STRNU | Rebuilt on the liveness analysis; recall lost under `eval` (ASGLU) and on some struct cases (STRNU). |
 | Suggested improvements (EV2IN, FSTR, GVMIS, ...) | On by default (as in MATLAB). Entries carry condition fields (`literal_args`, `arg_kinds`, `arg_at`, `max_args`, `within_parfor`, `not_in_call`, ...); `object` and `unverified` patterns are never matched. OLDSIM was not probed; `v.NumberOfFrames` needs class tracking. |
 | SYNER, NOPAR, EOLPAR, ENDCT* | After a token MATLAB cannot parse (SYNER, BADCH, BADFP, BADHBH/BADHBB), it suppresses the other checks on that statement (separator to the next `;`, `,` or newline); `malt_core::linter` does the same (`drop_statements_with_errors`). SYNER shows malt's error-node text where MATLAB names the token. Still different: the stray `elseif`/`end` after a closed block (SYNER), SBTMP, FVSYN, VTPOD, FVAMI, REDEF, NOSPC/DEEPS thresholds, EOLPAR for an unclosed bracket at a line end, unclosed `{`. |

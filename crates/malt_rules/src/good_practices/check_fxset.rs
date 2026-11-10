@@ -70,6 +70,29 @@ mod tests {
     }
 
     #[test]
+    fn test_fxseta_fires_on_indexed_and_multi_output_assignment() {
+        // Probed: `k(2) = 1` and `[k, j] = deal(...)` write the loop variable.
+        for source in [
+            "for k = 1:3\n  k(2) = 1;\nend\n",
+            "for k = 1:3\n  [k, j] = deal(1, 2);\nend\n",
+        ] {
+            let tree = parse(source);
+            let eng = engine();
+            let for_node = find_child_of_kind(tree.root_node(), "for_statement").unwrap();
+            assert_eq!(eng.check_fxset(for_node, source).len(), 1, "{source}");
+        }
+    }
+
+    #[test]
+    fn test_fxseta_silent_on_field_with_the_loop_name() {
+        let source = "for k = 1:3\n  s.k = 1;\nend\n";
+        let tree = parse(source);
+        let eng = engine();
+        let for_node = find_child_of_kind(tree.root_node(), "for_statement").unwrap();
+        assert!(eng.check_fxset(for_node, source).is_empty());
+    }
+
+    #[test]
     fn test_fxseta_message_is_matlab_text() {
         let source = "for i = 1:10\n  i = 5;\nend\n";
         let tree = parse(source);

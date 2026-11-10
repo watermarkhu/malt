@@ -554,15 +554,31 @@ mod tests {
     }
 
     #[test]
-    fn nasgu_function_lambda_capture_is_not_reported() {
+    fn nasgu_function_lambda_capture_reads_value_at_creation() {
+        // Probed: `v = 1; f = @() v; v = 2; disp(f())` reports only the store after the lambda.
         let source = "function f18()\n    a = 1;\n    g = @() a;\n    a = 2;\n    disp(g())\nend\n";
+        assert_eq!(nasgu_lines(source), vec![4]);
+    }
+
+    #[test]
+    fn nasgu_function_store_before_lambda_capture_is_reported() {
+        // Probed: `u = 1; u = 2; f = @() u` reports the store the lambda does not capture.
+        let source = "function f29()\n    u = 1; u = 2;\n    f = @() u;\n    disp(f())\nend\n";
+        assert_eq!(nasgu_lines(source), vec![2]);
+    }
+
+    #[test]
+    fn nasgu_function_compound_assignment_silences_variable() {
+        // Probed: `k = 1; k = 2; k += 1` reports nothing: the variable is not checked.
+        let source = "function f30()\n    k = 1;\n    k = 2;\n    k += 1;\n    disp(k)\nend\n";
         assert!(nasgu_lines(source).is_empty());
     }
 
     #[test]
-    fn nasgu_function_assignin_is_not_analysed() {
+    fn nasgu_function_assignin_is_analysed() {
+        // Probed: `assignin` does not stop the analysis, MATLAB reports both stores.
         let source = "function f19()\n    a = 1;\n    assignin('base', 'z', 1);\n    a = 2;\nend\n";
-        assert!(nasgu_lines(source).is_empty());
+        assert_eq!(nasgu_lines(source), vec![2, 4]);
     }
 
     #[test]
@@ -571,10 +587,50 @@ mod tests {
     }
 
     #[test]
-    fn nasgu_function_evalin_is_not_analysed() {
+    fn nasgu_function_evalin_is_analysed() {
+        // Probed: `evalin('base', ...)` does not stop the analysis: MATLAB reports both stores.
         let source =
             "function f21()\n    a = 1;\n    evalin('base', 'disp(1)');\n    a = 2;\nend\n";
-        assert!(nasgu_lines(source).is_empty());
+        assert_eq!(nasgu_lines(source), vec![2, 4]);
+    }
+
+    #[test]
+    fn nasgu_function_save_and_who_are_analysed() {
+        // Probed: MATLAB reports the stores around `save` and `who`, which read no variable.
+        let source =
+            "function f31()\n    u = 1; u = 2; disp(u);\n    save('a.mat')\n    v = 3;\nend\n";
+        assert_eq!(nasgu_lines(source), vec![2, 4]);
+    }
+
+    #[test]
+    fn nasgu_parfor_body_store_is_reported() {
+        // Probed: MATLAB reports the dead store inside the parfor body, not the one it reads.
+        let source =
+            "function f32(n)\n    parfor i = 1:n\n        a = 1; a = 2; disp(a)\n    end\nend\n";
+        assert_eq!(nasgu_lines(source), vec![3]);
+    }
+
+    #[test]
+    fn nasgu_parfor_store_before_loop_is_dead_when_overwritten() {
+        // Probed: `q = 0` is dead, the loop always stores `q` and `q` is not read after it.
+        let source =
+            "function f33(n)\n    q = 0;\n    parfor i = 1:n\n        q = i;\n    end\nend\n";
+        assert_eq!(nasgu_lines(source), vec![2, 4]);
+    }
+
+    #[test]
+    fn nasgu_parfor_reduction_not_read_after_loop_is_reported() {
+        // Probed: `s = 0` is read by the body; the reduction in the body is dead after the loop.
+        let source =
+            "function f34(n)\n    s = 0;\n    parfor i = 1:n\n        s = s + i;\n    end\nend\n";
+        assert_eq!(nasgu_lines(source), vec![4]);
+    }
+
+    #[test]
+    fn nasgu_spmd_block_is_a_sequence() {
+        // Probed: an spmd block runs once, so its stores are checked in order.
+        let source = "function f35()\n    spmd\n        a = 1; a = 2; disp(a)\n        b = 3;\n    end\n    c = 4;\nend\n";
+        assert_eq!(nasgu_lines(source), vec![3, 4, 6]);
     }
 
     #[test]
@@ -625,6 +681,30 @@ mod tests {
         // The values of a script remain in the workspace afterwards.
         let diags = lint_file(&*engine(), "x = linspace(0, 1, 10);\ny = x * 2;\n");
         assert!(!has_id(&diags, "NASGU"), "got: {diags:?}");
+    }
+
+    #[test]
+    fn nasgu_script_break_outside_loop_leaves_nothing_live() {
+        // Probed: `x = 1; break` reports `x = 1`, and so does the loop store
+        // before a top-level `break`. `return` keeps the workspace live instead.
+        assert_eq!(nasgu_lines("x = 1;\nbreak\n"), vec![1]);
+        let source = "for i = 1:2\n  y = i;\nend\nbreak\nw = 4;\n";
+        assert_eq!(nasgu_lines(source), vec![2]);
+        assert!(nasgu_lines("x = 1;\nreturn\n").is_empty());
+    }
+
+    #[test]
+    fn nasgu_nested_function_store_is_reported() {
+        // Probed: MATLAB reports `qq` in the nested function (naming__a).
+        let source = "function f37()\n    nested_one()\n    function nested_one()\n        qq = 1;\n    end\nend\n";
+        assert_eq!(nasgu_lines(source), vec![4]);
+    }
+
+    #[test]
+    fn nasgu_nested_function_shared_variable_is_not_reported() {
+        // Probed: `a` is shared with the parent, so the nested store is read by `disp(a)`.
+        let source = "function f38()\n    nested_one()\n    disp(a)\n    function nested_one()\n        a = 2;\n    end\nend\n";
+        assert!(nasgu_lines(source).is_empty());
     }
 
     #[test]

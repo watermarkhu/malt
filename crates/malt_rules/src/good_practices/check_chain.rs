@@ -21,6 +21,17 @@ impl GoodPracticesEngine {
         if left.kind() != "comparison_operator" {
             return Vec::new();
         }
+        // The grammar parses `n == NaN | n > 3` as `n == (NaN | n) > 3`. MATLAB
+        // does not chain it (probed): an unparenthesised `&`/`|` operand is not a
+        // comparison chain.
+        let mut cursor = left.walk();
+        let logical_operand = left.named_children(&mut cursor).any(|c| {
+            matches!(c.kind(), "boolean_operator" | "binary_operator")
+                && node_text(c, source).contains(['&', '|'])
+        });
+        if logical_operand {
+            return Vec::new();
+        }
         let op = |n: Node| {
             let mut cursor = n.walk();
             let found = n
@@ -76,6 +87,14 @@ mod tests {
         let d = lint("x = a == b ~= c;\n");
         let m = d.iter().find(|d| d.rule_id == "CHAIN").unwrap();
         assert!(m.message.contains("a == b ~= c"), "{}", m.message);
+    }
+
+    #[test]
+    fn chain_ignores_logical_operands_between_comparisons() {
+        // `&` and `|` are not comparisons: MATLAB reports no CHAIN here (probed).
+        assert!(!has_id(&lint("x = n == NaN | n > 3;\n"), "CHAIN"));
+        assert!(!has_id(&lint("x = a > 1 & b < 2;\n"), "CHAIN"));
+        assert!(!has_id(&lint("x = a(1) == 1 & b(2) == 2;\n"), "CHAIN"));
     }
 
     #[test]

@@ -7,7 +7,10 @@ impl GoodPracticesEngine {
             return Vec::new();
         }
 
-        let globals = collect_global_persistent_vars(root_node_of(node), source);
+        // Declarations of the enclosing function only (probed: another function's
+        // `global G` does not make `G = 1` here a GLOBAL write).
+        let scope = enclosing_function(node).unwrap_or_else(|| root_node_of(node));
+        let globals = collect_global_persistent_vars(scope, source);
         if globals.is_empty() {
             return Vec::new();
         }
@@ -52,6 +55,17 @@ impl GoodPracticesEngine {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_pfgp_ignores_another_functions_global() {
+        // Probed: `G = 1` in a function without `global G` is not PFGP, even when
+        // another function in the file declares `G` global.
+        let engine =
+            crate::good_practices::GoodPracticesEngine::from_config(&malt_core::Config::default());
+        let src = "function f()\nparfor i = 1:2\n  G = 1;\nend\nend\nfunction g()\nglobal G\nend\n";
+        let diags = crate::test_util::lint_nodes(&*engine, src);
+        assert!(diags.iter().all(|d| d.rule_id != "PFGP"), "{diags:?}");
+    }
 
     #[test]
     fn test_pfgp_fires_on_global_assignment() {

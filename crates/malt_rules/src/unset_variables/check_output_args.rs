@@ -15,7 +15,9 @@ impl UnsetVariablesEngine {
             if def.kind != DefKind::OutputArg {
                 continue;
             }
-            if self.is_ignored(&def.name) {
+            // `varargout` is in the builtin ignore list for reads, but MATLAB
+            // reports an unassigned `varargout` output (probed).
+            if self.is_ignored(&def.name) && def.name != "varargout" {
                 continue;
             }
 
@@ -66,6 +68,22 @@ mod tests {
     }
 
     // -- STOUT tests --------------------------------------------------------
+
+    #[test]
+    fn stout_varargout_not_assigned() {
+        // Probed: MATLAB reports STOUT for an unassigned `varargout` output and
+        // not for `varargout{1} = ...` assigned on one path only.
+        let source = "function varargout = foo(x)\n    disp(x);\nend\n";
+        let diags = lint_file(&*engine(), source);
+        assert!(diags.iter().any(|d| d.rule_id == "STOUT"), "got: {diags:?}");
+        let source =
+            "function varargout = foo(x)\n    if x\n        varargout{1} = 1;\n    end\nend\n";
+        let diags = lint_file(&*engine(), source);
+        assert!(
+            !diags.iter().any(|d| d.rule_id == "STOUT"),
+            "got: {diags:?}"
+        );
+    }
 
     #[test]
     fn stout_output_not_assigned() {

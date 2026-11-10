@@ -49,9 +49,11 @@ impl ReadabilityEngine {
                 let inner_text = &source[inner.start_byte()..inner.end_byte()];
                 // Comma-separated lists (`[s.f]`, `[c{:}]`) can yield several
                 // values, so the brackets are not redundant.
-                let list_like = inner.kind() == "field_expression" || inner_text.contains('{');
+                // A cell literal `[{1}]` is one element; `c{:}` is a list.
+                let list_like = inner.kind() == "field_expression"
+                    || (inner_text.contains('{') && inner.kind() != "cell");
                 // Probed against MATLAB R2026b: single identifiers, literals,
-                // operator expressions, calls and ranges are all reported.
+                // operator expressions, calls, ranges, cells and handles are all reported.
                 let scalar = matches!(
                     inner.kind(),
                     "identifier"
@@ -64,6 +66,8 @@ impl ReadabilityEngine {
                         | "postfix_operator"
                         | "function_call"
                         | "range"
+                        | "cell"
+                        | "function_handle"
                 );
                 if scalar && !list_like {
                     results.push(self.diag(
@@ -122,6 +126,7 @@ mod tests {
             "x = [1:3];\n",
             "x = [a,];\n",
             "disp([x]);\n",
+            "y = [{1}];\n",
         ] {
             let diags = lint_nodes(&*engine(), source);
             assert!(has_id(&diags, "NBRAK2"), "{source}: got: {diags:?}");

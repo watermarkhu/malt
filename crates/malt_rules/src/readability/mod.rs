@@ -211,9 +211,11 @@ impl ReadabilityEngine {
         let mut rule_config: ReadabilityConfig = config.rule_params("READABILITY_ENGINE");
         // MATLAB reports LOGSUM for `sum(x(:) <= 1)` but not for `sum(x > 0.5)` or
         // `sum(x.^2 + x <= 1)`; until the exact condition is known it is off by default.
+        // MFAMB: MATLAB never reported it in probes (`f(1)` before `f = 2`, in a
+        // script or a function) nor in the fixtures, so it is off by default too.
         rule_config
             .disabled_checks
-            .extend(crate::off_under_mathworks(config, &["LOGSUM"]));
+            .extend(crate::off_under_mathworks(config, &["LOGSUM", "MFAMB"]));
         Box::new(Self {
             config: rule_config,
         })
@@ -581,7 +583,10 @@ mod tests {
 
     #[test]
     fn mfamb_fires_when_name_is_called_before_it_becomes_a_variable() {
-        let diags = lint_file(&*engine(), "y = somevar(1);\nsomevar = 5;\n");
+        // MFAMB is off under the mathworks preset (never reported by MATLAB).
+        let config = Config::from_toml("[lint]\npreset = \"all\"\n").expect("valid config");
+        let rule = ReadabilityEngine::from_config(&config);
+        let diags = lint_file(&*rule, "y = somevar(1);\nsomevar = 5;\n");
         assert!(has_id(&diags, "MFAMB"), "got: {diags:?}");
     }
 

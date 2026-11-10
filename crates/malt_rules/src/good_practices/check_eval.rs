@@ -32,7 +32,7 @@ impl GoodPracticesEngine {
         // call built through concatenation, a variable, or a command-form
         // argument is not flagged as EVLDUAL (it falls through to the other
         // eval sub-checks).
-        if self.is_check_enabled("EVLDUAL") && self.eval_is_literal_function_call(node, source) {
+        if self.is_check_enabled("EVLDUAL") && self.eval_is_command_concatenation(node, source) {
             return vec![Diagnostic {
                 rule_id: "EVLDUAL",
                 message: "This use of 'eval' is unnecessary and can be removed. Call the evaluated function directly using parentheses. For example, use 'load(filename)' instead of 'eval(['load ' filename])'.".to_string(),
@@ -59,7 +59,12 @@ impl GoodPracticesEngine {
         let literal_argument = find_child_of_kind(node, "arguments")
             .and_then(|args| args.named_child(0))
             .is_some_and(|arg| arg.kind() == "string");
-        if two_arguments || (!statement_level && !literal_argument) {
+        // A concatenation without an assignment, `eval(['x' num2str(i)])`, is
+        // silent in MATLAB (probed).
+        let matrix_without_assignment = find_child_of_kind(node, "arguments")
+            .and_then(|args| args.named_child(0))
+            .is_some_and(|arg| arg.kind() == "matrix" && !node_text(arg, source).contains('='));
+        if two_arguments || (!statement_level && !literal_argument) || matrix_without_assignment {
             return Vec::new();
         }
 
@@ -86,9 +91,9 @@ impl GoodPracticesEngine {
         }]
     }
 
-    /// Whether an `eval(...)` call's single argument is a literal string whose
-    /// contents are a plain function call (`name(args)`).
-    fn eval_is_literal_function_call(&self, node: Node, source: &str) -> bool {
+    /// Whether an `eval(...)` call's single argument is a concatenation that
+    /// starts with a command word and a space, such as `['load ' name]`.
+    fn eval_is_command_concatenation(&self, node: Node, source: &str) -> bool {
         let Some(args) = find_child_of_kind(node, "arguments") else {
             return false;
         };
@@ -103,13 +108,26 @@ impl GoodPracticesEngine {
             return false;
         }
         // MATLAB's EVLDUAL is for a concatenated command such as
-        // `eval(['load ' name])` (probed); a literal `eval('load(f)')` is EVLCS.
+        // `eval(['load ' name])`: the first piece is a command word followed by
+        // a space (probed). `eval(['x' num2str(i)])` is not one.
         let arg = named[0];
         if arg.kind() != "matrix" {
             return false;
         }
         let text = node_text(arg, source).trim();
-        text.contains('\'') && !text.contains('=')
+        let Some(rest) = text.strip_prefix('[').map(str::trim_start) else {
+            return false;
+        };
+        let Some(word) = rest.strip_prefix('\'').and_then(|r| r.split('\'').next()) else {
+            return false;
+        };
+        word.ends_with(' ')
+            && !word.trim().is_empty()
+            && word
+                .trim()
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '_')
+            && !text.contains('=')
     }
 }
 
@@ -184,5 +202,14 @@ mod tests {
         // Built assignments and field names.
         assert_eq!(ids("eval([name ' = 1;']);\n"), vec!["EVLEQ"]);
         assert_eq!(ids("eval(['s.' field ' = 1;']);\n"), vec!["EVLDOT"]);
+        // Probed: a constant statement with a field is EVLCS, not EVLDOT.
+        assert_eq!(ids("eval('s.a = 1');\n"), vec!["EVLCS"]);
+        // Probed: a sequentially numbered variable is EVLSEQVAR, not EVLEQ.
+        assert_eq!(ids("eval(['a' num2str(3) ' = 1']);\n"), vec!["EVLSEQVAR"]);
+        // Probed: a concatenation without an assignment is silent.
+        assert!(ids("eval(['x' num2str(i)]);\n").is_empty());
+        // Probed: EVLDUAL needs a command word followed by a space.
+        assert_eq!(ids("eval(['load ' f]);\n"), vec!["EVLDUAL"]);
+        assert!(!ids("eval(['x' f]);\n").contains(&"EVLDUAL"));
     }
 }

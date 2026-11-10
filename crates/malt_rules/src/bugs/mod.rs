@@ -178,9 +178,11 @@ impl BugsEngine {
     pub fn from_config(config: &Config) -> Box<dyn Rule> {
         let mut rule_config: BugsConfig = config.rule_params("BUGS_ENGINE");
         // MATLAB reports `&&`/`||` operands with BDSCI/BDLGI instead (probed).
+        // STCUL: MATLAB stayed silent on `strcmp('abc', 'ABC')`, `strcmp('a', 'A')`
+        // and `strcmp(x, 'ABC')` with `x = 'abc'` (probed) and never in the fixtures.
         rule_config
             .disabled_checks
-            .extend(crate::off_under_mathworks(config, &["BDSCA2"]));
+            .extend(crate::off_under_mathworks(config, &["BDSCA2", "STCUL"]));
         Box::new(Self {
             config: rule_config,
         })
@@ -692,7 +694,9 @@ impl Rule for BugsEngine {
             }
             "function_call" => {
                 diagnostics.extend(self.check_debug_function(node, source));
-                diagnostics.extend(self.check_strcmp_case_mismatch(node, source));
+                if !self.config.disabled_checks.iter().any(|id| id == "STCUL") {
+                    diagnostics.extend(self.check_strcmp_case_mismatch(node, source));
+                }
                 diagnostics.extend(self.check_strcmp_cell(node, source));
                 diagnostics.extend(self.check_funfun(node, source));
                 diagnostics.extend(self.check_assert_condition(node, source));

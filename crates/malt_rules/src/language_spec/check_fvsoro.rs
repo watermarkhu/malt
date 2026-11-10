@@ -23,10 +23,13 @@ impl LanguageSpecEngine {
                 .iter()
                 .find(|b| b.role.is_output() || b.is_output_repeating())
             {
-                self.push_block_diag(
+                let first = block.args.first().map_or("", |a| a.name.as_str());
+                self.push_arg_diag(
                     block,
+                    first,
                     "FVSORO",
                     "Output arguments block declarations and the function line must contain the same output arguments in the same order.",
+                    source,
                     diagnostics,
                 );
             }
@@ -38,6 +41,25 @@ impl LanguageSpecEngine {
 mod tests {
 
     use crate::language_spec::tests::{check_source, filter_by_id};
+
+    #[test]
+    fn test_fvsoro_reported_at_the_first_output_declaration() {
+        // Probed: MATLAB points at the first declaration of the output block.
+        let source = "\
+function [b, a] = f(x)
+    arguments (Output)
+        a (1,1) double
+        b (1,1) double
+    end
+end
+";
+        let diags = check_source(source, "f.m");
+        let lines: Vec<usize> = filter_by_id(&diags, "FVSORO")
+            .iter()
+            .map(|d| d.line)
+            .collect();
+        assert_eq!(lines, vec![3]);
+    }
 
     #[test]
     fn test_fvsoro_fires_order_mismatch() {

@@ -18,7 +18,7 @@ impl PerformanceEngine {
         let op = extract_operator(node, source);
 
         // AND2: & in boolean context
-        if self.is_enabled("AND2") && op == "&" && is_in_condition(node) {
+        if self.is_enabled("AND2") && op == "&" && and2_applies(node) {
             diags.push(make_diag_with_fix(
                 "AND2",
                 node,
@@ -37,6 +37,28 @@ impl PerformanceEngine {
         }
 
         diags
+    }
+}
+
+/// Whether an AND2 candidate `&` is a condition operand, possibly parenthesised.
+/// Probed and in the fixtures: MATLAB fires on `if a & b`, `if a > 1 & b < 2`,
+/// `if (x & ok) || r`; it is silent inside call arguments or indexing
+/// (`isempty(a & b)`, `x(a & b)`).
+fn and2_applies(node: tree_sitter::Node) -> bool {
+    let mut current = node;
+    loop {
+        let Some(parent) = current.parent() else {
+            return false;
+        };
+        match parent.kind() {
+            "if_statement" | "while_statement" | "elseif_clause" => return true,
+            "binary_operator"
+            | "comparison_operator"
+            | "boolean_operator"
+            | "parenthesized_expression"
+            | "parenthesis" => current = parent,
+            _ => return false,
+        }
     }
 }
 
@@ -73,6 +95,26 @@ mod tests {
     use crate::test_util::{has_id, lint_nodes};
 
     // -- AND2 / OR2 ----------------------------------------------------------
+
+    #[test]
+    fn and2_silent_inside_call_or_index_argument() {
+        // Probed: MATLAB reports AND2 for `if a & b` and `if a > 1 & b < 2` only.
+        for src in [
+            "if isempty(a & b)\n    c = 1;\nend\n",
+            "if x(a & b)\n    c = 1;\nend\n",
+        ] {
+            let diags = lint_nodes(&*engine(), src);
+            assert!(!has_id(&diags, "AND2"), "{src}: got: {diags:?}");
+        }
+        for src in [
+            "if a > 1 & b < 2\n    c = 1;\nend\n",
+            "if (a & b)\n    c = 1;\nend\n",
+            "if (x & ok) || r\n    c = 1;\nend\n",
+        ] {
+            let diags = lint_nodes(&*engine(), src);
+            assert!(has_id(&diags, "AND2"), "{src}: got: {diags:?}");
+        }
+    }
 
     #[test]
     fn or2_silent_on_call_operand_or_parenthesised_operand() {

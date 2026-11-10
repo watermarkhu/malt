@@ -50,6 +50,30 @@ impl UnsetVariablesEngine {
                 da.possibly_unset.retain(|u| !outer.contains(&u.name));
             }
 
+            // A use inside a nested function body shares the parent's workspace, so
+            // MATLAB reports nothing for it here (probed: `function g(), disp(u); end`).
+            da.possibly_unset.retain(|u| {
+                !scope.children.iter().any(|&c| {
+                    let child = &symbol_table.scopes[c];
+                    child.kind == ScopeKind::NestedFunction
+                        && child.byte_range.contains(&u.use_byte_range.start)
+                })
+            });
+
+            // A `global` or `persistent` declaration makes the name a workspace
+            // variable: MATLAB reports neither NODEF nor USENS for it (probed,
+            // `disp(g)` before `global g`, and `p = p + 1` before `persistent p`).
+            da.possibly_unset.retain(|u| {
+                !scope.defs.iter().any(|d| {
+                    d.name == u.name
+                        && matches!(
+                            d.kind,
+                            crate::analysis::symbols::DefKind::Global
+                                | crate::analysis::symbols::DefKind::Persistent
+                        )
+                })
+            });
+
             // Emit NODEF/USENS for possibly-unset variables.
             // NODEF needs a definition later in the scope and none before the use.
             let nodef_applies = |name: &str, use_start: usize| {
@@ -99,7 +123,10 @@ impl UnsetVariablesEngine {
             {
                 continue;
             }
-            let (rule_id, message) = if da.definitely_assigned.contains(&unset_var.name) {
+            // Use before every assignment is NODEF (probed: `disp(u)`, then `u = 1`).
+            let (rule_id, message) = if da.definitely_assigned.contains(&unset_var.name)
+                && !nodef_applies(&unset_var.name, unset_var.use_byte_range.start)
+            {
                 (
                     "USENS",
                     format!(
@@ -116,6 +143,12 @@ impl UnsetVariablesEngine {
                     ),
                 )
             };
+
+            // USENS is off under the `mathworks` preset: MATLAB never reported it
+            // in the probes or the fixtures.
+            if rule_id == "USENS" && !self.usens_on {
+                continue;
+            }
 
             diagnostics.push(Diagnostic {
                 rule_id,
@@ -205,6 +238,21 @@ end
             !diags.iter().any(|d| d.rule_id == "NODEF"),
             "should not fire NODEF for 'x' when it is assigned before use"
         );
+    }
+
+    #[test]
+    fn global_or_persistent_declaration_suppresses_unset_reports() {
+        // Probed: MATLAB reports only GPFST and GVMIS for these, never NODEF or USENS.
+        assert!(nodef_ids("function g()\n    disp(g)\n    global g\nend\n").is_empty());
+        assert!(nodef_ids("function g()\n    p = p + 1;\n    persistent p\nend\n").is_empty());
+    }
+
+    #[test]
+    fn use_in_nested_function_shares_the_parent_workspace() {
+        // Probed: MATLAB reports nothing for `u` used in a nested function before
+        // the parent assigns it.
+        let src = "function f()\n    function g(), disp(u); end\n    u = 1; g();\nend\n";
+        assert!(nodef_ids(src).is_empty(), "got: {:?}", nodef_ids(src));
     }
 
     // -- USENS tests --------------------------------------------------------

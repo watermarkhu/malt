@@ -2162,6 +2162,43 @@ impl LanguageSpecEngine {
             fix: None,
         });
     }
+
+    /// Like [`Self::push_block_diag`], but reported at the declaration line of
+    /// argument `name` inside the block (MATLAB points at the argument, probed).
+    /// Falls back to the block header when the argument is not found.
+    pub(crate) fn push_arg_diag(
+        &self,
+        block: &ArgumentsBlockMeta,
+        name: &str,
+        rule_id: &'static str,
+        message: &str,
+        source: &str,
+        diagnostics: &mut Vec<Diagnostic>,
+    ) {
+        let header = block.node.start_position();
+        let text = &source[block.byte_range.clone()];
+        let (line, column) = text
+            .lines()
+            .enumerate()
+            .skip(1)
+            .find_map(|(i, l)| {
+                let trimmed = l.trim_start();
+                let first = trimmed
+                    .split(|c: char| !(c.is_alphanumeric() || c == '_'))
+                    .next();
+                (first == Some(name)).then(|| (header.row + i + 1, l.len() - trimmed.len() + 1))
+            })
+            .unwrap_or((header.row + 1, header.column + 1));
+        diagnostics.push(Diagnostic {
+            rule_id,
+            message: message.to_string(),
+            severity: Severity::Error,
+            byte_range: block.byte_range.clone(),
+            line,
+            column,
+            fix: None,
+        });
+    }
 }
 
 impl LanguageSpecEngine {

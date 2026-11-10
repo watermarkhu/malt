@@ -70,6 +70,23 @@ fn is_known_variable(node: Node, source: &str, name: &str) -> bool {
     defined_before(root, source, name, node.start_byte())
 }
 
+/// Whether a dimension argument is all ones: the literal `1` or a bracketed
+/// vector of ones such as `[1 1 1]` (`[1, 1]` too).
+fn is_unit_dims(arg: Node, source: &str) -> bool {
+    let text = node_text(arg, source).trim();
+    if text == "1" {
+        return true;
+    }
+    let Some(inner) = text.strip_prefix('[').and_then(|t| t.strip_suffix(']')) else {
+        return false;
+    };
+    let mut items = inner
+        .split(|c: char| c == ',' || c.is_whitespace())
+        .filter(|s| !s.is_empty())
+        .peekable();
+    items.peek().is_some() && items.all(|s| s == "1")
+}
+
 /// Reductions taking a DIM argument.
 const DIM_FUNCS: &[&str] = &[
     "sum", "prod", "max", "min", "mean", "median", "mode", "any", "all", "cumsum", "cumprod",
@@ -214,14 +231,25 @@ impl PerformanceEngine {
         }
 
         // MMTC: mat2cell(x, ones(..), ones(..)) -> num2cell
+        // MMTC probed: `mat2cell(x, ones(1,3), 1)` and `mat2cell(x,[1 1 1],[1])`.
         if on("MMTC")
             && func_name == "mat2cell"
             && args.len() >= 3
             && args[1..]
                 .iter()
-                .all(|a| call_to(*a, source, "ones").is_some())
+                .all(|a| call_to(*a, source, "ones").is_some() || is_unit_dims(*a, source))
         {
             diags.push(make_diag("MMTC", node));
+        }
+
+        // CLALL: `clear("all")` is the function-call form of `clear all`.
+        if on("CLALL")
+            && func_name == "clear"
+            && args
+                .iter()
+                .any(|a| matches!(node_text(*a, source), "'all'" | "\"all\""))
+        {
+            diags.push(make_diag("CLALL", node));
         }
 
         // MRPBW: regionprops(bwlabel(bw), ...)
@@ -487,6 +515,22 @@ mod tests {
         assert!(fires("m = mat2cell(x, ones(3,1), ones(1,3));\n", "MMTC"));
         assert!(!fires("m = mat2cell(x, [1 2], 3);\n", "MMTC"));
         assert!(!fires("z = x .* x;\n", "MMTC"));
+    }
+
+    #[test]
+    fn mmtc_fires_on_scalar_or_bracketed_unit_dimensions() {
+        // Probed: MATLAB reports `mat2cell(x, ones(1,3), 1)` and `mat2cell(x,[1 1 1],[1])`.
+        assert!(fires("q = mat2cell(x, ones(1,3), 1);\n", "MMTC"));
+        assert!(fires("q = mat2cell(x,[1 1 1],[1]);\n", "MMTC"));
+        assert!(!fires("q = mat2cell(x, [1 2 3], 1);\n", "MMTC"));
+    }
+
+    #[test]
+    fn clall_fires_on_clear_all_function_call() {
+        // Probed: `clear("all")` is CLALL, like the `clear all` command.
+        assert!(fires("clear(\"all\")\n", "CLALL"));
+        assert!(fires("clear('all')\n", "CLALL"));
+        assert!(!fires("clear(\"x\")\n", "CLALL"));
     }
 
     #[test]

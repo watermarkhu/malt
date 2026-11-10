@@ -138,6 +138,8 @@ pub struct UnsetVariablesEngine {
     /// Whether SUSENS runs. MATLAB never reports it with its default
     /// configuration, so it is off under the `mathworks` preset.
     script_checks_on: bool,
+    /// Whether USENS runs. Off under the `mathworks` preset (never reported).
+    usens_on: bool,
 }
 
 impl UnsetVariablesEngine {
@@ -153,6 +155,7 @@ impl UnsetVariablesEngine {
             _config: rule_config,
             ignore_set,
             script_checks_on: config.preset.enables_default_off,
+            usens_on: config.preset.enables_default_off,
         })
     }
 
@@ -328,6 +331,7 @@ end
             _config: rule_config,
             ignore_set,
             script_checks_on: true,
+            usens_on: true,
         };
 
         let ctx = FileContext {

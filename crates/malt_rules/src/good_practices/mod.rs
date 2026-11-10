@@ -949,6 +949,11 @@ pub(crate) fn classify_eval_usage(
 ) -> (&'static str, &'static str) {
     let on = |id: &str| config.disabled_checks.iter().all(|c| c != id);
 
+    // A constant statement is EVLCS whatever its field names (probed:
+    // `eval('s.a = 1')`); the dynamic checks need a built argument.
+    let is_constant = !args_text.contains('[') && !args_text.contains("sprintf");
+    let sequential = args_text.contains("num2str") || args_text.contains("int2str");
+
     // EVLDOT: dynamic field access like `eval(['s.' fieldname])`.
     let bytes = literal.as_bytes();
     let dotted = literal.contains(".(")
@@ -960,7 +965,7 @@ pub(crate) fn classify_eval_usage(
                     .get(i + 1)
                     .is_none_or(|n| n.is_ascii_alphabetic() || *n == b' ')
         });
-    if dotted && on("EVLDOT") {
+    if dotted && !is_constant && on("EVLDOT") {
         return (
             "EVLDOT",
             "'eval' is inefficient and makes code less clear. Use dynamic field names to access structure fields or object properties instead.",
@@ -987,8 +992,7 @@ pub(crate) fn classify_eval_usage(
         let after = literal[i + 1..].chars().next();
         !matches!(before, Some('=' | '~' | '<' | '>')) && after != Some('=')
     });
-    let is_constant = !args_text.contains('[') && !args_text.contains("sprintf");
-    if assigns && !is_constant && on("EVLEQ") {
+    if assigns && !is_constant && !sequential && on("EVLEQ") {
         return (
             "EVLEQ",
             "'eval' is inefficient and makes code less clear. Assign to the variable directly.",
@@ -996,7 +1000,7 @@ pub(crate) fn classify_eval_usage(
     }
 
     // EVLSEQVAR: sequential variable creation like `eval(['x' num2str(i)])`.
-    if (args_text.contains("num2str") || args_text.contains("int2str")) && on("EVLSEQVAR") {
+    if sequential && assigns && on("EVLSEQVAR") {
         return (
             "EVLSEQVAR",
             "Using 'eval' to dynamically assign variables is not recommended.",
@@ -1021,22 +1025,6 @@ pub(crate) fn args_has_case_conversion(args_node: Node, source: &str) -> bool {
                 }
             }
         }
-    }
-    false
-}
-
-/// Check if a node is inside a matrix or cell context (for SHOCIRAA).
-pub(crate) fn is_inside_array_context(node: Node) -> bool {
-    let mut current = node.parent();
-    while let Some(p) = current {
-        let kind = p.kind();
-        if kind == "matrix" || kind == "cell" {
-            return true;
-        }
-        if kind == "function_definition" || kind == "source_file" {
-            break;
-        }
-        current = p.parent();
     }
     false
 }
@@ -1217,10 +1205,19 @@ pub(crate) fn collect_global_persistent_vars(
     root: Node,
     source: &str,
 ) -> std::collections::HashSet<String> {
+    collect_declared_vars(root, source, &["global_operator", "persistent_operator"])
+}
+
+/// Names declared under `root` with one of the `kinds` operators.
+pub(crate) fn collect_declared_vars(
+    root: Node,
+    source: &str,
+    kinds: &[&str],
+) -> std::collections::HashSet<String> {
     let mut vars = std::collections::HashSet::new();
     let mut cursor = root.walk();
     for child in root.children(&mut cursor) {
-        if child.kind() == "global_operator" || child.kind() == "persistent_operator" {
+        if kinds.contains(&child.kind()) {
             let mut c2 = child.walk();
             for id in child.children(&mut c2) {
                 if id.kind() == "identifier" {
@@ -1229,7 +1226,7 @@ pub(crate) fn collect_global_persistent_vars(
             }
         }
         if child.is_named() {
-            vars.extend(collect_global_persistent_vars(child, source));
+            vars.extend(collect_declared_vars(child, source, kinds));
         }
     }
     vars
@@ -1674,7 +1671,7 @@ pub(crate) fn collect_loop_assignments(
     }
     if node.kind() == "assignment" {
         if let Some(left) = node.child_by_field_name("left") {
-            if left.kind() == "identifier" && node_text(left, source) == var_name {
+            if assigns_loop_variable(left, var_name, source) {
                 let pos = node.start_position();
                 diagnostics.push(Diagnostic {
                     rule_id: "FXSETA",
@@ -1691,6 +1688,22 @@ pub(crate) fn collect_loop_assignments(
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
         collect_loop_assignments(child, var_name, source, diagnostics);
+    }
+}
+
+/// Whether an assignment target writes the loop variable: `k = ...`, the
+/// indexed `k(2) = ...` and an element of `[k, j] = ...` (probed). A field
+/// `s.k = ...` writes a different variable.
+fn assigns_loop_variable(left: Node, var_name: &str, source: &str) -> bool {
+    match left.kind() {
+        "identifier" => node_text(left, source) == var_name,
+        "function_call" => get_function_call_name(left, source) == Some(var_name),
+        "matrix" | "multioutput_variable" => {
+            let mut ids = Vec::new();
+            collect_nodes_of_kind(left, "identifier", &mut ids);
+            ids.iter().any(|id| node_text(*id, source) == var_name)
+        }
+        _ => false,
     }
 }
 

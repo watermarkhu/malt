@@ -17,7 +17,10 @@ impl PerformanceEngine {
             if func == "length" && self.is_enabled("ISMT") && val == "0" {
                 diags.push(make_diag("ISMT", node));
             }
-            if self.is_enabled("ISCL") && val == "1" {
+            let is_equality = node
+                .child(1)
+                .is_some_and(|op| node_text(op, source) == "==");
+            if self.is_enabled("ISCL") && is_equality && val == "1" {
                 diags.push(make_diag("ISCL", node));
             }
         }
@@ -38,6 +41,15 @@ mod tests {
         let src = "y = (length(x) == 0);\n";
         let diags = lint_nodes(&*engine(), src);
         assert!(has_id(&diags, "ISMT"), "got: {diags:?}");
+    }
+
+    #[test]
+    fn ismt_fires_on_length_not_equal_zero() {
+        // Probed: `(length(x) ~= 0)` is ISMT; ISCL is for `==` only.
+        let diags = lint_nodes(&*engine(), "y = (length(x) ~= 0);\n");
+        assert!(has_id(&diags, "ISMT"), "got: {diags:?}");
+        let diags = lint_nodes(&*engine(), "y = (length(x) ~= 1);\n");
+        assert!(!has_id(&diags, "ISCL"), "got: {diags:?}");
     }
 
     #[test]

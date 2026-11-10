@@ -979,8 +979,9 @@ pub(crate) fn extract_length_comparison<'a>(
     let op_node = node.child(1)?;
     let right = node.child(2)?;
 
+    // `~=` is accepted for ISMT (`length(x) ~= 0`); callers gate ISCL on `==`.
     let op = node_text(op_node, source);
-    if op != "==" {
+    if op != "==" && op != "~=" {
         return None;
     }
 

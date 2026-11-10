@@ -64,17 +64,25 @@ mod tests {
 
     // -- STCUL ---------------------------------------------------------------
 
+    /// STCUL is off under the mathworks preset (MATLAB stayed silent in the
+    /// probes), so the positive cases run under the `all` preset.
+    fn stcul_all_presets(src: &str) -> Vec<Diagnostic> {
+        let config =
+            malt_core::Config::from_toml("[lint]\npreset = \"all\"\n").expect("valid config");
+        crate::test_util::lint_nodes(&*crate::bugs::BugsEngine::from_config(&config), src)
+    }
+
     #[test]
     fn stcul_fires_on_case_mismatch() {
         let src = "strcmp('a', 'A');\n";
-        let diags = node_diags(src);
+        let diags = stcul_all_presets(src);
         assert!(has_id(&diags, "STCUL"), "got: {diags:?}");
     }
 
     #[test]
     fn stcul_fires_on_multi_char_case_mismatch() {
         let src = "strcmp('abc', 'ABC');\n";
-        let diags = node_diags(src);
+        let diags = stcul_all_presets(src);
         assert!(has_id(&diags, "STCUL"), "got: {diags:?}");
     }
 
