@@ -1,89 +1,86 @@
-# Unverified and disputed checks
+# Conformance with MATLAB's Code Analyzer
 
-Checks whose ID, message, severity or firing condition could not be confirmed
-against MATLAB R2026b (`checkcode`, run through the MATLAB MCP server). Each entry
-says what is known and what would settle it. Remove an entry when it is settled.
+What is verified against MATLAB R2026b (`checkcode`, run through the MATLAB MCP
+server), what is not, and what still differs. This file describes the current
+state only: settle an item, then delete its row.
 
-How to check: `docs/scripts/matlab_probe.m` runs the Code Analyzer over a file list,
-`docs/scripts/diff_against_matlab.ts` compares the result with malt, and
-`docs/scripts/make-allmsg-csv.ts` + `docs/scripts/check_against_mathworks.ts`
-compare IDs, severities and messages with MATLAB's own list (`checkcode -allmsg`).
+## How conformance is measured
 
-## Disputed severities
+| What | Where |
+| --- | --- |
+| Run the Code Analyzer over a file list | `docs/scripts/matlab_probe.m` |
+| Compare (file, line, ID) with malt, per check | `docs/scripts/diff_against_matlab.ts` |
+| Compare IDs, severities and messages with MATLAB's own list (`checkcode -allmsg`) | `docs/scripts/make-allmsg-csv.ts` + `docs/scripts/check_against_mathworks.ts` |
+| Fixture regression test | `crates/malt_cli/tests/matlab_conformance.rs` |
 
-| ID | malt | MATLAB docs index | `checkcode` level | Note |
-| --- | --- | --- | --- | --- |
-| RHSFN | error | error | 1 (warning) | The two MathWorks sources disagree; malt follows the documentation. |
-| PFRNI | warning | warning | 2 (error) | Same. |
+`tests/fixtures/matlab_expected.tsv` holds what MATLAB reports for every fixture
+(path, line, ID: facts only). The test fails on any difference that is not listed in
+`tests/fixtures/matlab_known_differences.tsv`, the backlog. The goal is an empty
+backlog; `cargo test -p malt-cli --test matlab_conformance -- --ignored` fails until
+it is. After fixing differences, shrink the backlog with
+`UPDATE_KNOWN_DIFFERENCES=1 cargo test -p malt-cli --test matlab_conformance`.
 
-## Not emitted: no known trigger
+MATLAB's own message text and its full check list are MathWorks content: keep them
+outside the repository (`~/.local/share/malt-reference/`).
+
+## Policy
+
+- MATLAB's real behaviour is the ground truth. When it cannot be reproduced, the
+  check is not emitted rather than guessed.
+- The `mathworks` preset mirrors MATLAB's factory configuration. Checks MATLAB never
+  reports by default are off under it and on under `--preset all`: ERTAG, WNTAG,
+  BDLOG2, CTCH, VANUS, FVNIV, SUSENS, IDISVARHIGH, USESWNS, NOEFF, PUSE, COMPNOP,
+  COMPNOT, CTOINW, BDSCA2, LOGSUM, the forward-compatibility gates (FCLEN, FCCPV,
+  FCDQS, FCFAV, FCHBL, FCLFS, FCNVA) and the 897 compatibility entries MATLAB lists as
+  "low reliability" (`low_reliability = true` in `data/compatibility.toml`; also on
+  with the `behavior-changes` category).
+- Severities follow MathWorks' documentation index. For RHSFN (error) and PFRNI
+  (warning) the numeric levels of `checkcode -allmsg` say otherwise and `checkcode`
+  exposes no severity field, so the editor's behaviour cannot be read from here.
+
+## Official IDs malt does not emit
 
 | ID | Why |
 | --- | --- |
-| PRTCAL | MATLAB lists "Add a semicolon after the function call to hide the output", but it did not fire for built-in calls, local functions, functions in separate files, `cellfun`, `containers.Map()` or method-like calls, in scripts or functions, and never across the 209-file fixture corpus. The check was removed rather than guessed. |
+| PRTCAL | Never fired in any probe (built-in calls, local functions, functions in files, methods; scripts and functions) or in the corpus. |
+| XCREDS | Fires for `password`/`Password` assigned a non-empty char literal but not for `PASSWORD`, `pwd`, `token` or `apiKey`; the case asymmetry is unexplained. |
+| INVALIDCHECKDISABLE, INVALIDCHECKENABLE, INVALIDCHECKPLACEMENT, INVALIDCHECKPRAGMA | `checkcode` ignores `%#check` pragmas; probably emitted by the editor's analyzer only. |
+| VIDAF, VIDFH, FVOOOV, VINONA | Did not fire in about 40 probes (validators with anonymous functions or handles give FVVCON, FVOCON, VTPCON, FVSYN, FVOON or MCPLD). |
+| TNMLP, STRSET | Not reproducible (TNMLP: loops over many functions; STRSET: the message needs a name that was not found). |
+| DEBUGMSG, LLMCC | Need a custom analyzer configuration whose format is not established. |
+| BDCFG, CFERR, BDOPT, CFIG | Configuration-file errors; malt does not read MATLAB configuration files. |
+| CABE, SCABE, ACABE, MCABE, SMCABE, AMCABE | Cyclomatic-complexity metrics, reported only with `-cyc` or `-modcyc`. |
+| MSNU, MSNE, PSET | Planned with suppression bookkeeping in the linter (plan step 3.4). |
+| EMNODEF, EMBRK, EMCNT, EMRTN, EMWHL, EMS2N | MATLAB Coder checks, see below. |
 
 ## Not verifiable through `checkcode`
 
-The Coder, Compiler (deployment) and Fixed-Point checks are in MATLAB's list
-(`checkcode -allmsg`) but a `%#codegen` probe with `eval` and `global` returned only
-base-product messages with MATLAB Coder installed. Until a probe shows
-`checkcode` emits them, the `codegen`, `deployment` and `fixed-point` engines are
-verified against the documentation index only.
+The Coder (code generation), Compiler (deployment) and Fixed-Point checks are in
+MATLAB's list, but a `%#codegen` probe with `eval` and `global` returned only
+base-product messages with MATLAB Coder installed. Until a probe shows `checkcode`
+emits them, the `codegen`, `deployment` and `fixed-point` engines are verified
+against the documentation index only. Eight message templates differ for that reason
+(EMVDF, EMGRO, EMFCN, EMRIFAV, EMLOAD, PRMNOIN, LOOPPRAGMAWITHOUTFOR, FPASE).
 
-## Behaviour known to differ
+## Known differences
+
+Per check; the full list is the backlog file.
 
 | Check | Difference |
 | --- | --- |
-| NASGU | Liveness analysis (`analysis/liveness.rs`): a store is flagged when it is overwritten or cleared before any read on every path, plus unread final values in functions. Conservative bail-outs: `eval`, `evalc`, `evalin`, `assignin`, `load`, `save`, `clearvars`, `who`, `whos`, `inputname`, `run`, `parfor`, `spmd`, nested functions, lambdas, `global`, `persistent`. Not done: MATLAB's constant propagation (`k = 1; if k ...`), so about 150 misses remain, and 8 false positives (an `elseif` chain MATLAB treats as silent). |
-| Forward-compatibility gates (FCLEN, FCCPV, FCDQS, FCFAV, FCHBL, FCLFS, FCNVA) | MATLAB leaves them off by default; malt now does too (on with `--preset all` or the category). |
-| Suggested improvements (EV2IN, FSTR, GVMIS, TLEV, ...) | MATLAB reports them by default; malt's engine is off by default until its conditions are narrowed. |
-| INUSA | Implemented from probes (positional inputs declared in the arguments block and never read); 3 misses remain in the fixture corpus. |
-| UNRPWR | malt's meaning ("use parentheses") differs from MATLAB's (exponentiation combined with unary operators). |
-| FXSETA | malt's message is a placeholder; MATLAB's is the loop-variable assignment message. |
-| UNRPWR | Re-implemented from probes (`2^-a^2`, `a.^-b.^c`); the condition is inferred from the tree shape and the column is one off from MATLAB's. |
-| CMDAND, CMDOR | No MATLAB trigger found in six command-syntax probes, so the firing condition is unconfirmed; the message matches the official text. |
-| PFTUSE, PFUIXE | The message agrees; MATLAB reports at the assignment or `parfor` line, malt at the use after the loop. |
-| UNRCH | `error(m)` with a bare variable is still treated as a terminator (MATLAB does not); a `catch` after a `try` whose body returns is not reported. |
-| DEFNU | The dynamic-call exemption covers `eval`, `feval` and `str2func`; `evalin`, `evalc` and `run` are unprobed. |
-| SYNER | Message shows malt's error-node text; MATLAB names the offending token. About 12 false positives and 6 misses remain in the `fix/` corpus (`end` in value position, `[x](1)`, missing lexical checks such as BADFP, BADCH). |
-| NBRAK2 | Parenthesised, function-handle, cell and multi-row elements are unprobed and not reported. |
-| FNDEF | Column is always 1 (MATLAB points at the name). |
-| ERTAG, WNTAG, BDLOG2, CTCH, VANUS, FVNIV, SUSENS, IDISVARHIGH, USESWNS, NOEFF, PUSE, COMPNOP, COMPNOT, CTOINW, BDSCA2 | Never reported by MATLAB's default `checkcode` (probed, also with `-all`): off under the `mathworks` preset, on under `all`. |
-| PFBFN, PFOUS, NODEF, ASGLU | Narrowed from probes; PFBFN keeps ~6 and PFOUS ~4 false positives in `fix/` files (unprobed names such as `save`, `clearvars`, `inputname`); NODEF misses straight-line use before any definition; ASGLU misses the first of `[a,b]=...; a=1;`. |
-| NOPAR, EOLPAR, SYNER | Cell-brace unclosed cases (`{`) are not detected; an unclosed bracket at the end of a line should be EOLPAR at the opener (malt gives NOPAR2); `max(1 2)`-style arguments are a SYNER in MATLAB only. |
-| Message tables | Explanations removed from the Check IDs tables to match MATLAB's templates (SHOCIRT, DEBUGFUN, CTRUE, CHAIN, ...) have not been moved into the `## Rule` sections yet. |
-
-## Official IDs not emitted
-
-| ID | Why |
-| --- | --- |
-| XCREDS | MATLAB fires for `password`/`Password` assigned a non-empty char literal, but not for `PASSWORD`, `pwd`, `token` or `apiKey`; the case asymmetry is unexplained, so no precise condition. |
-| INVALIDCHECKDISABLE, INVALIDCHECKENABLE, INVALIDCHECKPLACEMENT, INVALIDCHECKPRAGMA | `checkcode` ignores `%#check` pragmas; probably emitted by the editor's analyzer only. |
-| VIDAF, VIDFH, FVOOOV, VINONA | None fired in about 40 probes (validators with anonymous functions or handles give FVVCON, FVOCON, VTPCON, FVSYN, FVOON or MCPLD instead). |
-
-## Open, found in the fourth pass
-
-| Item | Note |
-| --- | --- |
-| VUNUS | MATLAB reports "`<operator>` produces a value that might be unused" (8 misses); malt has no such check (VANUS is a different check). |
-| STRNU | 11 false positives, 1 miss. malt's rule ("no read after the store") differs from MATLAB's: `x.a = 1; x = 2; disp(x)` flags `x.a` although a later read exists, because `x` is overwritten first. |
-| FEGLO | The data entry matched every `feval`; it now has no name-based trigger (like SMPLMODE) and is never emitted. |
-| STISA, PFRNG | Misses when the operand is a variable that holds the value MATLAB evaluates. |
-| NOPTS, NOPRT | Miss function input parameters used as expression statements (`x`). |
-| TLEV | `global` inside an `if` in a script is not reported. |
-| COMNL | MATLAB also fires for `{ 'a',` line continuation. |
-| `analysis/control_flow.rs` | Matches `kind() == "condition"`, but in this tree-sitter-matlab version `condition` is a field name; the effect on unset-variable and unreachable analysis is unverified (while-true and if-return probes agree with MATLAB). MATLAB also reports unreachable branches of constant conditions (`if true ... else y = 1; end`), which malt does not. |
-| FVSOR | One malt-only line in `fix/t__fv2.m` (name-value `.?` form) is undiagnosed. |
-
-## Settled in the fifth pass
-
-| Item | Note |
-| --- | --- |
-| RHSFN, PFRNI severities | MathWorks' documentation index and the numeric levels of `checkcode -allmsg` disagree, and `checkcode` exposes no severity field, so the editor's behaviour cannot be read from here. malt keeps the documentation's severities (RHSFN error, PFRNI warning). |
-| Low-reliability behavior changes | The 897 entries MATLAB lists under "(Upcoming) Behavior Changes with Low Reliability Messages" (JAPIEXT\*, CLB\*, ...) are not reported by default `checkcode`. They carry `low_reliability = true` in `data/compatibility.toml` and are reported under the `all` preset or with the `behavior-changes` category. |
-| Dotted compatibility entries | `extract_func_name` ignored qualified calls, so dotted entries (`dsp.DigitalFilter`) never fired. They now match; a 60-entry sample agrees with `checkcode` (the low-reliability ones are gated as above). The suggested-improvements engine has the same root cause (`sigwin.hamming`) and is unchanged. |
-| LOGSUM | MATLAB reported it for `sum(x(:) <= 1)` but not for `sum(x > 0.5)` or `sum(x.^2 + x <= 1)`; condition unknown, so it is off under `mathworks`. |
-| CLEAR0ARGS | Reported inside functions only (MATLAB is silent in scripts; `clear all` is CLALL). |
-| VUNUS, ASGLU, STRNU | VUNUS added; ASGLU and STRNU rebuilt on the liveness analysis (some recall lost: ASGLU under `eval`, STRNU on struct cases). EQEFF is `==` with a reference on the left; NOEFF is effectively malt-only and off by default. |
-| New IDs | ASGSL (self-assignment `x = x;`), BLCHID, 26 communications compatibility IDs. |
-| Still undeclared (33) | Coder EM\* (6), PSET, MSNU, MSNE (planned with suppression bookkeeping, Phase 3.4), INVALIDCHECK\* (4), XCREDS, VIDAF, VIDFH, FVOOOV, VINONA, PRTCAL, TNMLP, STRSET, DEBUGMSG, LLMCC (need a custom configuration), BDCFG, CFERR, BDOPT, CFIG (configuration files), CABE and the five other complexity metrics (only with `-cyc`/`-modcyc`). Reasons are in the tables above. |
+| NASGU | Liveness analysis (`analysis/liveness.rs`). Not done: MATLAB's constant propagation (`k = 1; if k ...`), so misses remain; bails out on dynamic code (`eval`, `evalin`, `assignin`, `load`, `clearvars`, ...), `parfor`, `spmd`, nested functions, lambdas, `global`, `persistent`. A few false positives on `elseif` chains. |
+| ASGLU, STRNU | Rebuilt on the liveness analysis; recall lost under `eval` (ASGLU) and on some struct cases (STRNU). |
+| Suggested improvements (EV2IN, FSTR, GVMIS, TLEV, ...) | MATLAB reports them by default; malt's engine is off by default until each entry's condition is narrowed. Same root cause for qualified names (`sigwin.hamming`) as the one fixed in the compatibility engine. |
+| SYNER, NOPAR, EOLPAR | Message shows malt's error-node text, MATLAB names the offending token. `end` in value position, `[x](1)` and missing lexical checks (BADFP, BADCH) cause false positives; unclosed `{`, `max(1 2)` and an unclosed bracket at a line end (EOLPAR) are missed. |
+| UNRCH | `error(m)` with a bare variable is treated as a terminator (MATLAB does not); a `catch` after a `try` whose body returns is not reported; constant propagation is not implemented. |
+| DEFNU | The dynamic-call exemption covers `eval`, `feval`, `str2func`; `evalin`, `evalc`, `run` are unprobed. |
+| UNRPWR | Condition inferred from the tree shape; the column is one off from MATLAB's. |
+| CMDAND, CMDOR | No MATLAB trigger found in six command-syntax probes; the message matches the official text. |
+| PFTUSE, PFUIXE | Message agrees; MATLAB reports at the assignment or `parfor` line, malt at the use after the loop. |
+| PFBFN, PFOUS, NODEF | Residual false positives in `fix/` files (PFBFN, PFOUS); NODEF misses straight-line use before any definition. |
+| NBRAK2, STISA, PFRNG | Misses for unprobed shapes (parenthesised, handle, cell and multi-row elements; variables that hold the evaluated value). |
+| NOPTS, NOPRT, TLEV, COMNL | Remaining misses: NOPTS/NOPRT for function input parameters, TLEV for `global` inside an `if` of a script, COMNL for `{ 'a',` continuations. |
+| FNDEF | The column is always 1 (MATLAB points at the name). |
+| FVSOR | One extra finding in `fix/t__fv2.m` (name-value `.?` form), undiagnosed. |
+| `analysis/control_flow.rs` | Matches `kind() == "condition"`, but `condition` is a field name in this tree-sitter-matlab version; the effect on unset-variable and unreachable analysis is unverified. |
+| Message tables | Explanations removed from the Check IDs tables to match MATLAB's templates (SHOCIRT, DEBUGFUN, CTRUE, CHAIN, ...) are not yet moved into the `## Rule` sections. |

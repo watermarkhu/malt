@@ -1,0 +1,146 @@
+//! Conformance with MATLAB's Code Analyzer on the fixture files.
+//!
+//! `fixtures/matlab_expected.tsv` holds what MATLAB R2026b's `checkcode` reports
+//! for every file under `tests/fixtures` (path, line, check ID: facts only, no
+//! message text). This test lints the same files with the default configuration
+//! and compares the (path, line, ID) sets:
+//!
+//! - a **difference that is not listed** in `fixtures/matlab_known_differences.tsv`
+//!   fails the test (a regression, or a new fixture that nobody compared with
+//!   MATLAB);
+//! - the known list is the backlog towards zero; the ignored test
+//!   `no_known_differences_remain` fails until it is empty.
+//!
+//! Regenerate the expectations with `docs/scripts/matlab_probe.m` (see
+//! `docs/VERIFY.md`) and the known list with
+//! `UPDATE_KNOWN_DIFFERENCES=1 cargo test -p malt-cli --test matlab_conformance`.
+
+use std::collections::BTreeSet;
+use std::fs;
+use std::path::{Path, PathBuf};
+
+use malt_core::{Config, Linter, RuleRegistry};
+
+type Triple = (String, usize, String);
+
+fn fixtures() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures")
+}
+
+fn read_triples(file: &str, skip_kind_column: bool) -> BTreeSet<(String, Triple)> {
+    let text = fs::read_to_string(fixtures().join(file)).unwrap_or_default();
+    text.lines()
+        .filter(|l| !l.starts_with('#') && !l.trim().is_empty())
+        .map(|l| {
+            let cols: Vec<&str> = l.split('\t').collect();
+            let (kind, rest) = if skip_kind_column {
+                (cols[0].to_string(), &cols[1..])
+            } else {
+                (String::new(), &cols[..])
+            };
+            (
+                kind,
+                (
+                    rest[0].to_string(),
+                    rest[1].parse().unwrap(),
+                    rest[2].to_string(),
+                ),
+            )
+        })
+        .collect()
+}
+
+fn mfiles(dir: &Path, out: &mut Vec<PathBuf>) {
+    for entry in fs::read_dir(dir).unwrap() {
+        let path = entry.unwrap().path();
+        if path.is_dir() {
+            mfiles(&path, out);
+        } else if path.extension().is_some_and(|e| e == "m") {
+            out.push(path);
+        }
+    }
+}
+
+/// Everything malt reports on the fixtures, as (path relative to fixtures, line, ID).
+fn malt_findings() -> BTreeSet<Triple> {
+    let root = fixtures();
+    let mut files = Vec::new();
+    mfiles(&root, &mut files);
+    files.sort();
+    let config = Config::default();
+    let registry = RuleRegistry::new(malt_rules::active_rules(&config), &config);
+    let mut linter = Linter::new(registry);
+    let mut found = BTreeSet::new();
+    for path in files {
+        let source = fs::read_to_string(&path).unwrap();
+        let rel = path
+            .strip_prefix(&root)
+            .unwrap()
+            .to_string_lossy()
+            .replace('\\', "/");
+        for d in linter.lint(&source, &path).unwrap() {
+            found.insert((rel.clone(), d.line, d.rule_id.to_string()));
+        }
+    }
+    found
+}
+
+/// All differences with MATLAB: ("matlab-only" | "malt-only", triple).
+fn differences() -> BTreeSet<(String, Triple)> {
+    let matlab: BTreeSet<Triple> = read_triples("matlab_expected.tsv", false)
+        .into_iter()
+        .map(|(_, t)| t)
+        .collect();
+    let malt = std::thread::Builder::new()
+        .stack_size(256 * 1024 * 1024)
+        .spawn(malt_findings)
+        .unwrap()
+        .join()
+        .unwrap();
+    let mut diff = BTreeSet::new();
+    for t in matlab.difference(&malt) {
+        diff.insert(("matlab-only".to_string(), t.clone()));
+    }
+    for t in malt.difference(&matlab) {
+        diff.insert(("malt-only".to_string(), t.clone()));
+    }
+    diff
+}
+
+#[test]
+fn no_new_differences_with_matlab() {
+    let diff = differences();
+    if std::env::var_os("UPDATE_KNOWN_DIFFERENCES").is_some() {
+        let mut text = String::from(
+            "# Known differences with MATLAB on the fixtures: kind, path, line, check ID.\n# This is the backlog; it should shrink to nothing.\n",
+        );
+        for (kind, (path, line, id)) in &diff {
+            text.push_str(&format!("{kind}\t{path}\t{line}\t{id}\n"));
+        }
+        fs::write(fixtures().join("matlab_known_differences.tsv"), text).unwrap();
+        return;
+    }
+    let known = read_triples("matlab_known_differences.tsv", true);
+    let new: Vec<_> = diff.difference(&known).collect();
+    assert!(
+        new.is_empty(),
+        "{} difference(s) with MATLAB that are not in matlab_known_differences.tsv:\n{}",
+        new.len(),
+        new.iter()
+            .take(40)
+            .map(|(k, (p, l, i))| format!("  {k}\t{p}:{l}\t{i}"))
+            .collect::<Vec<_>>()
+            .join("\n")
+    );
+}
+
+#[test]
+#[ignore = "backlog: fails until every difference with MATLAB is fixed"]
+fn no_known_differences_remain() {
+    let diff = differences();
+    assert!(
+        diff.is_empty(),
+        "{} differences with MATLAB remain",
+        diff.len()
+    );
+}
