@@ -132,7 +132,6 @@ mod tests {
             "CODEGEN_ENGINE",
             "DEPLOYMENT_ENGINE",
             "SYSTEM_OBJECTS_ENGINE",
-            "SUGGESTED_IMPROVEMENTS",
             "UNSUPPORTED_ENGINE",
         ] {
             assert!(
@@ -140,6 +139,8 @@ mod tests {
                 "{off} should be off by default"
             );
         }
+        // MATLAB's Code Analyzer reports the suggested improvements by default.
+        assert!(ids.contains(&"SUGGESTED_IMPROVEMENTS".to_string()));
     }
 
     #[test]

@@ -11,6 +11,8 @@ impl LanguageSpecEngine {
         diagnostics: &mut Vec<Diagnostic>,
     ) {
         self.check_gpfst(symbol_table, diagnostics);
-        self.check_gpnes(ctx, diagnostics);
+        if self.is_check_enabled("GPNES") {
+            self.check_gpnes(ctx, diagnostics);
+        }
     }
 }

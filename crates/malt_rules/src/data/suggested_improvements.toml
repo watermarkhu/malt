@@ -6,9 +6,16 @@
 #
 # Fields:
 #   id            - Check ID matching MATLAB Code Analyzer (e.g., "CSVRD")
-#   function_name - The function/class name to match against (empty for generic)
+#   function_name - The function/class name to match against (empty for generic).
+#                   Qualified names (sigwin.hamming) match the whole path.
 #   message       - Human-readable diagnostic message
 #   replacement   - Recommended replacement function/syntax
+#   pattern       - Non-empty: never matched by name ("unverified": MATLAB never
+#                   reported it in probes; "object": a method of a class instance)
+#   min_args / max_args, literal_args (any argument, command syntax included),
+#   arg_at / arg_kinds / not_arg_kinds / arg_text (function syntax only),
+#   within_parfor, not_in_call / not_in_call_literal: usage conditions, see
+#   suggested_improvements.rs. A bare name (`clock`) is a use with no arguments.
 
 # =============================================================================
 # Suggested Improvements (243 checks)
@@ -17,6 +24,8 @@
 [[checks]]
 id = "IMPORTDYN"
 function_name = "import"
+min_args = 1
+not_arg_kinds = ["char"]
 message = "Using function syntax to call 'import' is not recommended. With appropriate code changes, use command syntax instead."
 replacement = ""
 
@@ -74,6 +83,7 @@ replacement = "datetime"
 [[checks]]
 id = "TNDAY"
 function_name = "day"
+arg_kinds = ["number", "text"]
 message = "'day' with serial date number or text inputs is not recommended. With appropriate code changes, use 'datetime' as input instead."
 replacement = "datetime"
 
@@ -104,24 +114,32 @@ replacement = "datetime"
 [[checks]]
 id = "TNOW1"
 function_name = "now"
+not_in_call = "datetime"
+not_in_call_literal = "datenum"
 message = "'now' is not recommended. With appropriate code changes, use 'datetime(\"now\")' instead."
 replacement = "datetime"
 
 [[checks]]
 id = "TNOW2"
 function_name = "datetime"
+literal_args = ["datenum"]
+arg_text = "now"
 message = "'datetime(now, 'ConvertFrom', 'datenum')' is not recommended. Use 'datetime(\"now\")' instead, which is a direct replacement."
 replacement = "datetime"
 
 [[checks]]
 id = "TTDAY1"
 function_name = "today"
+not_in_call = "datetime"
+not_in_call_literal = "datenum"
 message = "'today' is not recommended. With appropriate code changes, use 'datetime(\"today\")' instead."
 replacement = "datetime"
 
 [[checks]]
 id = "TTDAY2"
 function_name = "datetime"
+literal_args = ["datenum"]
+arg_text = "today"
 message = "'datetime(today, 'ConvertFrom', 'datenum')' is not recommended. Use 'datetime(\"today\")' instead, which is a direct replacement."
 replacement = "datetime"
 
@@ -194,18 +212,21 @@ replacement = "narginchk"
 [[checks]]
 id = "NCHKO"
 function_name = "nargchk"
+pattern = "unverified"
 message = "Using NARGCHK with NARGOUT is not recommended. Use NARGOUTCHK instead."
 replacement = "nargoutchk"
 
 [[checks]]
 id = "NCHKN"
 function_name = "nargchk"
+pattern = "unverified"
 message = "NARGCHK is not recommended. Use NARGINCHK without ERROR instead."
 replacement = "narginchk"
 
 [[checks]]
 id = "NCHKM"
 function_name = "nargchk"
+pattern = "unverified"
 message = "NARGCHK is not recommended. Use NARGOUTCHK without ERROR instead."
 replacement = "nargoutchk"
 
@@ -247,7 +268,8 @@ replacement = "PercentReferenceLevels"
 
 [[checks]]
 id = "VIDREAD"
-function_name = "VideoReader"
+function_name = "get"
+literal_args = ["NumberOfFrames"]
 message = "'NumberOfFrames' is not recommended. Use 'NumFrames' instead."
 replacement = "NumFrames"
 
@@ -272,6 +294,7 @@ replacement = ""
 [[checks]]
 id = "INTRPP"
 function_name = "interp1"
+literal_args = ["pp"]
 message = "'pp' is not recommended. Use the griddedInterpolant class instead."
 replacement = "griddedInterpolant"
 
@@ -362,18 +385,22 @@ replacement = "addRule"
 [[checks]]
 id = "STRQUOT"
 function_name = "string"
+arg_kinds = ["text"]
 message = "string('...') is not recommended. Use \"...\" instead."
 replacement = ""
 
 [[checks]]
 id = "STRCLQT"
 function_name = "string"
+arg_kinds = ["cell"]
+max_args = 1
 message = "'string({'str1', 'str2'})' is not recommended. Use '[\"str1\", \"str2\"]' instead."
 replacement = ""
 
 [[checks]]
 id = "SIM"
 function_name = "sim"
+within_parfor = true
 message = "'sim' in parfor loop is not recommended. Replace the parfor loop with 'parsim'."
 replacement = "parsim"
 
@@ -392,24 +419,28 @@ replacement = "readgeoraster"
 [[checks]]
 id = "GETFSP"
 function_name = "get"
+literal_args = ["FormatSpacing"]
 message = "Using get for retrieving values of line spacing is not recommended. With appropriate code changes, use 'settings' object instead."
 replacement = "settings"
 
 [[checks]]
 id = "SETFMT"
 function_name = "set"
+literal_args = ["Format"]
 message = "Using set for assigning values of numeric display format is not recommended. With appropriate code changes, use 'settings' object instead."
 replacement = "settings"
 
 [[checks]]
 id = "SETFSP"
 function_name = "set"
+literal_args = ["FormatSpacing"]
 message = "Using set for assigning values of line spacing is not recommended. With appropriate code changes, use 'settings' object instead."
 replacement = "settings"
 
 [[checks]]
 id = "GETFMT"
 function_name = "get"
+literal_args = ["Format"]
 message = "Using get for retrieving values of numeric display format is not recommended. With appropriate code changes, use 'settings' object instead."
 replacement = "settings"
 
@@ -430,18 +461,21 @@ replacement = ""
 [[checks]]
 id = "PRTOG"
 function_name = "print"
+literal_args = ["-opengl"]
 message = "'-opengl' is not recommended. Use '-image' instead, which is a direct replacement."
 replacement = ""
 
 [[checks]]
 id = "PRTPT"
 function_name = "print"
+literal_args = ["-painters"]
 message = "'-painters' is not recommended. Use '-vector' instead, which is a direct replacement."
 replacement = ""
 
 [[checks]]
 id = "FORMATNOI"
 function_name = "format"
+max_args = 0
 message = "'format' with no input or output arguments is not recommended. Use 'format(\"default\")' instead."
 replacement = ""
 
@@ -460,6 +494,7 @@ replacement = ""
 [[checks]]
 id = "OLDSIM"
 function_name = "sim"
+pattern = "unverified"
 message = "This syntax of the 'sim' command which returns multiple arguments is not recommended. With appropriate code changes, turn on 'ReturnWorkspaceOutputs' and return simulation results using the single-output format instead."
 replacement = ""
 
@@ -478,6 +513,7 @@ replacement = "ividriverlist"
 [[checks]]
 id = "VERMATLAB"
 function_name = "ver"
+literal_args = ["matlab"]
 message = "ver('matlab') is not recommended. With appropriate code changes, use 'matlabRelease' instead."
 replacement = "matlabRelease"
 
@@ -532,6 +568,7 @@ replacement = "modelCalibrationPlot"
 [[checks]]
 id = "HOLDALL"
 function_name = "hold"
+literal_args = ["all"]
 message = "'hold('all')' is not recommended. Use 'hold('on')' instead, which is a direct replacement."
 replacement = ""
 
@@ -556,6 +593,7 @@ replacement = ""
 [[checks]]
 id = "FEATGPID"
 function_name = "feature"
+literal_args = ["getpid"]
 message = "'feature('getpid')' is unsupported and not recommended. With appropriate code changes, use the function 'matlabProcessID' instead."
 replacement = "matlabProcessID"
 
@@ -1462,18 +1500,21 @@ replacement = "reshape"
 [[checks]]
 id = "MDFRD"
 function_name = "mdf"
+pattern = "object"
 message = "'read' method of 'mdf' class is not recommended. With appropriate code changes, use 'mdfRead' function instead."
 replacement = "mdfRead"
 
 [[checks]]
 id = "MDFCHL"
 function_name = "mdf"
+pattern = "object"
 message = "'channelList' method of 'mdf' class is not recommended. With appropriate code changes, use 'mdfChannelInfo' function instead."
 replacement = "mdfChannelInfo"
 
 [[checks]]
 id = "MDFSVA"
 function_name = "mdf"
+pattern = "object"
 message = "'saveAttachment' method of 'mdf' class is not recommended. With appropriate code changes, use 'mdfSaveAttachment' function instead."
 replacement = "mdfSaveAttachment"
 
@@ -1486,6 +1527,7 @@ replacement = "MaskElevationAngle"
 [[checks]]
 id = "BLCHID"
 function_name = "blfread"
-number_arg = 2
+arg_at = 2
+arg_kinds = ["number"]
 message = "Specifying the channel ID as the second positional argument in 'blfread' is not recommended. With appropriate code changes, use the 'ChannelID' name-value argument instead."
 replacement = "ChannelID"

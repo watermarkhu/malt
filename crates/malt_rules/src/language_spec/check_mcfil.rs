@@ -15,7 +15,16 @@ impl LanguageSpecEngine {
             .file_stem()
             .and_then(|s| s.to_str())
             .unwrap_or("");
-        if !file_stem.is_empty() && file_stem != class.name {
+        // MATLAB reports BDFIL and no MCFIL for a file name that is not a valid
+        // MATLAB identifier (for example one containing a hyphen).
+        let valid_file_name = file_stem
+            .chars()
+            .next()
+            .is_some_and(|c| c.is_ascii_alphabetic())
+            && file_stem
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '_');
+        if valid_file_name && file_stem != class.name {
             // Don't fire if the file is in a @directory (MCDIR handles that)
             let in_at_dir = ctx
                 .file_path
@@ -61,6 +70,19 @@ end
             !mcfil.is_empty(),
             "MCFIL should fire when class name != file name"
         );
+    }
+
+    #[test]
+    fn test_mcfil_no_fire_for_invalid_file_name() {
+        // MATLAB reports BDFIL (not MCFIL) for a file name with a hyphen.
+        let source = "\
+classdef MyClass
+    methods
+    end
+end
+";
+        let diags = check_source(source, "my-file.m");
+        assert!(filter_by_id(&diags, "MCFIL").is_empty());
     }
 
     #[test]

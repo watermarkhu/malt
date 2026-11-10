@@ -139,8 +139,7 @@ impl SyntaxErrorsEngine {
             }
             // SYNER: Generic syntax error.
             else if self.is_check_enabled("SYNER")
-                && !(Self::is_in_function_call_args(&node) && text.contains('='))
-                && !Self::is_known_valid_error(&node, source)
+                && !Self::is_unreported_syner(&node, text, source)
             {
                 let snippet: String = text.chars().take(40).collect();
                 let msg = if snippet.is_empty() {
@@ -323,6 +322,29 @@ impl SyntaxErrorsEngine {
         let run = &source[start..end];
         run.matches(':').count() >= 2 && !run.contains("::") && !run.ends_with(':')
     }
+}
+
+impl SyntaxErrorsEngine {
+    /// True when an ERROR node must not be reported as SYNER: a name=value call
+    /// argument, a known valid form, or text that MATLAB reports under another ID.
+    fn is_unreported_syner(node: &Node, text: &str, source: &str) -> bool {
+        (Self::is_in_function_call_args(node) && text.contains('='))
+            || Self::is_known_valid_error(node, source)
+            || is_unreported_syner_text(text)
+    }
+}
+
+/// True for ERROR text that MATLAB does not report as SYNER: a multi-line body that
+/// starts at `function` (tree-sitter could not parse it, and the token MATLAB names
+/// is inside it), text with a NUL byte (MATLAB reads it as the end of the text), and
+/// `= end` (IDXCOLND in MATLAB, not a parse error).
+fn is_unreported_syner_text(text: &str) -> bool {
+    let function_body = text.contains('\n')
+        && text
+            .trim_start()
+            .to_ascii_lowercase()
+            .starts_with("function");
+    function_body || text.contains('\0') || text.trim().eq_ignore_ascii_case("= end")
 }
 
 /// The message for a missing END, naming the block keyword it probably closes.
@@ -558,6 +580,19 @@ mod tests {
         let diags = lint_file(&*engine(), "else\nif x\n");
         assert!(has_id(&diags, "ENDCT3"), "got: {diags:?}");
         assert!(!has_id(&diags, "ENDCT"), "got: {diags:?}");
+    }
+
+    #[test]
+    fn stray_elseif_in_function_is_not_endct() {
+        // MATLAB probe: a stray `elseif` after a closed block is SYNER at that line.
+        // It must not read as a missing `end` (`elseif` contains `if`).
+        let diags = lint_file(
+            &*engine(),
+            "function t1(x, y)\nwhile true\n    x = x + 1;\nend\nelseif x, a = 2; end\n",
+        );
+        assert!(!has_id(&diags, "ENDCT"), "got: {diags:?}");
+        assert!(!has_id(&diags, "ENDCT2"), "got: {diags:?}");
+        assert!(!has_id(&diags, "ENDCT3"), "got: {diags:?}");
     }
 
     #[test]

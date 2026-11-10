@@ -81,13 +81,16 @@ fn legacy_globals_nargin_varargin_and_eval() {
     // `out = eval(expr)` and the two-argument eval are not EVLCS in MATLAB.
     // ERTAG is off under the mathworks preset: MATLAB never reports it.
     // GVMIS: MATLAB reports the `global` declaration itself (legacy1.m:2).
-    assert_eq!(ids("legacy1.m"), vec!["AGROW", "GVMIS"]);
+    // EV2IN: the two-argument eval on line 24 is a suggested improvement that
+    // MATLAB reports by default.
+    assert_eq!(ids("legacy1.m"), vec!["AGROW", "EV2IN", "GVMIS"]);
 }
 
 #[test]
 fn legacy_string_handling() {
     // No OR2: MATLAB is silent on `strcmp(...) | strcmp(...)` (a call operand).
-    assert_eq!(ids("legacy2.m"), vec!["AGROW", "NASGU"]);
+    // FSTR: `findstr` on line 6 is reported by MATLAB (suggested improvements).
+    assert_eq!(ids("legacy2.m"), vec!["AGROW", "FSTR", "NASGU"]);
 }
 
 #[test]

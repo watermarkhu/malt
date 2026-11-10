@@ -17,7 +17,7 @@
 //! performs a full DFS traversal with context stacks for parfor/spmd/loop
 //! detection, then runs class, arguments-block, global/persistent, and
 //! script-level checks over extracted file metadata. Each diagnostic carries
-//! the specific check ID (e.g. `PFPF`, `FVAPN`, `MCFIL`).
+//! the specific check ID (e.g. `PFPF`, `MCFIL`).
 //!
 //! The checks are grouped into families:
 //!
@@ -138,7 +138,6 @@
 //! | MWKCT | error | no | Specifying both WeakHandle and Constant attributes on the same property is not supported. |
 //! | MWKREF | error | no | Specifying both WeakHandle and Dependent attributes is invalid. A dependent property does not store a value. |
 //! | FVNST | error | no | Arguments blocks in nested function declarations are not supported. |
-//! | FVAPN | error | no | Move name-value arguments that use the name=value syntax to the end of the argument list. |
 //! | FVATF | error | no | Attribute values in arguments blocks must be logical constants. |
 //! | FVBTN | error | no | Use of this function is not supported in arguments blocks. |
 //! | FVDAN | error | no | Using the same name as both a name-value argument structure and as a positional argument is not supported. |
@@ -378,7 +377,12 @@ impl LanguageSpecEngine {
         let mut rule_config: LanguageSpecConfig = config.rule_params("LANGUAGE_SPEC_ENGINE");
         rule_config
             .disabled_checks
-            .extend(crate::off_under_mathworks(config, &["FVNIV", "USESWNS"]));
+            .extend(crate::off_under_mathworks(
+                config,
+                &[
+                    "FVNIV", "USESWNS", "PFUTVR", "VTPEAL", "VTPIN", "VTPCON", "GPNES",
+                ],
+            ));
         Box::new(Self {
             config: rule_config,
         })
@@ -3131,7 +3135,6 @@ mod check_fconv;
 mod check_fv_ordering;
 mod check_fv_structure;
 mod check_fv_validation;
-mod check_fvapn;
 mod check_fvatf;
 mod check_fvbtn;
 mod check_fvdan;
@@ -3232,8 +3235,18 @@ mod tests {
 
     /// Run the language spec engine on source code with a given file path.
     pub(crate) fn check_source(source: &str, file_path: &str) -> Vec<Diagnostic> {
-        let config = Config::default();
-        let rule = LanguageSpecEngine::from_config(&config);
+        check_source_with_config(&Config::default(), source, file_path)
+    }
+
+    /// Like `check_source`, with the `all` preset so checks that the `mathworks`
+    /// preset leaves off (PFUTVR, VTP*) are on.
+    pub(crate) fn check_source_all_presets(source: &str, file_path: &str) -> Vec<Diagnostic> {
+        let config = Config::from_toml("[lint]\npreset = \"all\"\n").unwrap();
+        check_source_with_config(&config, source, file_path)
+    }
+
+    fn check_source_with_config(config: &Config, source: &str, file_path: &str) -> Vec<Diagnostic> {
+        let rule = LanguageSpecEngine::from_config(config);
         let tree = parse_matlab(source);
         let path = Path::new(file_path);
         let ctx = FileContext {
@@ -3252,7 +3265,6 @@ mod tests {
     // ===== Function validation checks (FV* / TIN* / TTOO* group) =====
 
     const FV_CHECK_IDS: &[&str] = &[
-        "FVAPN",
         "FVATF",
         "FVBTN",
         "FVDAN",
@@ -4659,7 +4671,7 @@ end
     #[test]
     fn test_putvr_fires_uninitialized_reduction() {
         let source = "parfor i = 1:10\n    s = s + x(i);\nend\n";
-        let diags = check_source(source, "script.m");
+        let diags = check_source_all_presets(source, "script.m");
         assert!(
             !filter_by_id(&diags, "PFUTVR").is_empty(),
             "PFUTVR should fire for an uninitialized reduction variable"

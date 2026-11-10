@@ -20,7 +20,8 @@ impl LanguageSpecEngine {
                 let scope = first_string_argument(node, source);
                 if scope.as_deref() == Some("caller") {
                     self.push_diag(node, "SPEVC", "EVALIN('caller') and ASSIGNIN('caller') are invalid inside of an SPMD block.", diagnostics);
-                } else {
+                } else if scope.as_deref() != Some("base") {
+                    // 'base' is reported as SPEVB by the good-practices engine.
                     self.push_diag(node, "SPBFN", "Use of this function is invalid inside an SPMD block because it accesses or modifies the workspace in a non-transparent way.", diagnostics);
                 }
             }
@@ -206,17 +207,27 @@ end
 function foo()
     spmd
         eval('x');
-        evalin('base', 'x');
     end
 end
 ";
         let diags = check_source(source, "foo.m");
         let spbfn = filter_by_id(&diags, "SPBFN");
-        assert_eq!(
-            spbfn.len(),
-            2,
-            "SPBFN should fire for eval and non-caller evalin in spmd"
-        );
+        assert_eq!(spbfn.len(), 1, "SPBFN should fire for eval in spmd");
+    }
+
+    #[test]
+    fn test_spbfn_no_fire_evalin_base_in_spmd() {
+        // MATLAB reports evalin('base') in spmd as SPEVB, not SPBFN.
+        let source = "\
+function foo()
+    spmd
+        evalin('base', 'x');
+        assignin('base', 'x', 1);
+    end
+end
+";
+        let diags = check_source(source, "foo.m");
+        assert!(filter_by_id(&diags, "SPBFN").is_empty());
     }
 
     #[test]

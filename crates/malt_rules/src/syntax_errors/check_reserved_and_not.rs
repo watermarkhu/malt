@@ -39,18 +39,13 @@ impl SyntaxErrorsEngine {
                 });
             }
 
-            // SYNEND takes priority over RESWD for `end`.
-            if self.is_check_enabled("SYNEND") && Self::has_descendant_kind(node, "end_keyword") {
-                diagnostics.push(Diagnostic {
-                    rule_id: "SYNEND",
-                    message: "Invalid use for END operator.".to_string(),
-                    severity: Severity::Error,
-                    byte_range: start..end,
-                    line: pos.row + 1,
-                    column: pos.column + 1,
-                    fix: None,
-                });
-            } else if self.is_check_enabled("RESWD") {
+            // SYNEND is not emitted: no probe showed MATLAB reporting it. `end` outside
+            // an index is IDXCOLND, or SYNER when it sits in a broken expression.
+            // RESWD needs a one-line ERROR: a multi-line one is a block that tree-sitter
+            // could not parse (a function body, say), not a misused keyword.
+            if Self::has_descendant_kind(node, "end_keyword") {
+                // The `end` is handled by the parse-error checks.
+            } else if self.is_check_enabled("RESWD") && !text.contains('\n') {
                 if let Some(kw) = Self::contains_reserved_word(text) {
                     if kw != "end" {
                         diagnostics.push(Diagnostic {
@@ -194,16 +189,29 @@ mod tests {
 
     // -- SYNEND: invalid use of END -----------------------------------------
 
+    // MATLAB never reports SYNEND in the probes: `y = end;` is IDXCOLND or SYNER.
+
     #[test]
-    fn synend_fires_on_end_assignment_lhs() {
+    fn synend_not_reported_on_end_assignment_lhs() {
         let diags = lint_file(&*engine(), "end = 5;\n");
-        assert!(has_id(&diags, "SYNEND"), "got: {diags:?}");
+        assert!(!has_id(&diags, "SYNEND"), "got: {diags:?}");
     }
 
     #[test]
-    fn synend_fires_on_end_as_value() {
+    fn synend_not_reported_on_end_as_value() {
         let diags = lint_file(&*engine(), "y = end;\n");
-        assert!(has_id(&diags, "SYNEND"), "got: {diags:?}");
+        assert!(!has_id(&diags, "SYNEND"), "got: {diags:?}");
+        assert!(!has_id(&diags, "RESWD"), "got: {diags:?}");
+    }
+
+    #[test]
+    fn reswd_not_reported_on_multi_line_error() {
+        // A function body tree-sitter could not parse is not a misused keyword.
+        let diags = lint_file(
+            &*engine(),
+            "function t1(x, y)\nwhile true\n    x = x + 1;\nend\nelseif x, a = 2; end\n",
+        );
+        assert!(!has_id(&diags, "RESWD"), "got: {diags:?}");
     }
 
     #[test]
@@ -219,9 +227,9 @@ mod tests {
     }
 
     #[test]
-    fn synend_takes_priority_over_reswd() {
+    fn end_in_error_is_not_reswd() {
         let diags = lint_file(&*engine(), "y = end;\n");
-        assert!(has_id(&diags, "SYNEND"), "got: {diags:?}");
+        assert!(!has_id(&diags, "SYNEND"), "got: {diags:?}");
         assert!(!has_id(&diags, "RESWD"), "got: {diags:?}");
     }
 

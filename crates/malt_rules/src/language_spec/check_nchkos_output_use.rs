@@ -3,8 +3,9 @@
 use super::*;
 
 impl LanguageSpecEngine {
-    /// NCHKOS: `narginchk`/`nargoutchk` do not return values, so using them on the
-    /// right-hand side of an assignment is an error.
+    /// NCHKOS: `narginchk` does not return a value, so using it as a value (an
+    /// assignment, a bracketed element, an argument or a default) is an error.
+    /// MATLAB never reports `nargoutchk` here.
     pub(crate) fn check_nchkos_output_use(
         &self,
         node: tree_sitter::Node,
@@ -14,10 +15,13 @@ impl LanguageSpecEngine {
         let Some(name) = callee_name(node, source) else {
             return;
         };
-        if name != "narginchk" && name != "nargoutchk" {
+        if name != "narginchk" {
             return;
         }
-        if is_assignment_rhs(node) {
+        let is_statement = node
+            .parent()
+            .is_some_and(|p| ["source_file", "block"].contains(&p.kind()));
+        if !is_statement {
             self.push_diag(
                 node,
                 "NCHKOS",
@@ -34,20 +38,38 @@ mod tests {
     use crate::language_spec::tests::{check_source, filter_by_id};
 
     #[test]
-    fn test_nchkos_fires_assignment_rhs() {
+    fn test_nchkos_fires_narginchk_used_as_value() {
+        // Verified with MATLAB R2026b: assignment, bracketed, argument and
+        // arguments-block default positions are all reported.
         let source = "\
-function foo()
+function foo(n)
+    arguments
+        n (1,1) = narginchk(1, 2)
+    end
     x = narginchk(1, 2);
-    y = nargoutchk(1, 2);
+    z = [narginchk(1, 2)];
+    disp(narginchk(1, 2));
 end
 ";
         let diags = check_source(source, "foo.m");
         let nchkos = filter_by_id(&diags, "NCHKOS");
         assert_eq!(
             nchkos.len(),
-            2,
-            "NCHKOS should fire for narginchk/nargoutchk on RHS"
+            4,
+            "NCHKOS should fire for narginchk used as a value"
         );
+    }
+
+    #[test]
+    fn test_nchkos_no_fire_nargoutchk() {
+        // MATLAB never reports nargoutchk as a value.
+        let source = "\
+function foo()
+    y = nargoutchk(1, 2);
+end
+";
+        let diags = check_source(source, "foo.m");
+        assert!(filter_by_id(&diags, "NCHKOS").is_empty());
     }
 
     #[test]

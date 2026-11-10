@@ -1,3 +1,4 @@
+use std::ops::Range;
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::path::Path;
 
@@ -8,6 +9,56 @@ use crate::registry::RuleRegistry;
 use crate::rule::{FileContext, NodeContext};
 use crate::suppression;
 use crate::Severity;
+
+/// Checks that report a token MATLAB cannot lex or parse. The statement holding
+/// such a token is not analysed by any other check.
+const STATEMENT_ERROR_IDS: &[&str] = &[
+    "SYNER", "BADCH", "BADFP", "BADHBH", "BADHBB", "BADHBHT", "BADHBBT",
+];
+
+/// Parse-level checks that stay even when they sit in a broken statement: the
+/// statement error is itself reported by one of them, or they describe the
+/// structure of the broken region (missing `end` or bracket).
+const STATEMENT_ERROR_KEPT_IDS: &[&str] = &[
+    "NOSEMI", "NOCOMMA", "NOPAR", "NOPAR2", "EOLPAR", "ENDPAR", "ENDCT", "ENDCT2", "ENDCT3",
+    "ENDCT4", "RESWD", "FVSYN", "SBTMP",
+];
+
+/// Removes the diagnostics of the statements that hold a token MATLAB cannot
+/// parse. MATLAB reports the token and still analyses the statements that follow
+/// it on the same line: statements are separated by `;`, `,` or a newline. So
+/// the broken statement runs from the separator before the token to the next one.
+fn drop_statements_with_errors(diagnostics: &mut Vec<Diagnostic>, source: &str) {
+    let spans: Vec<Range<usize>> = diagnostics
+        .iter()
+        .filter(|d| STATEMENT_ERROR_IDS.contains(&d.rule_id))
+        .map(|d| statement_span(source, d.byte_range.start))
+        .collect();
+    if spans.is_empty() {
+        return;
+    }
+    diagnostics.retain(|d| {
+        STATEMENT_ERROR_IDS.contains(&d.rule_id)
+            || STATEMENT_ERROR_KEPT_IDS.contains(&d.rule_id)
+            || !spans.iter().any(|s| s.contains(&d.byte_range.start))
+    });
+}
+
+/// Byte range of the statement that contains `pos`, with separators excluded.
+fn statement_span(source: &str, pos: usize) -> Range<usize> {
+    let is_separator = |b: &u8| matches!(b, b'\n' | b';' | b',');
+    let bytes = source.as_bytes();
+    let pos = pos.min(bytes.len());
+    let start = bytes[..pos]
+        .iter()
+        .rposition(is_separator)
+        .map_or(0, |p| p + 1);
+    let end = bytes[pos..]
+        .iter()
+        .position(is_separator)
+        .map_or(bytes.len(), |p| pos + p);
+    start..end
+}
 
 // ---------------------------------------------------------------------------
 // Linter
@@ -153,6 +204,9 @@ impl Linter {
             // Internal analyzer failure — analysis did not complete.
             Err(_) => vec![Self::quit_diagnostic(source)],
         };
+
+        // Step 3b: MATLAB does not analyse the statement holding a token it cannot parse.
+        drop_statements_with_errors(&mut diagnostics, source);
 
         // Step 4: Apply inline suppression directives (%#ok<...>).
         // A directive on a line suppresses matching diagnostics on that line only.
@@ -534,5 +588,66 @@ mod tests {
         );
         linter.set_max_tree_depth(DEFAULT_MAX_TREE_DEPTH);
         assert!(linter.lint(&source, Path::new("a.m")).unwrap().is_empty());
+    }
+}
+
+#[cfg(test)]
+mod statement_error_tests {
+    use super::*;
+
+    fn diag(rule_id: &'static str, start: usize) -> Diagnostic {
+        Diagnostic {
+            rule_id,
+            message: String::new(),
+            severity: Severity::Error,
+            byte_range: start..start + 1,
+            line: 1,
+            column: 1,
+            fix: None,
+        }
+    }
+
+    fn remaining(source: &str, mut diagnostics: Vec<Diagnostic>) -> Vec<&'static str> {
+        drop_statements_with_errors(&mut diagnostics, source);
+        diagnostics.iter().map(|d| d.rule_id).collect()
+    }
+
+    #[test]
+    fn statement_holding_a_parse_error_is_not_analysed() {
+        // MATLAB probe on `x = 1 @ 2; w = 3`: SYNER at `@`, no NOPTS on `x = 1 @ 2`,
+        // but NOPTS on `w = 3` after the `;`.
+        let source = "x = 1 @ 2; w = 3\n";
+        let diags = vec![diag("NOPTS", 0), diag("SYNER", 6), diag("NOPTS", 11)];
+        assert_eq!(remaining(source, diags), ["SYNER", "NOPTS"]);
+    }
+
+    #[test]
+    fn statement_after_a_comma_is_analysed() {
+        // MATLAB probe on `if w = 3, u = 5, end`: SYNER at `=`, NOLHS-like findings
+        // on the broken `if w = 3` are dropped, `u = 5` is still analysed.
+        let source = "if w = 3, u = 5, end\n";
+        let diags = vec![diag("NOLHS", 0), diag("SYNER", 5), diag("NASGU", 10)];
+        assert_eq!(remaining(source, diags), ["SYNER", "NASGU"]);
+    }
+
+    #[test]
+    fn formatting_and_structure_checks_survive_a_parse_error() {
+        let source = "x = 1 @ 2;;\n";
+        let diags = vec![diag("NOSEMI", 10), diag("ENDCT2", 0), diag("SYNER", 6)];
+        assert_eq!(remaining(source, diags), ["NOSEMI", "ENDCT2", "SYNER"]);
+    }
+
+    #[test]
+    fn next_line_is_not_affected() {
+        let source = "x = 1 @ 2\ny = 2\n";
+        let diags = vec![diag("NOPTS", 10), diag("SYNER", 6)];
+        assert_eq!(remaining(source, diags), ["NOPTS", "SYNER"]);
+    }
+
+    #[test]
+    fn without_a_statement_error_nothing_is_dropped() {
+        let source = "x = 1 @ 2; w = 3\n";
+        let diags = vec![diag("NOPTS", 0), diag("NASGU", 11)];
+        assert_eq!(remaining(source, diags), ["NOPTS", "NASGU"]);
     }
 }

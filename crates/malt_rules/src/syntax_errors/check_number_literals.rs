@@ -2,6 +2,18 @@
 
 use super::*;
 
+const HEX_DIGIT_MESSAGE: &str = "Invalid digit in hexadecimal literal. Supported hexadecimal digits are 0-9 and A-F. Supported type suffixes are u8, u16, u32, u64, and s8, s16, s32, s64.";
+const BIN_DIGIT_MESSAGE: &str = "Invalid digit in binary literal. Supported binary digits are 0 and 1. Supported type suffixes are u8, u16, u32, u64, and s8, s16, s32, s64.";
+
+/// True if `rest` (the text after an `e` or `E`) has no exponent digits: an
+/// optional sign, then nothing that could continue a number.
+fn is_empty_exponent(rest: &str) -> bool {
+    let rest = rest.trim_start_matches(['+', '-']);
+    rest.chars()
+        .next()
+        .is_none_or(|c| !(c.is_ascii_alphanumeric() || c == '_' || c == '.'))
+}
+
 impl SyntaxErrorsEngine {
     pub(crate) fn check_number_literals(&self, root: Node, source: &str) -> Vec<Diagnostic> {
         let mut diagnostics = Vec::new();
@@ -19,35 +31,56 @@ impl SyntaxErrorsEngine {
             // the number holds the invalid remainder of the literal.
             if !Self::inside_error(number) {
                 if let Ok(idx) = errors.binary_search_by_key(&end, |n| n.start_byte()) {
-                    let err_text = &source[errors[idx].byte_range()];
+                    let error = errors[idx];
+                    let err_text = &source[error.byte_range()];
                     if let Some(first) = err_text.chars().next() {
                         let literal_like = first.is_ascii_alphanumeric() || first == '_';
-                        if (text.starts_with("0x") || text.starts_with("0X"))
+                        // A diagnostic on the literal's remainder covers the whole
+                        // token, so the SYNER of that remainder is recognised as the same error.
+                        let span = start..error.end_byte();
+                        let at_number = |rule_id: &'static str, message: &str| Diagnostic {
+                            rule_id,
+                            message: message.to_string(),
+                            severity: Severity::Error,
+                            byte_range: span.clone(),
+                            line: number.start_position().row + 1,
+                            column: number.start_position().column + 1,
+                            fix: None,
+                        };
+                        if text == "0" && matches!(first, 'x' | 'X') {
+                            if self.is_check_enabled("BADHBH") {
+                                diagnostics.push(at_number("BADHBH", HEX_DIGIT_MESSAGE));
+                            }
+                        } else if text == "0" && matches!(first, 'b' | 'B') {
+                            if self.is_check_enabled("BADHBB") {
+                                diagnostics.push(at_number("BADHBB", BIN_DIGIT_MESSAGE));
+                            }
+                        } else if (text.starts_with("0x") || text.starts_with("0X"))
                             && self.is_check_enabled("BADHBH")
                             && literal_like
                         {
                             diagnostics.push(Self::number_diagnostic(
-                                    "BADHBH",
-                                    "Invalid digit in hexadecimal literal. Supported hexadecimal digits are 0-9 and A-F. Supported type suffixes are u8, u16, u32, u64, and s8, s16, s32, s64.",
-                                    number,
-                                ));
+                                "BADHBH",
+                                HEX_DIGIT_MESSAGE,
+                                number,
+                            ));
                         } else if (text.starts_with("0b") || text.starts_with("0B"))
                             && self.is_check_enabled("BADHBB")
                             && literal_like
                         {
                             diagnostics.push(Self::number_diagnostic(
-                                    "BADHBB",
-                                    "Invalid digit in binary literal. Supported binary digits are 0 and 1. Supported type suffixes are u8, u16, u32, u64, and s8, s16, s32, s64.",
-                                    number,
-                                ));
-                        } else if self.is_check_enabled("BADFP")
-                            && (first == '.' || first.is_ascii_digit())
-                        {
-                            diagnostics.push(Self::number_diagnostic(
-                                "BADFP",
-                                "Invalid floating-point constant.",
+                                "BADHBB",
+                                BIN_DIGIT_MESSAGE,
                                 number,
                             ));
+                        } else if self.is_check_enabled("BADFP")
+                            && matches!(first, 'e' | 'E')
+                            && is_empty_exponent(&err_text[1..])
+                        {
+                            // `1e` and `1e+` are a float with no exponent digits. A
+                            // `.` or digit after a number is a SYNER (`1.2.3`, `1..2`).
+                            diagnostics
+                                .push(at_number("BADFP", "Invalid floating-point constant."));
                         }
                     }
                 }
@@ -129,8 +162,11 @@ mod tests {
     // -- BADFP: invalid floating-point constant ------------------------------
 
     #[test]
-    fn badfp_fires_on_truncated_float() {
-        let diags = lint_file(&*engine(), "x = 1.2.3;\n");
+    fn badfp_fires_on_empty_exponent() {
+        // MATLAB probe: `v = 1e;` and `v = 1e+;` give BADFP at the number.
+        let diags = lint_file(&*engine(), "x = 1e;\n");
+        assert!(has_id(&diags, "BADFP"), "got: {diags:?}");
+        let diags = lint_file(&*engine(), "x = 1e+;\n");
         assert!(has_id(&diags, "BADFP"), "got: {diags:?}");
     }
 
@@ -147,13 +183,23 @@ mod tests {
     }
 
     #[test]
+    fn badfp_not_reported_on_extra_dot_or_digits() {
+        // MATLAB probe: `1.2.3`, `1.5e5.3` and `1..2` give SYNER only.
+        for source in ["x = 1.2.3;\n", "x = 1.5e5.3;\n", "y = 1..2;\n"] {
+            let diags = lint_file(&*engine(), source);
+            assert!(!has_id(&diags, "BADFP"), "{source:?}: got: {diags:?}");
+        }
+    }
+
+    #[test]
     fn badfp_reports_number_byte_range() {
-        let diags = lint_file(&*engine(), "x = 1.2.3;\n");
+        // The diagnostic covers the number and its invalid remainder, `1e`.
+        let diags = lint_file(&*engine(), "x = 1e;\n");
         let d = diags
             .iter()
             .find(|d| d.rule_id == "BADFP")
             .expect("BADFP fired");
-        assert_eq!(d.byte_range, 4..7);
+        assert_eq!(d.byte_range, 4..6);
     }
 
     // -- BADHBH: invalid digit in hexadecimal literal ------------------------

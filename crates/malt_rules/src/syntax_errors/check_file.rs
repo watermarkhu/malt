@@ -28,12 +28,11 @@ impl SyntaxErrorsEngine {
                 continue;
             }
 
-            // BADCH: Invalid control characters (< 0x20 except \t, \n, \r).
+            // BADCH: Invalid control characters (< 0x20 except \t, \n, \r and NUL,
+            // which MATLAB reads as the end of the text), and `$` and backtick,
+            // which MATLAB has no token for. `?` and `@` are parse errors (SYNER).
             if self.is_check_enabled("BADCH")
-                && b < 0x20
-                && b != b'\t'
-                && b != b'\n'
-                && b != b'\r'
+                && ((b < 0x20 && !matches!(b, b'\t' | b'\n' | b'\r' | 0)) || b == b'$' || b == b'`')
                 && !Self::in_skip_range(i, skip_ranges)
             {
                 diagnostics.push(Diagnostic {
@@ -91,40 +90,25 @@ impl SyntaxErrorsEngine {
                 continue;
             }
 
-            // BADOT: `..` not part of `...` (line continuation).
-            if self.is_check_enabled("BADOT")
-                && b == b'.'
-                && i + 1 < len
+            // A `...` continuation is skipped whole, so its dots are not read as `..`.
+            // MATLAB never reports BADOT: `1..2` is a SYNER there.
+            if b == b'.'
+                && i + 2 < len
                 && bytes[i + 1] == b'.'
+                && bytes[i + 2] == b'.'
                 && !Self::in_skip_range(i, skip_ranges)
             {
-                // Check if this is part of `...` (line continuation).
-                let is_ellipsis = i + 2 < len && bytes[i + 2] == b'.';
-                if !is_ellipsis {
-                    diagnostics.push(Diagnostic {
-                        rule_id: "BADOT",
-                        message: "Use of two dots (..) is an invalid MATLAB construction."
-                            .to_string(),
-                        severity: Severity::Error,
-                        byte_range: i..i + 2,
-                        line,
-                        column: i - line_start + 1,
-                        fix: None,
-                    });
-                    i += 2;
-                    continue;
-                } else {
-                    // Skip the whole `...`.
-                    i += 3;
-                    continue;
-                }
+                i += 3;
+                continue;
             }
 
-            // TWOCM: `,,` (double comma).
+            // TWOCM: `,,` (double comma). MATLAB reports it only inside brackets
+            // (`[1,,2]`); between statements it is NOCOMMA.
             if self.is_check_enabled("TWOCM")
                 && b == b','
                 && i + 1 < len
                 && bytes[i + 1] == b','
+                && Self::inside_brackets(&source[line_start..i])
                 && !Self::in_skip_range(i, skip_ranges)
             {
                 diagnostics.push(Diagnostic {
@@ -179,12 +163,54 @@ mod tests {
         assert!(!has_id(&diags, "BADNE"), "got: {diags:?}");
     }
 
-    // -- BADOT: `..` not part of `...` --------------------------------------
+    // -- BADOT: never reported; `..` is a SYNER --------------------------------
 
     #[test]
-    fn badot_fires_on_double_dot() {
+    fn badot_not_reported_on_double_dot() {
+        // MATLAB probe: `y = 1..2;` gives SYNER only.
         let diags = lint_file(&*engine(), "x = 1..2;\n");
-        assert!(has_id(&diags, "BADOT"), "got: {diags:?}");
+        assert!(!has_id(&diags, "BADOT"), "got: {diags:?}");
+    }
+
+    // -- BADCH: `$` and backtick are not MATLAB tokens -------------------------
+
+    #[test]
+    fn badch_fires_on_dollar_and_backtick() {
+        // MATLAB probe: `x = 3 $ 4;` and `y = 5 \` 6;` give BADCH at the character.
+        let diags = lint_file(&*engine(), "x = 3 $ 4;\ny = 5 ` 6;\n");
+        assert_eq!(
+            diags.iter().filter(|d| d.rule_id == "BADCH").count(),
+            2,
+            "got: {diags:?}"
+        );
+    }
+
+    #[test]
+    fn badch_ok_on_nul_byte() {
+        // MATLAB reads a NUL byte as the end of the text: nothing is reported.
+        let diags = lint_file(&*engine(), "csvread\n\0");
+        assert!(!has_id(&diags, "BADCH"), "got: {diags:?}");
+    }
+
+    #[test]
+    fn badch_ok_on_dollar_in_comment() {
+        let diags = lint_file(&*engine(), "x = 1; % cost $5\n");
+        assert!(!has_id(&diags, "BADCH"), "got: {diags:?}");
+    }
+
+    // -- TWOCM: only inside brackets --------------------------------------------
+
+    #[test]
+    fn twocm_fires_on_double_comma_in_matrix() {
+        let diags = lint_file(&*engine(), "x = [1,,2];\n");
+        assert!(has_id(&diags, "TWOCM"), "got: {diags:?}");
+    }
+
+    #[test]
+    fn twocm_not_reported_between_statements() {
+        // MATLAB probe: `x = 1,, y = 2;` gives NOCOMMA, not TWOCM.
+        let diags = lint_file(&*engine(), "x = 1,, y = 2;\n");
+        assert!(!has_id(&diags, "TWOCM"), "got: {diags:?}");
     }
 
     #[test]

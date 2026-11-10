@@ -194,7 +194,7 @@ impl LanguageSpecEngine {
 #[cfg(test)]
 mod tests {
 
-    use crate::language_spec::tests::{check_source, filter_by_id};
+    use crate::language_spec::tests::{check_source, check_source_all_presets, filter_by_id};
     use malt_core::Rule;
 
     // -- VTPEAL --------------------------------------------------------------
@@ -210,7 +210,7 @@ classdef Foo
     end
 end
 ";
-        let diags = check_source(source, "Foo.m");
+        let diags = check_source_all_presets(source, "Foo.m");
         assert!(
             !filter_by_id(&diags, "VTPEAL").is_empty(),
             "VTPEAL should fire for a validator with no inputs"
@@ -251,7 +251,7 @@ classdef Foo
     end
 end
 ";
-        let diags = check_source(source, "Foo.m");
+        let diags = check_source_all_presets(source, "Foo.m");
         assert!(
             !filter_by_id(&diags, "VTPIN").is_empty(),
             "VTPIN should fire when the validator never uses its input"
@@ -294,7 +294,7 @@ classdef Foo
     end
 end
 ";
-        let diags = check_source(source, "Foo.m");
+        let diags = check_source_all_presets(source, "Foo.m");
         assert!(
             !filter_by_id(&diags, "VTPCON").is_empty(),
             "VTPCON should fire when the validator references a variable other than the property"

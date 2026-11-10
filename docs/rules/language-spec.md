@@ -17,7 +17,7 @@ All 165 checks share a single file-level engine (`LanguageSpecEngine`) that
 performs a full DFS traversal with context stacks for parfor/spmd/loop
 detection, then runs class, arguments-block, global/persistent, and
 script-level checks over extracted file metadata. Each diagnostic carries
-the specific check ID (e.g. `PFPF`, `FVAPN`, `MCFIL`).
+the specific check ID (e.g. `PFPF`, `MCFIL`).
 
 The checks are grouped into families:
 
@@ -620,12 +620,6 @@ Specifying both WeakHandle and Dependent attributes is invalid. A dependent prop
 Severity: **error** · Auto-fix: **no**
 
 Arguments blocks in nested function declarations are not supported.
-
-### FVAPN
-
-Severity: **error** · Auto-fix: **no**
-
-Move name-value arguments that use the name=value syntax to the end of the argument list.
 
 ### FVATF
 

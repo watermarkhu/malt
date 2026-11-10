@@ -268,6 +268,13 @@ impl SyntaxErrorsEngine {
         ranges.iter().any(|r| r.contains(&pos))
     }
 
+    /// True if `prefix` (the source of a line up to a position) leaves a `[` or `{` open.
+    pub(crate) fn inside_brackets(prefix: &str) -> bool {
+        let opens = prefix.chars().filter(|&c| c == '[' || c == '{').count();
+        let closes = prefix.chars().filter(|&c| c == ']' || c == '}').count();
+        opens > closes
+    }
+
     // -----------------------------------------------------------------------
     // Tree ERROR/MISSING node analysis (SYNER, NOPAR2, EOLPAR, ENDPAR, ENDCT)
     // -----------------------------------------------------------------------
@@ -329,7 +336,9 @@ impl SyntaxErrorsEngine {
     pub(crate) fn looks_like_missing_end(text: &str, node: &Node) -> bool {
         // Check text for block openers without matching end.
         let lower = text.to_lowercase();
-        let has_opener = BLOCK_OPENERS.iter().any(|kw| lower.contains(kw));
+        let has_opener = BLOCK_OPENERS
+            .iter()
+            .any(|kw| Self::contains_whole_word(&lower, kw));
         let has_end = lower.contains("end");
 
         if has_opener && !has_end {
@@ -406,14 +415,17 @@ impl SyntaxErrorsEngine {
         // sibling, and the ERROR does not contain `end`.
         let has_end = lower.contains("end");
         if !has_end {
-            let opener_in_text = BLOCK_OPENERS.iter().any(|kw| lower.contains(kw));
+            // Whole words only: `elseif` is not an `if` opener.
+            let opener_in_text = BLOCK_OPENERS
+                .iter()
+                .any(|kw| Self::contains_whole_word(&lower, kw));
             let opener_in_prev = node
                 .prev_sibling()
                 .map(|prev| {
-                    let prev_text = &source[prev.start_byte()..prev.end_byte()];
+                    let prev_text = source[prev.start_byte()..prev.end_byte()].to_lowercase();
                     BLOCK_OPENERS
                         .iter()
-                        .any(|kw| prev_text.to_lowercase().contains(kw))
+                        .any(|kw| Self::contains_whole_word(&prev_text, kw))
                 })
                 .unwrap_or(false);
             if opener_in_text || opener_in_prev {
@@ -440,9 +452,15 @@ impl SyntaxErrorsEngine {
         }
 
         // ENDCT3: the ERROR is followed by a sibling that starts with a
-        // block-opening keyword.
+        // block-opening keyword. An ERROR that starts with `function` is a whole
+        // function header and body that tree-sitter could not parse, not a
+        // function after an open block: MATLAB reports nothing for it.
+        let starts_with_function = text
+            .split_whitespace()
+            .next()
+            .is_some_and(|w| w.eq_ignore_ascii_case("function"));
         let mut sibling = node.next_sibling();
-        while let Some(sib) = sibling {
+        while let Some(sib) = sibling.filter(|_| !starts_with_function) {
             let sib_text = &source[sib.start_byte()..sib.end_byte()];
             match sib_text.split_whitespace().next() {
                 Some(first) if BLOCK_OPENERS.contains(&first.to_lowercase().as_str()) => {

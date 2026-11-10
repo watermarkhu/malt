@@ -32,7 +32,9 @@ impl LanguageSpecEngine {
         let Some(content) = string_content(args[0], source) else {
             return;
         };
-        if content.contains(':') {
+        // MATLAB reads a single argument as an identifier only when it has no
+        // whitespace: 'Result: done' is a plain message.
+        if content.contains(':') && !content.chars().any(char::is_whitespace) {
             self.push_diag(node, rule_id, message, diagnostics);
         }
     }
@@ -88,5 +90,17 @@ error('MyID', 'message here');
             wtxt.is_empty(),
             "WTXT should NOT fire for plain message or ID+message"
         );
+    }
+
+    #[test]
+    fn test_ertxt_wtxt_no_fire_message_with_colon_and_space() {
+        // MATLAB: `error('Result: done')` and `warning('hello: world')` are plain messages.
+        let source = "\
+error('msg:with spaces');
+warning('hello: world');
+";
+        let diags = check_source(source, "myscript.m");
+        assert!(filter_by_id(&diags, "ERTXT").is_empty());
+        assert!(filter_by_id(&diags, "WTXT").is_empty());
     }
 }

@@ -3,24 +3,16 @@
 use super::*;
 
 impl IncompleteAnalysisEngine {
-    /// EOFMI: Incomplete file (last node is ERROR or MISSING).
+    /// EOFMI is not emitted. MATLAB reports nothing of the kind for a file that
+    /// ends in an unfinished statement (`x = 1; 2=`, `x = 1; 2+`): it reports the
+    /// parse error where it occurs (SYNER) or only the statements before it.
+    /// Trailing `last_node_is_error` tree shapes are therefore not a finding.
     pub(crate) fn check_incomplete_file(
         &self,
-        metrics: &TreeMetrics,
-        source: &str,
-        diagnostics: &mut Vec<Diagnostic>,
+        _metrics: &TreeMetrics,
+        _source: &str,
+        _diagnostics: &mut Vec<Diagnostic>,
     ) {
-        if metrics.last_node_is_error {
-            diagnostics.push(Diagnostic {
-                rule_id: "EOFMI",
-                message: "Invalid syntax at end of file. File is incomplete.".to_string(),
-                severity: Severity::Error,
-                byte_range: source.len().saturating_sub(1)..source.len(),
-                line: source.lines().count().max(1),
-                column: 1,
-                fix: None,
-            });
-        }
     }
 }
 
@@ -32,9 +24,10 @@ mod tests {
     // -- EOFMI: incomplete file ---------------------------------------------
 
     #[test]
-    fn eofmi_fires_on_incomplete_file() {
+    fn eofmi_not_reported_for_unfinished_statement_at_eof() {
+        // MATLAB probe: `x = 1; 2=` and `x = 1; 2+` give NOPTS or SYNER, never EOFMI.
         let diags = lint_file(&*engine(), "x = 1; 2");
-        assert!(has_id(&diags, "EOFMI"), "got: {diags:?}");
+        assert!(!has_id(&diags, "EOFMI"), "got: {diags:?}");
     }
 
     #[test]
