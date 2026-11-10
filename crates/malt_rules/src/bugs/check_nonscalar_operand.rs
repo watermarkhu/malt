@@ -4,7 +4,9 @@ impl BugsEngine {
     /// BDSCA2: an operand of `&&` or `||` is a known non-scalar value, e.g.
     /// `[1 2] || false`.
     pub(crate) fn check_nonscalar_operand(&self, node: Node, source: &str) -> Vec<Diagnostic> {
-        if node.kind() != "boolean_operator" {
+        if node.kind() != "boolean_operator"
+            || self.config.disabled_checks.iter().any(|id| id == "BDSCA2")
+        {
             return Vec::new();
         }
         let (Some(left), Some(right)) = (node.child(0), node.child(2)) else {

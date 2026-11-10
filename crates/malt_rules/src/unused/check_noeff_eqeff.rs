@@ -123,10 +123,13 @@ fn operator_or_text(node: tree_sitter::Node, source: &str) -> String {
 mod tests {
     use super::*;
     use crate::test_util::{has_id, lint_file};
-    use malt_core::Config;
 
     fn engine() -> Box<dyn Rule> {
-        UnusedEngine::from_config(&Config::default())
+        // NOEFF is off under the mathworks preset (never emitted by MATLAB), so
+        // build the engine with every check enabled.
+        Box::new(UnusedEngine {
+            config: UnusedConfig::default(),
+        })
     }
 
     // -- NOEFF: statement with no effect ------------------------------------

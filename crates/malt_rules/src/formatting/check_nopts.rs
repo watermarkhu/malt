@@ -36,6 +36,51 @@ impl FormattingEngine {
     }
 }
 
+/// Whether `node` is an expression statement that MATLAB echoes when it has no
+/// semicolon (probed): an operator expression, a single-quoted literal, or a
+/// variable or indexing of one (`x`, `x(2)`, `a{1}`). Plain calls such as
+/// `disp(x)`, field reads such as `y.a`, and a non-variable name are silent.
+pub(crate) fn is_expression_statement(node: Node, source: &str) -> bool {
+    let at_statement_level = node
+        .parent()
+        .is_some_and(|p| STATEMENT_PARENTS.contains(&p.kind()));
+    if !at_statement_level {
+        return false;
+    }
+    match node.kind() {
+        "comparison_operator" | "binary_operator" | "unary_operator" | "boolean_operator" => true,
+        "string" => text_of(node, source).starts_with('\''),
+        "identifier" => is_variable_name(node, text_of(node, source), source),
+        "function_call" => node
+            .child_by_field_name("name")
+            .filter(|name| name.kind() == "identifier")
+            .is_some_and(|name| is_variable_name(node, text_of(name, source), source)),
+        _ => false,
+    }
+}
+
+/// Source text of `node`, empty when it is not valid UTF-8.
+fn text_of<'a>(node: Node, source: &'a str) -> &'a str {
+    node.utf8_text(source.as_bytes()).unwrap_or("")
+}
+
+/// Whether `name` is a variable of the scope enclosing `node` (or `ans`).
+fn is_variable_name(node: Node, name: &str, source: &str) -> bool {
+    if name == "ans" {
+        return true;
+    }
+    let mut scope = node;
+    let mut current = node.parent();
+    while let Some(parent) = current {
+        scope = parent;
+        if parent.kind() == "function_definition" {
+            break;
+        }
+        current = parent.parent();
+    }
+    crate::good_practices::is_assigned_in_body(scope, name, source)
+}
+
 #[cfg(test)]
 mod tests {
 

@@ -378,7 +378,7 @@ impl LanguageSpecEngine {
         let mut rule_config: LanguageSpecConfig = config.rule_params("LANGUAGE_SPEC_ENGINE");
         rule_config
             .disabled_checks
-            .extend(crate::off_under_mathworks(config, &["FVNIV"]));
+            .extend(crate::off_under_mathworks(config, &["FVNIV", "USESWNS"]));
         Box::new(Self {
             config: rule_config,
         })

@@ -1527,10 +1527,11 @@ category = "compatibility"
 
 [[checks]]
 id = "FEGLO"
-function_name = "feval"
+function_name = ""
 severity = "error"
 message = "'global' has been removed. There is no simple replacement for this."
 category = "compatibility"
+pattern = "generic"
 
 [[checks]]
 id = "SMPLMODE"

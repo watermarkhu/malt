@@ -46,10 +46,13 @@ impl UnusedEngine {
 mod tests {
     use super::*;
     use crate::test_util::{has_id, lint_file};
-    use malt_core::Config;
 
     fn engine() -> Box<dyn Rule> {
-        UnusedEngine::from_config(&Config::default())
+        // PUSE is off under the mathworks preset (MATLAB reports it only for
+        // persistents declared in scripts), so build the engine with every check on.
+        Box::new(UnusedEngine {
+            config: UnusedConfig::default(),
+        })
     }
 
     // -- PUSE: persistent declared but not used ------------------------------

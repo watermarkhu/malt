@@ -370,7 +370,9 @@ impl GoodPracticesEngine {
             .disabled_checks
             .extend(crate::off_under_mathworks(
                 config,
-                &["ERTAG", "WNTAG", "CTCH", "BDLOG2"],
+                &[
+                    "ERTAG", "WNTAG", "CTCH", "BDLOG2", "COMPNOP", "COMPNOT", "CTOINW",
+                ],
             ));
         Box::new(Self {
             config: rule_config,
@@ -549,7 +551,19 @@ impl GoodPracticesEngine {
                             continue;
                         }
                         let uses = uses_after_parfor(&sym, &name, parfor.end_byte(), tree, false);
-                        if self.is_check_enabled("PFTUSW") {
+                        // MATLAB reports only when the variable already had a value before the
+                        // loop and its first access after the loop is a read (probed).
+                        if self.is_check_enabled("PFTUSW")
+                            && is_defined_before_parfor(&sym, &name, parfor.start_byte())
+                            && !read_before_write_in_body(&sym, body_node, source, &name)
+                            && first_access_after_is_read(
+                                &sym,
+                                tree,
+                                source,
+                                &name,
+                                parfor.end_byte(),
+                            )
+                        {
                             if let Some(line) = uses.first() {
                                 let pos = lhs_node.start_position();
                                 diagnostics.push(Diagnostic {
@@ -902,22 +916,6 @@ pub(crate) fn find_operator_text<'a>(node: Node<'a>, source: &'a str) -> String 
     String::new()
 }
 
-/// Check if a node has any string-literal children (for STCMP).
-pub(crate) fn node_has_string_child(node: Node) -> bool {
-    let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        let kind = child.kind();
-        if kind == "string" || kind == "char_vector" {
-            return true;
-        }
-        // Also check for string literal wrapped in parens, etc.
-        if child.is_named() && node_has_string_child(child) {
-            return true;
-        }
-    }
-    false
-}
-
 /// The text of the string literals inside `node` (quotes removed), in order.
 /// Identifiers are not part of it, so a variable named `s` or `system` does not
 /// look like code.
@@ -1015,21 +1013,6 @@ pub(crate) fn args_has_case_conversion(args_node: Node, source: &str) -> bool {
         if child.kind() == "function_call" {
             if let Some(name) = get_function_call_name(child, source) {
                 if name == "lower" || name == "upper" {
-                    return true;
-                }
-            }
-        }
-    }
-    false
-}
-
-/// Check if arguments contain a call to a specific function (for STISA).
-pub(crate) fn args_has_function_call(args_node: Node, source: &str, target_name: &str) -> bool {
-    let mut cursor = args_node.walk();
-    for child in args_node.children(&mut cursor) {
-        if child.kind() == "function_call" {
-            if let Some(name) = get_function_call_name(child, source) {
-                if name == target_name {
                     return true;
                 }
             }
@@ -1423,6 +1406,65 @@ pub(crate) fn collect_parfor_body_reads<'a>(
         }
     }
     out
+}
+
+/// Whether the first access to `name` after byte offset `after` is a read.
+///
+/// A plain or indexed assignment that comes before the first read (`x = 5`,
+/// `x(2) = 1`) replaces the value, so the loop's result is not used.
+pub(crate) fn first_access_after_is_read(
+    sym: &SymbolTable,
+    tree: &tree_sitter::Tree,
+    source: &str,
+    name: &str,
+    after: usize,
+) -> bool {
+    let first_read = sym
+        .scopes
+        .iter()
+        .flat_map(|s| s.uses.iter())
+        .filter(|u| u.name == name && u.byte_range.start >= after)
+        .map(|u| u.byte_range.start)
+        .min();
+    let Some(first_read) = first_read else {
+        return false;
+    };
+    let root = tree.root_node();
+    !collect_simple_lhs_assignments(root, source)
+        .into_iter()
+        .chain(collect_indexed_lhs_assignments(root, source))
+        .any(|(written, node)| {
+            written == name && node.start_byte() >= after && node.start_byte() <= first_read
+        })
+}
+
+/// Whether the loop body reads `name` before the first assignment to it takes effect.
+///
+/// An accumulator such as `q = q + 1` reads the value from before the loop, which
+/// MATLAB does not report as a temporary variable (probed).
+pub(crate) fn read_before_write_in_body(
+    sym: &SymbolTable,
+    body: Node,
+    source: &str,
+    name: &str,
+) -> bool {
+    let first_write = collect_simple_lhs_assignments(body, source)
+        .into_iter()
+        .filter(|(written, _)| written == name)
+        .map(|(_, lhs)| lhs)
+        .min_by_key(|lhs| lhs.start_byte());
+    let Some(lhs) = first_write else {
+        return false;
+    };
+    let write_end = lhs
+        .parent()
+        .map_or(lhs.end_byte(), |assign| assign.end_byte());
+    sym.scopes.iter().flat_map(|s| s.uses.iter()).any(|u| {
+        u.name == name
+            && u.byte_range.start >= body.start_byte()
+            && u.byte_range.start < write_end
+            && u.byte_range.start != lhs.start_byte()
+    })
 }
 
 /// Collect simple-identifier LHS assignments inside a node (for PFOUS/PFTUSW).
@@ -2049,7 +2091,7 @@ mod tests {
     fn test_g4_checks_fire_through_dispatch() {
         let source = "for i = 1:10\n    i = 5;\nend\n\
 function f()\n    x = 1;\n    import foo.bar\nend\n\
-z = f(eval(x + y));\nonCleanup(@f);\n[~] = onCleanup(@f);\nc = computer('arch');\nfprintf('%d %d', x);\n";
+z = f(eval(x + y));\nonCleanup(@f);\n[~] = onCleanup(@f);\nc = computer('arch');\nfprintf('%d %d');\nif true\n    global q\nend\n";
         let tree = parse(source);
         let eng = engine();
 
@@ -2173,7 +2215,8 @@ z = f(eval(x + y));\nonCleanup(@f);\n[~] = onCleanup(@f);\nc = computer('arch');
 
     #[test]
     fn test_pftusw_fires_on_temp_used_after() {
-        let source = "parfor i = 1:10\n    tmp = compute(i);\n    x(i) = tmp;\nend\ndisp(tmp);\n";
+        let source =
+            "tmp = 0;\nparfor i = 1:10\n    tmp = compute(i);\n    x(i) = tmp;\nend\ndisp(tmp);\n";
         let tree = parse(source);
         let eng = engine();
 
@@ -2184,7 +2227,32 @@ z = f(eval(x + y));\nonCleanup(@f);\n[~] = onCleanup(@f);\nc = computer('arch');
             .into_iter()
             .find(|d| d.rule_id == "PFTUSW")
             .unwrap();
-        assert!(diag.message.contains("on line 5"), "got: {}", diag.message);
+        assert!(diag.message.contains("on line 6"), "got: {}", diag.message);
+    }
+
+    #[test]
+    fn test_pftusw_silent_for_accumulator_read_first() {
+        // Probed: `q = q + 1` reads the pre-loop value first, so MATLAB stays silent.
+        let source = "function f()\nq = 0;\nparfor i = 1:3\n    q = q + 1;\nend\ndisp(q);\nend\n";
+        let tree = parse(source);
+        assert!(g2_file_ids_with(&engine(), &tree, source, "PFTUSW").is_empty());
+    }
+
+    #[test]
+    fn test_pftusw_silent_when_reassigned_before_read() {
+        // Probed: `x = 5` after the loop replaces the loop's value before it is read.
+        let source =
+            "function f()\nx = 0;\nparfor i = 1:3\n    x = i;\nend\nx = 5;\ndisp(x);\nend\n";
+        let tree = parse(source);
+        assert!(g2_file_ids_with(&engine(), &tree, source, "PFTUSW").is_empty());
+    }
+
+    #[test]
+    fn test_pftusw_fires_without_pre_loop_value_is_pftuse() {
+        // Probed: with no value before the loop, MATLAB reports PFTUSE, not PFTUSW.
+        let source = "function f()\nparfor i = 1:3\n    t = i;\nend\ndisp(t);\nend\n";
+        let tree = parse(source);
+        assert!(g2_file_ids_with(&engine(), &tree, source, "PFTUSW").is_empty());
     }
 
     #[test]
@@ -2241,7 +2309,7 @@ z = f(eval(x + y));\nonCleanup(@f);\n[~] = onCleanup(@f);\nc = computer('arch');
     #[test]
     fn test_g2_must_fire_example() {
         let eng = engine();
-        let source = "parfor i = 1:2:10\n    evalin('base','x');\n    x(i) = i;\nend\nparfor i = 1:10\n    tmp = compute(i);\n    x(i) = tmp;\nend\ndisp(tmp);\nparfor i = 1:10\n    x(i) = i;\nend\ndisp(i);\nspmd\n    d = distributed(zeros(100));\nend\n";
+        let source = "parfor i = 1:2:10\n    evalin('base','x');\n    x(i) = i;\nend\ntmp = 0;\nparfor i = 1:10\n    tmp = compute(i);\n    x(i) = tmp;\nend\ndisp(tmp);\nparfor i = 1:10\n    x(i) = i;\nend\ndisp(i);\nspmd\n    d = distributed(zeros(100));\nend\n";
         let tree = parse(source);
         let ids = g2_collect_ids(&eng, &tree, source);
         for must in ["PFRNI", "PFEVB", "PFTUSW", "PFUIXW", "DSPMDA"] {

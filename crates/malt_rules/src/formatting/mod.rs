@@ -225,12 +225,16 @@ impl FormattingEngine {
         }
 
         // NOPTS: statement in a script that produces output without a semicolon
-        if kind == "assignment" && self.enabled.nopts {
+        if (kind == "assignment" || check_nopts::is_expression_statement(node, source))
+            && self.enabled.nopts
+        {
             self.check_nopts(node, source, diagnostics);
         }
 
         // NOPRT: statement in a function that produces output without a semicolon
-        if kind == "assignment" && self.enabled.noprt {
+        if (kind == "assignment" || check_nopts::is_expression_statement(node, source))
+            && self.enabled.noprt
+        {
             self.check_noprt(node, source, diagnostics);
         }
 

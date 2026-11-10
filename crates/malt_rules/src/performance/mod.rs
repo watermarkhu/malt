@@ -509,42 +509,30 @@ impl PerformanceEngine {
         };
 
         let lhs_text = node_text(lhs, source);
-        let rhs_text = node_text(rhs, source);
 
         // Pattern 1: x(end+1) = ... or x{end+1} = ...
+        // `s.f(end+1) = ...` names a field: MATLAB does not report it (probed).
+        let field_base = lhs_text
+            .split(['(', '{'])
+            .next()
+            .is_some_and(|base| base.contains('.'));
         if (lhs.kind() == "function_call" || lhs.kind() == "cell_index")
+            && !field_base
             && contains_end_plus_pattern(lhs, source)
         {
             diags.push(make_diag(check_id, node));
             return;
         }
 
-        // Pattern 1b: s.field(end+1) = ... — field_expression as LHS.
-        if lhs.kind() == "field_expression" {
-            let assign_text = node_text(node, source);
-            if let Some(eq_pos) = assign_text.find('=') {
-                let lhs_full = &assign_text[..eq_pos];
-                let normalized: String = lhs_full.chars().filter(|c| !c.is_whitespace()).collect();
-                if normalized.contains("end+1") {
-                    diags.push(make_diag(check_id, node));
-                    return;
-                }
-            }
-        }
-
-        // Pattern 2: x = [x, val] or x = [x; val] (or the cell equivalent).
+        // Pattern 2: x = [x, val] or x = [x; val] (or the cell equivalent). MATLAB
+        // reports concatenation as AGROW in scripts too (probed). A field target
+        // such as `s.g = [s.g, i]` is not reported.
         if lhs.kind() == "identifier"
             && (rhs.kind() == "matrix" || rhs.kind() == "cell")
             && matrix_contains_var(rhs, source, lhs_text)
+            && self.is_enabled("AGROW")
         {
-            diags.push(make_diag(check_id, node));
-            return;
-        }
-
-        // Pattern 3: s.field = [s.field, val]
-        if lhs.kind() == "field_expression" && rhs.kind() == "matrix" && rhs_text.contains(lhs_text)
-        {
-            diags.push(make_diag(check_id, node));
+            diags.push(make_diag("AGROW", node));
         }
     }
 }
@@ -1117,16 +1105,26 @@ mod tests {
 
     #[test]
     fn sagrow_fires_on_script_growth() {
-        let src = "for i = 1:10\n    s.data(end+1) = i;\nend\n";
+        let src = "for i = 1:10\n    x(end+1) = i;\nend\n";
         let diags = lint_file(&*engine(), src);
         assert!(has_id(&diags, "SAGROW"), "got: {diags:?}");
     }
 
     #[test]
-    fn sagrow_fires_on_script_concatenation() {
-        let src = "for i = 1:10\n    s.data = [s.data, i];\nend\n";
+    fn agrow_fires_on_script_concatenation() {
+        // Concatenation is AGROW in scripts too (probed); a field target is silent.
+        let src = "for i = 1:10\n    y = [y, i];\nend\n";
         let diags = lint_file(&*engine(), src);
-        assert!(has_id(&diags, "SAGROW"), "got: {diags:?}");
+        assert!(
+            has_id(&diags, "AGROW") && !has_id(&diags, "SAGROW"),
+            "got: {diags:?}"
+        );
+        let field = "for i = 1:10\n    s.data = [s.data, i];\nend\n";
+        let diags = lint_file(&*engine(), field);
+        assert!(
+            !has_id(&diags, "AGROW") && !has_id(&diags, "SAGROW"),
+            "got: {diags:?}"
+        );
     }
 
     #[test]
@@ -1138,7 +1136,7 @@ mod tests {
 
     #[test]
     fn agrow_in_function_sagrow_in_script() {
-        let f = "function f()\nfor i = 1:10\n    s.data(end+1) = i;\nend\nend\n";
+        let f = "function f()\nfor i = 1:10\n    x(end+1) = i;\nend\nend\n";
         let d = lint_file(&*engine(), f);
         assert!(has_id(&d, "AGROW") && !has_id(&d, "SAGROW"), "got: {d:?}");
         let s = "for i = 1:10\n    x(end+1) = i;\nend\n";

@@ -158,6 +158,9 @@ pub struct CompatibilityEngine {
     /// MATLAB's factory configuration leaves them off, so they are off here
     /// unless the preset, the category or the rule itself turns them on.
     forward_gates: Vec<&'static str>,
+    /// Whether IDISVARHIGH is reported. MATLAB's default `checkcode` never emits it
+    /// (probed, also with `-allmsg`), so it is off unless the preset or the rule turns it on.
+    idisvar_high: bool,
 }
 
 /// The forward-compatibility version-gate checks (MATLAB's "Forward
@@ -187,7 +190,15 @@ impl CompatibilityEngine {
                 None => group_on,
             })
             .collect();
-        Box::new(Self { forward_gates })
+        let idisvar_high = config.preset.enables_default_off
+            || config
+                .rules
+                .get("IDISVARHIGH")
+                .is_some_and(|rule| rule.enabled);
+        Box::new(Self {
+            forward_gates,
+            idisvar_high,
+        })
     }
 
     /// Run the generic (AST-pattern) compatibility checks over a file.
@@ -262,6 +273,7 @@ impl Rule for CompatibilityEngine {
         diagnostics.retain(|d| {
             !FORWARD_GATE_IDS.contains(&d.rule_id) || self.forward_gates.contains(&d.rule_id)
         });
+        diagnostics.retain(|d| d.rule_id != "IDISVARHIGH" || self.idisvar_high);
         diagnostics
     }
 

@@ -157,6 +157,10 @@ pub struct BugsConfig {
     /// Higher-order functions that accept function handles (FUNFUN).
     #[serde(default)]
     pub higher_order_functions: Vec<String>,
+
+    /// Check IDs switched off (BDSCA2 under the `mathworks` preset).
+    #[serde(default)]
+    pub disabled_checks: Vec<String>,
 }
 
 // ---------------------------------------------------------------------------
@@ -172,7 +176,11 @@ pub struct BugsEngine {
 impl BugsEngine {
     /// Factory constructor. Reads rule-specific params from config.
     pub fn from_config(config: &Config) -> Box<dyn Rule> {
-        let rule_config: BugsConfig = config.rule_params("BUGS_ENGINE");
+        let mut rule_config: BugsConfig = config.rule_params("BUGS_ENGINE");
+        // MATLAB reports `&&`/`||` operands with BDSCI/BDLGI instead (probed).
+        rule_config
+            .disabled_checks
+            .extend(crate::off_under_mathworks(config, &["BDSCA2"]));
         Box::new(Self {
             config: rule_config,
         })
@@ -959,7 +967,10 @@ use crate::test_util::{lint_file, lint_nodes};
 
 #[cfg(test)]
 pub(crate) fn engine() -> Box<dyn Rule> {
-    BugsEngine::from_config(&Config::default())
+    // Every check on: BDSCA2 is off under the mathworks preset.
+    Box::new(BugsEngine {
+        config: BugsConfig::default(),
+    })
 }
 
 #[cfg(test)]

@@ -8,8 +8,9 @@ impl GoodPracticesEngine {
         }
 
         // Only fire on statement-level load calls (not `x = load(...)`)
+        // MATLAB reports LOAD only inside a function body (probed; scripts are silent).
         let is_statement = is_statement_level(node);
-        if !is_statement {
+        if !is_statement || !in_function(node) {
             return Vec::new();
         }
 
@@ -20,6 +21,10 @@ impl GoodPracticesEngine {
         };
 
         if func_name != Some("load") {
+            return Vec::new();
+        }
+        // `load('f.mat', 'x')` names variables; options such as `-mat` do not count.
+        if file_argument_count(node, source) > 1 {
             return Vec::new();
         }
 
@@ -37,18 +42,89 @@ impl GoodPracticesEngine {
     }
 }
 
+/// Whether `node` sits inside a function body.
+fn in_function(node: Node) -> bool {
+    let mut current = node.parent();
+    while let Some(parent) = current {
+        if parent.kind() == "function_definition" {
+            return true;
+        }
+        current = parent.parent();
+    }
+    false
+}
+
+/// Number of arguments of a `load` call that are not options (`-mat`).
+fn file_argument_count(node: Node, source: &str) -> usize {
+    let mut cursor = node.walk();
+    let args: Vec<Node> = if node.kind() == "function_call" {
+        match find_child_of_kind(node, "arguments") {
+            Some(args) => args
+                .children(&mut cursor)
+                .filter(|c| c.is_named())
+                .collect(),
+            None => Vec::new(),
+        }
+    } else {
+        node.children(&mut cursor)
+            .filter(|c| c.is_named())
+            .skip(1)
+            .collect()
+    };
+    args.iter()
+        .filter(|a| {
+            !node_text(**a, source)
+                .trim_matches(['\'', '"'])
+                .starts_with('-')
+        })
+        .count()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn test_load_fires_without_output() {
-        let source = "load('data.mat');\n";
+    fn test_load_silent_at_script_level() {
+        let source = "load('data.mat')\n";
         let tree = parse(source);
         let root = tree.root_node();
         let eng = engine();
 
         let fc = find_child_of_kind(root, "function_call").unwrap();
+        assert!(eng.check_load(fc, source).is_empty());
+    }
+
+    #[test]
+    fn test_load_silent_with_variable_list() {
+        let source = "function f()\nload('data.mat', 'x')\nend\n";
+        let tree = parse(source);
+        let root = tree.root_node();
+        let eng = engine();
+
+        let fc = find_descendant_of_kind(root, "function_call").unwrap();
+        assert!(eng.check_load(fc, source).is_empty());
+    }
+
+    #[test]
+    fn test_load_fires_in_function_with_option_only() {
+        let source = "function f()\nload('data.mat', '-mat')\nend\n";
+        let tree = parse(source);
+        let root = tree.root_node();
+        let eng = engine();
+
+        let fc = find_descendant_of_kind(root, "function_call").unwrap();
+        assert_eq!(eng.check_load(fc, source).len(), 1);
+    }
+
+    #[test]
+    fn test_load_fires_without_output() {
+        let source = "function f()\nload('data.mat');\nend\n";
+        let tree = parse(source);
+        let root = tree.root_node();
+        let eng = engine();
+
+        let fc = find_descendant_of_kind(root, "function_call").unwrap();
         let diags = eng.check_load(fc, source);
         assert_eq!(diags.len(), 1);
         assert_eq!(diags[0].rule_id, "LOAD");

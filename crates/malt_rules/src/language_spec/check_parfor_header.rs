@@ -22,22 +22,30 @@ impl LanguageSpecEngine {
             }
         }
 
-        // PFRNG: the parfor range must be increasing consecutive integers
+        // PFRNG: a literal start or stop that is not an integer (`1.5:4`, `1:4.5`).
+        // Non-unit steps are PFRNI, and bounds that are variables are not evaluated.
+        // The diagnostic sits on the colon before the stop value (probed).
         if let Some(range_node) = self.parfor_range_node(node) {
-            let mut named = 0usize;
-            let mut step_is_one = true;
             let mut cursor = range_node.walk();
-            for child in range_node.children(&mut cursor) {
-                if child.is_named() {
-                    named += 1;
-                    if named == 2 {
-                        step_is_one = node_text(child, source).trim() == "1";
-                    }
-                }
-            }
-            if named >= 3 && !step_is_one {
+            let named: Vec<tree_sitter::Node> = range_node.named_children(&mut cursor).collect();
+            let is_fractional = |n: &tree_sitter::Node| {
+                n.kind() == "number"
+                    && node_text(*n, source)
+                        .trim()
+                        .parse::<f64>()
+                        .is_ok_and(|v| v.fract() != 0.0)
+            };
+            if named.len() >= 2
+                && (is_fractional(&named[0]) || is_fractional(&named[named.len() - 1]))
+            {
+                let mut cursor = range_node.walk();
+                let stop_colon = range_node
+                    .children(&mut cursor)
+                    .filter(|c| c.kind() == ":")
+                    .last()
+                    .unwrap_or(range_node);
                 self.push_diag(
-                    range_node,
+                    stop_colon,
                     "PFRNG",
                     "The range of a PARFOR statement must be consecutive integers.",
                     diagnostics,
@@ -104,7 +112,8 @@ end
     }
 
     #[test]
-    fn test_pfrng_fires_non_unit_step() {
+    fn test_pfrng_no_fire_integer_step() {
+        // Probed: `1:2:10` is PFRNI only, not PFRNG.
         let source = "\
 function f()
     parfor i = 1:2:10
@@ -114,13 +123,50 @@ end
 ";
         let diags = check_source(source, "f.m");
         assert!(
-            !filter_by_id(&diags, "PFRNG").is_empty(),
-            "PFRNG should fire for a non-unit step"
+            filter_by_id(&diags, "PFRNG").is_empty(),
+            "PFRNG should NOT fire for an integer step (that is PFRNI)"
         );
     }
 
     #[test]
-    fn test_pfrng_fires_negative_step() {
+    fn test_pfrng_fires_fractional_start_and_stop() {
+        // Probed at column 1: `1.5:4` reports at the colon before `4` (column 15),
+        // `1:4.5` at the colon before `4.5` (column 13). Indented by four here.
+        let source = "\
+function f()
+    parfor i = 1.5:4
+        x(i) = i;
+    end
+    parfor i = 1:4.5
+        x(i) = i;
+    end
+end
+";
+        let diags = check_source(source, "f.m");
+        let pfrng = filter_by_id(&diags, "PFRNG");
+        assert_eq!(pfrng.len(), 2, "got: {diags:?}");
+        assert_eq!((pfrng[0].line, pfrng[0].column), (2, 19));
+        assert_eq!((pfrng[1].line, pfrng[1].column), (5, 17));
+    }
+
+    #[test]
+    fn test_pfrng_no_fire_variable_bounds() {
+        // Probed: MATLAB does not report bounds it cannot evaluate (`1:n` with a variable).
+        let source = "\
+function f()
+    n = 2;
+    parfor i = 1:n
+        x(i) = i;
+    end
+end
+";
+        let diags = check_source(source, "f.m");
+        assert!(filter_by_id(&diags, "PFRNG").is_empty());
+    }
+
+    #[test]
+    fn test_pfrng_no_fire_negative_step() {
+        // Probed: `10:-1:1` is not reported by MATLAB.
         let source = "\
 function f()
     parfor i = 10:-1:1
@@ -130,8 +176,8 @@ end
 ";
         let diags = check_source(source, "f.m");
         assert!(
-            !filter_by_id(&diags, "PFRNG").is_empty(),
-            "PFRNG should fire for a negative step"
+            filter_by_id(&diags, "PFRNG").is_empty(),
+            "PFRNG should NOT fire for a negative integer step"
         );
     }
 

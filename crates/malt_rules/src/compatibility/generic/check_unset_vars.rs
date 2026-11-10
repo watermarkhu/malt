@@ -500,8 +500,19 @@ mod tests {
 
     #[test]
     fn idisvarhigh_read_before_later_assignment_fires() {
-        let d = lint_file(&*engine(), "function f()\n y = x + 1;\n x = 5;\nend\n");
+        // MATLAB's default checkcode never emits IDISVARHIGH (probed), so it is
+        // only reported under the `all` preset.
+        let all = CompatibilityEngine::from_config(
+            &Config::from_toml("[lint]\npreset = \"all\"\n").unwrap(),
+        );
+        let d = lint_file(&*all, "function f()\n y = x + 1;\n x = 5;\nend\n");
         assert!(has_id(&d, "IDISVARHIGH"), "got: {d:?}");
+    }
+
+    #[test]
+    fn idisvarhigh_off_under_mathworks() {
+        let d = lint_file(&*engine(), "function f()\n y = x + 1;\n x = 5;\nend\n");
+        assert!(!has_id(&d, "IDISVARHIGH"), "got: {d:?}");
     }
 
     #[test]

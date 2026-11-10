@@ -34,7 +34,10 @@ impl GoodPracticesEngine {
         let fmt_text = node_text(args[format_index], source).trim_matches('\'');
         let specifiers = count_format_specifiers(fmt_text);
         let arg_count = args.len() - format_index - 1;
-        if specifiers == arg_count {
+        // MATLAB flags only a format with no specifiers that gets arguments, or one
+        // with specifiers and no arguments (probed). Two non-zero counts that
+        // differ, such as `fprintf('%d %d', 1)`, are silent.
+        if (specifiers == 0) == (arg_count == 0) {
             return Vec::new();
         }
 
@@ -57,7 +60,7 @@ mod tests {
 
     #[test]
     fn test_ctpct_fires_on_mismatch() {
-        let source = "fprintf('%d %d', x);\n";
+        let source = "fprintf('%d %d');\n";
         let tree = parse(source);
         let root = tree.root_node();
         let eng = engine();
@@ -70,7 +73,7 @@ mod tests {
 
     #[test]
     fn test_ctpct_fires_on_sprintf_mismatch() {
-        let source = "sprintf('%d %f', x);\n";
+        let source = "sprintf('hello', x);\n";
         let tree = parse(source);
         let root = tree.root_node();
         let eng = engine();
@@ -91,6 +94,18 @@ mod tests {
         let fc = find_descendant_of_kind(root, "function_call").unwrap();
         let diags = eng.check_ctpct(fc, source);
         assert!(diags.is_empty());
+    }
+
+    #[test]
+    fn test_ctpct_silent_on_nonzero_count_mismatch() {
+        // MATLAB does not report this one-argument mismatch (probed).
+        let source = "fprintf('%d %d', x);\n";
+        let tree = parse(source);
+        let root = tree.root_node();
+        let eng = engine();
+
+        let fc = find_descendant_of_kind(root, "function_call").unwrap();
+        assert!(eng.check_ctpct(fc, source).is_empty());
     }
 
     #[test]

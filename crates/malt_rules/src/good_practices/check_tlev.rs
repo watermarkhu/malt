@@ -1,45 +1,40 @@
 use super::*;
 
 impl GoodPracticesEngine {
-    /// TLEV: dynamic-code function (`eval`/`evalc`/`evalin`/`feval`) used as a
-    /// sub-expression rather than a top-level statement.
-    pub(crate) fn check_tlev(&self, node: Node, source: &str) -> Vec<Diagnostic> {
-        if !self.is_check_enabled("TLEV") || node.kind() != "function_call" {
+    /// TLEV: `global` or `persistent` declared inside a nested block (an `if`,
+    /// loop or `switch` body) rather than as a top-level statement of its function.
+    ///
+    /// MATLAB does not report `eval` or `feval` here (probed: `eval` in an `if`
+    /// gets EVLCS only), so those calls are no longer candidates.
+    pub(crate) fn check_tlev(&self, node: Node, _source: &str) -> Vec<Diagnostic> {
+        if !self.is_check_enabled("TLEV") {
             return Vec::new();
         }
-
-        let func_name = match get_function_call_name(node, source) {
-            Some(n) => n,
-            None => return Vec::new(),
+        let keyword = match node.kind() {
+            "global_operator" => "GLOBAL",
+            "persistent_operator" => "PERSISTENT",
+            _ => return Vec::new(),
         };
-        if !["eval", "evalc", "evalin", "feval"].contains(&func_name) {
+        let Some(parent) = node.parent() else {
             return Vec::new();
-        }
-
-        // A statement of its own is a top-level statement.
-        if is_statement_level(node) {
+        };
+        // Top-level: a script statement, or a statement of a function's body block.
+        let top_level = match parent.kind() {
+            "source_file" | "function_definition" => true,
+            "block" => parent
+                .parent()
+                .is_some_and(|p| p.kind() == "function_definition"),
+            _ => false,
+        };
+        if top_level {
             return Vec::new();
-        }
-
-        // A call that is the entire right-hand side of an assignment is still a
-        // top-level statement; anything deeper is a sub-expression.
-        if let Some(parent) = node.parent() {
-            if parent.kind() == "assignment" {
-                if let Some(right) = parent.child_by_field_name("right") {
-                    if right.start_byte() == node.start_byte()
-                        && right.end_byte() == node.end_byte()
-                    {
-                        return Vec::new();
-                    }
-                }
-            }
         }
 
         let pos = node.start_position();
         vec![Diagnostic {
             rule_id: "TLEV",
             message: format!(
-                "{func_name} could be very inefficient unless it is a top-level statement in its function."
+                "{keyword} could be very inefficient unless it is a top-level statement in its function."
             ),
             severity: Severity::Warning,
             byte_range: node.start_byte()..node.end_byte(),
@@ -55,64 +50,52 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_tlev_silent_on_bare_eval_statement() {
-        let source = "eval(x + y);\n";
+    fn test_tlev_silent_on_top_level_global() {
+        let source = "function f()\nglobal g\nend\n";
         let tree = parse(source);
         let root = tree.root_node();
         let eng = engine();
 
-        let fc = find_child_of_kind(root, "function_call").unwrap();
-        let diags = eng.check_tlev(fc, source);
-        assert!(diags.is_empty(), "a statement is top-level: {diags:?}");
+        let decl = find_descendant_of_kind(root, "global_operator").unwrap();
+        assert!(eng.check_tlev(decl, source).is_empty());
     }
 
     #[test]
-    fn test_tlev_fires_on_nested_eval() {
-        let source = "x = f(eval(y));\n";
+    fn test_tlev_fires_on_nested_global() {
+        let source = "function f()\nif true\nglobal g\nend\nend\n";
         let tree = parse(source);
         let root = tree.root_node();
         let eng = engine();
 
-        let eval_call = goodprac_g4_find_call(root, "eval", source).unwrap();
-        let diags = eng.check_tlev(eval_call, source);
+        let decl = find_descendant_of_kind(root, "global_operator").unwrap();
+        let diags = eng.check_tlev(decl, source);
         assert_eq!(diags.len(), 1);
         assert_eq!(diags[0].rule_id, "TLEV");
+        assert!(diags[0].message.starts_with("GLOBAL"));
     }
 
     #[test]
-    fn test_tlev_silent_on_whole_rhs() {
-        let source = "x = eval(y);\n";
+    fn test_tlev_fires_on_nested_persistent() {
+        let source = "function f()\nfor i = 1:2\npersistent p\nend\nend\n";
+        let tree = parse(source);
+        let root = tree.root_node();
+        let eng = engine();
+
+        let decl = find_descendant_of_kind(root, "persistent_operator").unwrap();
+        let diags = eng.check_tlev(decl, source);
+        assert_eq!(diags.len(), 1);
+        assert!(diags[0].message.starts_with("PERSISTENT"));
+    }
+
+    #[test]
+    fn test_tlev_silent_on_eval_in_block() {
+        // MATLAB reports EVLCS for this eval, never TLEV (probed).
+        let source = "function f()\nif true\neval('x = 1;');\nend\nend\n";
         let tree = parse(source);
         let root = tree.root_node();
         let eng = engine();
 
         let fc = find_descendant_of_kind(root, "function_call").unwrap();
-        let diags = eng.check_tlev(fc, source);
-        assert!(diags.is_empty());
-    }
-
-    #[test]
-    fn test_tlev_silent_on_evalc_whole_rhs() {
-        let source = "x = evalc('y = 1');\n";
-        let tree = parse(source);
-        let root = tree.root_node();
-        let eng = engine();
-
-        let fc = find_descendant_of_kind(root, "function_call").unwrap();
-        let diags = eng.check_tlev(fc, source);
-        assert!(diags.is_empty());
-    }
-
-    fn goodprac_g4_find_call<'a>(node: Node<'a>, name: &str, source: &'a str) -> Option<Node<'a>> {
-        if node.kind() == "function_call" && get_function_call_name(node, source) == Some(name) {
-            return Some(node);
-        }
-        let mut cursor = node.walk();
-        for child in node.children(&mut cursor) {
-            if let Some(found) = goodprac_g4_find_call(child, name, source) {
-                return Some(found);
-            }
-        }
-        None
+        assert!(eng.check_tlev(fc, source).is_empty());
     }
 }

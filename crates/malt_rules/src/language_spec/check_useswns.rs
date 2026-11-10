@@ -14,6 +14,9 @@ impl LanguageSpecEngine {
         ctx: &FileContext,
         diagnostics: &mut Vec<Diagnostic>,
     ) {
+        if !self.is_check_enabled("USESWNS") {
+            return;
+        }
         let root_scope = symbol_table.root_scope();
         let skipped = Self::collect_function_name_starts(ctx.tree.root_node());
         let mut reported: HashSet<String> = HashSet::new();
@@ -86,17 +89,41 @@ impl LanguageSpecEngine {
 #[cfg(test)]
 mod tests {
 
-    use crate::language_spec::tests::{check_source, filter_by_id};
+    use crate::language_spec::tests::{check_source, filter_by_id, parse_matlab};
+    use crate::language_spec::LanguageSpecEngine;
+    use malt_core::{Config, FileContext};
+    use std::path::Path;
+
+    /// Run the language spec engine with the `all` preset, where USESWNS is on.
+    fn check_source_all(source: &str) -> Vec<malt_core::Diagnostic> {
+        let config = Config::from_toml("[lint]\npreset = \"all\"\n").unwrap();
+        let rule = LanguageSpecEngine::from_config(&config);
+        let tree = parse_matlab(source);
+        let ctx = FileContext {
+            tree: &tree,
+            source,
+            file_path: Path::new("myscript.m"),
+        };
+        rule.check_file(&ctx)
+    }
 
     #[test]
     fn test_useswns_fires_use_before_definition() {
+        // MATLAB's default checkcode never emits USESWNS (probed), so it is off
+        // under the mathworks preset and only fires under `all`.
         let source = "y = x + 1;\nx = 5;\n";
-        let diags = check_source(source, "myscript.m");
+        let diags = check_source_all(source);
         let useswns = filter_by_id(&diags, "USESWNS");
         assert!(
             !useswns.is_empty(),
             "USESWNS should fire for variable used before definition"
         );
+    }
+
+    #[test]
+    fn test_useswns_off_under_mathworks() {
+        let diags = check_source("y = x + 1;\nx = 5;\n", "myscript.m");
+        assert!(filter_by_id(&diags, "USESWNS").is_empty());
     }
 
     #[test]

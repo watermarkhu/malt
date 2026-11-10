@@ -6,6 +6,7 @@
 //! - [`typing`]: Conservative one-pass type inference for variables.
 
 pub mod control_flow;
+pub mod liveness;
 pub mod metadata;
 pub mod symbols;
 pub mod typing;

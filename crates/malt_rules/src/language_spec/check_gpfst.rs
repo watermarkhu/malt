@@ -2,62 +2,62 @@
 
 use super::*;
 
+/// Whether a definition is a `global` or `persistent` declaration.
+fn is_gp_decl(kind: &DefKind) -> bool {
+    matches!(kind, DefKind::Global | DefKind::Persistent)
+}
+
 impl LanguageSpecEngine {
     /// GPFST: Global/persistent must precede first use.
+    ///
+    /// Reported once per name, at the first reference to it in the scope (an
+    /// assignment, a loop variable or a read) when that reference comes before
+    /// the first `global` or `persistent` declaration of the name. MATLAB points
+    /// at that reference, not at the declaration.
     pub(crate) fn check_gpfst(
         &self,
         symbol_table: &SymbolTable,
         diagnostics: &mut Vec<Diagnostic>,
     ) {
         for scope in &symbol_table.scopes {
-            // Find all global/persistent declarations
-            let gp_defs: Vec<&_> = scope
-                .defs
-                .iter()
-                .filter(|d| d.kind == DefKind::Global || d.kind == DefKind::Persistent)
-                .collect();
+            for gp_def in scope.defs.iter().filter(|d| is_gp_decl(&d.kind)) {
+                let first_decl = scope
+                    .defs
+                    .iter()
+                    .filter(|d| d.name == gp_def.name && is_gp_decl(&d.kind))
+                    .map(|d| d.byte_range.start)
+                    .min();
+                if first_decl != Some(gp_def.byte_range.start) {
+                    continue;
+                }
 
-            for gp_def in &gp_defs {
-                // Check if there are any uses of this variable before the declaration
-                let first_use = scope
+                let first_ref = scope
                     .uses
                     .iter()
                     .filter(|u| u.name == gp_def.name)
-                    .min_by_key(|u| u.byte_range.start);
+                    .map(|u| (u.byte_range.clone(), u.line, u.column))
+                    .chain(
+                        scope
+                            .defs
+                            .iter()
+                            .filter(|d| d.name == gp_def.name && !is_gp_decl(&d.kind))
+                            .map(|d| (d.byte_range.clone(), d.line, d.column)),
+                    )
+                    .min_by_key(|(range, _, _)| range.start);
 
-                if let Some(first_use) = first_use {
-                    if first_use.byte_range.start < gp_def.byte_range.start {
+                if let Some((range, line, column)) = first_ref {
+                    if range.start < gp_def.byte_range.start {
                         diagnostics.push(Diagnostic {
                             rule_id: "GPFST",
                             message: "A GLOBAL or PERSISTENT declaration must precede first use."
                                 .to_string(),
                             severity: Severity::Error,
-                            byte_range: gp_def.byte_range.clone(),
-                            line: gp_def.line,
-                            column: gp_def.column,
+                            byte_range: range,
+                            line,
+                            column,
                             fix: None,
                         });
                     }
-                }
-
-                // Also check if there are any assignment definitions before the declaration
-                let prior_assignment = scope.defs.iter().find(|d| {
-                    d.name == gp_def.name
-                        && d.kind == DefKind::Assignment
-                        && d.byte_range.start < gp_def.byte_range.start
-                });
-                if let Some(prior) = prior_assignment {
-                    let _ = prior;
-                    diagnostics.push(Diagnostic {
-                        rule_id: "GPFST",
-                        message: "A GLOBAL or PERSISTENT declaration must precede first use."
-                            .to_string(),
-                        severity: Severity::Error,
-                        byte_range: gp_def.byte_range.clone(),
-                        line: gp_def.line,
-                        column: gp_def.column,
-                        fix: None,
-                    });
                 }
             }
         }

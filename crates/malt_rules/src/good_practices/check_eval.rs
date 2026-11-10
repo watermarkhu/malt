@@ -44,18 +44,22 @@ impl GoodPracticesEngine {
             }];
         }
 
-        // MATLAB reports EVLCS only for `eval(...)` used as a statement with a
-        // single argument: `out = eval(expr)` has no direct replacement, and the
-        // two-argument form is the EV2IN suggestion instead.
-        let statement_level = node
-            .parent()
-            .is_some_and(|p| STATEMENT_PARENTS.contains(&p.kind()));
+        // MATLAB reports EVLCS for a one-argument `eval` in statement and value
+        // positions (probed); the two-argument form is the EV2IN suggestion instead.
         let two_arguments = find_child_of_kind(node, "arguments").is_some_and(|args| {
             let mut cursor = args.walk();
             let named = args.children(&mut cursor).filter(|c| c.is_named()).count();
             named > 1
         });
-        if !statement_level || two_arguments {
+        // In a value position MATLAB reports only a literal string: it is silent on
+        // `out = eval(expr)` but flags `y = eval('1')` (probed).
+        let statement_level = node
+            .parent()
+            .is_some_and(|p| STATEMENT_PARENTS.contains(&p.kind()));
+        let literal_argument = find_child_of_kind(node, "arguments")
+            .and_then(|args| args.named_child(0))
+            .is_some_and(|arg| arg.kind() == "string");
+        if two_arguments || (!statement_level && !literal_argument) {
             return Vec::new();
         }
 
@@ -98,50 +102,15 @@ impl GoodPracticesEngine {
         if named.len() != 1 {
             return false;
         }
+        // MATLAB's EVLDUAL is for a concatenated command such as
+        // `eval(['load ' name])` (probed); a literal `eval('load(f)')` is EVLCS.
         let arg = named[0];
-        if arg.kind() != "string" {
+        if arg.kind() != "matrix" {
             return false;
         }
         let text = node_text(arg, source).trim();
-        let inner = text.trim_matches(|c| c == '\'' || c == '"');
-        is_literal_function_call(inner)
+        text.contains('\'') && !text.contains('=')
     }
-}
-
-/// Check whether a string contains a single, plain function call of the form
-/// `identifier(...)` with balanced parentheses and no string concatenation or
-/// matrix construction.
-fn is_literal_function_call(inner: &str) -> bool {
-    let s = inner.trim();
-    let Some(open) = s.find('(') else {
-        return false;
-    };
-    let name = &s[..open];
-    let mut chars = name.chars();
-    let first_is_alpha = chars
-        .next()
-        .map(|c| c.is_ascii_alphabetic())
-        .unwrap_or(false);
-    if !first_is_alpha
-        || !chars.all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '.')
-        || !s.ends_with(')')
-    {
-        return false;
-    }
-
-    let mut depth = 0i32;
-    for c in s.chars() {
-        match c {
-            '(' => depth += 1,
-            ')' => depth -= 1,
-            '\'' | '"' | '[' => return false,
-            _ => {}
-        }
-        if depth < 0 {
-            return false;
-        }
-    }
-    depth == 0
 }
 
 #[cfg(test)]
@@ -149,8 +118,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_evldual_fires_on_literal_function_call() {
-        let source = "eval('load(filename)');\n";
+    fn test_evldual_fires_on_concatenated_command() {
+        // MATLAB reports EVLDUAL for a concatenated command (probed).
+        let source = "eval(['load ' filename]);\n";
         let tree = parse(source);
         let root = tree.root_node();
         let eng = engine();
@@ -162,8 +132,9 @@ mod tests {
     }
 
     #[test]
-    fn test_evldual_silent_on_dynamic_eval() {
-        let source = "eval(['load ' filename]);\n";
+    fn test_evldual_silent_on_literal_call() {
+        // A literal `eval('load(filename)')` is EVLCS in MATLAB, not EVLDUAL (probed).
+        let source = "eval('load(filename)');\n";
         let tree = parse(source);
         let root = tree.root_node();
         let eng = engine();
@@ -203,9 +174,10 @@ mod tests {
         };
         // Constant statements and variables: plain EVLCS.
         assert_eq!(ids("eval('tmp = 2;');\n"), vec!["EVLCS"]);
-        // MATLAB does not flag eval with an output (no direct replacement) or the
-        // two-argument form (the EV2IN suggestion).
+        // MATLAB is silent on `out = eval(expr)` but flags a literal in a value
+        // position (probed: `y = eval('1')`); the two-argument form is EV2IN.
         assert!(ids("out = eval(expr);\n").is_empty());
+        assert_eq!(ids("y = eval('1');\n"), vec!["EVLCS"]);
         assert!(ids("eval('a = 1;', 'a = 0;');\n").is_empty());
         // A variable called `s` is not a field access.
         assert_eq!(ids("eval(s);\n"), vec!["EVLCS"]);

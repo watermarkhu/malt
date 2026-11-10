@@ -10,14 +10,20 @@ impl GoodPracticesEngine {
             return Vec::new();
         }
 
-        let text = node_text(node, source);
-        if !text.contains("==") {
+        // MATLAB reports only `==`/`~=` in an if or while condition, against a
+        // single-quoted literal of two or more characters (probed). Plain
+        // assignments such as `v = s == 'ab'` and double-quoted strings are silent.
+        if !is_condition_operand(node) {
             return Vec::new();
         }
-
-        // Check if either operand is a string literal.
-        let has_string_operand = node_has_string_child(node);
-        if !has_string_operand {
+        let mut cursor = node.walk();
+        let is_comparison = node
+            .children(&mut cursor)
+            .any(|c| !c.is_named() && matches!(node_text(c, source), "==" | "~="));
+        let has_string_operand = node
+            .children(&mut node.walk())
+            .any(|c| c.kind() == "string" && is_multichar_single_quoted(node_text(c, source)));
+        if !is_comparison || !has_string_operand {
             return Vec::new();
         }
 
@@ -32,4 +38,24 @@ impl GoodPracticesEngine {
             fix: None,
         }]
     }
+}
+
+/// Whether `node` is part of the condition of an `if`, `elseif` or `while`.
+fn is_condition_operand(node: Node) -> bool {
+    let mut current = node.parent();
+    while let Some(parent) = current {
+        match parent.kind() {
+            "if_statement" | "elseif_clause" | "while_statement" => return true,
+            "block" | "source_file" | "assignment" | "function_call" | "function_definition" => {
+                return false
+            }
+            _ => current = parent.parent(),
+        }
+    }
+    false
+}
+
+/// A single-quoted character literal of two or more characters.
+fn is_multichar_single_quoted(text: &str) -> bool {
+    text.starts_with('\'') && text.trim_matches('\'').chars().count() >= 2
 }
