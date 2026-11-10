@@ -151,22 +151,53 @@ fn collect_fxup(tree: &tree_sitter::Tree, source: &str, diagnostics: &mut Vec<Di
         let Some(outer) = enclosing_function(f) else {
             continue;
         };
-        let loop_indices = collect_outer_loop_indices(outer, source);
-        if loop_indices.is_empty() {
+        let mut heads = Vec::new();
+        collect_outer_loop_heads(outer, outer, source, &mut heads);
+        if heads.is_empty() {
             continue;
+        }
+        let loop_indices: std::collections::HashSet<String> =
+            heads.iter().map(|(name, _)| name.clone()).collect();
+        // Probed in MATLAB: a plain assignment in the nested function reports the
+        // outer loop head once; a `for` over the same name reports the outer
+        // head and its own index. A plain assignment gets no report of its own.
+        let mut for_indices: Vec<(String, Node)> = Vec::new();
+        let mut for_loops = Vec::new();
+        collect_nodes_of_kind(f, "for_statement", &mut for_loops);
+        for l in for_loops {
+            if let Some(idx) = find_parfor_index_identifier(l) {
+                let name = node_text(idx, source);
+                if loop_indices.contains(name) {
+                    for_indices.push((name.to_string(), idx));
+                }
+            }
         }
         let mut assignments = Vec::new();
         collect_fxup_assignments(f, source, &loop_indices, &mut assignments);
-        for (name, lhs) in assignments {
-            if !seen.insert(lhs.start_byte()) {
-                continue;
+        let mut reports: Vec<(String, Node)> = Vec::new();
+        for name in assignments
+            .iter()
+            .map(|(name, _)| name)
+            .chain(for_indices.iter().map(|(name, _)| name))
+        {
+            if let Some((_, head)) = heads.iter().find(|(n, _)| n == name) {
+                if seen.insert(head.start_byte()) {
+                    reports.push((name.clone(), *head));
+                }
             }
-            let pos = lhs.start_position();
+        }
+        for (name, idx) in for_indices {
+            if seen.insert(idx.start_byte()) {
+                reports.push((name, idx));
+            }
+        }
+        for (name, node) in reports {
+            let pos = node.start_position();
             diagnostics.push(Diagnostic {
                 rule_id: "FXUP",
                 message: format!("Outer loop variable {name} is set inside a nested function."),
                 severity: Severity::Warning,
-                byte_range: lhs.start_byte()..lhs.end_byte(),
+                byte_range: node.start_byte()..node.end_byte(),
                 line: pos.row + 1,
                 column: pos.column + 1,
                 fix: None,
@@ -219,30 +250,29 @@ fn validated_value(func: Node, source: &str) -> Option<String> {
 
 /// Collect the index variables of `for` loops in a function's own body,
 /// excluding loops inside any nested function.
-fn collect_outer_loop_indices(outer: Node, source: &str) -> std::collections::HashSet<String> {
-    let mut result = std::collections::HashSet::new();
-    collect_loops_pruning_functions(outer, outer, source, &mut result);
-    result
-}
-
-fn collect_loops_pruning_functions(
-    node: Node,
-    outer: Node,
+/// The first `for` index identifier of each name in the outer function's own
+/// body (nested functions are skipped), in source order.
+fn collect_outer_loop_heads<'a>(
+    node: Node<'a>,
+    outer: Node<'a>,
     source: &str,
-    out: &mut std::collections::HashSet<String>,
+    out: &mut Vec<(String, Node<'a>)>,
 ) {
     if node.kind() == "function_definition" && node.id() != outer.id() {
         return;
     }
     if node.kind() == "for_statement" {
         if let Some(idx) = find_parfor_index_identifier(node) {
-            out.insert(node_text(idx, source).to_string());
+            let name = node_text(idx, source);
+            if !out.iter().any(|(n, _)| n == name) {
+                out.push((name.to_string(), idx));
+            }
         }
     }
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
         if child.is_named() {
-            collect_loops_pruning_functions(child, outer, source, out);
+            collect_outer_loop_heads(child, outer, source, out);
         }
     }
 }
@@ -386,6 +416,40 @@ mod tests {
     fn test_fxup_silent_when_nested_function_does_not_touch_loop_index() {
         let source = "function outer()\n    for i = 1:10\n        inner();\n    end\n    function inner()\n        j = 5;\n    end\nend\n";
         assert!(misc_ids_for(source, "FXUP").is_empty());
+    }
+
+    /// (line, column) of each FXUP diagnostic.
+    fn fxup_positions(source: &str) -> Vec<(usize, usize)> {
+        let tree = parse(source);
+        engine()
+            .check_misc_general(&tree, source)
+            .iter()
+            .filter(|d| d.rule_id == "FXUP")
+            .map(|d| (d.line, d.column))
+            .collect()
+    }
+
+    #[test]
+    fn test_fxup_reports_outer_head_for_plain_assignment() {
+        // Probed in MATLAB: the report sits on the outer `for` index, not on the
+        // assignment inside the nested function.
+        let source = "function f()\nfor k = 1:3\n  g();\nend\nfunction g()\n  k = 5;\nend\nend\n";
+        assert_eq!(fxup_positions(source), vec![(2, 5)]);
+    }
+
+    #[test]
+    fn test_fxup_reports_outer_head_and_nested_for_index() {
+        // Probed in MATLAB: a `for` over the outer name in the nested function is
+        // reported at its own index as well as at the outer head.
+        let source =
+            "function f()\nfor k = 1:3\n  g();\nend\nfunction g()\n  for k = 1:2, end\nend\nend\n";
+        assert_eq!(fxup_positions(source), vec![(2, 5), (6, 7)]);
+    }
+
+    #[test]
+    fn test_fxup_reports_outer_head_once_for_assignment_and_for() {
+        let source = "function f()\nfor k = 1:3\n  g();\nend\nfunction g()\n  k = 5;\n  for k = 1:2, end\nend\nend\n";
+        assert_eq!(fxup_positions(source), vec![(2, 5), (7, 7)]);
     }
 
     #[test]

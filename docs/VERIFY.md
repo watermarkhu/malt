@@ -30,7 +30,7 @@ outside the repository (`~/.local/share/malt-reference/`).
 - The `mathworks` preset mirrors MATLAB's factory configuration. Checks MATLAB never
   reports by default are off under it and on under `--preset all`: ERTAG, WNTAG,
   BDLOG2, CTCH, VANUS, FVNIV, SUSENS, IDISVARHIGH, USESWNS, NOEFF, PUSE, COMPNOP,
-  COMPNOT, CTOINW, BDSCA2, LOGSUM, DUALC, GTARG, LTARG, BDLGI, SIMPT, STRSZ, ELARLOG, MFAMB, STCUL, USENS, PFUTVR, VTPCON, VTPIN, VTPEAL, GPNES, the forward-compatibility gates (FCLEN, FCCPV,
+  COMPNOT, CTOINW, BDSCA2, LOGSUM, DUALC, GTARG, LTARG, BDLGI, SIMPT, STRSZ, ELARLOG, MFAMB, STCUL, USENS, ITERS, PFUTVR, VTPCON, VTPIN, VTPEAL, GPNES, the forward-compatibility gates (FCLEN, FCCPV,
   FCDQS, FCFAV, FCHBL, FCLFS, FCNVA) and the 897 compatibility entries MATLAB lists as
   "low reliability" (`low_reliability = true` in `data/compatibility.toml`; also on
   with the `behavior-changes` category).
@@ -69,7 +69,7 @@ Per check; the full list is the backlog file.
 
 | Check | Difference |
 | --- | --- |
-| NASGU | Liveness analysis with constant folding (`analysis/liveness.rs`): `if 1`, `if true`, `k = 1; if k` kill the dead branch (`1 == 1` is not folded, as in MATLAB); `parfor` bodies run once, `spmd` is a sequence, a lambda reads its captures at creation, `x += v` silences `x`, `eval`/`evalc`/`evalin`/`assignin`/`save`/`who` no longer stop the analysis (`clearvars` and `run` still do), nested functions are analysed. `for` loops are joined in the constant pass (`x = 0; for ...; x = 1; end; if x` does not fold, as in MATLAB). `varargout{1} = ...` is NASGU when `varargout` is not an output. Not done: `load('a.mat','x')` (MATLAB reports the named string as a store) and a few lines in `gp-a__t6`, `performance__t3`. |
+| NASGU | Liveness analysis with constant folding (`analysis/liveness.rs`): `if 1`, `if true`, `k = 1; if k` kill the dead branch (`1 == 1` is not folded); a `for` loop joins the values before and after its body (`x = 0; for ...; x = 1; end; if x` is not constant); `parfor` bodies run once, `spmd` is a sequence, a lambda reads its captures at creation, `x += v` silences `x`, `varargout{1} = ...` is reported when `varargout` is not an output, dynamic calls (`eval`, `evalin`, `assignin`, `save`, `who`) do not stop the analysis (`clearvars`, `run` still do), nested functions are analysed. Not done: `load('a.mat','x')` as a store of `x`, and a few lines in `performance__t3` and syntax-error regions. |
 | ASGLU, STRNU | Rebuilt on the liveness analysis; recall lost under `eval` (ASGLU) and on some struct cases (STRNU). |
 | Suggested improvements (EV2IN, FSTR, GVMIS, ...) | On by default (as in MATLAB). Entries carry condition fields (`literal_args`, `arg_kinds`, `arg_at`, `max_args`, `within_parfor`, `not_in_call`, ...); `object` and `unverified` patterns are never matched. OLDSIM was not probed; `v.NumberOfFrames` needs class tracking. |
 | SYNER, NOPAR, EOLPAR, ENDCT* | After a token MATLAB cannot parse (SYNER, BADCH, BADFP, BADHBH/BADHBB), it suppresses the other checks on that statement (separator to the next `;`, `,` or newline); `malt_core::linter` does the same (`drop_statements_with_errors`). SYNER shows malt's error-node text where MATLAB names the token. Still different: the stray `elseif`/`end` after a closed block (SYNER), SBTMP, FVSYN, VTPOD, FVAMI, REDEF, NOSPC/DEEPS thresholds, EOLPAR for an unclosed bracket at a line end, unclosed `{`. |
@@ -94,3 +94,20 @@ looked up by name). The `object` entries (`tcpclient`, `visadev`, `Session` memb
 on a variable of that class and are not matched until class tracking exists. A variable or local function with the same
 name shadows a removed function. `unverified` entries (INTRPC, ADTPATH, MATPOOL, SESSION\*) were never reported by
 MATLAB in the probes (some need toolboxes that are not installed).
+
+## Never emitted (not reproducible in MATLAB)
+
+| ID | Note |
+| --- | --- |
+| SHVAI, SHVAU | MATLAB reported neither in 12 nested-function probes, including the shape malt flagged; emission is gated off (`SHVAI_REPORTED`, `NOT_REPRODUCED`). |
+| CLSUNK | MATLAB is silent on a missing superclass; the name heuristic was removed. |
+| FVUBD, FVONV | MATLAB reports the forward-reference case as FVVCON. |
+| BADOT, SYNEND, EOFMI | No evidence in MATLAB's output; the syntax engine no longer emits them. |
+
+## Open rows, by cause (84 differences, see the backlog)
+
+| Group | Rows |
+| --- | --- |
+| Reaching definitions beyond the liveness analysis | NASGU 14, NODEF 5 (`clear x`, `ans`, `keyboard`), INUSD 4 (entry value overwritten before a read, reads after `error`), DEFNU 3, INUSA 3 (`opts.?matlab.graphics...`), ASGLU, VUNUS, SETNU |
+| MATLAB's recovery after a parse error | SYNER 5, FVSYN 4, REDEF 3, NOPAR, NOPAR2, ENDCT3, VTPOD, FVAPN, FVSOR, FVORDN, FVDAN |
+| Not yet probed | NOPTS 3, ALIGN 2, FNDEF 2, NCOMMA, NOSEMI, SEPEX, SPERR, SHOCIRF, MOCUP, MEXCEP, MIPC1, LNGNM, MCMSP, MCSCN, MCNPN, MCGCP, PFRUS, PFUTMP, PFSLO, RHSFN, VTFIN |

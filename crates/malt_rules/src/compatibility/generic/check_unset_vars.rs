@@ -37,6 +37,10 @@ const IDISVARLOW_MSG: &str = "To avoid a potential conflict with functions on th
 /// IDISVARHIGH: a variable must be explicitly defined before its first use.
 const IDISVARHIGH_MSG: &str = "Variable must be explicitly defined before first use. In some cases, the definition was not required in previous releases, but it is now required.";
 
+/// Whether SHVAI is emitted. MATLAB reported no SHVAI in the nested-function probes
+/// (r7_U, six shapes), so it is off until a trigger is found.
+const SHVAI_REPORTED: bool = false;
+
 /// SHVAI: shared variables must be initialized before the nested function runs.
 const SHVAI_MSG: &str = "Explicitly define shared variables in the parent function before calling the nested function. MATLAB does not share uninitialized variables between a nested function and the parent function.";
 
@@ -215,9 +219,11 @@ impl CompatibilityEngine {
                     continue;
                 }
                 // All definitions must occur after the nested function starts.
-                if variable_defs
-                    .iter()
-                    .all(|d| d.byte_range.start >= nested_start)
+                // Not emitted: MATLAB reported no SHVAI in the nested-function probes (r7_U).
+                if SHVAI_REPORTED
+                    && variable_defs
+                        .iter()
+                        .all(|d| d.byte_range.start >= nested_start)
                 {
                     push_def_diag(
                         "SHVAI",
@@ -572,6 +578,7 @@ mod tests {
     // -- SHVAI: shared variable defined after the nested function -----------
 
     #[test]
+    #[ignore = "MATLAB reports no SHVAI for this shape (probes r7_U); not emitted"]
     fn shvai_shared_var_defined_after_nested_fires() {
         let d = lint_file(
             &*engine(),

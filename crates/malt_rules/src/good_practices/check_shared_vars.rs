@@ -87,6 +87,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "MATLAB reports no SHVAU for this shape (probes r7_U); not emitted"]
     fn test_shvau_fires_when_parent_assigns_after_nested_function() {
         let source = "\
 function outer()

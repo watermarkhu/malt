@@ -70,6 +70,28 @@ mod tests {
     // -- STOUT tests --------------------------------------------------------
 
     #[test]
+    fn stout_classdef_constructor_not_reported() {
+        // Probed (r7_U): the constructor named like its class returns the object,
+        // so its unassigned output is not STOUT.
+        let source =
+            "classdef Cls\n    methods\n        function r = Cls(x)\n        end\n    end\nend\n";
+        let diags = lint_file(&*engine(), source);
+        assert!(
+            !diags.iter().any(|d| d.rule_id == "STOUT"),
+            "got: {diags:?}"
+        );
+    }
+
+    #[test]
+    fn stout_classdef_method_still_reported() {
+        // Probed (r7_U): only the constructor is exempt; another method still gets STOUT.
+        let source =
+            "classdef Cls\n    methods\n        function r = m(obj)\n        end\n    end\nend\n";
+        let diags = lint_file(&*engine(), source);
+        assert!(diags.iter().any(|d| d.rule_id == "STOUT"), "got: {diags:?}");
+    }
+
+    #[test]
     fn stout_varargout_not_assigned() {
         // Probed: MATLAB reports STOUT for an unassigned `varargout` output and
         // not for `varargout{1} = ...` assigned on one path only.

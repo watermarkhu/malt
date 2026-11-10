@@ -89,11 +89,29 @@ impl UnsetVariablesEngine {
             };
             self.emit_possibly_unset_diagnostics(&da, nodef_applies, &mut diagnostics);
 
-            // Check output arguments: STOUT.
-            self.check_output_args(scope, &da, &mut diagnostics);
+            // Check output arguments: STOUT. A classdef constructor returns the
+            // object itself, so its unassigned output is not reported (probed).
+            if !Self::is_classdef_constructor(func_node, source, &scope.name) {
+                self.check_output_args(scope, &da, &mut diagnostics);
+            }
         }
 
         diagnostics
+    }
+
+    /// Whether `func` is the constructor of the classdef it sits in: a method named
+    /// like its class.
+    fn is_classdef_constructor(func: tree_sitter::Node, source: &str, name: &str) -> bool {
+        let mut current = func.parent();
+        while let Some(node) = current {
+            if node.kind() == "class_definition" {
+                return node
+                    .child_by_field_name("name")
+                    .is_some_and(|n| &source[n.byte_range()] == name);
+            }
+            current = node.parent();
+        }
+        false
     }
 
     /// Emit diagnostics for possibly-unset variables from definite-assignment results.

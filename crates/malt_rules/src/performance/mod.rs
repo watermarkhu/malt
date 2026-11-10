@@ -521,9 +521,10 @@ impl PerformanceEngine {
             .split(['(', '{'])
             .next()
             .is_some_and(|base| base.contains('.'));
+        let base = lhs_text.split(['(', '{']).next().unwrap_or("").trim();
         if (lhs.kind() == "function_call" || lhs.kind() == "cell_index")
             && !field_base
-            && contains_end_plus_pattern(lhs, source)
+            && (contains_end_plus_pattern(lhs, source) || contains_size_plus_one(lhs, source, base))
         {
             diags.push(make_diag(check_id, node));
             return;
@@ -941,6 +942,18 @@ pub(crate) fn contains_end_plus_pattern(node: tree_sitter::Node, source: &str) -
     normalized.contains("end+1")
 }
 
+/// Check if an indexing expression of `base` contains `numel(base)+1` or
+/// `length(base)+1`, the same growth as `end+1` (both probed in MATLAB).
+pub(crate) fn contains_size_plus_one(node: tree_sitter::Node, source: &str, base: &str) -> bool {
+    if base.is_empty() {
+        return false;
+    }
+    let text = node_text(node, source);
+    let normalized: String = text.chars().filter(|c| !c.is_whitespace()).collect();
+    normalized.contains(&format!("numel({base})+1"))
+        || normalized.contains(&format!("length({base})+1"))
+}
+
 /// Check if a matrix literal `[...]` contains a variable name as an element.
 pub(crate) fn matrix_contains_var(node: tree_sitter::Node, source: &str, var_name: &str) -> bool {
     // Walk the matrix's children looking for an identifier matching var_name.
@@ -1100,6 +1113,26 @@ mod tests {
         let src = "for i = 1:10\n    x(end+1) = i;\nend\n";
         let diags = lint_file(&*engine(), src);
         assert!(has_id(&diags, "SAGROW"), "got: {diags:?}");
+    }
+
+    #[test]
+    fn sagrow_fires_on_numel_and_length_growth() {
+        // Probed in MATLAB: `n(numel(n)+1)` and `n(length(n)+1)` report SAGROW.
+        for src in [
+            "n = [];\nfor i = 1:3\n    n(numel(n)+1) = i;\nend\n",
+            "n = [];\nfor i = 1:3\n    n(length(n) + 1) = i;\nend\n",
+        ] {
+            let diags = lint_file(&*engine(), src);
+            assert!(has_id(&diags, "SAGROW"), "{src}: got: {diags:?}");
+        }
+    }
+
+    #[test]
+    fn sagrow_silent_on_size_of_another_variable() {
+        // Not probed: the index counts a different variable, so it is not this growth.
+        let src = "n = [];\nfor i = 1:3\n    n(numel(m)+1) = i;\nend\n";
+        let diags = lint_file(&*engine(), src);
+        assert!(!has_id(&diags, "SAGROW"), "got: {diags:?}");
     }
 
     #[test]

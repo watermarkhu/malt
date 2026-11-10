@@ -145,6 +145,8 @@ pub struct PropertiesBlockMeta {
     pub attributes: Vec<AttributeMeta>,
     /// Properties defined in this block.
     pub properties: Vec<PropertyMeta>,
+    /// 1-indexed line of the `properties` keyword.
+    pub line: usize,
 }
 
 /// Metadata about a `methods ... end` block.
@@ -154,6 +156,8 @@ pub struct MethodsBlockMeta {
     pub attributes: Vec<AttributeMeta>,
     /// Functions (methods) defined in this block.
     pub methods: Vec<FunctionMeta>,
+    /// 1-indexed line of the `methods` keyword.
+    pub line: usize,
 }
 
 /// Metadata about an `events ... end` block.
@@ -726,6 +730,7 @@ fn extract_properties_block(props_node: Node, source: &str) -> PropertiesBlockMe
     PropertiesBlockMeta {
         attributes,
         properties,
+        line: props_node.start_position().row + 1,
     }
 }
 
@@ -765,6 +770,7 @@ fn extract_methods_block(methods_node: Node, source: &str, class_name: &str) -> 
     MethodsBlockMeta {
         attributes: block_attributes,
         methods,
+        line: methods_node.start_position().row + 1,
     }
 }
 

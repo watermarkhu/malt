@@ -14,6 +14,28 @@ impl BugsEngine {
         if op != "==" && op != "~=" {
             return Vec::new();
         }
+        // tree-sitter binds `|` and `&` tighter than `==`, so `n == NaN | n > 3`
+        // parses as `n == (NaN | n)`. MATLAB compares first (probed). No fix: the
+        // rest of the expression would be lost.
+        if rhs.kind() == "binary_operator" {
+            let rhs_op = find_operator_text(rhs, source);
+            let logical = rhs_op == "|" || rhs_op == "&";
+            let nan_first = rhs
+                .child(0)
+                .is_some_and(|first| node_text(first, source).trim().eq_ignore_ascii_case("nan"));
+            if logical && nan_first {
+                let pos = node.start_position();
+                return vec![Diagnostic {
+                    rule_id: "FNAN",
+                    message: "Use ISNAN when comparing values to NaN.".to_string(),
+                    severity: Severity::Error,
+                    byte_range: node.start_byte()..node.end_byte(),
+                    line: pos.row + 1,
+                    column: pos.column + 1,
+                    fix: None,
+                }];
+            }
+        }
         let lhs_text = node_text(lhs, source).trim().to_string();
         let rhs_text = node_text(rhs, source).trim().to_string();
         let var_text = if rhs_text.eq_ignore_ascii_case("nan") {
@@ -140,5 +162,21 @@ mod tests {
         let src = "switch x\n    case 1\n        a = 1;\nend\n";
         let diags = node_diags(src);
         assert!(!has_id(&diags, "MNANC"), "got: {diags:?}");
+    }
+
+    #[test]
+    fn fnan_fires_on_nan_before_logical_operator() {
+        // Probed in MATLAB: `n == NaN | n > 3` is reported on line 25 of bugs__t2.
+        // The fix is withheld because the `| n > 3` part must survive.
+        let diags = node_diags("if n == NaN | n > 3, disp(2); end\n");
+        let fnan: Vec<_> = diags.iter().filter(|d| d.rule_id == "FNAN").collect();
+        assert_eq!(fnan.len(), 1, "got: {diags:?}");
+        assert!(fnan[0].fix.is_none());
+    }
+
+    #[test]
+    fn fnan_no_fire_on_nan_inside_parenthesised_logical() {
+        let diags = node_diags("y = n == (NaN | m);\n");
+        assert!(!has_id(&diags, "FNAN"), "got: {diags:?}");
     }
 }

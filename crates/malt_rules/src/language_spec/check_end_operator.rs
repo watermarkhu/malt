@@ -44,32 +44,38 @@ impl LanguageSpecEngine {
                 // Only flag if this looks like an end used as a value expression,
                 // not a block-closing end keyword
                 let parent = node.parent();
-                let is_block_end = parent
-                    .map(|p| {
-                        matches!(
-                            p.kind(),
-                            "function_definition"
-                                | "if_statement"
-                                | "for_statement"
-                                | "while_statement"
-                                | "switch_statement"
-                                | "try_statement"
-                                | "class_definition"
-                                | "properties"
-                                | "methods"
-                                | "events"
-                                | "enumeration"
-                                | "arguments_statement"
-                                | "parfor"
-                                | "spmd_statement"
-                                | "elseif_clause"
-                                | "else_clause"
-                                | "case_clause"
-                                | "otherwise_clause"
-                                | "catch_clause"
-                        )
-                    })
-                    .unwrap_or(false);
+                // A bare `end` token directly under an ERROR node closes a
+                // broken block (`elseif ... else ... end` at statement level,
+                // bugs__f1.m:28). A value `end` is wrapped in `end_keyword`.
+                let stray_block_end =
+                    node.kind() == "end" && parent.is_some_and(|p| p.kind() == "ERROR");
+                let is_block_end = stray_block_end
+                    || parent
+                        .map(|p| {
+                            matches!(
+                                p.kind(),
+                                "function_definition"
+                                    | "if_statement"
+                                    | "for_statement"
+                                    | "while_statement"
+                                    | "switch_statement"
+                                    | "try_statement"
+                                    | "class_definition"
+                                    | "properties"
+                                    | "methods"
+                                    | "events"
+                                    | "enumeration"
+                                    | "arguments_statement"
+                                    | "parfor"
+                                    | "spmd_statement"
+                                    | "elseif_clause"
+                                    | "else_clause"
+                                    | "case_clause"
+                                    | "otherwise_clause"
+                                    | "catch_clause"
+                            )
+                        })
+                        .unwrap_or(false);
 
                 if !is_block_end {
                     diagnostics.push(Diagnostic {
@@ -91,5 +97,37 @@ impl LanguageSpecEngine {
         for child in node.children(&mut cursor) {
             Self::check_end_dfs(child, in_index, diagnostics);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::language_spec::LanguageSpecEngine;
+
+    fn idxcolnd_lines(source: &str) -> Vec<usize> {
+        let tree = crate::language_spec::tests::parse_matlab(source);
+        let mut diags = Vec::new();
+        LanguageSpecEngine::check_end_dfs(tree.root_node(), false, &mut diags);
+        diags.iter().map(|d| d.line).collect()
+    }
+
+    #[test]
+    fn test_idxcolnd_fires_end_value_in_broken_statement() {
+        // MATLAB: `g = end;` is IDXCOLND (t__t1.m:14); the value `end` is
+        // wrapped in `end_keyword` by the grammar.
+        let source = "function t1(x)\ng = end;\nend\n";
+        assert_eq!(idxcolnd_lines(source), vec![2]);
+    }
+
+    #[test]
+    fn test_idxcolnd_silent_on_stray_block_end() {
+        // MATLAB: the stray `end` closing a broken `elseif ... else ... end`
+        // line is SYNER only (bugs__f1.m:28).
+        let source = "\
+function t1(x, y)
+a = 1;
+elseif y, a=1; else a=1; end
+";
+        assert!(idxcolnd_lines(source).is_empty());
     }
 }

@@ -378,6 +378,8 @@ impl GoodPracticesEngine {
                 &[
                     "ERTAG", "WNTAG", "CTCH", "BDLOG2", "COMPNOP", "COMPNOT", "CTOINW", "DUALC",
                     "GTARG", "LTARG", "BDLGI", "SIMPT", "STRSZ", "ELARLOG",
+                    // Never reported by MATLAB in the probes or the fixtures.
+                    "ITERS",
                 ],
             ));
         Box::new(Self {
@@ -387,7 +389,11 @@ impl GoodPracticesEngine {
 
     /// Check whether a specific sub-check ID is enabled.
     pub(crate) fn is_check_enabled(&self, check_id: &str) -> bool {
-        !self.config.disabled_checks.iter().any(|id| id == check_id)
+        // MATLAB reported none of these in the nested-function probes (r7_U:
+        // six shapes for SHVAU, its SHVAI counterpart too), so they are not emitted.
+        const NOT_REPRODUCED: &[&str] = &["SHVAU"];
+        !NOT_REPRODUCED.contains(&check_id)
+            && !self.config.disabled_checks.iter().any(|id| id == check_id)
     }
 
     /// WLAST: `warning('')` does not reset the warning state.

@@ -450,7 +450,12 @@ impl BugsEngine {
                 // right-hand side (identifier, literal, operator expression)
                 // yields a single value that cannot be assigned to multiple
                 // left-hand targets.
+                // Probed in MATLAB: `[a] = 5` and `[~] = 5` are silent; a target list
+                // needs a comma (`[a,b]`, `[a,~]`) to be reported.
+                let mut cursor = lhs.walk();
+                let has_comma = lhs.children(&mut cursor).any(|c| c.kind() == ",");
                 if lhs.kind() == "multioutput_variable"
+                    && has_comma
                     && matches!(
                         rhs.kind(),
                         "number"
@@ -485,8 +490,12 @@ impl BugsEngine {
         }
     }
 
-    /// VARARG: `varargout` used in a function without being initialized to a
-    /// cell array.
+    /// VARARG: a declared `varargout` output assigned a non-cell value
+    /// (`varargout = 0`) and never initialized to a cell.
+    ///
+    /// Probed in MATLAB: `varargout{1} = 1` with a declared output is silent, and
+    /// so is an undeclared `varargout` (only NASGU); the report sits at the
+    /// assignment's column 1.
     ///
     /// # Limitations (heuristic)
     ///
@@ -510,7 +519,8 @@ impl BugsEngine {
             let mut first_use: Option<(usize, usize, usize, usize)> = None;
             Self::scan_varargout(node, source, &mut used, &mut initialized, &mut first_use);
 
-            if used && !declared && !initialized {
+            // An undeclared `varargout` is not checked: MATLAB reports only NASGU for it (probed).
+            if used && declared && !initialized {
                 if let Some((start, end, line, column)) = first_use {
                     diagnostics.push(Diagnostic {
                         rule_id: "VARARG",
@@ -551,45 +561,31 @@ impl BugsEngine {
         initialized: &mut bool,
         first_use: &mut Option<(usize, usize, usize, usize)>,
     ) {
-        match node.kind() {
-            "assignment" => {
-                let lhs = node.child_by_field_name("left").or_else(|| node.child(0));
-                if let Some(lhs) = lhs {
-                    if lhs.kind() == "identifier" && node_text(lhs, source).trim() == "varargout" {
-                        let rhs = node.child_by_field_name("right").or_else(|| node.child(2));
-                        let is_cell = rhs.is_some_and(|r| {
-                            r.kind() == "cell"
-                                || (r.kind() == "function_call"
-                                    && extract_call_name(r, source) == Some("cell"))
-                        });
-                        if is_cell {
-                            *initialized = true;
-                        } else {
-                            *used = true;
-                            if first_use.is_none() {
-                                *first_use = Some((
-                                    lhs.start_byte(),
-                                    lhs.end_byte(),
-                                    lhs.start_position().row + 1,
-                                    lhs.start_position().column + 1,
-                                ));
-                            }
+        if node.kind() == "assignment" {
+            let lhs = node.child_by_field_name("left").or_else(|| node.child(0));
+            if let Some(lhs) = lhs {
+                if lhs.kind() == "identifier" && node_text(lhs, source).trim() == "varargout" {
+                    let rhs = node.child_by_field_name("right").or_else(|| node.child(2));
+                    let is_cell = rhs.is_some_and(|r| {
+                        r.kind() == "cell"
+                            || (r.kind() == "function_call"
+                                && extract_call_name(r, source) == Some("cell"))
+                    });
+                    if is_cell {
+                        *initialized = true;
+                    } else {
+                        *used = true;
+                        if first_use.is_none() {
+                            *first_use = Some((
+                                lhs.start_byte(),
+                                lhs.end_byte(),
+                                lhs.start_position().row + 1,
+                                lhs.start_position().column + 1,
+                            ));
                         }
                     }
                 }
             }
-            "identifier" if node_text(node, source).trim() == "varargout" => {
-                *used = true;
-                if first_use.is_none() {
-                    *first_use = Some((
-                        node.start_byte(),
-                        node.end_byte(),
-                        node.start_position().row + 1,
-                        node.start_position().column + 1,
-                    ));
-                }
-            }
-            _ => {}
         }
 
         let mut cursor = node.walk();
@@ -1151,6 +1147,22 @@ end
         assert!(!has_id(&diags, "NOPRC"), "got: {diags:?}");
     }
 
+    #[test]
+    fn rhsfn_silent_on_single_target_list() {
+        // Probed in MATLAB: `[a] = 5` and `[~] = 5` are silent.
+        for src in ["[a] = 5;\n", "[~] = 5;\n"] {
+            let diags = file_diags(src);
+            assert!(!has_id(&diags, "RHSFN"), "{src}: got: {diags:?}");
+        }
+    }
+
+    #[test]
+    fn rhsfn_fires_on_target_list_with_ignored_output() {
+        // Probed in MATLAB: `[a,~] = 5` is reported like `[a,b] = 5`.
+        let diags = file_diags("[a,~] = 5;\n");
+        assert!(has_id(&diags, "RHSFN"), "got: {diags:?}");
+    }
+
     // -- RHSFN ---------------------------------------------------------------
 
     #[test]
@@ -1192,8 +1204,8 @@ end
     #[test]
     fn vararg_fires_on_uninitialized_varargout() {
         let src = "\
-function f()
-    varargout{1} = 1;
+function [varargout] = f()
+    varargout = 0;
 end
 ";
         let diags = file_diags(src);
@@ -1203,12 +1215,25 @@ end
     #[test]
     fn vararg_fires_on_non_cell_varargout() {
         let src = "\
-function f()
+function [varargout] = f()
     varargout = 5;
 end
 ";
         let diags = file_diags(src);
         assert!(has_id(&diags, "VARARG"), "got: {diags:?}");
+    }
+
+    #[test]
+    fn vararg_no_fire_on_undeclared_varargout() {
+        // Probed in MATLAB: `varargout = 0` and `varargout{1} = 1` in a function
+        // without a `varargout` output report only NASGU.
+        for src in [
+            "function f()\n    varargout{1} = 1;\nend\n",
+            "function f()\n    varargout = 0;\nend\n",
+        ] {
+            let diags = file_diags(src);
+            assert!(!has_id(&diags, "VARARG"), "{src}: got: {diags:?}");
+        }
     }
 
     #[test]

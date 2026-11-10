@@ -33,7 +33,9 @@ impl LanguageSpecEngine {
                             diagnostics,
                         );
                     }
-                } else if prop_has_name_value(prop) {
+                } else if prop_has_name_value(prop) && prop_has_default(prop) {
+                    // A bare `opts.A` name-value argument does not count: MATLAB
+                    // reports its trailing `~` as silent (ls-b__f3.m:6).
                     saw_name_value = true;
                 }
             }
@@ -96,6 +98,26 @@ end
         assert!(
             filter_by_id(&diags, "FVORDI").is_empty(),
             "FVORDI should NOT fire for an ignored argument before name-value arguments"
+        );
+    }
+
+    #[test]
+    fn test_fvordi_no_fire_ignored_after_bare_name_value() {
+        // MATLAB: `opts.A` has no default, so the trailing `~` is silent (ls-b__f3.m:6).
+        let source = "\
+function f3(opts, x, ~)
+    arguments
+        opts.A
+        opts.B
+        x
+        ~
+    end
+end
+";
+        let diags = check_source(source, "f3.m");
+        assert!(
+            filter_by_id(&diags, "FVORDI").is_empty(),
+            "FVORDI should NOT fire after a name-value argument without a default"
         );
     }
 }

@@ -17,9 +17,14 @@ impl LanguageSpecEngine {
             let is_constructor = mname == class.name;
             let calls = self.collect_superclass_calls(func_node, ctx.source);
             let mut constructor_calls_seen = 0usize;
+            // MCCMC: each superclass constructor is called once; calls to
+            // different superclasses (`obj@Base(); obj@handle();`) are fine.
+            let mut supers_called: Vec<String> = Vec::new();
             for (call_node, caller, super_name) in calls {
                 if is_constructor && Some(caller.as_str()) == first_output.as_deref() {
                     // Superclass constructor call.
+                    let repeated = supers_called.contains(&super_name);
+                    supers_called.push(super_name.clone());
                     if constructor_calls_seen == 0 {
                         constructor_calls_seen += 1;
                         if self.is_check_enabled("MCCBU") {
@@ -31,7 +36,8 @@ impl LanguageSpecEngine {
                                 diagnostics,
                             );
                         }
-                    } else if self.is_check_enabled("MCCMC") {
+                    }
+                    if repeated && self.is_check_enabled("MCCMC") {
                         let pos = call_node.start_position();
                         diagnostics.push(Diagnostic {
                             rule_id: "MCCMC",
@@ -115,6 +121,9 @@ impl LanguageSpecEngine {
                                 });
                             }
                         }
+                        // A bare `obj@Base(args);` statement has no output to
+                        // assign, and MATLAB does not report it.
+                        None => {}
                         _ => {
                             if self.is_check_enabled("MCSCF") {
                                 let pos = call_node.start_position();
@@ -247,7 +256,8 @@ impl LanguageSpecEngine {
                 .child_by_field_name("right")
                 .map(|r| r.id() != call_node.id())
                 .unwrap_or(true),
-            Some(p) => p.kind() != "assignment",
+            // A bare `obj@Base(args);` statement is not part of an expression.
+            Some(p) => !matches!(p.kind(), "assignment" | "block" | "source_file"),
             None => true,
         };
         if part_of_expression {
@@ -566,6 +576,49 @@ end
         assert!(
             hits.is_empty(),
             "MCSCT should NOT fire for a top-level super call"
+        );
+    }
+
+    #[test]
+    fn test_mccmc_different_superclasses_no_fire() {
+        // MATLAB: `obj@Base(); obj@handle();` is silent (ls-c__Sub3.m:8).
+        let source = "\
+classdef Foo < Bar & Baz
+    methods
+        function obj = Foo(x)
+            obj = obj@Bar(x);
+            obj@Baz();
+        end
+    end
+end
+";
+        let diags = check_source(source, "Foo.m");
+        assert!(
+            filter_by_id(&diags, "MCCMC").is_empty(),
+            "MCCMC should NOT fire for calls to different superclasses"
+        );
+    }
+
+    #[test]
+    fn test_bare_super_call_statement_no_fire() {
+        // MATLAB: a bare `obj@Bar();` statement is silent for MCSCF and MCSCT.
+        let source = "\
+classdef Foo < Bar
+    methods
+        function obj = Foo()
+            obj@Bar();
+        end
+    end
+end
+";
+        let diags = check_source(source, "Foo.m");
+        assert!(
+            filter_by_id(&diags, "MCSCF").is_empty(),
+            "MCSCF should NOT fire for a bare superclass constructor statement"
+        );
+        assert!(
+            filter_by_id(&diags, "MCSCT").is_empty(),
+            "MCSCT should NOT fire for a bare superclass constructor statement"
         );
     }
 
