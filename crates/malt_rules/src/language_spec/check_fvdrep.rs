@@ -12,12 +12,14 @@ impl LanguageSpecEngine {
         if !self.is_check_enabled("FVDREP") {
             return;
         }
-        let mut seen_repeating = false;
+        let mut seen_repeating = [false; 2];
         for block in blocks {
             if !block.role.is_repeating() {
                 continue;
             }
-            if seen_repeating {
+            let is_output = block.attributes.iter().any(|a| a == "Output");
+            let seen = &mut seen_repeating[usize::from(is_output)];
+            if *seen {
                 self.push_block_diag(
                     block,
                     "FVDREP",
@@ -25,7 +27,7 @@ impl LanguageSpecEngine {
                     diagnostics,
                 );
             }
-            seen_repeating = true;
+            *seen = true;
         }
     }
 }
@@ -51,6 +53,25 @@ end
         assert!(
             !filter_by_id(&diags, "FVDREP").is_empty(),
             "FVDREP should fire for multiple Repeating blocks"
+        );
+    }
+
+    #[test]
+    fn test_fvdrep_no_fire_input_and_output_repeating() {
+        let source = "\
+function varargout = f(varargin)
+    arguments (Input, Repeating)
+        varargin
+    end
+    arguments (Output, Repeating)
+        varargout
+    end
+end
+";
+        let diags = check_source(source, "f.m");
+        assert!(
+            filter_by_id(&diags, "FVDREP").is_empty(),
+            "FVDREP should NOT fire for one Input and one Output Repeating block"
         );
     }
 

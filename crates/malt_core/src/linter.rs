@@ -16,6 +16,10 @@ const STATEMENT_ERROR_IDS: &[&str] = &[
     "SYNER", "BADCH", "BADFP", "BADHBH", "BADHBB", "BADHBHT", "BADHBBT",
 ];
 
+/// Number-literal checks whose range covers the rest of a malformed literal. A
+/// SYNER inside that range is the same error, so MATLAB reports only the literal.
+const NUMBER_LITERAL_IDS: &[&str] = &["BADHBH", "BADHBB", "BADFP", "BADHBHT", "BADHBBT"];
+
 /// Parse-level checks that stay even when they sit in a broken statement: the
 /// statement error is itself reported by one of them, or they describe the
 /// structure of the broken region (missing `end` or bracket).
@@ -29,6 +33,17 @@ const STATEMENT_ERROR_KEPT_IDS: &[&str] = &[
 /// it on the same line: statements are separated by `;`, `,` or a newline. So
 /// the broken statement runs from the separator before the token to the next one.
 fn drop_statements_with_errors(diagnostics: &mut Vec<Diagnostic>, source: &str) {
+    let literal_spans: Vec<Range<usize>> = diagnostics
+        .iter()
+        .filter(|d| NUMBER_LITERAL_IDS.contains(&d.rule_id))
+        .map(|d| d.byte_range.clone())
+        .collect();
+    diagnostics.retain(|d| {
+        d.rule_id != "SYNER"
+            || !literal_spans
+                .iter()
+                .any(|s| s.contains(&d.byte_range.start))
+    });
     let spans: Vec<Range<usize>> = diagnostics
         .iter()
         .filter(|d| STATEMENT_ERROR_IDS.contains(&d.rule_id))
@@ -642,6 +657,16 @@ mod statement_error_tests {
         let source = "x = 1 @ 2\ny = 2\n";
         let diags = vec![diag("NOPTS", 10), diag("SYNER", 6)];
         assert_eq!(remaining(source, diags), ["NOPTS", "SYNER"]);
+    }
+
+    #[test]
+    fn syner_inside_a_malformed_number_is_the_same_error() {
+        // MATLAB probe on `y = 0b102;`: BADHBB at the literal only, no SYNER at `2`.
+        let source = "y = 0b102;\n";
+        let mut bad = diag("BADHBB", 4);
+        bad.byte_range = 4..9;
+        let diags = vec![bad, diag("SYNER", 8)];
+        assert_eq!(remaining(source, diags), ["BADHBB"]);
     }
 
     #[test]

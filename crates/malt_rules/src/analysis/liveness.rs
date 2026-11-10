@@ -729,11 +729,15 @@ impl Analysis<'_> {
         let mut body = Vec::new();
         for child in named(node) {
             if child.kind() == "iterator" {
-                reads.extend(self.uses_in(child.byte_range()));
-                var = named(child)
-                    .into_iter()
+                // The loop variable is written, not read: only the range is.
+                let parts = named(child);
+                var = parts
+                    .iter()
                     .find(|c| c.kind() == "identifier")
                     .map(|c| source[c.byte_range()].to_string());
+                for part in parts.into_iter().filter(|c| c.kind() != "identifier") {
+                    reads.extend(self.uses_in(part.byte_range()));
+                }
             } else {
                 body.push(child);
             }
@@ -742,7 +746,12 @@ impl Analysis<'_> {
             return self.parfor_statement(&body, var.as_deref(), reads, after, report);
         }
         // The range is evaluated once, before the loop.
+        // The loop variable is assigned even when the range is empty (probed:
+        // `i = 5; for i = 1:3, end` reports `i = 5`), so no value of it reaches the loop.
         let mut top = self.loop_head(&body, &after, after.clone(), var.as_deref(), report);
+        if let Some(name) = var.as_deref() {
+            top.remove(name);
+        }
         top.extend(reads);
         self.finish(top)
     }

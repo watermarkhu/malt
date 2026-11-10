@@ -41,10 +41,21 @@ impl LanguageSpecEngine {
                     for entry in &entries {
                         let valid = match entry.kind() {
                             "spread_operator" => true,
-                            "number" => node_text(*entry, source)
-                                .parse::<f64>()
-                                .map(|v| v >= 0.0 && v.fract() == 0.0)
-                                .unwrap_or(false),
+                            "number" => {
+                                let text = node_text(*entry, source);
+                                let value = if let Some(hex) =
+                                    text.strip_prefix("0x").or(text.strip_prefix("0X"))
+                                {
+                                    u64::from_str_radix(hex, 16).ok().map(|v| v as f64)
+                                } else if let Some(bin) =
+                                    text.strip_prefix("0b").or(text.strip_prefix("0B"))
+                                {
+                                    u64::from_str_radix(bin, 2).ok().map(|v| v as f64)
+                                } else {
+                                    text.parse::<f64>().ok()
+                                };
+                                value.is_some_and(|v| v >= 0.0 && v.fract() == 0.0)
+                            }
                             _ => false,
                         };
                         if !valid {
@@ -97,6 +108,22 @@ end
         assert!(
             filter_by_id(&diags, "TINVALDIM").is_empty(),
             "TINVALDIM should NOT fire for integer or colon dimensions"
+        );
+    }
+
+    #[test]
+    fn test_tinvaldim_no_fire_hex_and_binary_dimensions() {
+        let source = "\
+function f(a)
+    arguments
+        a (0x10, 0b11) double
+    end
+end
+";
+        let diags = check_source(source, "f.m");
+        assert!(
+            filter_by_id(&diags, "TINVALDIM").is_empty(),
+            "TINVALDIM should NOT fire for hex or binary integer dimensions"
         );
     }
 

@@ -49,17 +49,35 @@ fn string_literal<'a>(node: Node<'a>, source: &'a str) -> Option<&'a str> {
 }
 
 /// Whether `node` is inside a `while` loop (within the current function).
-fn is_inside_while(node: Node) -> bool {
+fn is_inside_loop(node: Node) -> bool {
     let mut cur = node.parent();
     while let Some(p) = cur {
         match p.kind() {
-            "while_statement" => return true,
+            "while_statement" | "for_statement" => return true,
             "function_definition" => return false,
             _ => {}
         }
         cur = p.parent();
     }
     false
+}
+
+/// Whether the call's first input is also an output of the assignment that
+/// holds it (`[tk, r] = strtok(r)`), so the call consumes its own remainder.
+fn strtok_feeds_back(node: Node, source: &str) -> bool {
+    let Some(input) = call_args(node).first().copied() else {
+        return false;
+    };
+    let Some(assign) = node.parent().filter(|p| p.kind() == "assignment") else {
+        return false;
+    };
+    let Some(left) = assign.child_by_field_name("left") else {
+        return false;
+    };
+    let name = node_text(input, source).trim();
+    node_text(left, source)
+        .split(|c: char| !(c.is_alphanumeric() || c == '_'))
+        .any(|token| token == name)
 }
 
 /// Whether `name` is a variable assigned before `node` in the file.
@@ -69,6 +87,26 @@ fn is_known_variable(node: Node, source: &str, name: &str) -> bool {
         root = p;
     }
     defined_before(root, source, name, node.start_byte())
+        || brace_indexed_in_file(root, source, name)
+}
+
+/// Whether `name` is brace-indexed (`name{...}`) anywhere in the file. Only
+/// variables can be brace-indexed, so MATLAB knows the name as a variable.
+fn brace_indexed_in_file(root: Node, source: &str, name: &str) -> bool {
+    let mut stack = vec![root];
+    while let Some(n) = stack.pop() {
+        if n.kind() == "function_call"
+            && call_name(n, source) == Some(name)
+            && is_brace_index(n, source)
+        {
+            return true;
+        }
+        let mut c = n.walk();
+        for ch in n.children(&mut c) {
+            stack.push(ch);
+        }
+    }
+    false
 }
 
 /// Whether a dimension argument is all ones: the literal `1` or a bracketed
@@ -293,8 +331,12 @@ impl PerformanceEngine {
             }
         }
 
-        // STTOK: strtok inside a while loop
-        if on("STTOK") && func_name == "strtok" && is_inside_while(node) {
+        // STTOK: strtok in a loop that consumes its own remainder (`[tk, r] = strtok(r)`)
+        if on("STTOK")
+            && func_name == "strtok"
+            && is_inside_loop(node)
+            && strtok_feeds_back(node, source)
+        {
             diags.push(make_diag("STTOK", node));
         }
 
@@ -401,7 +443,9 @@ impl PerformanceEngine {
 #[cfg(test)]
 mod tests {
     use super::super::test_support::engine;
+    use super::super::PerformanceEngine;
     use crate::test_util::{has_id, lint_nodes};
+    use malt_core::Config;
 
     fn fires(src: &str, id: &str) -> bool {
         has_id(&lint_nodes(&*engine(), src), id)
@@ -474,6 +518,7 @@ mod tests {
     fn fndsb_fires_on_find_index_into_variable() {
         assert!(fires("y = 1:3;\nx = y(find(z));\n", "FNDSB"));
         assert!(!fires("x = y(find(z));\n", "FNDSB")); // y may be a function
+        assert!(fires("c = {y{1}};\nx = y(find(z));\n", "FNDSB"));
         assert!(!fires("y = 1;\nidx = find(z);\n", "FNDSB"));
         assert!(!fires("if isempty(find(z))\nend\n", "FNDSB"));
     }
@@ -552,8 +597,16 @@ mod tests {
     }
 
     #[test]
-    fn gridd_fires_on_griddata() {
-        assert!(fires("v = griddata(x, y, z, xi, yi);\n", "GRIDD"));
+    fn gridd_off_under_mathworks_on_under_all() {
+        let source = "v = griddata(x, y, z, xi, yi);\n";
+        let mathworks = PerformanceEngine::from_config(
+            &Config::from_toml("[lint]\npreset = \"mathworks\"\n").unwrap(),
+        );
+        assert!(!has_id(&lint_nodes(&*mathworks, source), "GRIDD"));
+        let all = PerformanceEngine::from_config(
+            &Config::from_toml("[lint]\npreset = \"all\"\n").unwrap(),
+        );
+        assert!(has_id(&lint_nodes(&*all, source), "GRIDD"));
         assert!(!fires("M = repmat(x, 1, 3);\n", "GRIDD"));
     }
 
@@ -596,10 +649,19 @@ mod tests {
             "while ~isempty(r)\n    [t, r] = strtok(r);\nend\n",
             "STTOK"
         ));
+        assert!(fires(
+            "for i = 1:10\n    [t, r] = strtok(r);\nend\n",
+            "STTOK"
+        ));
         assert!(!fires(
             "for i = 1:10\n    [t, r] = strtok(s);\nend\n",
             "STTOK"
         ));
+        assert!(!fires(
+            "for i = 1:10\n    tk = strtok(r);\n    r = tk;\nend\n",
+            "STTOK"
+        ));
+        assert!(!fires("[t, r] = strtok(r);\n", "STTOK"));
         assert!(!fires("[t, r] = strtok(s);\n", "STTOK"));
     }
 

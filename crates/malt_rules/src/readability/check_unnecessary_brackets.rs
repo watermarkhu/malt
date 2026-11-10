@@ -20,15 +20,16 @@ impl ReadabilityEngine {
 
         // A matrix node with exactly one named child that is a "row" with
         // exactly one element is `[scalar]`.
-        let named_count = node.named_child_count();
-        if named_count != 1 {
+        let mut cursor = node.walk();
+        let elements: Vec<_> = node
+            .named_children(&mut cursor)
+            .filter(|c| c.kind() != "comment")
+            .collect();
+        if elements.len() != 1 {
             return;
         }
 
-        let row = match node.named_child(0) {
-            Some(r) => r,
-            None => return,
-        };
+        let row = elements[0];
 
         // An operand of a larger expression (`[x]+1`) is NBRAK1, and an indexed
         // bracket (`[x](1)`) is not redundant. MATLAB reports neither as NBRAK2.
@@ -53,7 +54,8 @@ impl ReadabilityEngine {
                 let list_like = inner.kind() == "field_expression"
                     || (inner_text.contains('{') && inner.kind() != "cell");
                 // Probed against MATLAB R2026b: single identifiers, literals,
-                // operator expressions, calls, ranges, cells and handles are all reported.
+                // operator expressions, calls, ranges, cells, handles, negations
+                // and parenthesised expressions are all reported.
                 let scalar = matches!(
                     inner.kind(),
                     "identifier"
@@ -68,6 +70,9 @@ impl ReadabilityEngine {
                         | "range"
                         | "cell"
                         | "function_handle"
+                        | "handle_operator"
+                        | "not_operator"
+                        | "parenthesis"
                 );
                 if scalar && !list_like {
                     results.push(self.diag(
@@ -127,6 +132,10 @@ mod tests {
             "x = [a,];\n",
             "disp([x]);\n",
             "y = [{1}];\n",
+            "y = [(a && b)];\n",
+            "y = [a  % comment\n];\n",
+            "y = [~a];\n",
+            "y = [@sin];\n",
         ] {
             let diags = lint_nodes(&*engine(), source);
             assert!(has_id(&diags, "NBRAK2"), "{source}: got: {diags:?}");

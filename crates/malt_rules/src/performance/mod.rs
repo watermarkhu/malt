@@ -359,7 +359,12 @@ const TARGET_NODES: &[&str] = &[
 impl PerformanceEngine {
     /// Factory constructor called by the rule registry.
     pub fn from_config(config: &Config) -> Box<dyn Rule> {
-        let rule_config: PerformanceEngineConfig = config.rule_params("PERFORMANCE_ENGINE");
+        let mut rule_config: PerformanceEngineConfig = config.rule_params("PERFORMANCE_ENGINE");
+        // GRIDD: MATLAB stayed silent on every `griddata` form probed (3, 5 and 6
+        // arguments, in a function) and on the fixture, so it is off by default.
+        rule_config
+            .skip_checks
+            .extend(crate::off_under_mathworks(config, &["GRIDD"]));
         Box::new(Self {
             config: rule_config,
         })
@@ -873,20 +878,6 @@ pub(crate) fn is_statement_level(node: &tree_sitter::Node) -> bool {
     node.parent()
         .map(|p| matches!(p.kind(), "source_file" | "block"))
         .unwrap_or(false)
-}
-
-/// Check if node is inside a loop (for_statement or while_statement).
-pub(crate) fn is_inside_loop(node: tree_sitter::Node) -> bool {
-    let mut current = node.parent();
-    while let Some(p) = current {
-        match p.kind() {
-            "for_statement" | "while_statement" => return true,
-            "function_definition" => return false, // Stop at function boundary.
-            _ => {}
-        }
-        current = p.parent();
-    }
-    false
 }
 
 /// Check if a node is inside a condition expression (if/while/elseif).
