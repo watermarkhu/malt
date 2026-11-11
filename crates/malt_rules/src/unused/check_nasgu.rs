@@ -288,6 +288,22 @@ mod tests {
     }
 
     #[test]
+    fn nasgu_try_body_store_read_only_in_catch_is_dead() {
+        // Probed: `s = 1` is the last statement of the try body, and only the catch
+        // reads `s`. The catch is entered before `s = 1`, not after it. The store
+        // before the try is read by the catch, so it is live (not reported).
+        let source = "function f()\ns = 0;\ntry\n    s = 1;\ncatch\n    disp(s)\nend\nend\n";
+        assert_eq!(nasgu_lines(source), vec![4]);
+    }
+
+    #[test]
+    fn nasgu_try_body_store_read_after_try_is_live() {
+        // Probed: a read after the try keeps the stores of the try body and before it.
+        let source = "function f()\ns = 0;\ntry\n    s = 1;\ncatch\nend\ndisp(s)\nend\n";
+        assert!(nasgu_lines(source).is_empty());
+    }
+
+    #[test]
     fn nasgu_script_try_body_store_read_by_nothing() {
         // The catch body does not read `a`, and the store after the try overwrites it.
         let source = "try\n    a = 1;\ncatch\nend\na = 2;\ndisp(a)\n";
@@ -828,5 +844,26 @@ mod tests {
             "function foo()\n    x = 1;\n    disp(x);\nend\n",
         );
         assert!(!has_id(&diags, "NASGU"), "got: {diags:?}");
+    }
+
+    #[test]
+    fn nasgu_rethrow_ends_the_flow_like_error() {
+        // Probes rt1 to rt4: MATLAB reports the stores before `rethrow` as it does before `error`.
+        assert_eq!(
+            nasgu_lines("function rt1()\na = 1;\nrethrow(MException('a:b', 'c'));\nend\n"),
+            vec![2]
+        );
+        assert_eq!(
+            nasgu_lines(
+                "function rt3(x)\ns = [];\ntry\n    s = x;\n    disp(s);\ncatch err\n    rethrow(err)\nend\nend\n"
+            ),
+            vec![2]
+        );
+        assert_eq!(
+            nasgu_lines(
+                "function rt4(x)\ntry\n    y = x + 1;\ncatch err\n    z = 2;\n    rethrow(err)\nend\ndisp(y);\nend\n"
+            ),
+            vec![5]
+        );
     }
 }

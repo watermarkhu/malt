@@ -58,15 +58,7 @@ type Known = HashMap<String, bool>;
 /// follow. A scope that uses one is not analysed. Probed: `eval`, `evalc`,
 /// `evalin`, `assignin`, `save`, `who` and `whos` are not in this list, MATLAB
 /// reports the stores around them (see the module docs).
-const DYNAMIC_CALLS: &[&str] = &[
-    "clearvars",
-    "run",
-    "rethrow",
-    "throw",
-    "throwAsCaller",
-    "exit",
-    "quit",
-];
+const DYNAMIC_CALLS: &[&str] = &["clearvars", "run", "throw", "throwAsCaller", "exit", "quit"];
 
 /// Calls that may set variables by name. They do not stop the analysis, but
 /// the truth values known before them are forgotten.
@@ -364,10 +356,11 @@ fn callee_name<'a>(node: Node, source: &'a str) -> Option<&'a str> {
     }
 }
 
-/// A statement that calls `error`. MATLAB treats it as the end of the flow:
-/// values stored before it are dead and the statements after it cannot run.
+/// A statement that calls `error` or `rethrow`. MATLAB treats it as the end of
+/// the flow: values stored before it are dead and the statements after it cannot
+/// run (probed: `rethrow(err)` in a catch block reports the same stores as `error`).
 fn is_error_call(node: Node, source: &str) -> bool {
-    callee_name(node, source) == Some("error")
+    matches!(callee_name(node, source), Some("error" | "rethrow"))
 }
 
 /// The variables named by a plain `clear a b` statement.
@@ -664,7 +657,10 @@ impl Analysis<'_> {
         } else {
             self.uses_in(range.clone())
         };
-        let after = self.finish(after);
+        // `after` is not extended with the catch body's reads: an error stops the
+        // statement before its store, so a store is dead when nothing after it reads
+        // it (probed: `s = 1` as the last statement of a try body, read only in catch).
+        // The catch body is still live before each statement (see `finish`).
         // An `onCleanup` object is kept for its destructor, MATLAB does not report it.
         let object = source[range.clone()]
             .split_once('=')

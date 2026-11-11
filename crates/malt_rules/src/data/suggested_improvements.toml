@@ -14,6 +14,8 @@
 #                   reported it in probes; "object": a method of a class instance)
 #   min_args / max_args, literal_args (any argument, command syntax included),
 #   arg_at / arg_kinds / not_arg_kinds / arg_text (function syntax only),
+#   arg_through_variables: the argument variable takes the kinds it is assigned
+#                   (`x = 5; year(x)`), see suggested_improvements.rs.
 #   within_parfor, not_in_call / not_in_call_literal: usage conditions, see
 #   suggested_improvements.rs. A bare name (`clock`) is a use with no arguments.
 
@@ -65,49 +67,64 @@ replacement = ""
 [[checks]]
 id = "THOUR"
 function_name = "hour"
+arg_kinds = ["number", "text", "cell"]
+arg_through_variables = true
 message = "'hour' with serial date number or text inputs is not recommended. With appropriate code changes, use 'datetime' as input instead."
 replacement = "datetime"
 
 [[checks]]
 id = "TMNTH"
 function_name = "month"
+arg_kinds = ["number", "text", "cell"]
+arg_through_variables = true
 message = "'month' with serial date number or text inputs is not recommended. With appropriate code changes, use 'datetime' as input instead."
 replacement = "datetime"
 
 [[checks]]
 id = "TMNUT"
 function_name = "minute"
+arg_kinds = ["number", "text", "cell"]
+arg_through_variables = true
 message = "'minute' with serial date number or text inputs is not recommended. With appropriate code changes, use 'datetime' as input instead."
 replacement = "datetime"
 
 [[checks]]
 id = "TNDAY"
 function_name = "day"
-arg_kinds = ["number", "text"]
+arg_kinds = ["number", "text", "cell"]
+arg_through_variables = true
 message = "'day' with serial date number or text inputs is not recommended. With appropriate code changes, use 'datetime' as input instead."
 replacement = "datetime"
 
 [[checks]]
 id = "TSCND"
 function_name = "second"
+arg_kinds = ["number", "text", "cell"]
+arg_through_variables = true
 message = "'second' with serial date number or text inputs is not recommended. With appropriate code changes, use 'datetime' as input instead."
 replacement = "datetime"
 
 [[checks]]
 id = "TQURT"
 function_name = "quarter"
+arg_kinds = ["number", "text", "cell"]
+arg_through_variables = true
 message = "'quarter' with serial date number or text inputs is not recommended. With appropriate code changes, use 'datetime' as input instead."
 replacement = "datetime"
 
 [[checks]]
 id = "TYEAR"
 function_name = "year"
+arg_kinds = ["number", "text", "cell"]
+arg_through_variables = true
 message = "'year' with serial date number or text inputs is not recommended. With appropriate code changes, use 'datetime' as input instead."
 replacement = "datetime"
 
 [[checks]]
 id = "TDTVEC"
 function_name = "datevec"
+arg_kinds = ["number", "text", "cell"]
+arg_through_variables = true
 message = "'datevec' with serial date number or text inputs is not recommended. With appropriate code changes, use 'datetime' instead."
 replacement = "datetime"
 
@@ -301,6 +318,10 @@ replacement = "griddedInterpolant"
 [[checks]]
 id = "DISPLAYPROG"
 function_name = "display"
+arg_kinds = ["number", "text", "cell"]
+arg_through_variables = true
+min_args = 1
+max_args = 1
 message = "Programmatic use of DISPLAY is not recommended. Use DISP or FPRINTF instead."
 replacement = "disp"
 

@@ -7,10 +7,12 @@ impl GoodPracticesEngine {
             return Vec::new();
         }
 
-        // Only fire on statement-level load calls (not `x = load(...)`)
-        // MATLAB reports LOAD only inside a function body (probed; scripts are silent).
+        // Only fire on statement-level load calls (not `x = load(...)`), or on any
+        // load call inside an anonymous function (probed: `@() load('f.mat')` in
+        // an argument, an assignment or a cellfun reports LOAD). MATLAB reports
+        // LOAD only inside a function body (probed; scripts are silent).
         let is_statement = is_statement_level(node);
-        if !is_statement || !in_function(node) {
+        if !(is_statement || in_anonymous_function(node)) || !in_function(node) {
             return Vec::new();
         }
 
@@ -40,6 +42,19 @@ impl GoodPracticesEngine {
             fix: None,
         }]
     }
+}
+
+/// Whether `node` sits inside an anonymous function body, within the enclosing function.
+fn in_anonymous_function(node: Node) -> bool {
+    let mut current = node.parent();
+    while let Some(parent) = current {
+        match parent.kind() {
+            "lambda" => return true,
+            "function_definition" => return false,
+            _ => current = parent.parent(),
+        }
+    }
+    false
 }
 
 /// Whether `node` sits inside a function body.
@@ -104,6 +119,58 @@ mod tests {
 
         let fc = find_descendant_of_kind(root, "function_call").unwrap();
         assert!(eng.check_load(fc, source).is_empty());
+    }
+
+    /// Number of LOAD diagnostics for `src`, over every call and command node.
+    fn load_count(src: &str) -> usize {
+        let tree = parse(src);
+        let eng = engine();
+        let mut count = 0;
+        let mut stack = vec![tree.root_node()];
+        while let Some(node) = stack.pop() {
+            if matches!(node.kind(), "function_call" | "command") {
+                count += eng.check_load(node, src).len();
+            }
+            let mut cursor = node.walk();
+            stack.extend(node.children(&mut cursor));
+        }
+        count
+    }
+
+    #[test]
+    fn test_load_fires_in_anonymous_function_in_function() {
+        // Probed: `h = @() load('x.mat');` inside a function reports LOAD.
+        assert_eq!(load_count("function f()\nh = @() load('x.mat');\nend\n"), 1);
+    }
+
+    #[test]
+    fn test_load_fires_in_anonymous_function_as_argument() {
+        // Probed: the parallel.pool.Constant case and cellfun(@(q) load(q), ...).
+        assert_eq!(
+            load_count(
+                "function c = f()\nc = parallel.pool.Constant(@() load('calibration.mat'));\nend\n"
+            ),
+            1
+        );
+        assert_eq!(
+            load_count("function out = f(files)\nout = cellfun(@(q) load(q), files, 'UniformOutput', false);\nend\n"),
+            1
+        );
+    }
+
+    #[test]
+    fn test_load_silent_in_anonymous_function_with_variable_list() {
+        // Probed: naming the variables silences LOAD, also inside an anonymous function.
+        assert_eq!(
+            load_count("function h = f()\nh = @() load('x.mat', 'v');\nend\n"),
+            0
+        );
+    }
+
+    #[test]
+    fn test_load_silent_in_anonymous_function_at_script_level() {
+        // Probed: scripts are silent, anonymous functions included.
+        assert_eq!(load_count("h = @() load('x.mat');\n"), 0);
     }
 
     #[test]

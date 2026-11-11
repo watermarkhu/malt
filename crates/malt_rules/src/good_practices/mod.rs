@@ -2275,7 +2275,7 @@ mod tests {
 
     #[test]
     fn test_g1_node_checks_fire_through_dispatch() {
-        let source = "classdef Foo\n    methods\n        function z = compute(obj, x)\n            z = x * y * x';\n        end\n    end\nend\ny = zeros(numel(x));\n";
+        let source = "classdef Foo\n    methods\n        function z = compute(obj, x)\n            z = x * x * x';\n        end\n    end\nend\ny = zeros(numel(x));\n";
         let tree = parse(source);
         let eng = engine();
 

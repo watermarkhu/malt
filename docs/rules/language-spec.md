@@ -861,6 +861,12 @@ Severity: **error** · Auto-fix: **no**
 
 A GLOBAL or PERSISTENT declaration must precede first use.
 
+### PSET
+
+Severity: **warning** · Auto-fix: **no**
+
+Persistent variable is used, but might be unset.
+
 ### GPNES
 
 Severity: **error** · Auto-fix: **no**

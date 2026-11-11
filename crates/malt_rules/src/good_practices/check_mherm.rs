@@ -1,10 +1,14 @@
 use super::*;
+use crate::analysis::symbols::SymbolTable;
 
 impl GoodPracticesEngine {
-    /// MHERM: a product `X'*A*X` or `X*A*X'`, which MATLAB evaluates left to
-    /// right as `(X'*A)*X` and so does not guarantee a Hermitian result.
-    /// Parenthesizing the inner product, `X'*(A*X)`, or the outer one, keeps it
-    /// symmetric. A plain `X'*X` is already Hermitian and is not reported.
+    /// MHERM: a product `X*X'` (or `X*X.'`) at the end of an unparenthesized
+    /// chain of three or more factors, such as `A*X*X'` or `X'*X*X'`. MATLAB
+    /// evaluates the chain left to right, so the result is not guaranteed to be
+    /// Hermitian. Parenthesizing the last two factors, `A*(X*X')`, keeps it.
+    /// MATLAB only sees names that are defined, so an undefined `X` is not
+    /// reported. The diagnostic points at the factor `X` (or `X'`) before the
+    /// transpose.
     pub(crate) fn check_mherm(&self, node: Node, source: &str) -> Vec<Diagnostic> {
         if !self.is_check_enabled("MHERM") || node.kind() != "binary_operator" {
             return Vec::new();
@@ -12,11 +16,11 @@ impl GoodPracticesEngine {
         let Some((left, right)) = star_operands(node, source) else {
             return Vec::new();
         };
-        // Only the outermost product of an unparenthesized chain: `(a*b)*c`.
+        // The left operand must be an unparenthesized product: `(A*X)*X'`.
         if left.kind() != "binary_operator" {
             return Vec::new();
         }
-        let Some((first, _)) = star_operands(left, source) else {
+        let Some((_, factor)) = star_operands(left, source) else {
             return Vec::new();
         };
 
@@ -29,23 +33,23 @@ impl GoodPracticesEngine {
             };
             (target.kind() == "identifier").then(|| node_text(target, source).to_string())
         };
-        let (Some(a), Some(b)) = (base(first), base(right)) else {
+        let (Some(a), Some(b)) = (base(factor), base(right)) else {
             return Vec::new();
         };
         let one_transposed =
-            (first.kind() == "postfix_operator") != (right.kind() == "postfix_operator");
-        if a != b || !one_transposed {
+            (factor.kind() == "postfix_operator") != (right.kind() == "postfix_operator");
+        if a != b || !one_transposed || !is_defined_at(node, &a, source) {
             return Vec::new();
         }
 
-        let pos = node.start_position();
+        let pos = factor.start_position();
         vec![Diagnostic {
             rule_id: "MHERM",
             message: format!(
                 "Parenthesize the multiplication of {a} and its transpose to ensure the result is Hermitian."
             ),
             severity: Severity::Warning,
-            byte_range: node.start_byte()..node.end_byte(),
+            byte_range: factor.start_byte()..factor.end_byte(),
             line: pos.row + 1,
             column: pos.column + 1,
             fix: None,
@@ -65,6 +69,18 @@ fn star_operands<'a>(node: Node<'a>, source: &str) -> Option<(Node<'a>, Node<'a>
     Some((node.child(0)?, node.child(2)?))
 }
 
+/// Whether `name` is defined (a parameter or an assignment) in the scope of `node`.
+fn is_defined_at(node: Node, name: &str, source: &str) -> bool {
+    let mut root = node;
+    while let Some(parent) = root.parent() {
+        root = parent;
+    }
+    let table = SymbolTable::build_from_root(root, source);
+    table
+        .scope_at(node.start_byte())
+        .is_some_and(|scope| scope.is_defined(name))
+}
+
 #[cfg(test)]
 mod tests {
     use crate::test_util::{has_id, lint_nodes};
@@ -76,16 +92,29 @@ mod tests {
     }
 
     #[test]
-    fn mherm_fires_on_x_transpose_a_x() {
-        assert!(mherm("y = x' * A * x;\n"));
-        assert!(mherm("y = x * A * x';\n"));
+    fn mherm_fires_on_a_defined_factor_before_a_transpose_at_the_chain_end() {
+        assert!(mherm("G = rand(3);\ny = A * G * G';\n"));
+        assert!(mherm("G = rand(3);\ny = G' * G * G';\n"));
+        assert!(mherm("G = rand(3);\ny = G * G * G.';\n"));
+        assert!(mherm("G = rand(3);\ny = A * G' * G;\n"));
+        assert!(mherm("x = rand(3, 1);\ny = x * x' * x;\n"));
+        assert!(mherm("G = rand(3);\ny = 2 * A * G * G' + Q;\n"));
+        assert!(mherm("function y = f(G, A)\ny = A * G * G';\nend\n"));
     }
 
     #[test]
-    fn mherm_ignores_plain_products_and_parenthesized_chains() {
-        assert!(!mherm("y = r' * r;\n"));
-        assert!(!mherm("y = x' * (A * x);\n"));
-        assert!(!mherm("y = a * b * c;\n"));
-        assert!(!mherm("y = x' * A * z;\n"));
+    fn mherm_ignores_the_shapes_matlab_does_not_report() {
+        // Two factors only, a transpose that is not at the end, a parenthesized
+        // product, different names, and names that are not defined in the file.
+        assert!(!mherm("G = rand(3);\ny = G * G';\n"));
+        assert!(!mherm("G = rand(3);\ny = G' * G;\n"));
+        assert!(!mherm("G = rand(3);\ny = G * G' * A;\n"));
+        assert!(!mherm("G = rand(3);\ny = G * G' * G';\n"));
+        assert!(!mherm("G = rand(3);\ny = (A * G) * G';\n"));
+        assert!(!mherm("G = rand(3);\ny = A * (G * G');\n"));
+        assert!(!mherm("G = rand(3);\ny = A * G * (G');\n"));
+        assert!(!mherm("x = rand(3, 1);\ny = x' * A * x;\n"));
+        assert!(!mherm("F = eye(3);\nP = F;\ny = F * P * F' + Q;\n"));
+        assert!(!mherm("y = A * G * G';\n"));
     }
 }

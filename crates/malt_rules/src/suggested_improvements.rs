@@ -116,6 +116,11 @@ struct SuggestedEntry {
     /// The argument at `arg_at` has exactly this source text (`now`).
     #[serde(default)]
     arg_text: String,
+    /// The argument at `arg_at`, when it is a variable, takes the kinds that
+    /// every assignment to it in its scope gives (`x = 5; year(x)`). A
+    /// parameter or a value that is not a literal leaves the kind unknown.
+    #[serde(default)]
+    arg_through_variables: bool,
     /// Only inside a `parfor` loop.
     #[serde(default)]
     within_parfor: bool,
@@ -170,7 +175,11 @@ impl SuggestedEntry {
         let Some(arg) = args.get(self.arg_at.max(1) - 1) else {
             return false;
         };
-        let kinds = argument_kinds(*arg, source);
+        let kinds = if self.arg_through_variables && arg.kind() == "identifier" {
+            variable_kinds(*arg, source)
+        } else {
+            argument_kinds(*arg, source).to_vec()
+        };
         if !self.arg_kinds.is_empty()
             && !kinds.iter().any(|k| self.arg_kinds.iter().any(|w| w == k))
         {
@@ -193,8 +202,123 @@ fn argument_kinds(arg: tree_sitter::Node, source: &str) -> &'static [&'static st
         "cell" => &["cell"],
         "string" if source[arg.byte_range()].starts_with('\'') => &["char", "text"],
         "string" => &["text"],
+        "range" | "matrix" if is_number_expr(arg) => &["number"],
         _ => &[],
     }
+}
+
+/// Whether `node` is a range or a matrix of number literals (`1:3`, `[1 2]`).
+fn is_number_expr(node: tree_sitter::Node) -> bool {
+    match node.kind() {
+        "number" => true,
+        "range" | "matrix" | "row" => {
+            let mut any = false;
+            for i in 0..node.named_child_count() {
+                let Some(child) = node.named_child(i) else {
+                    continue;
+                };
+                if child.kind() == "comment" {
+                    continue;
+                }
+                if !is_number_expr(child) {
+                    return false;
+                }
+                any = true;
+            }
+            any
+        }
+        _ => false,
+    }
+}
+
+/// The kinds of the values that the variable `ident` is given in its scope, for
+/// `arg_through_variables` (`x = 5; year(x)`). Every assignment must be a
+/// literal of a kind. A parameter, a loop variable, a multiple assignment or any
+/// other value leaves the kind unknown, and then the call is not reported.
+fn variable_kinds(ident: tree_sitter::Node, source: &str) -> Vec<&'static str> {
+    let name = &source[ident.byte_range()];
+    let scope = enclosing_function(ident).unwrap_or_else(|| root_of(ident));
+    let mut kinds = Vec::new();
+    if collect_assigned_kinds(scope, name, source, &mut kinds) {
+        kinds
+    } else {
+        Vec::new()
+    }
+}
+
+/// The innermost function definition that contains `node`.
+fn enclosing_function(node: tree_sitter::Node) -> Option<tree_sitter::Node> {
+    let mut current = node.parent();
+    while let Some(ancestor) = current {
+        if ancestor.kind() == "function_definition" {
+            return Some(ancestor);
+        }
+        current = ancestor.parent();
+    }
+    None
+}
+
+/// Adds to `kinds` the kinds of every assignment to `name` under `scope`, not
+/// counting nested functions. Returns false when an assignment is not a literal
+/// of a kind, or when `name` is bound another way (a loop, `[a, name] = f()`).
+fn collect_assigned_kinds(
+    scope: tree_sitter::Node,
+    name: &str,
+    source: &str,
+    kinds: &mut Vec<&'static str>,
+) -> bool {
+    for i in 0..scope.child_count() {
+        let Some(child) = scope.child(i) else {
+            continue;
+        };
+        match child.kind() {
+            "function_definition" => continue,
+            "assignment" => {
+                let (Some(left), Some(right)) = (
+                    child.child_by_field_name("left"),
+                    child.child_by_field_name("right"),
+                ) else {
+                    return false;
+                };
+                if left.kind() == "identifier" && &source[left.byte_range()] == name {
+                    let assigned = argument_kinds(right, source);
+                    if assigned.is_empty() {
+                        return false;
+                    }
+                    for &kind in assigned {
+                        if !kinds.contains(&kind) {
+                            kinds.push(kind);
+                        }
+                    }
+                } else if mentions(left, name, source) {
+                    return false;
+                }
+            }
+            "for_statement" => {
+                let var = (0..child.named_child_count())
+                    .filter_map(|j| child.named_child(j))
+                    .find(|c| c.kind() == "identifier");
+                if var.is_some_and(|v| &source[v.byte_range()] == name) {
+                    return false;
+                }
+            }
+            _ => {}
+        }
+        if !collect_assigned_kinds(child, name, source, kinds) {
+            return false;
+        }
+    }
+    true
+}
+
+/// Whether the identifier `name` occurs anywhere in `node`.
+fn mentions(node: tree_sitter::Node, name: &str, source: &str) -> bool {
+    if node.kind() == "identifier" && &source[node.byte_range()] == name {
+        return true;
+    }
+    (0..node.named_child_count())
+        .filter_map(|i| node.named_child(i))
+        .any(|c| mentions(c, name, source))
 }
 
 /// The text of a literal argument, without its quotes. Command-syntax arguments
@@ -885,5 +1009,72 @@ mod tests {
     fn dotted_names_match_the_whole_package_path() {
         assert_eq!(rule_ids("m = sigwin.hamming(4);\n"), vec!["DHMMNG"]);
         assert!(rule_ids("m = s.hamming(4);\n").is_empty());
+    }
+
+    #[test]
+    fn date_part_functions_fire_on_serial_or_text_values() {
+        let family = [
+            ("year", "TYEAR"),
+            ("month", "TMNTH"),
+            ("day", "TNDAY"),
+            ("hour", "THOUR"),
+            ("minute", "TMNUT"),
+            ("second", "TSCND"),
+            ("quarter", "TQURT"),
+            ("datevec", "TDTVEC"),
+        ];
+        for (name, id) in family {
+            // Literal serial numbers, text and cells.
+            assert_eq!(rule_ids(&format!("y = {name}(7);\n")), vec![id]);
+            assert_eq!(rule_ids(&format!("y = {name}('01-Jan-2020');\n")), vec![id]);
+            assert_eq!(rule_ids(&format!("y = {name}({{'a'}});\n")), vec![id]);
+            // A variable holding a literal of such a kind.
+            assert_eq!(rule_ids(&format!("x = 5;\ny = {name}(x);\n")), vec![id]);
+            assert_eq!(rule_ids(&format!("x = 'abc';\ny = {name}(x);\n")), vec![id]);
+            assert_eq!(rule_ids(&format!("x = 1:3;\ny = {name}(x);\n")), vec![id]);
+            assert_eq!(
+                rule_ids(&format!("x = [2020 1 1];\ny = {name}(x);\n")),
+                vec![id]
+            );
+            // A datetime, a datenum, a function result, a parameter or an
+            // unknown name is not a serial number or text to MATLAB.
+            assert!(
+                !rule_ids(&format!("t = datetime(2020, 1, 1);\ny = {name}(t);\n")).contains(&id)
+            );
+            assert!(
+                !rule_ids(&format!("d = datenum(2020, 1, 1);\ny = {name}(d);\n")).contains(&id)
+            );
+            assert!(!rule_ids(&format!("y = {name}(foo(x));\n")).contains(&id));
+            assert!(!rule_ids(&format!("y = {name}(x);\n")).contains(&id));
+            assert!(rule_ids(&format!(
+                "x = 5;\nx = datetime(2020, 1, 1);\ny = {name}(x);\n"
+            ))
+            .is_empty());
+            assert!(!rule_ids(&format!("x = [a 1];\ny = {name}(x);\n")).contains(&id));
+            assert!(!rule_ids(&format!("function y = f(x)\ny = {name}(x);\nend\n")).contains(&id));
+        }
+    }
+
+    #[test]
+    fn display_fires_on_a_known_literal_value_only() {
+        assert_eq!(rule_ids("dd = display(3);\n"), vec!["DISPLAYPROG"]);
+        assert_eq!(rule_ids("display('abc');\n"), vec!["DISPLAYPROG"]);
+        assert_eq!(rule_ids("q = 3;\ndisplay(q);\n"), vec!["DISPLAYPROG"]);
+        assert_eq!(rule_ids("display({1});\n"), vec!["DISPLAYPROG"]);
+        assert!(rule_ids("display(x);\n").is_empty());
+        assert!(rule_ids("t = datetime(2020, 1, 1);\ndisplay(t);\n").is_empty());
+        assert!(rule_ids("display(-3);\n").is_empty());
+        assert!(rule_ids("display(3, 2);\n").is_empty());
+        assert!(rule_ids("display\n").is_empty());
+        assert!(rule_ids("display();\n").is_empty());
+    }
+
+    #[test]
+    fn display_definitions_and_methods_are_not_calls() {
+        // A method named display (`function display(obj)`) is not a call, and a
+        // call to display on a parameter has no known value.
+        let source = "classdef C\n    methods\n        function display(obj)\n            fprintf('%s\\n', inputname(1));\n            disp(obj);\n        end\n    end\nend\n";
+        assert!(rule_ids(source).is_empty());
+        assert!(rule_ids("function display(obj)\nfprintf('a');\nend\n").is_empty());
     }
 }

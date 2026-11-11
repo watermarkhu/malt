@@ -178,6 +178,7 @@
 //! | FCONV | error | no | Unable to define variable VAR_NAME because it has the same name as the script. |
 //! | FCONF | error | no | Unable to define local function VAR_NAME because it has the same name as the file. |
 //! | GPFST | error | no | A GLOBAL or PERSISTENT declaration must precede first use. |
+//! | PSET | warning | no | Persistent variable is used, but might be unset. |
 //! | GPNES | error | no | A GLOBAL or PERSISTENT declaration must be in the outermost function where it is used. |
 //! | NPERS | error | no | A PERSISTENT declaration is not valid in scripts. |
 //! | ROWLN | error | no | All matrix rows must be the same length. |

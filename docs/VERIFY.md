@@ -16,9 +16,9 @@ of how it got here is in git and in the plan's progress log.
 
 `tests/fixtures/matlab_expected.tsv` holds what MATLAB reports for every fixture
 (path, line, ID: facts only, no message text). The test fails on any difference, a
-missed finding or an extra one: malt matches MATLAB on all 240 fixtures (the 209 the rules were
-fitted to and `corpus1/`, 31 fresh files written independently of the rules) under the
-default configuration. A new fixture needs its MATLAB expectations: run
+missed finding or an extra one: malt matches MATLAB on all 271 fixtures under the default configuration: the 209
+the rules were fitted to, and `corpus1/` and `corpus2/` (31 fresh files each, written
+independently of the rules). A new fixture needs its MATLAB expectations: run
 `docs/scripts/matlab_probe.m` over it and append the rows (relative path, line, ID;
 line 0 becomes 1) to `matlab_expected.tsv`.
 
@@ -67,7 +67,7 @@ the repository (`~/.local/share/malt-reference/`: `matlab-allmsg.txt` from
 | DEBUGMSG, LLMCC | Need a custom analyzer configuration whose format is not established. |
 | BDCFG, CFERR, BDOPT, CFIG | Configuration-file errors; malt does not read MATLAB configuration files. |
 | CABE, SCABE, ACABE, MCABE, SMCABE, AMCABE | Cyclomatic-complexity metrics, reported only with `-cyc` or `-modcyc`. |
-| MSNU, MSNE, PSET | Planned with suppression bookkeeping in the linter (plan step 3.4). |
+| MSNU, MSNE | Planned with suppression bookkeeping in the linter (plan step 3.4). |
 | EMNODEF, EMBRK, EMCNT, EMRTN, EMWHL, EMS2N | MATLAB Coder checks, see below. |
 
 ## Not verifiable through `checkcode`
@@ -85,10 +85,12 @@ No fixture fails on these.
 
 | Gap | Note |
 | --- | --- |
-| Overfitting | The first fresh corpus (`corpus1/`, 31 files) measured generalisation before any fixing: 44 of MATLAB's 45 findings matched (recall 98%) and malt reported 28 more (precision about 61%): DEFNU in function-based test files, data entries firing on ordinary calls, class checks with an unresolvable superclass, and a few flow checks. All were fixed and the files joined the fixtures. A new unseen corpus is the next honest measurement (plan step 4.1). |
+| Overfitting | The first fresh corpus (`corpus1/`, 31 files) measured generalisation before any fixing: 44 of MATLAB's 45 findings matched (recall 98%) and malt reported 28 more (precision about 61%): DEFNU in function-based test files, data entries firing on ordinary calls, class checks with an unresolvable superclass, and a few flow checks. All were fixed and the files joined the fixtures. `corpus2/` (31 files, different themes, unseen) then measured 24 of 27 findings matched, 3 misses and 7 extra (recall 89%, precision 77%): MHERM, the date-function family (TYEAR), DISPLAYPROG, `persistent` redefinitions (REDEF, GPFST), LOAD in anonymous functions, PROP, NASGU with `rethrow`; all fixed. The number to watch is the first-measurement difference count of each new corpus (29, then 10); a third unseen corpus is the next measurement (plan step 4.1). |
 | Message text | The test compares file, line and ID, not the text of dynamic messages (for example MATLAB quotes names in MCNPN: `'foo' is referenced...`). |
 | Statement right after a stray `end` | tree-sitter parses it as ERROR tokens plus a number, so malt misses MATLAB's NASGU for `z = 1;` there. |
 | `eval` through a variable | MATLAB reports EVLCS for `t = 'x = 1;'; eval(t)` and EVLEQ for `t = ['x = ' num2str(v)]; eval(t)`; malt is silent on both. `['a.b = ' num2str(v) ';']` is EVLEQ in MATLAB and EVLDOT in malt. |
+| Command syntax in kind conditions | `display x` and `year x` are reported by MATLAB; command arguments never match the `arg_kinds` conditions, so malt is silent. `year(-5)` was not probed. |
+| Loop with try/catch and `break` | malt can report an unused `line = readline(s)` in a `while` loop whose `try`/`catch` contains `break`, where MATLAB is silent. |
 | `[h,a] = legend;` | MATLAB reports LEGMOP; malt only visits calls and commands, so the bare form with several outputs is missed. |
 | `load(fileName, 'x')`, `save f x` | A variable file name drops the first string, so `'x'` is lost as a store of `x` (NASGU); the command form of `save` is not handled. |
 | Class member reads | `obj.Y(3)` (parenthesised read in a setter, MCSUP) and `obj.Undecl{1}` (MCNPN) were not probed. |
