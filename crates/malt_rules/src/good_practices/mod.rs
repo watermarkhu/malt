@@ -496,6 +496,7 @@ impl GoodPracticesEngine {
         let mut diagnostics = Vec::new();
         let parfors = collect_parfor_nodes(tree.root_node(), source);
         let script = crate::analysis::control_flow::is_script_body(tree.root_node());
+        let script_opening = script || opens_with_statement(tree.root_node());
 
         for parfor in &parfors {
             let idx_var = extract_parfor_index_var(*parfor, source);
@@ -534,11 +535,14 @@ impl GoodPracticesEngine {
             }
 
             // PFOUS: a sliced output (`v(i) = ...`) that is not read after the
-            // loop. A plain scalar assignment (`t = i`) is not reported.
-            if !script && self.is_check_enabled("PFOUS") {
+            // loop. A plain scalar assignment (`t = i`) is not reported. A function
+            // output is returned, so it is read after the loop (probed).
+            if !script_opening && self.is_check_enabled("PFOUS") {
                 if let Some(body_node) = body {
                     for (name, lhs_node) in collect_indexed_lhs_assignments(body_node, source) {
-                        if idx_var.as_deref() == Some(name.as_str()) {
+                        if idx_var.as_deref() == Some(name.as_str())
+                            || is_output_of_enclosing_function(&sym, parfor.start_byte(), &name)
+                        {
                             continue;
                         }
                         let uses = uses_after_parfor(&sym, &name, parfor.end_byte(), tree, false);
@@ -959,6 +963,160 @@ pub(crate) fn string_literal_text(node: Node, source: &str) -> String {
     out
 }
 
+/// `true` when `root` is a syntactically clean file whose first statement is not a
+/// `function` line. MATLAB reads it as a script even when local functions follow
+/// it (probed: no PFOUS for a script's sliced array with a function at its end).
+fn opens_with_statement(root: Node) -> bool {
+    if root.kind() != "source_file" || root.has_error() {
+        return false;
+    }
+    let mut cursor = root.walk();
+    let first = root
+        .named_children(&mut cursor)
+        .find(|c| c.kind() != "comment");
+    first.is_some_and(|c| c.kind() != "function_definition")
+}
+
+/// `true` when `name` is an output of the innermost function that holds the
+/// loop at byte `position`: the value is returned after the loop (probed).
+fn is_output_of_enclosing_function(sym: &SymbolTable, position: usize, name: &str) -> bool {
+    use crate::analysis::symbols::{DefKind, ScopeKind};
+    sym.scopes
+        .iter()
+        .filter(|s| {
+            s.byte_range.contains(&position)
+                && matches!(
+                    s.kind,
+                    ScopeKind::Function | ScopeKind::LocalFunction | ScopeKind::NestedFunction
+                )
+        })
+        .min_by_key(|s| s.byte_range.len())
+        .is_some_and(|s| {
+            s.defs
+                .iter()
+                .any(|d| d.kind == DefKind::OutputArg && d.name == name)
+        })
+}
+
+/// The assignment that a bracketed `eval` argument builds, as MATLAB reads it
+/// (probed). `Some(true)`: the name is numbered (`['x' num2str(i) ' = 0']`, which
+/// is EVLSEQVAR). `Some(false)`: the name is a constant and the value is built
+/// (`['x = ' num2str(v)]`, `['x = ' '1' ';']`, EVLEQ). `None`: nothing to report.
+/// That covers a bare argument (`eval(sprintf('x = %d;', v))`), one literal
+/// (`['x = 1;']`, EVLCS), a variable in the name (`[name ' = 1;']`), a name that
+/// is not an identifier (`['x(' num2str(i) ') = 1;']`) and no assignment.
+pub(crate) fn built_assignment(args: &str) -> Option<bool> {
+    let inner = args
+        .trim_start()
+        .strip_prefix('(')
+        .unwrap_or(args)
+        .trim_start()
+        .strip_prefix('[')?;
+    let items = bracket_items(inner);
+    if items.len() < 2 {
+        return None;
+    }
+    let mut name = String::new();
+    let mut numbered = false;
+    let mut assigned = false;
+    for item in items {
+        if let Some(text) = quoted_body(item) {
+            match assign_index(text) {
+                Some(i) => {
+                    name.push_str(&text[..i]);
+                    assigned = true;
+                    break;
+                }
+                None => name.push_str(text),
+            }
+        } else if item.starts_with("num2str(") || item.starts_with("int2str(") {
+            numbered = true;
+        } else {
+            return None;
+        }
+    }
+    let name = name.trim();
+    let identifier = name.chars().next().is_some_and(|c| c.is_ascii_alphabetic())
+        && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_');
+    (assigned && identifier).then_some(numbered)
+}
+
+/// `true` when an `eval` argument is a constant: one string, or a concatenation of
+/// strings only (probed: EVLCS for `eval('x = 1;')` and `eval(['x = 1;'])`). A
+/// variable, a call or a dynamic concatenation is silent, as in MATLAB (probed:
+/// `eval(s)` on an input, `eval(num2str(v))`, `eval(t)` with `t` built at run time).
+pub(crate) fn is_constant_argument(args: &str) -> bool {
+    let trimmed = args.trim();
+    let inner = trimmed
+        .strip_prefix('(')
+        .and_then(|s| s.strip_suffix(')'))
+        .unwrap_or(trimmed)
+        .trim();
+    if let Some(bracket) = inner.strip_prefix('[').and_then(|s| s.strip_suffix(']')) {
+        let items = bracket_items(bracket);
+        return !items.is_empty() && items.iter().all(|i| quoted_body(i).is_some());
+    }
+    quoted_body(inner).is_some()
+        || (inner.len() >= 2 && inner.starts_with('"') && inner.ends_with('"'))
+}
+
+/// The items of a bracketed concatenation, split at top-level spaces, commas and
+/// semicolons. Quoted text and nested brackets stay in one item; scanning stops
+/// at the closing `]`.
+fn bracket_items(inner: &str) -> Vec<&str> {
+    let bytes = inner.as_bytes();
+    let mut items = Vec::new();
+    let (mut start, mut depth, mut quoted) = (0usize, 0i32, false);
+    let mut i = 0;
+    while i < bytes.len() {
+        let c = bytes[i];
+        if quoted {
+            if c == b'\'' {
+                if bytes.get(i + 1) == Some(&b'\'') {
+                    i += 2;
+                    continue;
+                }
+                quoted = false;
+            }
+        } else {
+            match c {
+                b'\'' => quoted = true,
+                b'(' | b'{' | b'[' => depth += 1,
+                b']' if depth == 0 => break,
+                b')' | b'}' | b']' => depth -= 1,
+                b' ' | b'\t' | b',' | b';' if depth == 0 => {
+                    if start < i {
+                        items.push(&inner[start..i]);
+                    }
+                    start = i + 1;
+                }
+                _ => {}
+            }
+        }
+        i += 1;
+    }
+    if start < i {
+        items.push(&inner[start..i]);
+    }
+    items
+}
+
+/// The text inside one quoted literal item, `'x = '` gives `x = `.
+fn quoted_body(item: &str) -> Option<&str> {
+    let bytes = item.as_bytes();
+    (item.len() >= 2 && bytes[0] == b'\'' && bytes[item.len() - 1] == b'\'')
+        .then(|| &item[1..item.len() - 1])
+}
+
+/// The byte index of the assignment `=` in `text`, not `==`, `~=`, `<=` or `>=`.
+fn assign_index(text: &str) -> Option<usize> {
+    text.match_indices('=').map(|(i, _)| i).find(|&i| {
+        let before = text[..i].chars().last();
+        let after = text[i + 1..].chars().next();
+        !matches!(before, Some('=' | '~' | '<' | '>')) && after != Some('=')
+    })
+}
+
 /// Pick the `eval` check that fits what the call evaluates. `literal` is the text
 /// of the string literals in the argument, `args_text` the whole argument.
 pub(crate) fn classify_eval_usage(
@@ -971,7 +1129,6 @@ pub(crate) fn classify_eval_usage(
     // A constant statement is EVLCS whatever its field names (probed:
     // `eval('s.a = 1')`); the dynamic checks need a built argument.
     let is_constant = !args_text.contains('[') && !args_text.contains("sprintf");
-    let sequential = args_text.contains("num2str") || args_text.contains("int2str");
 
     // EVLDOT: dynamic field access like `eval(['s.' fieldname])`.
     let bytes = literal.as_bytes();
@@ -1005,21 +1162,18 @@ pub(crate) fn classify_eval_usage(
         );
     }
 
-    // EVLEQ: building an assignment, `eval([name ' = 1'])`, from a non-constant.
-    let assigns = literal.match_indices('=').any(|(i, _)| {
-        let before = literal[..i].chars().last();
-        let after = literal[i + 1..].chars().next();
-        !matches!(before, Some('=' | '~' | '<' | '>')) && after != Some('=')
-    });
-    if assigns && !is_constant && !sequential && on("EVLEQ") {
+    // EVLEQ: building an assignment with a constant name, `eval(['x = ' num2str(v)])`.
+    // A variable in the name, `eval([name ' = 1'])`, is silent (probed).
+    let built = built_assignment(args_text);
+    if built == Some(false) && on("EVLEQ") {
         return (
             "EVLEQ",
             "'eval' is inefficient and makes code less clear. Assign to the variable directly.",
         );
     }
 
-    // EVLSEQVAR: sequential variable creation like `eval(['x' num2str(i)])`.
-    if sequential && assigns && on("EVLSEQVAR") {
+    // EVLSEQVAR: sequential variable creation like `eval(['x' num2str(i) ' = 0'])`.
+    if built == Some(true) && on("EVLSEQVAR") {
         return (
             "EVLSEQVAR",
             "Using 'eval' to dynamically assign variables is not recommended.",
@@ -2129,6 +2283,34 @@ mod tests {
         collect_diagnostics(&eng, tree.root_node(), source, &mut ids);
         assert!(ids.iter().any(|id| id == &"MHERM"), "got: {ids:?}");
         assert!(ids.iter().any(|id| id == &"MNUML"), "got: {ids:?}");
+    }
+
+    #[test]
+    fn pfous_silent_when_the_function_returns_the_sliced_output() {
+        // Probe f1 (a_parfor_sim:19): `g` is an output, so it is read after the loop.
+        let source = "function [t, g] = f(n)\ng = zeros(n, 1);\nt = 0;\nparfor k = 1:n\n    g(k) = k;\n    t = t + k;\nend\nend\n";
+        let tree = parse(source);
+        let eng = engine();
+        assert!(g2_file_ids_with(&eng, &tree, source, "PFOUS").is_empty());
+    }
+
+    #[test]
+    fn pfous_reported_when_the_sliced_output_is_not_returned() {
+        // Probe f2: `g` is not an output and not read after the loop.
+        let source = "function t = f(n)\ng = zeros(n, 1);\nt = 0;\nparfor k = 1:n\n    g(k) = k;\n    t = t + k;\nend\nend\n";
+        let tree = parse(source);
+        let eng = engine();
+        assert_eq!(g2_file_ids_with(&eng, &tree, source, "PFOUS").len(), 1);
+    }
+
+    #[test]
+    fn pfous_silent_in_a_script_with_a_function_after_it() {
+        // Probe s2 (c_spmd_parfor:15): the file opens with a statement, so it is a
+        // script, and MATLAB reports no PFOUS for its sliced array.
+        let source = "n = 5;\nresults = zeros(1, n);\nparfor i = 1:n\n    results(i) = i;\nend\nfunction q = sq(v)\nq = v.^2;\nend\n";
+        let tree = parse(source);
+        let eng = engine();
+        assert!(g2_file_ids_with(&eng, &tree, source, "PFOUS").is_empty());
     }
 
     #[test]

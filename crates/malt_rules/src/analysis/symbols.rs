@@ -547,6 +547,16 @@ impl<'a> Builder<'a> {
                 self.record_load_stores(node);
                 self.visit_children(node);
             }
+            // `save(file, 'x')` reads each variable it names (probed: MATLAB reports
+            // no store of `x` before it); `save(file)` names none.
+            "function_call"
+                if node
+                    .child_by_field_name("name")
+                    .is_some_and(|n| self.node_text(n) == "save") =>
+            {
+                self.record_save_reads(node);
+                self.visit_children(node);
+            }
             // `a;` is a command with one `command_name` in this grammar: a read of `a`.
             "command" if node.named_child_count() == 1 => {
                 if let Some(name) = node
@@ -1331,12 +1341,21 @@ impl<'a> Builder<'a> {
     }
 
     /// Record the callee names of the function calls in a validator. Their
-    /// arguments are not uses: `mustBeX(o, x)` does not use input `x`.
+    /// arguments are not uses: `mustBeX(o, x)` does not use input `x`. A bare
+    /// validator name, `{mustBeX}`, is a call of that function too (probed:
+    /// MATLAB does not report a local validator as unused).
     fn record_validator_callees(&mut self, node: tree_sitter::Node<'a>) {
         if node.kind() == "function_call" {
             if let Some(name) = node.child_by_field_name("name") {
                 self.record_use_as(name, true);
             }
+        }
+        if node.kind() == "identifier"
+            && node
+                .parent()
+                .is_some_and(|p| p.kind() == "validation_functions")
+        {
+            self.record_use_as(node, true);
         }
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
@@ -1361,6 +1380,36 @@ impl<'a> Builder<'a> {
                 .map(|c| &source[c.byte_range()]),
         };
         statement && callee == Some("load")
+    }
+
+    /// Records the variables that a `save(file, 'x', ...)` call reads: the quoted
+    /// names after the file name. Each is a read at the position of its string.
+    fn record_save_reads(&mut self, node: tree_sitter::Node<'a>) {
+        let mut cursor = node.walk();
+        let args: Vec<tree_sitter::Node<'a>> = node
+            .children(&mut cursor)
+            .filter(|c| c.kind() == "arguments")
+            .flat_map(|args| {
+                let mut inner = args.walk();
+                args.named_children(&mut inner).collect::<Vec<_>>()
+            })
+            .collect();
+        // The first argument is the file name, whatever its kind.
+        for arg in args.into_iter().skip(1).filter(|a| a.kind() == "string") {
+            let raw = self.node_text(arg);
+            let name = raw.trim_matches(|c| c == '\'' || c == '"');
+            if !is_plain_name(name) {
+                continue;
+            }
+            let pos = arg.start_position();
+            self.add_use(VarUse {
+                name: name.to_string(),
+                byte_range: arg.byte_range(),
+                line: pos.row + 1,
+                column: pos.column + 1,
+                is_call_target: false,
+            });
+        }
     }
 
     /// Adds the variables that a `load` statement stores: the names after the

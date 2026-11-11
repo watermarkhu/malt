@@ -2,8 +2,17 @@
 
 use super::*;
 
-/// Calls that reach functions by name at run time.
-const DYNAMIC_CALLS: &[&str] = &["eval", "evalin", "evalc", "feval", "str2func"];
+/// Calls that reach functions by name at run time. `localfunctions` returns a
+/// handle to every local function of the file (probed: a test file with
+/// `functiontests(localfunctions)` gets no DEFNU for its test or helper functions).
+const DYNAMIC_CALLS: &[&str] = &[
+    "eval",
+    "evalin",
+    "evalc",
+    "feval",
+    "str2func",
+    "localfunctions",
+];
 
 impl UnusedEngine {
     /// Run DEFNU check: local function defined but never called.
@@ -112,6 +121,40 @@ mod tests {
         // Probe ls-b__t6: the second `function t6()` is REDEF, not DEFNU.
         let diags = lint_file(&*engine(), "function t6()\nend\nfunction t6()\nend\n");
         assert!(!has_id(&diags, "DEFNU"), "got: {diags:?}");
+    }
+
+    #[test]
+    fn defnu_silent_when_localfunctions_references_every_local_function() {
+        // Probe d1 (a_tests_calc): `functiontests(localfunctions)` reaches the test
+        // and the helper function; MATLAB reports neither.
+        let source = "function tests = t_tests\ntests = functiontests(localfunctions);\nend\n\nfunction testA(testCase)\nend\n\nfunction helperX()\nend\n";
+        let diags = lint_file(&*engine(), source);
+        assert!(!has_id(&diags, "DEFNU"), "got: {diags:?}");
+    }
+
+    #[test]
+    fn defnu_fires_on_test_convention_names_without_localfunctions() {
+        // Probe d3: MATLAB gives no exemption to `setup` or `testX` by name in a
+        // function-based test file; an unreferenced one is DEFNU.
+        let source = "function tests = t_tests\ntests = 1;\nend\n\nfunction setup(testCase)\nend\n\nfunction testA(testCase)\nend\n";
+        let diags = lint_file(&*engine(), source);
+        assert!(has_id(&diags, "DEFNU"), "got: {diags:?}");
+    }
+
+    #[test]
+    fn defnu_silent_on_a_bare_validator_name_in_arguments() {
+        // Probe d5 (c_args_block:38): `{mustBeSquare}` calls the local validator.
+        let source = "function y = f(M)\narguments\n    M (:,:) double {mustBeSquare}\nend\ny = numel(M);\nend\n\nfunction mustBeSquare(M)\nend\n";
+        let diags = lint_file(&*engine(), source);
+        assert!(!has_id(&diags, "DEFNU"), "got: {diags:?}");
+    }
+
+    #[test]
+    fn defnu_fires_on_an_unused_local_validator() {
+        // Probe d8: a local function that no validator or call names is DEFNU.
+        let source = "function y = f(M)\narguments\n    M (1,1) double\nend\ny = M;\nend\n\nfunction isPos(M)\nend\n";
+        let diags = lint_file(&*engine(), source);
+        assert!(has_id(&diags, "DEFNU"), "got: {diags:?}");
     }
 
     #[test]

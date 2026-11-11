@@ -111,6 +111,37 @@ mod tests {
         lines
     }
 
+    #[test]
+    fn nasgu_save_named_variable_is_a_read() {
+        // Probe g1: `save(file, 'x')` reads `x`; MATLAB reports no store of it.
+        let source =
+            "function g(fileName)\nsettings = struct('a', 1);\nsave(fileName, 'settings');\nend\n";
+        assert!(nasgu_lines(source).is_empty());
+    }
+
+    #[test]
+    fn nasgu_save_reads_only_the_names_it_lists() {
+        // Probe g3: `other` is read by the save, `settings` is not (MATLAB reports line 2).
+        let source =
+            "function g(fileName)\nsettings = 1;\nother = 2;\nsave(fileName, 'other');\nend\n";
+        assert_eq!(nasgu_lines(source), vec![2]);
+    }
+
+    #[test]
+    fn nasgu_save_without_names_reads_nothing() {
+        // Probe g2: `save(file)` names no variable, so the store is reported.
+        let source = "function g(fileName)\nsettings = 1;\nsave(fileName);\nend\n";
+        assert_eq!(nasgu_lines(source), vec![2]);
+    }
+
+    #[test]
+    fn nasgu_for_range_variable_is_a_read() {
+        // Probe e1 (c_bit_logic:78): `for p = positions` reads `positions`.
+        let source =
+            "function f()\npositions = [0 3 5 7];\nfor p = positions\n    disp(p)\nend\nend\n";
+        assert!(nasgu_lines(source).is_empty());
+    }
+
     // -- Probes: MATLAB R2026b checkcode, scripts ----------------------------
 
     #[test]

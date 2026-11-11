@@ -763,13 +763,20 @@ impl Analysis<'_> {
         let mut body = Vec::new();
         for child in named(node) {
             if child.kind() == "iterator" {
-                // The loop variable is written, not read: only the range is.
+                // The loop variable is written, not read: only the range is. The
+                // range may itself be a plain variable (`for p = positions`), so
+                // only the first identifier is skipped.
                 let parts = named(child);
                 var = parts
                     .iter()
                     .find(|c| c.kind() == "identifier")
                     .map(|c| source[c.byte_range()].to_string());
-                for part in parts.into_iter().filter(|c| c.kind() != "identifier") {
+                let mut loop_var_seen = false;
+                for part in parts {
+                    if !loop_var_seen && part.kind() == "identifier" {
+                        loop_var_seen = true;
+                        continue;
+                    }
                     reads.extend(self.uses_in(part.byte_range()));
                 }
             } else {

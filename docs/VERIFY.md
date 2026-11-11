@@ -16,7 +16,8 @@ of how it got here is in git and in the plan's progress log.
 
 `tests/fixtures/matlab_expected.tsv` holds what MATLAB reports for every fixture
 (path, line, ID: facts only, no message text). The test fails on any difference, a
-missed finding or an extra one: malt matches MATLAB on all 209 fixtures under the
+missed finding or an extra one: malt matches MATLAB on all 240 fixtures (the 209 the rules were
+fitted to and `corpus1/`, 31 fresh files written independently of the rules) under the
 default configuration. A new fixture needs its MATLAB expectations: run
 `docs/scripts/matlab_probe.m` over it and append the rows (relative path, line, ID;
 line 0 becomes 1) to `matlab_expected.tsv`.
@@ -84,16 +85,20 @@ No fixture fails on these.
 
 | Gap | Note |
 | --- | --- |
-| Overfitting | The rules were fitted to the 209 fixtures; a fresh MATLAB-checked corpus is the next measurement (plan step 4.1). |
+| Overfitting | The first fresh corpus (`corpus1/`, 31 files) measured generalisation before any fixing: 44 of MATLAB's 45 findings matched (recall 98%) and malt reported 28 more (precision about 61%): DEFNU in function-based test files, data entries firing on ordinary calls, class checks with an unresolvable superclass, and a few flow checks. All were fixed and the files joined the fixtures. A new unseen corpus is the next honest measurement (plan step 4.1). |
 | Message text | The test compares file, line and ID, not the text of dynamic messages (for example MATLAB quotes names in MCNPN: `'foo' is referenced...`). |
 | Statement right after a stray `end` | tree-sitter parses it as ERROR tokens plus a number, so malt misses MATLAB's NASGU for `z = 1;` there. |
+| `eval` through a variable | MATLAB reports EVLCS for `t = 'x = 1;'; eval(t)` and EVLEQ for `t = ['x = ' num2str(v)]; eval(t)`; malt is silent on both. `['a.b = ' num2str(v) ';']` is EVLEQ in MATLAB and EVLDOT in malt. |
+| `[h,a] = legend;` | MATLAB reports LEGMOP; malt only visits calls and commands, so the bare form with several outputs is missed. |
+| `load(fileName, 'x')`, `save f x` | A variable file name drops the first string, so `'x'` is lost as a store of `x` (NASGU); the command form of `save` is not handled. |
+| Class member reads | `obj.Y(3)` (parenthesised read in a setter, MCSUP) and `obj.Undecl{1}` (MCNPN) were not probed. |
 | `x = f(a.b=1);` | MATLAB reports SYNER at the `=`; malt reports nothing (only the statement-level call form is handled). |
 | Self-call after an unclosed `arguments` block | The statement is not visited by the symbol table, so DEFNU can report the primary function where MATLAB is silent. |
 | NASGU | MATLAB's constant propagation is only partly implemented (`1 == 1` is not folded, as in MATLAB; other cases are untested). |
 | UNRPWR | Condition inferred from the tree shape; the column is one off from MATLAB's. |
 | CMDAND, CMDOR | No MATLAB trigger found in six command-syntax probes; the message matches the official text. |
 | PFTUSE, PFUIXE | Message agrees; MATLAB reports at the assignment or `parfor` line, malt at the use after the loop. |
-| DEFNU | The dynamic-call exemption covers `eval`, `feval`, `str2func`; `evalin`, `evalc`, `run` are unprobed. |
+| DEFNU | `localfunctions` counts as a use of every local function (function-based test files) and a bare validator in an `arguments` block (`{mustBeSquareMatrix}`) as a use of that function; the dynamic-call exemption covers `eval`, `feval`, `str2func`; `evalin`, `evalc`, `run` are unprobed. |
 | FNDEF | The column is always 1 (MATLAB points at the name). |
 | SYNER | Shows malt's error-node text where MATLAB names the offending token. |
 | `analysis/control_flow.rs` | The `elseif` condition is still matched as `kind() == "condition"` (line ~762); `condition` is a field name in this grammar. |
@@ -108,7 +113,7 @@ Entries in `data/compatibility.toml` can carry `min_args`, `max_args`, `args_any
 variable of that class and are not matched until class tracking exists. A variable or local
 function with the same name shadows a removed function. `unverified` entries (INTRPC,
 ADTPATH, MATPOOL, SESSION\*) were never reported by MATLAB in the probes (some need toolboxes
-that are not installed). The suggested-improvements data has its own condition fields
+that are not installed); LENEMP and LEGPVPAIR are `unverified` (MATLAB reported neither on any `legend` call form). About 90 serialport, tcpserver, udpport and bluetooth member entries are `object` patterns: MATLAB reports nothing on a plain constructor call. `min_outputs` limits an entry to calls with several outputs (LEGMOP). The suggested-improvements data has its own condition fields
 (`literal_args`, `arg_kinds`, `arg_at`, `max_args`, `within_parfor`, `not_in_call`, ...).
 
 ## Rules worth knowing
@@ -129,6 +134,7 @@ that are not installed). The suggested-improvements data has its own condition f
 - Statements after `error(...)`, `return`, `break`, `continue` and after `while true` without
   `break` are unreachable and many checks skip them; this is probed per check (STCMP and
   FLUDLR still fire after `error`).
+- Class checks that depend on handle-ness or inherited members (MCVM, MCSNOV, MCEB; MCNPN and MCNPR for anything but `handle`) are silent whenever the class lists a superclass, whether or not it resolves.
 - NODEF is reported for a read with no reaching definition when the name is assigned somewhere
   later in the function, and silent otherwise. INUSD uses the entry value's liveness: an input
   overwritten before any read, or read only after `error(...)`, is unused.

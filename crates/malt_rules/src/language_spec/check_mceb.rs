@@ -3,9 +3,11 @@
 use super::*;
 
 impl LanguageSpecEngine {
-    /// MCEB: Events can only be defined in handle classes.
+    /// MCEB: Events can only be defined in handle classes. Only a class with no
+    /// superclass is reported: MATLAB is silent for any superclass, whether or
+    /// not it resolves to a handle class (probed).
     pub(crate) fn check_mceb(&self, class: &ClassMeta, diagnostics: &mut Vec<Diagnostic>) {
-        if !class.events_blocks.is_empty() && !class.is_handle() {
+        if !class.events_blocks.is_empty() && class.superclasses.is_empty() {
             for eb in &class.events_blocks {
                 if !eb.events.is_empty() {
                     diagnostics.push(Diagnostic {
@@ -44,6 +46,21 @@ end
             !mceb.is_empty(),
             "MCEB should fire when events defined in non-handle class"
         );
+    }
+
+    #[test]
+    fn test_mceb_silent_with_superclass() {
+        // Probes D, E, F: MATLAB is silent for any superclass, resolved or not.
+        for superclass in ["Base", "matlab.mixin.SetGet"] {
+            let source = format!(
+                "classdef MyClass < {superclass}\n    events\n        DataChanged\n    end\nend\n"
+            );
+            let diags = check_source(&source, "MyClass.m");
+            assert!(
+                filter_by_id(&diags, "MCEB").is_empty(),
+                "superclass {superclass}: MCEB should NOT fire"
+            );
+        }
     }
 
     #[test]

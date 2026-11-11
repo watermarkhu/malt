@@ -24,6 +24,13 @@ struct ClassCtx {
     constant_props: std::collections::HashSet<String>,
     /// Whether the class is a handle class.
     is_handle: bool,
+    /// Whether the class has no superclass at all (MCVM, MCSNOV).
+    no_superclass: bool,
+    /// Whether the class's members are fully known from this file: no
+    /// superclass, or `handle` as the only one (MCNPN, MCNPR). MATLAB reports
+    /// nothing on those members when any other superclass is present, whether
+    /// or not it resolves.
+    members_known: bool,
     /// Whether any methods block declares a signature without a body (`f(obj)`).
     /// MATLAB reports no MCNPN anywhere in such a class.
     has_signature_only: bool,
@@ -81,6 +88,9 @@ impl GoodPracticesEngine {
                 .collect(),
             constant_props: collect_constant_properties(class_node, source),
             is_handle: class.is_handle(),
+            no_superclass: class.superclasses.is_empty(),
+            members_known: class.superclasses.is_empty()
+                || (class.superclasses.len() == 1 && class.is_handle()),
             has_signature_only: {
                 let mut signatures = Vec::new();
                 collect_nodes_of_kind(class_node, "function_signature", &mut signatures);
@@ -134,9 +144,10 @@ impl GoodPracticesEngine {
                     continue;
                 };
 
-                // MCSNOV: setter in a value class without an output.
+                // MCSNOV: setter in a value class without an output. MATLAB is
+                // silent when the class has any superclass (probed).
                 if self.is_check_enabled("MCSNOV")
-                    && !ctx.is_handle
+                    && ctx.no_superclass
                     && info.is_setter
                     && !info.has_output
                 {
@@ -174,8 +185,9 @@ impl GoodPracticesEngine {
                 }
 
                 // MCVM: value-class method without an output modifies the object.
+                // Silent when the class has any superclass (probed).
                 if self.is_check_enabled("MCVM")
-                    && !ctx.is_handle
+                    && ctx.no_superclass
                     && !info.is_setter
                     && !info.is_static
                     && !info.has_output
@@ -196,16 +208,7 @@ impl GoodPracticesEngine {
                 }
 
                 // Per-node member-access checks (MCNPN / MCNPR / MCSUP).
-                let mut mcsup_seen = std::collections::HashSet::new();
-                check_method_body(
-                    self,
-                    block,
-                    source,
-                    info,
-                    &ctx,
-                    &mut diagnostics,
-                    &mut mcsup_seen,
-                );
+                check_method_body(self, block, source, info, &ctx, &mut diagnostics);
             }
         }
 
@@ -346,6 +349,18 @@ fn is_object_field_access(fe: Node, source: &str, info: &MethodInfo) -> bool {
         .unwrap_or(false)
 }
 
+/// The identifier naming a member in a field access: `X` in `obj.X`, and also in
+/// `obj.X(i)` and `obj.X{i}`, which the grammar parses as a call on the field.
+fn member_name_node(field: Node) -> Option<Node> {
+    match field.kind() {
+        "identifier" => Some(field),
+        "function_call" => field
+            .child_by_field_name("name")
+            .filter(|name| name.kind() == "identifier"),
+        _ => None,
+    }
+}
+
 /// Walk a method body emitting MCNPN / MCNPR / MCSUP diagnostics.
 fn check_method_body(
     eng: &GoodPracticesEngine,
@@ -354,15 +369,16 @@ fn check_method_body(
     info: &MethodInfo,
     ctx: &ClassCtx,
     diagnostics: &mut Vec<Diagnostic>,
-    mcsup_seen: &mut std::collections::HashSet<String>,
 ) {
     if node.kind() == "function_definition" || node.kind() == "class_definition" {
         return;
     }
 
     // MCNPN: member access on the object whose name is not declared. Silent in a
-    // class with a signature-only declaration (MATLAB's behaviour, probed).
+    // class with a signature-only declaration (MATLAB's behaviour, probed), and
+    // in a class with a superclass other than `handle` (probed).
     if eng.is_check_enabled("MCNPN")
+        && ctx.members_known
         && !ctx.has_signature_only
         && node.kind() == "field_expression"
         && is_object_field_access(node, source, info)
@@ -389,7 +405,7 @@ fn check_method_body(
     }
 
     // MCNPR: assignment to a field of the object that is not a property.
-    if eng.is_check_enabled("MCNPR") && node.kind() == "assignment" {
+    if eng.is_check_enabled("MCNPR") && ctx.members_known && node.kind() == "assignment" {
         if let Some(left) = node.child_by_field_name("left") {
             if left.kind() == "field_expression" && is_object_field_access(left, source, info) {
                 if let Some(field) = left.child_by_field_name("field") {
@@ -415,33 +431,32 @@ fn check_method_body(
         }
     }
 
-    // MCSUP: a setter accesses a property other than the one it sets.
+    // MCSUP: a setter accesses a property other than the one it sets. Every
+    // access is reported (reads too); constant properties are not (probed).
     if eng.is_check_enabled("MCSUP")
         && info.is_setter
         && node.kind() == "field_expression"
         && is_object_field_access(node, source, info)
     {
-        if let Some(field) = node.child_by_field_name("field") {
-            if field.kind() == "identifier" {
-                let name = node_text(field, source);
-                if ctx.prop_names.contains(name)
-                    && name != info.base_name
-                    && mcsup_seen.insert(name.to_string())
-                {
-                    let pos = field.start_position();
-                    diagnostics.push(Diagnostic {
-                        rule_id: "MCSUP",
-                        message: format!(
-                            "The set method for the property {} should not access another property ({}).",
-                            info.base_name, name
-                        ),
-                        severity: Severity::Warning,
-                        byte_range: field.start_byte()..field.end_byte(),
-                        line: pos.row + 1,
-                        column: pos.column + 1,
-                        fix: None,
-                    });
-                }
+        if let Some(name_node) = node.child_by_field_name("field").and_then(member_name_node) {
+            let name = node_text(name_node, source);
+            if ctx.prop_names.contains(name)
+                && !ctx.constant_props.contains(name)
+                && name != info.base_name
+            {
+                let pos = name_node.start_position();
+                diagnostics.push(Diagnostic {
+                    rule_id: "MCSUP",
+                    message: format!(
+                        "The set method for the property '{}' should not access another property ('{}').",
+                        info.base_name, name
+                    ),
+                    severity: Severity::Warning,
+                    byte_range: name_node.start_byte()..name_node.end_byte(),
+                    line: pos.row + 1,
+                    column: pos.column + 1,
+                    fix: None,
+                });
             }
         }
     }
@@ -449,7 +464,7 @@ fn check_method_body(
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
         if child.is_named() {
-            check_method_body(eng, child, source, info, ctx, diagnostics, mcsup_seen);
+            check_method_body(eng, child, source, info, ctx, diagnostics);
         }
     }
 }
@@ -594,6 +609,119 @@ mod tests {
     fn test_mcsup_silent_when_setter_only_touches_own_property() {
         let source = "classdef Foo\n    properties\n        X\n        Y\n    end\n    methods\n        function set.X(obj, val)\n            obj.X = val;\n        end\n    end\nend\n";
         assert!(oop_ids_for(source, "MCSUP").is_empty());
+    }
+
+    #[test]
+    fn test_mcsup_reports_every_access_with_quoted_names() {
+        // Probe K6: each access on its own line is reported, not once per name.
+        let source = "classdef Foo < handle\n    properties\n        X\n        Y\n    end\n    methods\n        function set.X(obj, v)\n            a = obj.Y;\n            b = obj.Y + 1;\n            obj.X = v;\n        end\n    end\nend\n";
+        let tree = parse(source);
+        let diags: Vec<_> = engine()
+            .check_oop_practice(&tree, source)
+            .into_iter()
+            .filter(|d| d.rule_id == "MCSUP")
+            .collect();
+        assert_eq!(diags.len(), 2, "got: {:?}", oop_ids(source));
+        assert_eq!(
+            diags[0].message,
+            "The set method for the property 'X' should not access another property ('Y')."
+        );
+    }
+
+    #[test]
+    fn test_mcsup_fires_when_setter_reads_other_property_with_superclass() {
+        // Probe K2 and the hT/hU shapes: MCSUP does not depend on the superclass.
+        let source = "classdef Foo < Bar\n    properties\n        X\n        Y\n    end\n    methods\n        function set.X(obj, v)\n            t = obj.Y;\n            obj.X = v;\n        end\n    end\nend\n";
+        assert_eq!(oop_ids_for(source, "MCSUP").len(), 1);
+    }
+
+    #[test]
+    fn test_mcsup_fires_on_indexed_property_access() {
+        // Probe K1 (c_config_class.m:47): `obj.History{end+1} = ...` in a setter.
+        let source = "classdef Foo < handle\n    properties\n        X\n        History = {}\n    end\n    methods\n        function set.X(obj, v)\n            obj.History{end+1} = v;\n        end\n    end\nend\n";
+        let tree = parse(source);
+        let diags: Vec<_> = engine()
+            .check_oop_practice(&tree, source)
+            .into_iter()
+            .filter(|d| d.rule_id == "MCSUP")
+            .collect();
+        assert_eq!(diags.len(), 1, "got: {:?}", oop_ids(source));
+        assert_eq!((diags[0].line, diags[0].column), (8, 17));
+        assert!(diags[0].message.ends_with("('History')."));
+    }
+
+    #[test]
+    fn test_mcsup_silent_on_constant_property() {
+        // Probe K5: reading a Constant property from a setter is not reported.
+        let source = "classdef Foo < handle\n    properties (Constant)\n        Version = '1'\n    end\n    properties\n        X\n    end\n    methods\n        function set.X(obj, v)\n            t = obj.Version;\n            obj.X = v;\n        end\n    end\nend\n";
+        assert!(oop_ids_for(source, "MCSUP").is_empty());
+    }
+
+    #[test]
+    fn test_mcsup_silent_in_getter() {
+        // Probe K8: only setters are checked.
+        let source = "classdef Foo < handle\n    properties\n        X\n        Y\n    end\n    methods\n        function v = get.X(obj)\n            v = obj.Y;\n        end\n    end\nend\n";
+        assert!(oop_ids_for(source, "MCSUP").is_empty());
+    }
+
+    #[test]
+    fn test_mcnpn_fires_in_handle_class() {
+        // Probe A: `handle` alone keeps the member check on.
+        let source = "classdef Foo < handle\n    methods\n        function bad(obj)\n            y = obj.NoSuchMember;\n        end\n    end\nend\n";
+        assert_eq!(oop_ids_for(source, "MCNPN").len(), 1);
+    }
+
+    #[test]
+    fn test_mcnpn_silent_with_superclass_other_than_handle() {
+        // Probes C, D, E, F, G, P: a superclass that resolves (handle or value)
+        // or not, and handle combined with another superclass, all silence MCNPN.
+        for superclass in ["Bar", "handle & Bar", "matlab.mixin.SetGet"] {
+            let source = format!(
+                "classdef Foo < {superclass}\n    methods\n        function bad(obj)\n            y = obj.NoSuchMember;\n        end\n    end\nend\n"
+            );
+            assert!(
+                oop_ids_for(&source, "MCNPN").is_empty(),
+                "superclass {superclass}: got {:?}",
+                oop_ids(&source)
+            );
+        }
+    }
+
+    #[test]
+    fn test_mcnpr_fires_in_handle_class_only_when_members_known() {
+        // Probes S (handle fires) and T, U, W (other superclasses silence MCNPR).
+        let handle = "classdef Foo < handle\n    methods\n        function bad(obj)\n            obj.Undecl = 1;\n        end\n    end\nend\n";
+        assert_eq!(oop_ids_for(handle, "MCNPR").len(), 1);
+        let other = "classdef Foo < Bar\n    methods\n        function bad(obj)\n            obj.Undecl = 1;\n        end\n    end\nend\n";
+        assert!(oop_ids_for(other, "MCNPR").is_empty());
+    }
+
+    #[test]
+    fn test_mcvm_silent_with_superclass() {
+        // Probes C, D, E: a class with a superclass is not reported as a value class.
+        let source = "classdef Foo < Bar\n    properties\n        X\n    end\n    methods\n        function bump(obj, v)\n            obj.X = v;\n        end\n    end\nend\n";
+        assert!(oop_ids_for(source, "MCVM").is_empty());
+    }
+
+    #[test]
+    fn test_mcsnov_silent_with_superclass() {
+        // Probes X, Y: a setter without an output is silent once there is a superclass.
+        let source = "classdef Foo < Bar\n    properties\n        X\n    end\n    methods\n        function set.X(obj, v)\n            obj.X = v;\n        end\n    end\nend\n";
+        assert!(oop_ids_for(source, "MCSNOV").is_empty());
+    }
+
+    #[test]
+    fn test_mcsoh_fires_with_handle_among_superclasses() {
+        // Probe O2: MCSOH keys on `handle` being listed, even with another superclass.
+        let source = "classdef Foo < handle & Bar\n    properties\n        X\n    end\n    methods\n        function obj = set.X(obj, v)\n            obj.X = v;\n        end\n    end\nend\n";
+        assert_eq!(oop_ids_for(source, "MCSOH").len(), 1);
+    }
+
+    #[test]
+    fn test_mcsoh_silent_on_sibling_superclass_without_handle() {
+        // Probe O3: a superclass named by a sibling file (not `handle`) is silent.
+        let source = "classdef Foo < Bar\n    properties\n        X\n    end\n    methods\n        function obj = set.X(obj, v)\n            obj.X = v;\n        end\n    end\nend\n";
+        assert!(oop_ids_for(source, "MCSOH").is_empty());
     }
 
     #[test]

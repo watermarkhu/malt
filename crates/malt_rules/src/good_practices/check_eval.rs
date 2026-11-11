@@ -79,6 +79,10 @@ impl GoodPracticesEngine {
                 .unwrap_or_default();
             classify_eval_usage(&literal, &args_text, &self.config)
         };
+        // EVLCS is for a constant statement only (probed): a dynamic argument is silent.
+        if check_id == "EVLCS" && !is_constant_argument(&args_text) {
+            return Vec::new();
+        }
 
         vec![Diagnostic {
             rule_id: check_id,
@@ -197,10 +201,26 @@ mod tests {
         assert!(ids("out = eval(expr);\n").is_empty());
         assert_eq!(ids("y = eval('1');\n"), vec!["EVLCS"]);
         assert!(ids("eval('a = 1;', 'a = 0;');\n").is_empty());
-        // A variable called `s` is not a field access.
-        assert_eq!(ids("eval(s);\n"), vec!["EVLCS"]);
+        // Probed: a variable argument is silent (`eval(s)` on an input is no EVLCS).
+        assert!(ids("eval(s);\n").is_empty());
+        // Probed: a constant one-literal concatenation is EVLCS, and a built
+        // assignment with a constant name is EVLEQ.
+        assert_eq!(ids("eval(['x = 1;']);\n"), vec!["EVLCS"]);
+        assert_eq!(ids("eval(['x = ' num2str(v)]);\n"), vec!["EVLEQ"]);
+        assert_eq!(ids("eval(['x = ' s ';']);\n"), vec!["EVLEQ"]);
+        assert_eq!(
+            ids("eval(['y = ' num2str(a) ' + ' num2str(b) ';']);\n"),
+            vec!["EVLEQ"]
+        );
+        // Probed: `sprintf` outside a concatenation, `num2str` alone and a dynamic
+        // name are silent; `sprintf` inside a concatenation is EVLEQ.
+        assert!(ids("eval(sprintf('result_%s = out;', mode));\n").is_empty());
+        assert!(ids("eval(num2str(v));\n").is_empty());
+        assert!(ids("eval(['x_' name ' = ' num2str(v)]);\n").is_empty());
+        assert!(ids("eval(['x(' num2str(i) ') = 1;']);\n").is_empty());
+        assert_eq!(ids("eval(['x = ' sprintf('%d', v) ';']);\n"), vec!["EVLEQ"]);
         // Built assignments and field names.
-        assert_eq!(ids("eval([name ' = 1;']);\n"), vec!["EVLEQ"]);
+        assert!(ids("eval([name ' = 1;']);\n").is_empty());
         assert_eq!(ids("eval(['s.' field ' = 1;']);\n"), vec!["EVLDOT"]);
         // Probed: a constant statement with a field is EVLCS, not EVLDOT.
         assert_eq!(ids("eval('s.a = 1');\n"), vec!["EVLCS"]);

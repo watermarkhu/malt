@@ -127,6 +127,9 @@ struct CompatEntry {
     /// Reported only in a script file.
     #[serde(default)]
     script_only: bool,
+    /// Fewest outputs the call is assigned to: `[a, b] = f(x)` has two.
+    #[serde(default)]
+    min_outputs: Option<usize>,
 }
 
 /// Top-level structure of the compatibility.toml data file.
@@ -347,12 +350,13 @@ impl Rule for CompatibilityEngine {
         }
         let script = matches!(table.root_scope().kind, ScopeKind::Script);
         let args = call_args(ctx.node);
+        let outputs = output_count(ctx.node);
 
         for entry in entries {
             if entry.low_reliability && !self.low_reliability {
                 continue;
             }
-            if !applies(entry, &args, ctx.source, script) {
+            if !applies(entry, &args, outputs, ctx.source, script) {
                 continue;
             }
             let severity = parse_severity(&entry.severity);
@@ -471,6 +475,26 @@ fn call_args(node: tree_sitter::Node) -> Vec<tree_sitter::Node> {
     }
 }
 
+/// The number of outputs a call is assigned to: `[a, ~, c] = f(x)` has three. A
+/// call that is not the right-hand side of an assignment has one.
+fn output_count(node: tree_sitter::Node) -> usize {
+    let Some(parent) = node.parent() else {
+        return 1;
+    };
+    let is_value = parent.kind() == "assignment"
+        && parent
+            .child_by_field_name("right")
+            .is_some_and(|right| right.id() == node.id());
+    match parent.child_by_field_name("left") {
+        Some(lhs) if is_value && lhs.kind() == "multioutput_variable" => (0..lhs.child_count())
+            .filter_map(|i| lhs.child(i))
+            .filter(|c| !matches!(c.kind(), "[" | "]" | "," | "comment"))
+            .count()
+            .max(1),
+        _ => 1,
+    }
+}
+
 /// The value of a string literal argument without its quotes, or the text of a
 /// command-syntax word.
 fn literal<'a>(arg: tree_sitter::Node, source: &'a str) -> Option<&'a str> {
@@ -483,12 +507,19 @@ fn literal<'a>(arg: tree_sitter::Node, source: &'a str) -> Option<&'a str> {
 }
 
 /// Whether an entry's argument conditions hold for a call with these arguments.
-fn applies(entry: &CompatEntry, args: &[tree_sitter::Node], source: &str, script: bool) -> bool {
+fn applies(
+    entry: &CompatEntry,
+    args: &[tree_sitter::Node],
+    outputs: usize,
+    source: &str,
+    script: bool,
+) -> bool {
     if entry.script_only && !script {
         return false;
     }
     if entry.min_args.is_some_and(|min| args.len() < min)
         || entry.max_args.is_some_and(|max| args.len() > max)
+        || entry.min_outputs.is_some_and(|min| outputs < min)
     {
         return false;
     }
@@ -678,10 +709,91 @@ mod tests {
     }
 
     #[test]
-    fn multi_function_name_linprog_emits_all() {
-        // `linprog` maps to LINPROGS (option) and LINPROGD/LINPROGA (algorithms).
-        let diags = lint_nodes(&*engine(), "x = linprog(f, A, b);\n");
-        assert!(has_id(&diags, "LINPROGS"), "got: {diags:?}");
+    fn removed_linprog_algorithms_fire_only_in_optimoptions() {
+        // Probed in MATLAB R2026b: the removed algorithm is reported on the
+        // `optimoptions('linprog', ...)` call, never on the solver call itself.
+        assert!(fires(
+            "o = optimoptions('linprog', 'Algorithm', 'simplex');\n",
+            "LINPROGS"
+        ));
+        assert!(fires(
+            "o = optimoptions('linprog', 'Algorithm', 'active-set');\n",
+            "LINPROGA"
+        ));
+        assert!(fires(
+            "o = optimoptions('linprog', 'Algorithm', 'dual-simplex-legacy');\n",
+            "LINPROGD"
+        ));
+        assert!(!fires(
+            "o = optimoptions('linprog', 'Algorithm', 'dual-simplex');\n",
+            "LINPROGS"
+        ));
+        assert!(!fires("x = linprog(f, A, b);\n", "LINPROGS"));
+    }
+
+    #[test]
+    fn checkgradients_option_fires_only_when_given() {
+        assert!(fires(
+            "o = optimoptions('fmincon', 'CheckGradients', true);\n",
+            "CHKGR"
+        ));
+        assert!(!fires(
+            "o = optimoptions('fmincon', 'Algorithm', 'interior-point');\n",
+            "CHKGR"
+        ));
+    }
+
+    #[test]
+    fn min_outputs_legend_fires_only_with_several_outputs() {
+        // Probed in MATLAB R2026b: two or more outputs, with `~` counted as an output.
+        assert!(fires("[a, b] = legend('x', 'y');\n", "LEGMOP"));
+        assert!(fires("[~, ~, ~, ~] = legend('a');\n", "LEGMOP"));
+        assert!(!fires("h = legend('a', 'b');\n", "LEGMOP"));
+        assert!(!fires("legend('a', 'b');\n", "LEGMOP"));
+    }
+
+    #[test]
+    fn savefig_compact_fires_only_as_a_third_argument() {
+        // Probed in MATLAB R2026b: `compact` after the handle and the file name.
+        assert!(fires("savefig(gcf, 'x.fig', 'compact');\n", "SVFIGC"));
+        assert!(fires("savefig(gcf, 'x.fig', 'compact', 'x');\n", "SVFIGC"));
+        assert!(!fires("savefig(gcf, 'x.fig');\n", "SVFIGC"));
+        assert!(!fires("savefig('x.fig', 'COMPACT');\n", "SVFIGC"));
+    }
+
+    #[test]
+    fn axis_state_fires_only_with_the_state_argument() {
+        // Probed in MATLAB R2026b: the command and function forms, with an axes
+        // handle, and in any case. Other arguments are not removed.
+        assert!(fires("axis('state')\n", "AXSTATE"));
+        assert!(fires("axis state\n", "AXSTATE"));
+        assert!(fires("axis(ax, 'state');\n", "AXSTATE"));
+        assert!(fires("axis('STATE');\n", "AXSTATE"));
+        assert!(!fires("axis tight\n", "AXSTATE"));
+        assert!(!fires("axis xy\n", "AXSTATE"));
+        assert!(!fires("axis([0 1 0 1]);\n", "AXSTATE"));
+    }
+
+    #[test]
+    fn discard_option_of_drawnow_fires_only_with_that_argument() {
+        assert!(fires("drawnow discard\n", "DNDLA"));
+        assert!(fires("drawnow('discard');\n", "DNDLA"));
+        assert!(!fires("drawnow\n", "DNDLA"));
+        assert!(!fires("drawnow update\n", "DNDLA"));
+        assert!(!fires("drawnow nocallbacks\n", "DNDLA"));
+    }
+
+    #[test]
+    fn legend_text_changes_are_not_reported() {
+        // MATLAB R2026b did not report the empty-text or property-name label
+        // behavior changes in any probed form, so their entries are unverified.
+        assert!(!fires("legend('', 'b');\n", "LENEMP"));
+        assert!(!fires("legend('Location', 'northeast');\n", "LENEMP"));
+        assert!(!fires("legend('Location', 'northeast');\n", "LEGPVPAIR"));
+        assert!(!fires(
+            "legend('data', 'Location', 'northeast');\n",
+            "LEGPVPAIR"
+        ));
     }
 
     // -- negative tests: modern replacements do not fire ---------------------
@@ -892,5 +1004,19 @@ mod tests {
     fn object_members_are_not_matched_by_the_constructor() {
         let diags = lint_nodes(&*engine(), "t = tcpclient('a', 1);\nv = visadev('x');\n");
         assert!(diags.is_empty(), "got: {diags:?}");
+    }
+
+    #[test]
+    fn constructors_are_not_matched_by_their_member_entries() {
+        // MATLAB R2026b reports none of the removed properties and methods of these
+        // classes on the constructor call (probed).
+        for source in [
+            "s = serialport('COM1', 9600);\n",
+            "t = tcpserver(5000);\n",
+            "u = udpport('datagram');\n",
+            "b = bluetooth('name', 1);\n",
+        ] {
+            assert!(lint_nodes(&*engine(), source).is_empty(), "{source}");
+        }
     }
 }
