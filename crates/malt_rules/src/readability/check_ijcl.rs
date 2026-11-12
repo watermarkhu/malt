@@ -20,7 +20,7 @@ fn is_operand_position(node: tree_sitter::Node) -> bool {
         | "row"
         | "matrix"
         | "cell"
-        | "parenthesized_expression"
+        | "parenthesis"
         | "range"
         | "arguments" => true,
         "assignment" => parent
@@ -77,6 +77,22 @@ mod tests {
 
     fn engine() -> Box<dyn Rule> {
         ReadabilityEngine::from_config(&Config::default())
+    }
+
+    #[test]
+    fn ijcl_fires_for_a_parenthesised_imaginary_unit() {
+        // Probed: MATLAB reports IJCL for `z = (i);` (column 6) and `z = (2 * i);`.
+        let diags = lint_file(&*engine(), "z = (i);\n");
+        assert!(
+            diags.iter().any(|d| d.rule_id == "IJCL" && d.column == 6),
+            "{diags:?}"
+        );
+        assert!(has_id(&lint_file(&*engine(), "z = (2 * i);\n"), "IJCL"));
+        // Silent once `i` is a variable in scope.
+        assert!(!has_id(
+            &lint_file(&*engine(), "i = 2;\nz = (i);\n"),
+            "IJCL"
+        ));
     }
 
     #[test]

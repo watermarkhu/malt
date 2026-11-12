@@ -1,60 +1,25 @@
 use super::*;
+use crate::analysis::strcase::{strcmp_case, StrcmpCase};
 
 impl BugsEngine {
-    /// STCUL: `strcmp` (case-sensitive) comparison whose two string arguments
-    /// differ only by case, so it will likely fail.
+    /// STCUL: a `strcmp` or `strncmp` whose case conversion makes it fail, such as
+    /// `strcmp(a, lower(b))` with `a = 'X'`. See [`crate::analysis::strcase`].
     pub(crate) fn check_strcmp_case_mismatch(&self, node: Node, source: &str) -> Vec<Diagnostic> {
-        if node.kind() != "function_call" {
+        if strcmp_case(node, source) != Some(StrcmpCase::Mismatch) {
             return Vec::new();
         }
 
-        let func_name = match extract_call_name(node, source) {
-            Some(n) => n,
-            None => return Vec::new(),
-        };
-
-        if func_name != "strcmp" {
-            return Vec::new();
-        }
-
-        let args = collect_call_args(node, source);
-        if args.len() < 2 {
-            return Vec::new();
-        }
-
-        let a = args[0].trim();
-        let b = args[1].trim();
-
-        let a_is_literal = is_string_literal(a);
-        let b_is_literal = is_string_literal(b);
-        if !a_is_literal || !b_is_literal {
-            return Vec::new();
-        }
-
-        let ai = a.trim_matches(|c| c == '\'' || c == '"');
-        let bi = b.trim_matches(|c| c == '\'' || c == '"');
-
-        if ai.eq_ignore_ascii_case(bi) && ai != bi {
-            let pos = node.start_position();
-            return vec![Diagnostic {
-                rule_id: "STCUL",
-                message: "The comparison will likely fail due to case mismatch.".to_string(),
-                severity: Severity::Error,
-                byte_range: node.start_byte()..node.end_byte(),
-                line: pos.row + 1,
-                column: pos.column + 1,
-                fix: None,
-            }];
-        }
-
-        Vec::new()
+        let pos = node.start_position();
+        vec![Diagnostic {
+            rule_id: "STCUL",
+            message: "The comparison will likely fail due to case mismatch.".to_string(),
+            severity: Severity::Error,
+            byte_range: node.start_byte()..node.end_byte(),
+            line: pos.row + 1,
+            column: pos.column + 1,
+            fix: None,
+        }]
     }
-}
-
-/// Whether `text` is a string literal (`'...'` or `"..."`).
-fn is_string_literal(text: &str) -> bool {
-    (text.starts_with('\'') && text.ends_with('\'') && text.len() >= 2)
-        || (text.starts_with('"') && text.ends_with('"') && text.len() >= 2)
 }
 
 #[cfg(test)]
@@ -64,39 +29,37 @@ mod tests {
 
     // -- STCUL ---------------------------------------------------------------
 
-    /// STCUL is off under the mathworks preset (MATLAB stayed silent in the
-    /// probes), so the positive cases run under the `all` preset.
-    fn stcul_all_presets(src: &str) -> Vec<Diagnostic> {
-        let config =
-            malt_core::Config::from_toml("[lint]\npreset = \"all\"\n").expect("valid config");
-        crate::test_util::lint_nodes(&*crate::bugs::BugsEngine::from_config(&config), src)
+    fn stcul(src: &str) -> bool {
+        has_id(&node_diags(src), "STCUL")
     }
 
     #[test]
-    fn stcul_fires_on_case_mismatch() {
-        let src = "strcmp('a', 'A');\n";
-        let diags = stcul_all_presets(src);
-        assert!(has_id(&diags, "STCUL"), "got: {diags:?}");
+    fn stcul_fires_on_conversion_against_other_case() {
+        // Probed: `a = 'X'` against `lower(b)` (bugs probe gO_s1:3).
+        assert!(stcul("a = 'X';\nr = strcmp(a, lower(b));\n"));
+        assert!(stcul("r = strcmp('X', lower(b));\n"));
+        assert!(stcul("r = strcmp(lower(b), 'Abc');\n"));
+        assert!(stcul("r = strcmp(upper(b), 'abc');\n"));
+        assert!(stcul("r = strcmp(lower(b), upper(a));\n"));
     }
 
     #[test]
-    fn stcul_fires_on_multi_char_case_mismatch() {
-        let src = "strcmp('abc', 'ABC');\n";
-        let diags = stcul_all_presets(src);
-        assert!(has_id(&diags, "STCUL"), "got: {diags:?}");
+    fn stcul_fires_on_variable_from_conversion_and_strncmp() {
+        // Probed: `x = lower(b)` is lowercase, so `'ABC'` fails (gO_t1:3).
+        assert!(stcul("x = lower(b);\nr = strcmp(x, 'ABC');\n"));
+        assert!(stcul("r = strncmp('X', lower(b), 1);\n"));
+        assert!(stcul("r = strncmp('x', upper(b), 1);\n"));
     }
 
     #[test]
-    fn stcul_no_fire_on_identical_args() {
-        let src = "strcmp('abc', 'abc');\n";
-        let diags = node_diags(src);
-        assert!(!has_id(&diags, "STCUL"), "got: {diags:?}");
-    }
-
-    #[test]
-    fn stcul_no_fire_on_different_strings() {
-        let src = "strcmp('abc', 'def');\n";
-        let diags = node_diags(src);
-        assert!(!has_id(&diags, "STCUL"), "got: {diags:?}");
+    fn stcul_silent_on_matching_case_or_literals() {
+        // Probed: matching case is STCI, and two literals are silent.
+        assert!(!stcul("r = strcmp(lower(b), 'x');\n"));
+        assert!(!stcul("r = strcmp(upper(b), 'ABC');\n"));
+        assert!(!stcul("r = strcmp(lower(a), lower(b));\n"));
+        assert!(!stcul("r = strcmp('abc', 'ABC');\n"));
+        assert!(!stcul("a = 'X';\nb = 'x';\nr = strcmp(a, b);\n"));
+        assert!(!stcul("r = strcmpi('X', lower(b));\n"));
+        assert!(!stcul("r = strcmp(a, lower(b));\n"));
     }
 }

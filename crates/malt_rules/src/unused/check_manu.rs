@@ -6,13 +6,28 @@ use crate::analysis::symbols::Scope;
 use tree_sitter::Node;
 
 /// Whether a method has exactly one input argument, the case MANU reports.
-pub(crate) fn sole_input(scope: &Scope) -> bool {
+pub(crate) fn sole_input(scope: &Scope, source: &str) -> bool {
+    // Probed: a `~` placeholder is an input too, so `k(obj, ~)` is INUSD, not MANU.
+    let header = source
+        .get(scope.byte_range.start..)
+        .and_then(|s| s.lines().next())
+        .unwrap_or("");
     scope
         .defs
         .iter()
         .filter(|d| d.kind == DefKind::InputArg)
         .count()
         == 1
+        && !header.contains('~')
+}
+
+/// Whether an input is also an output (`function obj = set(obj)`): the value
+/// is returned, so MATLAB does not report it (probed).
+pub(crate) fn returned_input(scope: &Scope, name: &str) -> bool {
+    scope
+        .defs
+        .iter()
+        .any(|d| d.kind == DefKind::OutputArg && d.name == name)
 }
 
 impl UnusedEngine {
@@ -38,7 +53,7 @@ impl UnusedEngine {
         let blocks = collect_arguments_blocks(root, source);
 
         for scope in &table.scopes {
-            if scope.kind != ScopeKind::Method || !sole_input(scope) {
+            if scope.kind != ScopeKind::Method || !sole_input(scope, source) {
                 continue;
             }
 
@@ -61,7 +76,7 @@ impl UnusedEngine {
                     continue;
                 }
 
-                if !scope.is_used(name) {
+                if !scope.is_used(name) && !returned_input(scope, name) {
                     diagnostics.push(Diagnostic {
                         rule_id: "MANU",
                         message: "Input argument might be unused. Consider replacing the argument with ~, or make this method Static instead.".to_string(),

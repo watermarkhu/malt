@@ -125,6 +125,7 @@
 
 mod check_assignment_lhs;
 mod check_call_syntax;
+mod check_case_separators;
 mod check_directional_formatting;
 mod check_error_nodes;
 mod check_file;
@@ -908,6 +909,14 @@ impl Rule for SyntaxErrorsEngine {
 
         // 10. Statement validation (NOLHS, SEPEXR, REDEF).
         diagnostics.extend(self.check_statements(root, source));
+
+        // 10b. SEPEXR for a `case` value followed by a statement on its line
+        //      (`case 1 disp(1)`). The grammar makes these lines ERROR nodes, so
+        //      the SYNER on the same line goes.
+        let case_separators = self.check_case_separators(root, source);
+        let case_lines: Vec<usize> = case_separators.iter().map(|d| d.line).collect();
+        diagnostics.retain(|d| !(d.rule_id == "SYNER" && case_lines.contains(&d.line)));
+        diagnostics.extend(case_separators);
 
         // 11. Assignment LHS validation (UNSET, LHROW).
         diagnostics.extend(self.check_assignment_lhs(root, source));

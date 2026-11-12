@@ -518,7 +518,21 @@ impl GoodPracticesEngine {
                     }
                     let reads = collect_parfor_body_reads(body_node, source, &skip);
                     for (name, read_node) in reads {
-                        if is_defined_before_parfor(&sym, &name, parfor.start_byte())
+                        // Probed: only names that are variables of the function count (not
+                        // builtins, unknown calls or names from `load`), and a loop in the body
+                        // that iterates over the name assigns it.
+                        if !sym
+                            .scopes
+                            .iter()
+                            .any(|s| s.defs.iter().any(|d| d.name == name))
+                            || is_for_iterator_in(body_node, &name, source)
+                            || collect_indexed_lhs_assignments(body_node, source)
+                                .iter()
+                                .any(|(n, _)| *n == name)
+                            || collect_field_lhs_assignments(body_node, source)
+                                .iter()
+                                .any(|(n, _)| *n == name)
+                            || is_defined_before_parfor(&sym, &name, parfor.start_byte())
                             || is_assigned_in_body(body_node, &name, source)
                             || matches!(name.as_str(), "nargin" | "nargout" | "who" | "whos")
                         {
@@ -545,12 +559,26 @@ impl GoodPracticesEngine {
             // output is returned, so it is read after the loop (probed).
             if !script_opening && self.is_check_enabled("PFOUS") {
                 if let Some(body_node) = body {
-                    for (name, lhs_node) in collect_indexed_lhs_assignments(body_node, source) {
+                    // One report per variable, at its first sliced write. A variable that is
+                    // also assigned or read as a whole in the body is a temporary, not a
+                    // sliced output (probed).
+                    let whole: Vec<String> = collect_simple_lhs_assignments(body_node, source)
+                        .into_iter()
+                        .map(|(n, _)| n)
+                        .collect();
+                    let mut writes = collect_indexed_lhs_assignments(body_node, source);
+                    writes.sort_by_key(|(_, n)| n.start_byte());
+                    let mut reported: Vec<String> = Vec::new();
+                    for (name, lhs_node) in writes {
                         if idx_var.as_deref() == Some(name.as_str())
+                            || whole.contains(&name)
+                            || reported.contains(&name)
+                            || has_whole_read(body_node, &name, source)
                             || is_output_of_enclosing_function(&sym, parfor.start_byte(), &name)
                         {
                             continue;
                         }
+                        reported.push(name.clone());
                         let uses = uses_after_parfor(&sym, &name, parfor.end_byte(), tree, false);
                         if uses.is_empty() {
                             let pos = lhs_node.start_position();
@@ -1748,6 +1776,47 @@ pub(crate) fn is_assigned_in_body(node: Node, name: &str, source: &str) -> bool 
         .any(|(n, _)| n == name)
 }
 
+/// Whether a `for` loop inside `node` iterates over `name`, which then counts as
+/// assigned in the body.
+pub(crate) fn is_for_iterator_in(node: Node, name: &str, source: &str) -> bool {
+    let mut loops = Vec::new();
+    collect_nodes_of_kind(node, "for_statement", &mut loops);
+    loops.into_iter().any(|l| {
+        find_child_of_kind(l, "iterator")
+            .and_then(first_named_child)
+            .is_some_and(|v| v.kind() == "identifier" && node_text(v, source) == name)
+    })
+}
+
+/// Whether `name` is read as a whole value inside `node`: an identifier that is not
+/// the base of an index or call, not a field base, and not an assignment target.
+pub(crate) fn has_whole_read(node: Node, name: &str, source: &str) -> bool {
+    let mut stack = vec![node];
+    while let Some(n) = stack.pop() {
+        if n.kind() == "identifier" && node_text(n, source) == name && is_whole_value_use(n) {
+            return true;
+        }
+        let mut cursor = n.walk();
+        stack.extend(n.children(&mut cursor));
+    }
+    false
+}
+
+/// Whether identifier `n` is used as a whole value (see [`has_whole_read`]).
+fn is_whole_value_use(n: Node) -> bool {
+    let Some(p) = n.parent() else {
+        return true;
+    };
+    match p.kind() {
+        "function_call" => p.named_child(0).is_none_or(|c| c.id() != n.id()),
+        "field_expression" => false,
+        "assignment" => p
+            .child_by_field_name("left")
+            .is_none_or(|l| l.id() != n.id()),
+        _ => true,
+    }
+}
+
 /// Check whether a variable is defined before a parfor loop starts.
 ///
 /// Function inputs and global/persistent declarations always count as defined;
@@ -2499,8 +2568,40 @@ z = f(eval(x + y));\nonCleanup(@f);\n[~] = onCleanup(@f);\nc = computer('arch');
     }
 
     #[test]
+    fn test_pfiin_silent_on_builtin_or_unassigned_name() {
+        // Probed (pfiin_01, pfiin_10): a name that is never a variable of the function
+        // (here a builtin) is not an input variable.
+        let source = "function f()\nparfor i = 1:10\n    q = pi + i;\nend\nend\n";
+        let tree = parse(source);
+        let eng = engine();
+        assert!(g2_file_ids_with(&eng, &tree, source, "PFIIN").is_empty());
+    }
+
+    #[test]
+    fn test_pfiin_silent_when_loop_in_body_iterates_name() {
+        // Probed (pfbrk_10): a `for` loop in the body assigns its iterator.
+        let source = "function f()\nparfor i = 1:10\n    for k = 1:2\n        if k > 1\n            a(i) = k;\n        end\n    end\nend\nk = 1;\nend\n";
+        let tree = parse(source);
+        let eng = engine();
+        assert!(g2_file_ids_with(&eng, &tree, source, "PFIIN").is_empty());
+    }
+
+    #[test]
+    fn test_pfous_reports_first_write_once_and_silent_for_temporary() {
+        // Probed (pfbrk_01 style, pfslw_18): one PFOUS per variable, at its first write.
+        let source = "function f()\nparfor i = 1:10\n    a(i) = i;\n    a(i) = 2;\nend\nend\n";
+        let tree = parse(source);
+        let eng = engine();
+        assert_eq!(g2_file_ids_with(&eng, &tree, source, "PFOUS").len(), 1);
+        // Probed (pfslo_04): a temporary assigned as a whole first is not a sliced output.
+        let temp = "function f()\nparfor i = 1:10\n    q = zeros(3, 1);\n    q(i) = 1;\nend\nend\n";
+        let tree = parse(temp);
+        assert!(g2_file_ids_with(&eng, &tree, temp, "PFOUS").is_empty());
+    }
+
+    #[test]
     fn test_pfiin_fires_on_uninitialized_input() {
-        let source = "function f()\nparfor i = 1:10\n    q = z + i;\nend\nend\n";
+        let source = "function f()\nparfor i = 1:10\n    q = z + i;\nend\nz = 1;\nend\n";
         let tree = parse(source);
         let eng = engine();
 

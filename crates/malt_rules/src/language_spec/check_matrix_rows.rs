@@ -51,6 +51,7 @@ impl LanguageSpecEngine {
         diagnostics: &mut Vec<Diagnostic>,
     ) {
         let mut row_lengths: Vec<usize> = Vec::new();
+        let mut rows: Vec<tree_sitter::Node> = Vec::new();
         let mut cursor = matrix_node.walk();
 
         for child in matrix_node.children(&mut cursor) {
@@ -71,22 +72,26 @@ impl LanguageSpecEngine {
                     elem_count += 1;
                 }
                 row_lengths.push(elem_count);
+                rows.push(child);
             }
         }
 
         // Check if all rows have the same length (only if there are multiple rows)
         if row_lengths.len() > 1 {
             let first_len = row_lengths[0];
-            if row_lengths
+            // MATLAB reports the first row whose length differs from the first
+            // row's (probed: `[1 2; 3]` at the `3`, `[1 2 3; 4 5 6; 7 8]` at `7`).
+            if let Some(index) = row_lengths
                 .iter()
-                .any(|&len| len != first_len && first_len > 0 && len > 0)
+                .position(|&len| len != first_len && first_len > 0 && len > 0)
             {
-                let pos = matrix_node.start_position();
+                let row = rows[index];
+                let pos = row.start_position();
                 diagnostics.push(Diagnostic {
                     rule_id: "ROWLN",
                     message: "All matrix rows must be the same length.".to_string(),
                     severity: Severity::Error,
-                    byte_range: matrix_node.start_byte()..matrix_node.end_byte(),
+                    byte_range: row.start_byte()..row.end_byte(),
                     line: pos.row + 1,
                     column: pos.column + 1,
                     fix: None,
@@ -101,6 +106,25 @@ mod tests {
     use super::*;
     use crate::test_util::{has_id, lint_file};
     use malt_core::Config;
+
+    #[test]
+    fn rowln_is_reported_at_the_first_mismatching_row() {
+        // Probed: MATLAB reports ROWLN at the `3` of `[1 2; 3]`, and at the third
+        // row of `[1 2` / ` 3 4` / ` 5`, not at the start of the matrix.
+        let engine = LanguageSpecEngine::from_config(&Config::default());
+        let rowln = |src: &str| -> Vec<(usize, usize)> {
+            lint_file(&*engine, src)
+                .iter()
+                .filter(|d| d.rule_id == "ROWLN")
+                .map(|d| (d.line, d.column))
+                .collect()
+        };
+        assert_eq!(rowln("x = [1 2; 3];\n"), vec![(1, 11)]);
+        assert_eq!(rowln("x = [1 2\n 3 4\n 5];\n"), vec![(3, 2)]);
+        // Silent when every row has the same length, also across a comment.
+        assert!(rowln("x = [1 2; 3 4];\n").is_empty());
+        assert!(rowln("x = [1 2 % c\n 3 4];\n").is_empty());
+    }
 
     fn engine() -> Box<dyn Rule> {
         LanguageSpecEngine::from_config(&Config::default())

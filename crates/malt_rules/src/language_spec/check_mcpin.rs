@@ -9,9 +9,19 @@ impl LanguageSpecEngine {
             return;
         }
         for pb in &class.properties_blocks {
+            // Probed: a Constant property whose default builds the class is silent.
+            if pb
+                .attributes
+                .iter()
+                .any(|a| a.name == "Constant" && a.is_set())
+            {
+                continue;
+            }
             for prop in &pb.properties {
                 if let Some(ref default_value) = prop.default_value {
-                    if contains_self_constructor_call(default_value, &class.name) {
+                    // Probed: a bare class name (`P = Foo;`) is a constructor call too.
+                    let bare = default_value.trim() == class.name;
+                    if bare || contains_self_constructor_call(default_value, &class.name) {
                         diagnostics.push(Diagnostic {
                             rule_id: "MCPIN",
                             message: "Unable to initialize class property to an instance of the class itself.".to_string(),

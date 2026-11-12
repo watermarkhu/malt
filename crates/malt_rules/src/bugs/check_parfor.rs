@@ -174,6 +174,7 @@ impl BugsEngine {
         }
 
         let mut temps: Vec<String> = Vec::new();
+        let mut temp_sites: HashMap<String, Node> = HashMap::new();
         let mut reductions: Vec<String> = Vec::new();
         let mut positions: HashMap<(String, &'static str), usize> = HashMap::new();
         let mut rnc: Vec<(Node, String)> = Vec::new();
@@ -246,6 +247,7 @@ impl BugsEngine {
                         }
                     }
                 } else if !temps.contains(&var) {
+                    temp_sites.insert(var.clone(), node);
                     temps.push(var);
                 }
             }
@@ -259,14 +261,27 @@ impl BugsEngine {
             crate::good_practices::root_node_of(parfor),
             source,
         );
-        for var in temps
-            .iter()
-            .filter(|v| !reductions.contains(v) && !globals.contains(v.as_str()))
-        {
-            if let Some(use_node) = later_use(parfor, var, source) {
+        // Probed: a variable already set before the loop is PFTUSW instead, and MATLAB
+        // reports PFTUSE at the temporary's assignment in the body (not at the use).
+        let mut set_before: Vec<String> = Vec::new();
+        visit(crate::good_practices::root_node_of(parfor), &mut |n| {
+            if n.kind() == "assignment" && n.end_byte() <= parfor.start_byte() {
+                if let Some(lhs) = n.child_by_field_name("left") {
+                    if lhs.kind() == "identifier" {
+                        set_before.push(node_text(lhs, source).trim().to_string());
+                    }
+                }
+            }
+        });
+        for var in temps.iter().filter(|v| {
+            !reductions.contains(v) && !globals.contains(v.as_str()) && !set_before.contains(v)
+        }) {
+            if let (Some(use_node), Some(set_node)) =
+                (later_use(parfor, var, source), temp_sites.get(var))
+            {
                 diagnostics.push(diag(
                     "PFTUSE",
-                    use_node,
+                    *set_node,
                     format!("The temporary variable '{var}' is used after the PARFOR loop on line {}, but its value is not available after the loop.", use_node.start_position().row + 1),
                 ));
             }
@@ -386,6 +401,26 @@ mod tests {
             "got: {}",
             d.message
         );
+    }
+
+    #[test]
+    fn pftuse_reports_at_temporary_assignment_not_use() {
+        // Probed (pftuse_01): MATLAB reports PFTUSE at the assignment in the loop.
+        let src = "parfor i = 1:10\n    t = i * 2;\n    a(i) = t;\nend\ndisp(t);\n";
+        let diags = file_diags(src);
+        let d = diags
+            .iter()
+            .find(|d| d.rule_id == "PFTUSE")
+            .expect("PFTUSE");
+        assert_eq!(d.line, 2, "got: {diags:?}");
+    }
+
+    #[test]
+    fn pftuse_silent_when_set_before_loop() {
+        // Probed (pftuse_02): a variable with a value before the loop is PFTUSW, not PFTUSE.
+        let src = "t = 0;\nparfor i = 1:10\n    t = i;\n    a(i) = i;\nend\ndisp(t);\n";
+        let diags = file_diags(src);
+        assert!(!has_id(&diags, "PFTUSE"), "got: {diags:?}");
     }
 
     #[test]

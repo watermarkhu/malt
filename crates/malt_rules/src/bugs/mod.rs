@@ -186,13 +186,11 @@ impl BugsEngine {
         // SHOCIRF: MATLAB reports LOGEMP for `isempty(a && b)` in all six probes.
         // MOCUP: MATLAB stayed silent on onCleanup with `clear n` in four probes and bugs__t2:17.
         // MATLAB reports `&&`/`||` operands with BDSCI/BDLGI instead (probed).
-        // STCUL: MATLAB stayed silent on `strcmp('abc', 'ABC')`, `strcmp('a', 'A')`
-        // and `strcmp(x, 'ABC')` with `x = 'abc'` (probed) and never in the fixtures.
         rule_config
             .disabled_checks
             .extend(crate::off_under_mathworks(
                 config,
-                &["BDSCA2", "STCUL", "SHOCIRF", "MOCUP"],
+                &["BDSCA2", "SHOCIRF", "MOCUP"],
             ));
         Box::new(Self {
             config: rule_config,

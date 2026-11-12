@@ -1,28 +1,11 @@
 use super::*;
 
-/// Functions that always return a logical (`true`/`false`) value.
-const LOGICAL_FUNCTIONS: &[&str] = &[
-    "any",
-    "all",
-    "isempty",
-    "isnan",
-    "isinf",
-    "isfinite",
-    "isequal",
-    "isfield",
-    "isreal",
-    "islogical",
-    "ischar",
-    "isnumeric",
-    "iscell",
-    "isstruct",
-    "isscalar",
-    "isvector",
-    "ismember",
-    "strcmp",
-    "strcmpi",
-    "isa",
-];
+/// Functions whose logical result MATLAB compares as constant (`true`/`false`).
+/// Only the ones probed: MATLAB reports CFALSE for `isreal(x) == -1`, `== 2`,
+/// `any(x) == 2` and `isequal(x, 1) == 2`, and reports nothing for
+/// `isempty(x) == 2`, `ischar`, `islogical`, `isnumeric`, `ismember` or any
+/// comparison of `isempty` with `>`, `<` or `~=`. Unprobed functions are left out.
+const LOGICAL_FUNCTIONS: &[&str] = &["any", "isequal", "isreal"];
 
 /// Evaluate `lhs OP rhs` for the given comparison operator.
 fn compare(op: &str, lhs: f64, rhs: f64) -> Option<bool> {
@@ -118,6 +101,35 @@ mod tests {
     use crate::test_util::has_id;
 
     #[test]
+    fn cfalse_and_ctrue_follow_the_probed_functions() {
+        // Probed: CFALSE for `isreal`, `isequal` and `any` comparisons with
+        // constants outside 0..1; nothing for `isempty`, `ischar`, `islogical`
+        // or `ismember`, nor `isempty` with `>` or `~=`.
+        for src in [
+            "B = isreal(A) == -1;\n",
+            "B = any(A) == 2;\n",
+            "B = isequal(A, 1) == 2;\n",
+        ] {
+            let diags = node_diags(src);
+            assert!(has_id(&diags, "CFALSE"), "{src:?}: {diags:?}");
+        }
+        for src in [
+            "B = isempty(A) == 2;\n",
+            "B = ischar(A) == 2;\n",
+            "B = islogical(A) == 2;\n",
+            "B = ismember(A, 1) == 2;\n",
+            "B = isempty(A) > 1;\n",
+            "B = isempty(A) ~= 2;\n",
+        ] {
+            let diags = node_diags(src);
+            assert!(
+                !has_id(&diags, "CFALSE") && !has_id(&diags, "CTRUE"),
+                "{src:?}: {diags:?}"
+            );
+        }
+    }
+
+    #[test]
     fn ctrue_fires_on_any_le_one() {
         let diags = node_diags("B = any(A) <= 1;\n");
         assert!(has_id(&diags, "CTRUE"), "got: {diags:?}");
@@ -135,7 +147,7 @@ mod tests {
 
     #[test]
     fn cfalse_fires_with_literal_on_left() {
-        let diags = node_diags("B = 2 < isempty(A);\n");
+        let diags = node_diags("B = -1 == isreal(A);\n");
         assert!(has_id(&diags, "CFALSE"), "got: {diags:?}");
     }
 

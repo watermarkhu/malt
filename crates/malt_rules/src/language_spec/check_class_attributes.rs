@@ -127,7 +127,7 @@ impl LanguageSpecEngine {
             for attr in &block.attributes {
                 self.check_one_attribute(
                     &range,
-                    line,
+                    block.line,
                     attr,
                     PROPERTY_ATTRS,
                     AttrLevel::Property,
@@ -139,7 +139,7 @@ impl LanguageSpecEngine {
             for attr in &block.attributes {
                 self.check_one_attribute(
                     &range,
-                    line,
+                    block.line,
                     attr,
                     METHOD_ATTRS,
                     AttrLevel::Method,
@@ -151,7 +151,7 @@ impl LanguageSpecEngine {
             for attr in &block.attributes {
                 self.check_one_attribute(
                     &range,
-                    line,
+                    block.line,
                     attr,
                     EVENT_ATTRS,
                     AttrLevel::Event,
@@ -249,6 +249,14 @@ impl LanguageSpecEngine {
                         "ATNPI",
                         "Set attribute to 'public', 'private', 'protected', 'immutable', \
                          or a cell array of meta-classes instead.",
+                    ),
+                    // Probed: `Access` and `GetAccess` values on a properties block are
+                    // ATPPP (the methods message); only `SetAccess` is ATPPI.
+                    AttrLevel::Property if attr.name != "SetAccess" => (
+                        &["public", "private", "protected", "immutable"][..],
+                        "ATPPP",
+                        "The attribute value is unexpected. Use 'public', 'private', \
+                         'protected', or a cell array of meta-classes instead.",
                     ),
                     AttrLevel::Property => (
                         &["public", "private", "protected", "immutable"][..],
@@ -543,7 +551,7 @@ end
     fn test_atppi_fires_bad_property_access_value() {
         let source = "\
 classdef Foo
-    properties (Access = 42)
+    properties (SetAccess = 42)
         x
     end
 end

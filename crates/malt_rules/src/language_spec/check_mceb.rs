@@ -15,7 +15,8 @@ impl LanguageSpecEngine {
                         message: "Events can be defined only in a handle class.".to_string(),
                         severity: Severity::Error,
                         byte_range: class.byte_range.clone(),
-                        line: class.line,
+                        // Probed: MATLAB reports at the `events` keyword, not at `classdef`.
+                        line: eb.line,
                         column: 1,
                         fix: None,
                     });

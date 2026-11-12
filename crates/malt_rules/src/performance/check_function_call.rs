@@ -414,10 +414,8 @@ impl PerformanceEngine {
         if on("STNCI")
             && !in_unreachable_code(node, source)
             && func_name == "strncmp"
-            && args.iter().take(2).any(|a| {
-                matches!(call_name(*a, source), Some("lower" | "upper"))
-                    && a.kind() == "function_call"
-            })
+            && crate::analysis::strcase::strcmp_case(node, source)
+                == Some(crate::analysis::strcase::StrcmpCase::Insensitive)
         {
             diags.push(make_diag("STNCI", node));
         }

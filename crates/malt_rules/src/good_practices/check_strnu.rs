@@ -37,7 +37,10 @@ impl GoodPracticesEngine {
                         DefKind::InputArg | DefKind::Global | DefKind::Persistent
                     ) && d.name == def.name
                 });
-                if is_argument_or_shared || !is_field_store(tree, def.byte_range.clone()) {
+                if is_argument_or_shared
+                    || !is_field_store(tree, def.byte_range.clone())
+                    || stores_through_brace(tree, def.byte_range.clone(), source)
+                {
                     continue;
                 }
                 // Probed: when the latest whole-variable definition before the store
@@ -70,10 +73,135 @@ impl GoodPracticesEngine {
                     fix: None,
                 });
             }
+
+            // Probed: in a loop, a field store is unused when the variable is read
+            // nowhere else, although the next iteration reads the old value through
+            // the store. Only stores of one shape (`x(i).f`) qualify: `x(i).f` with
+            // `x(i).g` is silent.
+            for def in &scope.defs {
+                if diagnostics
+                    .iter()
+                    .any(|d: &Diagnostic| d.rule_id == "STRNU" && d.byte_range == def.byte_range)
+                    || !in_loop(tree, def.byte_range.clone())
+                    || scope.defs.iter().any(|d| {
+                        matches!(
+                            d.kind,
+                            DefKind::InputArg | DefKind::Global | DefKind::Persistent
+                        ) && d.name == def.name
+                    })
+                    || !is_field_store(tree, def.byte_range.clone())
+                    || stores_through_brace(tree, def.byte_range.clone(), source)
+                    || !only_same_stores(tree, source, scope, def)
+                {
+                    continue;
+                }
+                let defined_otherwise = last_plain_assignment_before(
+                    tree.root_node(),
+                    &def.name,
+                    scope.byte_range.start,
+                    def.byte_range.start,
+                    source,
+                )
+                .and_then(|assign| assign.child_by_field_name("right"))
+                .is_some_and(|rhs| {
+                    rhs.kind() != "function_call"
+                        || get_function_call_name(rhs, source) != Some("struct")
+                });
+                if defined_otherwise {
+                    continue;
+                }
+                diagnostics.push(Diagnostic {
+                    rule_id: "STRNU",
+                    message: "This variable, apparently a structure, is changed but the value might be unused."
+                        .to_string(),
+                    severity: Severity::Warning,
+                    byte_range: def.byte_range.clone(),
+                    line: def.line,
+                    column: def.column,
+                    fix: None,
+                });
+            }
         }
 
         diagnostics
     }
+}
+
+/// Whether the store at `range` is inside a `for` or `while` loop of its function.
+fn in_loop(tree: &tree_sitter::Tree, range: std::ops::Range<usize>) -> bool {
+    let Some(mut node) = tree
+        .root_node()
+        .descendant_for_byte_range(range.start, range.end)
+    else {
+        return false;
+    };
+    while let Some(parent) = node.parent() {
+        if matches!(parent.kind(), "for_statement" | "while_statement") {
+            return true;
+        }
+        if parent.kind() == "function_definition" {
+            return false;
+        }
+        node = parent;
+    }
+    false
+}
+
+/// Whether the store at `range` writes through braces (`c{2}.f = v`). Probed:
+/// MATLAB is silent on those.
+fn stores_through_brace(
+    tree: &tree_sitter::Tree,
+    range: std::ops::Range<usize>,
+    source: &str,
+) -> bool {
+    enclosing_lhs(tree, range).is_some_and(|lhs| source[lhs.byte_range()].contains('{'))
+}
+
+/// The left-hand side of the assignment that contains the target at `range`,
+/// when the target is part of that left-hand side.
+fn enclosing_lhs<'t>(
+    tree: &'t tree_sitter::Tree,
+    range: std::ops::Range<usize>,
+) -> Option<Node<'t>> {
+    let mut node = tree
+        .root_node()
+        .descendant_for_byte_range(range.start, range.end)?;
+    loop {
+        if node.kind() == "assignment" {
+            let left = node.child_by_field_name("left")?;
+            return (left.start_byte() <= range.start && range.end <= left.end_byte())
+                .then_some(left);
+        }
+        node = node.parent()?;
+    }
+}
+
+/// Whether every reference to `def`'s variable in its scope is a store with the
+/// same left-hand side as `def` (`x(i).f = ...` each time).
+fn only_same_stores(
+    tree: &tree_sitter::Tree,
+    source: &str,
+    scope: &crate::analysis::symbols::Scope,
+    def: &crate::analysis::symbols::VarDef,
+) -> bool {
+    let Some(lhs) = enclosing_lhs(tree, def.byte_range.clone()) else {
+        return false;
+    };
+    let shape = &source[lhs.byte_range()];
+    let mut stack = vec![tree.root_node()];
+    while let Some(node) = stack.pop() {
+        let inside =
+            node.start_byte() >= scope.byte_range.start && node.end_byte() <= scope.byte_range.end;
+        if inside && node.kind() == "identifier" && source[node.byte_range()] == def.name {
+            match enclosing_lhs(tree, node.byte_range()) {
+                Some(other) if &source[other.byte_range()] == shape => {}
+                _ => return false,
+            }
+        }
+        let mut cursor = node.walk();
+        stack.extend(node.children(&mut cursor));
+    }
+    true
 }
 
 #[cfg(test)]

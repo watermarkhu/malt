@@ -84,6 +84,23 @@ impl GoodPracticesEngine {
     }
 }
 
+/// Whether an identifier is a value rather than a call: the body of an anonymous
+/// function (`@() helper`) or the right-hand side of an assignment (`m = helper`).
+fn is_bare_value(node: Node) -> bool {
+    let Some(parent) = node.parent() else {
+        return false;
+    };
+    match parent.kind() {
+        "lambda" => parent
+            .named_child(parent.named_child_count().saturating_sub(1))
+            .is_some_and(|last| last.id() == node.id()),
+        "assignment" => parent
+            .child_by_field_name("right")
+            .is_some_and(|rhs| rhs.id() == node.id()),
+        _ => false,
+    }
+}
+
 /// Collect ADMTHDINV diagnostics: bare `foo(...)` calls to class methods whose
 /// first argument is not `app`.
 fn collect_admthdinv(
@@ -94,6 +111,23 @@ fn collect_admthdinv(
 ) {
     if node.kind() == "function_definition" || node.kind() == "class_definition" {
         return;
+    }
+    // Probed: a method named as a value, `@() helper` or `m = helper`, is reported too.
+    if node.kind() == "identifier" && is_bare_value(node) {
+        let name = node_text(node, source);
+        let qualified = source[..node.start_byte()].trim_end().ends_with('.');
+        if methods.contains(name) && !qualified {
+            let pos = node.start_position();
+            diagnostics.push(Diagnostic {
+                rule_id: "ADMTHDINV",
+                message: format!("Use {name}(app, ...) to call this function."),
+                severity: Severity::Warning,
+                byte_range: node.start_byte()..node.end_byte(),
+                line: pos.row + 1,
+                column: pos.column + 1,
+                fix: None,
+            });
+        }
     }
     if node.kind() == "function_call" {
         if let Some(name_node) = node.child_by_field_name("name") {

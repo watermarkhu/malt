@@ -502,7 +502,20 @@ fn is_unreported_syner_text(text: &str) -> bool {
             .trim_start()
             .to_ascii_lowercase()
             .starts_with("function");
-    function_body || text.contains('\0') || text.trim().eq_ignore_ascii_case("= end")
+    function_body
+        || text.contains('\0')
+        || text.trim().eq_ignore_ascii_case("= end")
+        || is_colon_chain(text)
+}
+
+/// True for a one-line colon chain of four or more elements (`(1:2:3:4)`). The
+/// grammar cannot parse it; MATLAB reports M3COL there and no SYNER (probed).
+fn is_colon_chain(text: &str) -> bool {
+    !text.contains('\n')
+        && text.matches(':').count() >= 3
+        && text
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || " _:.()[]=\t".contains(c))
 }
 
 /// The message for a missing END, naming the block keyword it probably closes.

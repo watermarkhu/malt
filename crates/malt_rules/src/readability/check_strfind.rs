@@ -32,7 +32,7 @@ fn not_contains(node: tree_sitter::Node, s: &str, p: &str) -> String {
                 | "if_statement"
                 | "elseif_clause"
                 | "while_statement"
-                | "parenthesized_expression"
+                | "parenthesis"
                 | "block"
                 | "source_file"
         )
@@ -122,7 +122,12 @@ impl ReadabilityEngine {
         if !self.is_check_enabled("STRIFCND") || strfind_operands(node, source).is_none() {
             return;
         }
-        let Some(parent) = node.parent() else {
+        // `if (strfind(s, p))`: a parenthesis sits between the call and the condition.
+        let mut outer = node;
+        while let Some(parent) = outer.parent().filter(|p| p.kind() == "parenthesis") {
+            outer = parent;
+        }
+        let Some(parent) = outer.parent() else {
             return;
         };
         let is_condition = matches!(
@@ -130,7 +135,7 @@ impl ReadabilityEngine {
             "if_statement" | "elseif_clause" | "while_statement"
         ) && parent
             .child_by_field_name("condition")
-            .is_some_and(|c| c.id() == node.id());
+            .is_some_and(|c| c.id() == outer.id());
         if is_condition {
             results.push(self.diag(
                 "STRIFCND",
@@ -150,6 +155,23 @@ mod tests {
     use super::*;
     use crate::test_util::{has_id, lint_nodes};
     use malt_core::Config;
+
+    #[test]
+    fn strifcnd_fires_through_parentheses_in_a_condition() {
+        // Probed: MATLAB reports STRIFCND for `if (strfind(s, 'a'))` on line 2, and
+        // reports neither STREMP nor STRIFCND for `isempty((strfind(s, 'a')))`.
+        let engine = ReadabilityEngine::from_config(&Config::default());
+        let diags = lint_nodes(
+            &*engine,
+            "s = 'abc';\nif (strfind(s, 'a'))\n  disp(1)\nend\n",
+        );
+        assert!(
+            diags.iter().any(|d| d.rule_id == "STRIFCND" && d.line == 2),
+            "{diags:?}"
+        );
+        let diags = lint_nodes(&*engine, "s = 'abc';\nb = isempty((strfind(s, 'a')));\n");
+        assert!(!has_id(&diags, "STREMP"), "{diags:?}");
+    }
 
     fn engine() -> Box<dyn Rule> {
         ReadabilityEngine::from_config(&Config::default())

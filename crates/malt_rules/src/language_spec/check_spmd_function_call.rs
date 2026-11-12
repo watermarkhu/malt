@@ -25,7 +25,7 @@ impl LanguageSpecEngine {
                     self.push_diag(node, "SPBFN", "Use of this function is invalid inside an SPMD block because it accesses or modifies the workspace in a non-transparent way.", diagnostics);
                 }
             }
-            "eval" => {
+            "eval" | "evalc" | "clear" | "clearvars" => {
                 self.push_diag(node, "SPBFN", "Use of this function is invalid inside an SPMD block because it accesses or modifies the workspace in a non-transparent way.", diagnostics);
             }
             "load" => {

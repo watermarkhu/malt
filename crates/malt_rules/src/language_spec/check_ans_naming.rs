@@ -26,8 +26,13 @@ impl LanguageSpecEngine {
         }
 
         // FCNANS: Function named 'ans'
+        // Probed: a method named `ans` is MTHANS in a class, not FCNANS.
         for func in meta.functions.iter().chain(meta.local_functions.iter()) {
-            if func.name == "ans" {
+            let in_class = meta
+                .class
+                .as_ref()
+                .is_some_and(|c| c.byte_range.contains(&func.byte_range.start));
+            if func.name == "ans" && !in_class {
                 diagnostics.push(Diagnostic {
                     rule_id: "FCNANS",
                     message: "Using ANS as a function name is not supported.".to_string(),

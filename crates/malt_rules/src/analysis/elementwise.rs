@@ -215,7 +215,7 @@ fn logical_value(node: Node, source: &str, depth: usize) -> bool {
         return false;
     }
     match node.kind() {
-        "parenthesized_expression" => node
+        "parenthesis" => node
             .named_child(0)
             .is_some_and(|inner| logical_value(inner, source, depth + 1)),
         // Probed: `~` of a known logical (`~isstruct(x)`, `~isempty(x)`) is silent;
@@ -246,7 +246,7 @@ fn numeric_value(node: Node, source: &str, depth: usize) -> bool {
     }
     match node.kind() {
         "number" | "string" => true,
-        "parenthesized_expression" => node
+        "parenthesis" => node
             .named_child(0)
             .is_some_and(|inner| class_known(inner, source, depth + 1)),
         "unary_operator" => all_named_known(node, source, depth),

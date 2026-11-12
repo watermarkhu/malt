@@ -188,7 +188,7 @@ fn check_bare_condition(
         return;
     }
     let mut value = cond;
-    while value.kind() == "parenthesis" || value.kind() == "parenthesized_expression" {
+    while value.kind() == "parenthesis" {
         match first_named_child(value) {
             Some(inner) => value = inner,
             None => return,

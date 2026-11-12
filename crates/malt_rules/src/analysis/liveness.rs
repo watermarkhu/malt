@@ -1202,9 +1202,7 @@ impl ConstPass<'_> {
                 .named_child(0)
                 .and_then(|operand| self.eval(operand, env))
                 .map(|v| !v),
-            "parenthesized_expression" => {
-                node.named_child(0).and_then(|inner| self.eval(inner, env))
-            }
+            "parenthesis" => node.named_child(0).and_then(|inner| self.eval(inner, env)),
             _ => None,
         }
     }

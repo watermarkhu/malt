@@ -178,4 +178,11 @@ that are not installed); LENEMP and LEGPVPAIR are `unverified` (MATLAB reported 
 
 ## Phase 2 audit gaps (good_practices)
 
-Seen while probing, not fixed: SEPEX/SEPEXR for `catch disp('e')` and `switch x case 1 ...`; grammar errors on `u = (1:2:3:4);`; `@() helper` ADMTHDINV; STCUL (malt reports STCI instead); BDLGI misses `d = 1:3; if d`; BDSCA2 `if [1 0] && true`; MCEB reported at `classdef` instead of the `events` line; SPERR false positive on `error(sprintf(...))`; CFALSE on `isempty(x) == 2`; parfor misses (PFSLO, PFXST, PFUNK, PFUTVR, PFBNS, PFTUSE) and extras (PFIIN, PFSLW, PFBRK, SPBFN); MSNU for a directive on its own line or after `end`.
+Open after the audit and the follow-up pass (probe files are not kept; re-probe before changing):
+
+- Syntax: `try, x = 1; catch ME end` is SYNER in malt (MATLAB: SEPEX plus ENDCT2); EOFER for `if x, disp(1) end` and `while x x=0 end`; NBRAK2 for `[1:2:3]`; NOSEMI on `case 2, y = 2;`.
+- BDLGI (`if d` with `d = 1:3` or `[1 0]`) and BDSCA2 (`if [1 0] && true`): MATLAB reports both; they stay on the off-list until implemented.
+- MSNU for `end %#ok<TRYNC>`, `%#ok<NOPRT>`, SHVAU/ITERS, the second of two own-line directives and a bare `%#ok`: needs `active_check_ids` on more engines (false-MSNU risk).
+- Uppercase attribute values (`Dependent = TRUE`): MATLAB's ATTF is not implemented, leaving MGMD/MCANI extras. MTAGS3 is reported at the classdef line. ADMTHDINV misses `@() helper + 1`.
+- Parfor: PFBNS rule unclear (6 misses); PFUNK for `k=i; v(k)=1`; PFRUS/PFRIN/PFVSUB/PFUTMP extras when a reduction variable is read whole; PFOUS misses struct-field sliced writes; PFIIN after `clear k`; PFINCR for `s = [s i]`; PFUTVR is off by design.
+- CFALSE is limited to `any`, `isequal`, `isreal` (others unprobed); STLOW for a letterless literal; INUSD message text includes the argument name; STRNU loop-store fallback is a heuristic.

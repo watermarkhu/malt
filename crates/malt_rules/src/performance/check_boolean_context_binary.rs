@@ -64,11 +64,9 @@ fn and2_applies(node: tree_sitter::Node) -> bool {
         };
         match parent.kind() {
             "if_statement" | "while_statement" | "elseif_clause" => return true,
-            "binary_operator"
-            | "comparison_operator"
-            | "boolean_operator"
-            | "parenthesized_expression"
-            | "parenthesis" => current = parent,
+            "binary_operator" | "comparison_operator" | "boolean_operator" | "parenthesis" => {
+                current = parent
+            }
             _ => return false,
         }
     }

@@ -243,7 +243,7 @@ fn constant_at(node: Node, source: &str, depth: usize) -> bool {
         | "boolean_operator"
         | "unary_operator"
         | "postfix_operator"
-        | "parenthesized_expression"
+        | "parenthesis"
         | "matrix"
         | "cell"
         | "row"

@@ -54,7 +54,9 @@ fn walk_vunus(node: Node, table: &SymbolTable, source: &str, diagnostics: &mut V
         .parent()
         .map(|p| STATEMENT_PARENTS.contains(&p.kind()))
         .unwrap_or(false);
-    if is_statement_level && has_trailing_semicolon(node, source) {
+    // A statement with a parse error inside (`x = (1:2:3:4)';`) is not a discarded
+    // value: MATLAB reports the grammar problem instead.
+    if is_statement_level && !node.has_error() && has_trailing_semicolon(node, source) {
         check_discarded(node, table, source, diagnostics);
     }
     for i in 0..node.child_count() {

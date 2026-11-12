@@ -101,7 +101,7 @@ impl UnusedEngine {
                 // more inputs MATLAB reports each unused one as INUSD.
                 if scope.kind == ScopeKind::Method
                     && manu_enabled
-                    && super::check_manu::sole_input(scope)
+                    && super::check_manu::sole_input(scope, source)
                 {
                     continue;
                 }
@@ -109,7 +109,7 @@ impl UnusedEngine {
                     || entry_reads
                         .as_ref()
                         .is_some_and(|reads| !reads.contains(name));
-                if unread {
+                if unread && !super::check_manu::returned_input(scope, name) {
                     diagnostics.push(Diagnostic {
                         rule_id: "INUSD",
                         message: format!(

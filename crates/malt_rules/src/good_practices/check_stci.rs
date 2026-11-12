@@ -25,7 +25,11 @@ impl GoodPracticesEngine {
         };
 
         let has_case_conversion = args_has_case_conversion(args_node, source);
-        if !has_case_conversion {
+        // Probed: a conversion against a string of the other case is STCUL, not STCI.
+        if !has_case_conversion
+            || crate::analysis::strcase::strcmp_case(node, source)
+                != Some(crate::analysis::strcase::StrcmpCase::Insensitive)
+        {
             return Vec::new();
         }
 

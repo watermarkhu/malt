@@ -15,6 +15,14 @@ impl GoodPracticesEngine {
             if matches!(node.kind(), "identifier" | "command_name")
                 && &source[node.byte_range()] == "ans"
                 && !crate::analysis::symbols::is_field_name(node)
+                // Probed: `s.ans(2)` and `obj.ans()` are fields, not the variable.
+                && !source[..node.start_byte()].trim_end().ends_with('.')
+                // Probed: a function named `ans` is FCNANS, not NOANS (`function r = ans(x)`),
+                // but a method named `ans` in a classdef is NOANS as well.
+                && !(node.parent().is_some_and(|p| p.kind() == "function_definition")
+                    && !source[node.end_byte()..].trim_start().starts_with('=')
+                    && !std::iter::successors(node.parent(), |n| n.parent())
+                        .any(|a| a.kind() == "class_definition"))
             {
                 let pos = node.start_position();
                 diagnostics.push(Diagnostic {

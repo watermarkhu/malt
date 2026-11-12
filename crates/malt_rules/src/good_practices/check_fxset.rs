@@ -3,8 +3,10 @@ use super::*;
 impl GoodPracticesEngine {
     /// FXSETA: the `for` loop iterator variable is assigned inside the loop body.
     pub(crate) fn check_fxset(&self, node: Node, source: &str) -> Vec<Diagnostic> {
+        // Probed: inside a parfor, MATLAB reports PFXST for a loop-variable assignment, not FXSETA.
         if !self.is_check_enabled("FXSETA")
             || node.kind() != "for_statement"
+            || node_text(node, source).trim_start().starts_with("parfor")
             || in_unreachable_code(node, source)
         {
             return Vec::new();

@@ -167,6 +167,8 @@ pub struct EventsBlockMeta {
     pub attributes: Vec<AttributeMeta>,
     /// Event names.
     pub events: Vec<String>,
+    /// 1-indexed line of the `events` keyword.
+    pub line: usize,
 }
 
 /// Metadata about an `enumeration ... end` block.
@@ -788,7 +790,11 @@ fn extract_events_block(events_node: Node, source: &str) -> EventsBlockMeta {
         }
     }
 
-    EventsBlockMeta { attributes, events }
+    EventsBlockMeta {
+        attributes,
+        events,
+        line: events_node.start_position().row + 1,
+    }
 }
 
 /// Extract an `enumeration ... end` block.

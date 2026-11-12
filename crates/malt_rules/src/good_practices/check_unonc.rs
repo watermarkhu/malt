@@ -11,6 +11,16 @@ impl GoodPracticesEngine {
             return Vec::new();
         }
 
+        // Probed: `H = onCleanup(...)` as a property default is silent, so only
+        // calls in code are checked.
+        let mut ancestor = node.parent();
+        while let Some(a) = ancestor {
+            if a.kind() == "properties" {
+                return Vec::new();
+            }
+            ancestor = a.parent();
+        }
+
         let parent = match node.parent() {
             Some(p) => p,
             None => return Vec::new(),

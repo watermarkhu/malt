@@ -10,5 +10,6 @@ pub mod elementwise;
 pub mod liveness;
 pub mod metadata;
 pub mod reaching;
+pub mod strcase;
 pub mod symbols;
 pub mod typing;
