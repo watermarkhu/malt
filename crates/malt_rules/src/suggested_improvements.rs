@@ -121,6 +121,11 @@ struct SuggestedEntry {
     /// parameter or a value that is not a literal leaves the kind unknown.
     #[serde(default)]
     arg_through_variables: bool,
+    /// The argument at `arg_at` is a dotted release number at least this one
+    /// (`verLessThan('matlab', '9.10')` with `9.9`). Other text, such as
+    /// `'R2021a'`, does not match.
+    #[serde(default)]
+    version_at_least: String,
     /// Only inside a `parfor` loop.
     #[serde(default)]
     within_parfor: bool,
@@ -160,6 +165,18 @@ impl SuggestedEntry {
                     .is_some_and(|t| self.literal_args.iter().any(|l| l.eq_ignore_ascii_case(t)))
             });
             if !matched {
+                return false;
+            }
+        }
+        if !self.version_at_least.is_empty() {
+            if node.kind() == "command" {
+                return false;
+            }
+            let Some(arg) = args.get(self.arg_at.max(1) - 1) else {
+                return false;
+            };
+            let version = literal_text(*arg, source).unwrap_or_default();
+            if !release_at_least(version, &self.version_at_least) {
                 return false;
             }
         }
@@ -330,6 +347,31 @@ fn literal_text<'a>(arg: tree_sitter::Node, source: &'a str) -> Option<&'a str> 
         }
         _ => None,
     }
+}
+
+/// Whether `text` is a dotted release number (`9.10`, `24.1`) at least `min`
+/// (`9.9`), compared part by part with missing parts as 0. Other text, such as
+/// `R2021a`, is not a release number and does not match.
+fn release_at_least(text: &str, min: &str) -> bool {
+    let number = |s: &str| -> Option<Vec<u64>> {
+        s.split('.')
+            .map(|p| {
+                (!p.is_empty() && p.bytes().all(|b| b.is_ascii_digit()))
+                    .then(|| p.parse::<u64>().ok())
+                    .flatten()
+            })
+            .collect()
+    };
+    let (Some(v), Some(m)) = (number(text), number(min)) else {
+        return false;
+    };
+    let len = v.len().max(m.len());
+    let padded = |xs: &[u64]| {
+        (0..len)
+            .map(|i| xs.get(i).copied().unwrap_or(0))
+            .collect::<Vec<_>>()
+    };
+    padded(&v) >= padded(&m)
 }
 
 /// Whether `node` lies inside a `parfor` loop.
@@ -924,6 +966,66 @@ mod tests {
         assert!(rule_ids("print -image f.png\n").is_empty());
         assert_eq!(rule_ids("hold all\n"), vec!["HOLDALL"]);
         assert!(rule_ids("hold on\n").is_empty());
+    }
+
+    #[test]
+    fn verlessthan_matlab_fires_from_release_9_9() {
+        // MATLAB reports verLessThan('matlab', V) only when V is a dotted release of 9.9 or later
+        for version in [
+            "'9.9'", "'9.9.0'", "'9.10'", "'9.10.0'", "'9.100'", "'9.15'", "'24.1'",
+        ] {
+            assert_eq!(
+                rule_ids(&format!("x = verLessThan('matlab', {version});\n")),
+                vec!["VERLESSMATLAB"],
+                "{version}"
+            );
+        }
+        for version in [
+            "'9.8'", "'9.8.1'", "'9.2.0'", "'9.1'", "'9.0'", "'8.5'", "'R2020a'", "'R2021a'",
+        ] {
+            assert!(
+                rule_ids(&format!("x = verLessThan('matlab', {version});\n")).is_empty(),
+                "{version}"
+            );
+        }
+        // the product must be MATLAB (case-insensitive); a variable or matrix version is not matched
+        assert!(rule_ids("x = verLessThan('Simulink', '9.10');\n").is_empty());
+        assert_eq!(
+            rule_ids("x = verLessThan('MATLAB', \"9.10\");\n"),
+            vec!["VERLESSMATLAB"]
+        );
+        assert!(rule_ids("x = verLessThan('matlab', [9 10]);\n").is_empty());
+    }
+
+    #[test]
+    fn verlessthan_matlab_fires_in_any_position() {
+        // a bare statement, an if condition, an argument of another call, a struct field value
+        assert_eq!(
+            rule_ids("verLessThan('matlab', '9.10');\n"),
+            vec!["VERLESSMATLAB"]
+        );
+        assert_eq!(
+            rule_ids("if verLessThan('matlab', '9.10')\nend\n"),
+            vec!["VERLESSMATLAB"]
+        );
+        assert_eq!(
+            rule_ids("s = struct('release', v.Release, 'isOld', verLessThan('matlab', '9.10'));\n"),
+            vec!["VERLESSMATLAB"]
+        );
+        assert_eq!(
+            rule_ids("x = ~verLessThan('matlab', '9.10');\n"),
+            vec!["VERLESSMATLAB"]
+        );
+    }
+
+    #[test]
+    fn release_at_least_compares_dotted_numbers() {
+        assert!(release_at_least("9.10", "9.9"));
+        assert!(release_at_least("9.9.0", "9.9"));
+        assert!(!release_at_least("9.8.9", "9.9"));
+        assert!(release_at_least("10", "9.9"));
+        assert!(!release_at_least("R2021a", "9.9"));
+        assert!(!release_at_least("", "9.9"));
     }
 
     #[test]

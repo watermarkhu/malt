@@ -109,6 +109,69 @@ fn brace_indexed_in_file(root: Node, source: &str, name: &str) -> bool {
     false
 }
 
+/// The use that MATLAB reports for `idx = find(L)` (FNDSB, variable form): the
+/// only read of `idx` in its function, a subscript of a variable (`A(idx)`,
+/// `C{idx}`), with no other assignment to `idx` before that read. MATLAB reports
+/// nothing for a script, and nothing when `idx` is read in any other way.
+fn find_index_use<'a>(find: Node<'a>, source: &'a str) -> Option<Node<'a>> {
+    let assign = find.parent().filter(|p| p.kind() == "assignment")?;
+    if assign.child_by_field_name("right")?.id() != find.id() {
+        return None;
+    }
+    let target = assign.child_by_field_name("left")?;
+    if target.kind() != "identifier" {
+        return None;
+    }
+    let name = node_text(target, source);
+    let mut func = assign.parent();
+    while let Some(p) = func {
+        if p.kind() == "function_definition" {
+            break;
+        }
+        func = p.parent();
+    }
+    let func = func?;
+    let mut reads = Vec::new();
+    let mut writes = Vec::new();
+    let mut stack = vec![func];
+    while let Some(n) = stack.pop() {
+        if n.kind() == "identifier" && node_text(n, source) == name {
+            let is_write = n.parent().is_some_and(|p| {
+                p.kind() == "assignment"
+                    && p.child_by_field_name("left")
+                        .is_some_and(|l| l.id() == n.id())
+            });
+            if is_write {
+                writes.push(n.start_byte());
+            } else {
+                reads.push(n);
+            }
+        }
+        let mut c = n.walk();
+        stack.extend(n.children(&mut c));
+    }
+    let &[use_node] = reads.as_slice() else {
+        return None;
+    };
+    let between = |b: &usize| *b > target.start_byte() && *b < use_node.start_byte();
+    if use_node.start_byte() <= target.start_byte() || writes.iter().any(between) {
+        return None;
+    }
+    let parent = use_node.parent()?;
+    let call = if parent.kind() == "arguments" {
+        parent.parent()?
+    } else {
+        parent
+    };
+    if call.kind() != "function_call" || !is_subscript_context(use_node) {
+        return None;
+    }
+    let base_node = call.child_by_field_name("name")?;
+    let base = node_text(base_node, source);
+    (base_node.kind() == "identifier" && base != name && is_known_variable(call, source, base))
+        .then_some(use_node)
+}
+
 /// Whether a dimension argument is all ones: the literal `1` or a bracketed
 /// vector of ones such as `[1 1 1]` (`[1, 1]` too).
 fn is_unit_dims(arg: Node, source: &str) -> bool {
@@ -226,6 +289,13 @@ impl PerformanceEngine {
                 if is_known_variable(node, source, name) {
                     diags.push(make_diag("FNDSB", node));
                 }
+            }
+        }
+
+        // FNDSB, variable form: reported at the one subscript that reads `idx = find(L)`
+        if on("FNDSB") && func_name == "find" && args.len() == 1 {
+            if let Some(use_node) = find_index_use(node, source) {
+                diags.push(make_diag("FNDSB", use_node));
             }
         }
 
@@ -521,6 +591,45 @@ mod tests {
         assert!(fires("c = {y{1}};\nx = y(find(z));\n", "FNDSB"));
         assert!(!fires("y = 1;\nidx = find(z);\n", "FNDSB"));
         assert!(!fires("if isempty(find(z))\nend\n", "FNDSB"));
+    }
+
+    #[test]
+    fn fndsb_variable_form_fires_on_the_single_subscript_read() {
+        // reported at the read of the index, inside a function
+        assert!(fires("function f()\nangles = [20 30 45 60]; res = zeros(1, 4);\nidx = find(res);\nx = angles(idx);\nend\n", "FNDSB"));
+        // in a loop body, as a brace index, and as an argument of another call
+        assert!(fires("function f()\nres = zeros(1, 4);\nfor k = 1:3\nidx = find(res);\nx = res(idx);\nend\nend\n", "FNDSB"));
+        assert!(fires(
+            "function f()\nc = {1 2 3 4}; res = zeros(1, 4);\nidx = find(res);\nx = c{idx};\nend\n",
+            "FNDSB"
+        ));
+        assert!(fires("function f()\nangles = [20 30 45 60]; res = zeros(1, 4);\nidx = find(res);\nx = numel(angles(idx));\nend\n", "FNDSB"));
+        // the index is reassigned after its only read, or assigned again before it
+        assert!(fires(
+            "function f()\nres = zeros(1, 4);\nidx = find(res);\nx = res(idx);\nidx = 3;\nend\n",
+            "FNDSB"
+        ));
+        assert!(fires("function f()\nres = zeros(1, 4);\nidx = find(res);\nidx = find(res > 1);\nx = res(idx);\nend\n", "FNDSB"));
+        // silent in a script: MATLAB reports the direct form only there
+        assert!(!fires(
+            "res = zeros(1, 4);\nidx = find(res);\nx = res(idx);\n",
+            "FNDSB"
+        ));
+        // silent when the index has another read, or is read as a value
+        assert!(!fires("function f()\nangles = [20 30 45 60]; res = zeros(1, 4);\nidx = find(res);\nx = angles(idx) + res(idx);\nend\n", "FNDSB"));
+        assert!(!fires("function f()\nangles = [20 30 45 60]; res = zeros(1, 4);\nidx = find(res);\nx = angles(idx);\ny = angles(idx);\nend\n", "FNDSB"));
+        assert!(!fires("function f()\nangles = [20 30 45 60]; res = zeros(1, 4);\nidx = find(res);\ndisp(idx);\nx = angles(idx);\nend\n", "FNDSB"));
+        assert!(!fires("function f()\nangles = [20 30 45 60]; res = zeros(1, 4);\nidx = find(res);\nx = angles(idx(end));\nend\n", "FNDSB"));
+        assert!(!fires("function f()\nangles = [20 30 45 60]; res = zeros(1, 4);\nidx = find(res);\nn = numel(idx);\nend\n", "FNDSB"));
+        // silent when the read is not a subscript of a variable
+        assert!(!fires(
+            "function f()\nres = zeros(1, 4);\nidx = find(res);\nx = sin(idx);\nend\n",
+            "FNDSB"
+        ));
+        assert!(!fires("function f()\ns.a = [20 30 45 60]; res = zeros(1, 4);\nidx = find(res);\nx = s.a(idx);\nend\n", "FNDSB"));
+        // silent for find with a count, and for a read in an if condition that tests the index
+        assert!(!fires("function f()\nangles = [20 30 45 60]; res = zeros(1, 4);\nidx = find(res, 1);\nx = angles(idx);\nend\n", "FNDSB"));
+        assert!(!fires("function f()\nangles = [20 30 45 60]; res = zeros(1, 4);\nidx = find(res);\nif isempty(idx)\nx = 1;\nelse\nx = angles(idx);\nend\nend\n", "FNDSB"));
     }
 
     #[test]

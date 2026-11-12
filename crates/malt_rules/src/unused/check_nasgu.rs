@@ -12,6 +12,7 @@
 //! (`x(i) = v`, `c{i} = v`) that is dead is NASGU. A field store (`s.f = v`) is
 //! STRNU, reported by the good-practices engine.
 
+use super::check_preall::is_overwritten_preallocation;
 use super::*;
 use crate::analysis::liveness::{dead_stores, is_field_store};
 use malt_core::Fix;
@@ -42,6 +43,10 @@ impl UnusedEngine {
             for def_index in dead.full {
                 let def = &scope.defs[def_index];
                 if ignored(&def.name) {
+                    continue;
+                }
+                // Probed: `x = zeros(n); x = v` reports PREALL only, not NASGU.
+                if is_overwritten_preallocation(scope, def) {
                     continue;
                 }
                 if def.multi_output {
@@ -98,6 +103,61 @@ mod tests {
 
     fn engine() -> Box<dyn Rule> {
         UnusedEngine::from_config(&Config::default())
+    }
+
+    // Probed: an unused name in a `syms` declaration in a function is NASGU at
+    // its column; a name read later, the assumption keyword `real` and script
+    // declarations are not.
+    #[test]
+    fn nasgu_on_unused_syms_name_in_function() {
+        let source = "function f()\nsyms a b\ndisp(a)\nend\n";
+        assert_eq!(nasgu_lines(source), vec![2]);
+        let diags = lint_file(&*engine(), source);
+        let col = diags
+            .iter()
+            .find(|d| d.rule_id == "NASGU")
+            .map(|d| d.column);
+        assert_eq!(col, Some(8));
+    }
+
+    #[test]
+    fn nasgu_silent_on_syms_name_read_later_or_assumption_keyword() {
+        let source =
+            "function f()\nsyms t x(t) m w0 real\nassume(m > 0)\ny = m*diff(x, t);\ndisp(y)\nend\n";
+        assert_eq!(nasgu_lines(source), vec![2], "w0 only: {source:?}");
+        assert!(nasgu_lines("function f()\nsyms a real\ndisp(a)\nend\n").is_empty());
+    }
+
+    #[test]
+    fn nasgu_silent_on_syms_in_script() {
+        assert!(nasgu_lines("syms w0 real\ndisp(1)\n").is_empty());
+    }
+
+    // Probed: `a = zeros(n,1); a = v` reports PREALL only, not NASGU.
+    #[test]
+    fn nasgu_silent_on_preallocation_overwritten_in_function() {
+        let source = "function f()\na = zeros(3,1);\na = 5;\ndisp(a)\nend\n";
+        assert!(nasgu_lines(source).is_empty(), "got NASGU for {source:?}");
+        assert!(has_id(&lint_file(&*engine(), source), "PREALL"));
+    }
+
+    #[test]
+    fn nasgu_silent_on_preallocation_overwritten_in_script() {
+        let source = "uold = zeros(3,3);\nuold = ones(3);\ndisp(uold)\n";
+        assert!(nasgu_lines(source).is_empty(), "got NASGU for {source:?}");
+        assert!(has_id(&lint_file(&*engine(), source), "PREALL"));
+    }
+
+    #[test]
+    fn nasgu_still_fires_on_overwritten_plain_assignment() {
+        let source = "function f()\na = 1;\na = 2;\ndisp(a)\nend\n";
+        assert_eq!(nasgu_lines(source), vec![2]);
+    }
+
+    #[test]
+    fn nasgu_silent_on_preallocation_that_is_read_first() {
+        let source = "function f()\na = zeros(3,1);\ndisp(a)\na = 5;\ndisp(a)\nend\n";
+        assert!(nasgu_lines(source).is_empty(), "got NASGU for {source:?}");
     }
 
     /// The lines NASGU reports for `source`, sorted.

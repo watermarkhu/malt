@@ -57,6 +57,17 @@ mod tests {
 
     // -- NOPRT ---------------------------------------------------------------
 
+    // Probed: `rv(j) = j` in a loop makes `rv` a variable, so `rv` on its own
+    // echoes in a function (NOPRT on line 5).
+    #[test]
+    fn noprt_fires_on_bare_name_created_by_indexed_assignment() {
+        let diags = lint("function f()\nfor j=1:3\n  rv(j)=j;\nend\nrv\nend\n");
+        assert!(
+            diags.iter().any(|d| d.rule_id == "NOPRT" && d.line == 5),
+            "got: {diags:?}"
+        );
+    }
+
     #[test]
     fn noprt_not_reported_on_statement_split_before_unary_sign() {
         // Probed: MATLAB reports NOPRT on the `-4` line only.

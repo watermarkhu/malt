@@ -1,6 +1,7 @@
 //! PREALL check: loop variable preallocated but unused.
 
 use super::*;
+use crate::analysis::symbols::{Scope, VarDef};
 
 impl UnusedEngine {
     /// Run PREALL check: an array preallocated (`x = zeros(1, n)`) whose value
@@ -32,30 +33,7 @@ impl UnusedEngine {
                 if self.should_ignore_name(name) {
                     continue;
                 }
-                // The next definition of the variable, in source order.
-                let next = scope
-                    .defs
-                    .iter()
-                    .filter(|d| d.name == *name && d.byte_range.start > def.byte_range.start)
-                    .min_by_key(|d| d.byte_range.start);
-                let Some(next) = next else {
-                    continue;
-                };
-                // Overwritten unconditionally: a full assignment in the same block.
-                if next.kind != DefKind::Assignment
-                    || next.partial
-                    || next.block_start != def.block_start
-                {
-                    continue;
-                }
-                // Read in between (including by the next assignment's own
-                // right-hand side)?
-                let read = scope.uses.iter().any(|u| {
-                    u.name == *name
-                        && u.byte_range.start >= def.effect_start
-                        && u.byte_range.start < next.effect_start
-                });
-                if read {
+                if !is_overwritten_preallocation(scope, def) {
                     continue;
                 }
                 diagnostics.push(Diagnostic {
@@ -72,6 +50,35 @@ impl UnusedEngine {
             }
         }
     }
+}
+
+/// Whether the preallocation `def` is overwritten by a later full assignment in
+/// the same block before anything reads it: the case PREALL reports. MATLAB
+/// reports that case as PREALL alone, so NASGU leaves it out.
+pub(crate) fn is_overwritten_preallocation(scope: &Scope, def: &VarDef) -> bool {
+    if !def.prealloc || def.kind != DefKind::Assignment || def.partial {
+        return false;
+    }
+    // The next definition of the variable, in source order.
+    let next = scope
+        .defs
+        .iter()
+        .filter(|d| d.name == def.name && d.byte_range.start > def.byte_range.start)
+        .min_by_key(|d| d.byte_range.start);
+    let Some(next) = next else {
+        return false;
+    };
+    // Overwritten unconditionally: a full assignment in the same block.
+    if next.kind != DefKind::Assignment || next.partial || next.block_start != def.block_start {
+        return false;
+    }
+    // Read in between (including by the next assignment's own right-hand side)?
+    let read = scope.uses.iter().any(|u| {
+        u.name == def.name
+            && u.byte_range.start >= def.effect_start
+            && u.byte_range.start < next.effect_start
+    });
+    !read
 }
 
 #[cfg(test)]

@@ -36,16 +36,19 @@ impl ReadabilityEngine {
         if args.len() != 1 {
             return;
         }
+        // Probed: MATLAB also reports `logical(zeros(...))` and `logical(ones(...))`,
+        // which have no `true`/`false` rewrite.
         let replacement = match &source[args[0].start_byte()..args[0].end_byte()] {
-            "1" => "true",
-            "0" => "false",
+            "1" => Some("true"),
+            "0" => Some("false"),
+            _ if is_zeros_or_ones_call(args[0], source) => None,
             _ => return,
         };
         results.push(self.diag(
             "LOGL",
             "Use 'true' or 'false' instead of 'logical(1)' or 'logical(0)'.",
             node,
-            Some(Fix::new(node.start_byte()..node.end_byte(), replacement)),
+            replacement.map(|r| Fix::new(node.start_byte()..node.end_byte(), r)),
         ));
     }
 
@@ -72,6 +75,13 @@ impl ReadabilityEngine {
             ));
         }
     }
+}
+
+/// `zeros(...)` or `ones(...)`: a logical array of constant values.
+fn is_zeros_or_ones_call(n: tree_sitter::Node, source: &str) -> bool {
+    n.kind() == "function_call"
+        && n.child_by_field_name("name")
+            .is_some_and(|name| matches!(&source[name.byte_range()], "zeros" | "ones"))
 }
 
 #[cfg(test)]
@@ -136,5 +146,35 @@ mod tests {
         for src in ["n = sum(x);\n", "n = sum(x) > 0;\n", "n = sum(x, 2);\n"] {
             assert!(!has_id(&lint_nodes(&*engine(), src), "LOGSUM"), "{src}");
         }
+    }
+}
+
+#[cfg(test)]
+mod zeros_tests {
+    use super::*;
+    use crate::test_util::{has_id, lint_nodes};
+
+    fn engine() -> Box<dyn Rule> {
+        ReadabilityEngine::from_config(&Config::from_toml("[lint]\npreset = \"all\"\n").unwrap())
+    }
+
+    #[test]
+    fn logl_fires_on_logical_zeros_and_ones_without_fix() {
+        // Probed: `logical(zeros(n, 1))`, `logical(ones(2))` and `logical(zeros(1,3))` are LOGL.
+        for src in ["v = logical(zeros(n, 1));\n", "v = logical(ones(2));\n"] {
+            let diags = lint_nodes(&*engine(), src);
+            assert!(has_id(&diags, "LOGL"), "{src}: got: {diags:?}");
+            assert!(
+                diags.iter().all(|d| d.fix.is_none()),
+                "{src}: got: {diags:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn logl_silent_on_logical_of_a_variable() {
+        // Not probed as LOGL: a variable's value is not known to be constant.
+        let diags = lint_nodes(&*engine(), "v = logical(mask);\n");
+        assert!(!has_id(&diags, "LOGL"), "got: {diags:?}");
     }
 }

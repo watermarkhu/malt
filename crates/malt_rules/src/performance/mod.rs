@@ -135,6 +135,7 @@ mod check_boolean_context_binary;
 mod check_command;
 mod check_comparison;
 mod check_function_call;
+mod check_index_growth;
 
 // ---------------------------------------------------------------------------
 // Rule-specific configuration
@@ -530,6 +531,20 @@ impl PerformanceEngine {
             return;
         }
 
+        // Pattern 3: an indexed write with a variable in its index into a variable
+        // that is undefined, `[]`, `{}` or a number before the loop (see
+        // check_index_growth.rs). A field of a struct array, `x(i).f`, counts too.
+        if !field_base
+            && matches!(
+                lhs.kind(),
+                "function_call" | "cell_index" | "field_expression"
+            )
+            && check_index_growth::indexed_write_grows(lhs, source)
+        {
+            diags.push(make_diag(check_id, node));
+            return;
+        }
+
         // Pattern 2: x = [x, val] or x = [x; val] (or the cell equivalent). MATLAB
         // reports concatenation as AGROW in scripts too (probed). A field target
         // such as `s.g = [s.g, i]` is not reported.
@@ -669,6 +684,14 @@ impl Rule for PerformanceEngine {
             "cell" => self.check_cell(ctx.node, ctx.source),
             _ => Vec::new(),
         }
+    }
+
+    fn active_check_ids(&self) -> Vec<&'static str> {
+        CHECKS
+            .iter()
+            .map(|check| check.id)
+            .filter(|id| self.is_enabled(id))
+            .collect()
     }
 
     fn check_file(&self, ctx: &FileContext) -> Vec<Diagnostic> {
@@ -1222,5 +1245,28 @@ skip_checks = ["AGROW", "ST2NM"]
         let src = "x = inv(A) * b;\n";
         let diags = lint_nodes(&*rule, src);
         assert!(has_id(&diags, "MINV"), "got: {diags:?}");
+    }
+}
+
+#[cfg(test)]
+mod active_check_tests {
+    use super::*;
+
+    #[test]
+    fn active_check_ids_are_the_checks_not_skipped() {
+        let active = PerformanceEngine::from_config(&Config::default()).active_check_ids();
+        assert!(active.contains(&"PFBNS") && active.contains(&"LAXES"));
+        assert!(active.contains(&"AGROW"));
+        // GRIDD is switched off under the mathworks preset. MATLAB reports an
+        // unused `%#ok<GRIDD>` (probed), but malt cannot tell which off-by-default
+        // checks MATLAB keeps active (CTCH is silent), so it declares none of them.
+        assert!(!active.contains(&"GRIDD"));
+
+        let config =
+            Config::from_toml("[lint.rules.PERFORMANCE_ENGINE]\nskip_checks = [\"PFBNS\"]\n")
+                .unwrap();
+        let active = PerformanceEngine::from_config(&config).active_check_ids();
+        assert!(!active.contains(&"PFBNS"));
+        assert!(active.contains(&"LAXES"));
     }
 }

@@ -214,9 +214,15 @@ impl ReadabilityEngine {
         // `sum(x.^2 + x <= 1)`; until the exact condition is known it is off by default.
         // MFAMB: MATLAB never reported it in probes (`f(1)` before `f = 2`, in a
         // script or a function) nor in the fixtures, so it is off by default too.
+        // ISROW/ISCOL: MATLAB stayed silent on `size(x, 1) == 1` and `size(x, 2) == 1`
+        // in six probes (undefined, input, constant and reassigned `x`), so they are
+        // off by default too.
         rule_config
             .disabled_checks
-            .extend(crate::off_under_mathworks(config, &["LOGSUM", "MFAMB"]));
+            .extend(crate::off_under_mathworks(
+                config,
+                &["LOGSUM", "MFAMB", "ISROW", "ISCOL"],
+            ));
         Box::new(Self {
             config: rule_config,
         })

@@ -89,8 +89,13 @@ fn is_variable_name(node: Node, name: &str, source: &str) -> bool {
         }
         current = parent.parent();
     }
+    // Probed: `r(i,j) = v` in a loop makes `r` a variable, so `r` on its own
+    // echoes (NOPTS).
     scope_declares_parameter(scope, name, source)
         || crate::good_practices::collect_simple_lhs_assignments(scope, source)
+            .iter()
+            .any(|(n, lhs)| n == name && lhs.end_byte() <= node.start_byte())
+        || crate::good_practices::collect_indexed_lhs_assignments(scope, source)
             .iter()
             .any(|(n, lhs)| n == name && lhs.end_byte() <= node.start_byte())
 }
@@ -171,5 +176,27 @@ mod tests {
             let diags = lint(source);
             assert!(!has_id(&diags, "NOPTS"), "{source}: got: {diags:?}");
         }
+    }
+
+    // Probed: `r(i,j) = i` in a loop makes `r` a variable, so `r` on its own
+    // echoes in a script (NOPTS on line 6).
+    #[test]
+    fn nopts_fires_on_bare_name_created_by_indexed_assignment() {
+        let source = "for i=1:2\n for j=1:2\n  r(i,j)=i;\n end\nend\nr\n";
+        let diags = lint(source);
+        assert!(
+            diags.iter().any(|d| d.rule_id == "NOPTS" && d.line == 6),
+            "got: {diags:?}"
+        );
+    }
+
+    #[test]
+    fn nopts_silent_on_plain_call_of_indexed_variable() {
+        let source = "for i=1:2\n r(i)=i;\nend\ndisp(r)\n";
+        let diags = lint(source);
+        assert!(
+            !diags.iter().any(|d| d.rule_id == "NOPTS"),
+            "got: {diags:?}"
+        );
     }
 }

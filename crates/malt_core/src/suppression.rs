@@ -22,6 +22,23 @@
 //! A directive applies only to the line it appears on.
 
 use std::collections::{HashMap, HashSet};
+use std::ops::Range;
+
+use tree_sitter::{Node, Tree};
+
+/// A check ID named by a directive, as MATLAB reports an unused one (MSNU).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NamedId {
+    /// The ID as written. Wildcard patterns (`*`) are not listed.
+    pub id: String,
+    /// 1-indexed line of the directive.
+    pub line: usize,
+    /// 1-indexed column MATLAB reports: the `%` when the directive names one
+    /// ID, the ID itself when it names several.
+    pub column: usize,
+    /// Byte range of the same position in the source.
+    pub byte_range: Range<usize>,
+}
 
 /// Suppression directives parsed from a source buffer, keyed by 1-indexed line.
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
@@ -30,12 +47,19 @@ pub struct Suppressions {
     all_lines: HashSet<usize>,
     /// Lines that suppress specific rule IDs (or wildcard patterns).
     rule_lines: HashMap<usize, Vec<String>>,
+    /// Exact IDs named by the directives, in source order.
+    named: Vec<NamedId>,
 }
 
 impl Suppressions {
     /// Whether no suppression directives were found.
     pub fn is_empty(&self) -> bool {
         self.all_lines.is_empty() && self.rule_lines.is_empty()
+    }
+
+    /// The exact check IDs named by the directives (wildcards excluded).
+    pub fn named_ids(&self) -> &[NamedId] {
+        &self.named
     }
 
     /// Whether a diagnostic at `line` with `rule_id` is suppressed.
@@ -51,45 +75,103 @@ impl Suppressions {
     }
 }
 
-/// Scan `source` line-by-line and collect every `%#ok<...>` directive found.
+/// Parse the directives of `source`, building the syntax tree first.
 ///
-/// A single line may contain multiple directives; each directive may list
-/// several comma-separated rule ids. Directives never suppress other lines.
+/// The linter calls [`from_tree`] with the tree it already has.
 pub fn parse(source: &str) -> Suppressions {
-    let mut all_lines = HashSet::new();
-    let mut rule_lines: HashMap<usize, Vec<String>> = HashMap::new();
+    let mut parser = tree_sitter::Parser::new();
+    parser
+        .set_language(&tree_sitter_matlab::LANGUAGE.into())
+        .expect("failed to load tree-sitter-matlab grammar");
+    match parser.parse(source, None) {
+        Some(tree) => from_tree(source, &tree),
+        None => Suppressions::default(),
+    }
+}
 
-    for (idx, line) in source.lines().enumerate() {
-        let line_number = idx + 1;
-        let mut search_from = 0;
-        while let Some(rel_start) = line[search_from..].find("%#ok<") {
-            let content_start = search_from + rel_start + "%#ok<".len();
-            let Some(rel_end) = line[content_start..].find('>') else {
-                break;
-            };
-            let content = line[content_start..content_start + rel_end].trim();
-            search_from = content_start + rel_end + 1;
-
-            if is_all_directive(content) {
-                all_lines.insert(line_number);
-                continue;
-            }
-            for rule in content.split(',') {
-                let rule = rule.trim();
-                if !rule.is_empty() {
-                    rule_lines
-                        .entry(line_number)
-                        .or_default()
-                        .push(rule.to_string());
-                }
-            }
+/// Collect the directives of `source` from the comments of its syntax tree.
+///
+/// MATLAB reads a directive only where a comment starts with `%#ok`: `%%#ok`,
+/// `% note %#ok<X>`, a `%#ok` inside a string and one after a `...`
+/// continuation are not directives. A comment holds one directive, so only
+/// the first of several on a line counts. Directives never suppress other lines.
+pub fn from_tree(source: &str, tree: &Tree) -> Suppressions {
+    let mut suppressions = Suppressions::default();
+    let mut stack = vec![tree.root_node()];
+    while let Some(node) = stack.pop() {
+        if node.kind() == "comment" {
+            read_directive(source, node, &mut suppressions);
+            continue;
         }
+        let mut cursor = node.walk();
+        stack.extend(node.children(&mut cursor));
+    }
+    suppressions.named.sort_by_key(|n| n.byte_range.start);
+    suppressions
+}
+
+/// Record the directive at the start of one comment, if it has one.
+fn read_directive(source: &str, comment: Node, out: &mut Suppressions) {
+    let text = &source[comment.byte_range()];
+    let Some(rest) = text.strip_prefix("%#ok") else {
+        return;
+    };
+    let line = comment.start_position().row + 1;
+    let Some(body) = rest.strip_prefix('<') else {
+        // A bare `%#ok` is followed by nothing, or by white space.
+        if rest.is_empty() || rest.starts_with(char::is_whitespace) {
+            out.all_lines.insert(line);
+        }
+        return;
+    };
+
+    // The IDs run to the closing `>`, or to the end of the comment when unclosed.
+    let content = &body[..body.find('>').unwrap_or(body.len())];
+    if is_all_directive(content) {
+        out.all_lines.insert(line);
+        return;
     }
 
-    Suppressions {
-        all_lines,
-        rule_lines,
+    // Each ID with its offset in the comment (for the column of the ID).
+    let mut names: Vec<(usize, &str)> = Vec::new();
+    let mut part_start = 0;
+    for part in content.split(',') {
+        let name = part.trim();
+        if !name.is_empty() {
+            let name_start = part_start + (part.len() - part.trim_start().len());
+            names.push((name_start, name));
+        }
+        part_start += part.len() + 1;
     }
+
+    let single = names.len() == 1;
+    for (name_start, name) in names {
+        out.rule_lines
+            .entry(line)
+            .or_default()
+            .push(name.to_string());
+        if name.contains('*') {
+            continue;
+        }
+        let byte = if single {
+            comment.start_byte()
+        } else {
+            comment.start_byte() + "%#ok<".len() + name_start
+        };
+        let width = if single { 1 } else { name.len() };
+        out.named.push(NamedId {
+            id: name.to_string(),
+            line,
+            column: column_of(source, byte),
+            byte_range: byte..byte + width,
+        });
+    }
+}
+
+/// 1-indexed column of byte `byte` within its line.
+fn column_of(source: &str, byte: usize) -> usize {
+    let line_start = source[..byte].rfind('\n').map_or(0, |p| p + 1);
+    source[line_start..byte].chars().count() + 1
 }
 
 /// Whether a directive body means "suppress all rules".
@@ -227,5 +309,61 @@ mod tests {
         assert!(!glob_match("AB", "*AB*C*"));
         assert!(glob_match("A", "*A*"));
         assert!(!glob_match("A", "A*A"));
+    }
+
+    // MATLAB probes (R2026b checkcode): a bare `%#ok` suppresses every message on
+    // its line; a directive counts only at the start of a comment, not in a string
+    // or after `...`; the first directive of a comment is the one read.
+
+    #[test]
+    fn bare_directive_suppresses_every_rule_on_line() {
+        let s = parse("x = 1; %#ok\ny = 2;\n");
+        assert!(s.is_suppressed(1, "NOSEMI"));
+        assert!(!s.is_suppressed(2, "NOSEMI"));
+    }
+
+    #[test]
+    fn directive_must_start_the_comment() {
+        assert!(parse("x = 1; % note %#ok<NOSEMI>\n").is_empty());
+        assert!(parse("x = 1; %%#ok<NOSEMI>\n").is_empty());
+    }
+
+    #[test]
+    fn directive_inside_a_string_is_not_a_directive() {
+        assert!(parse("disp('%#ok<NOSEMI>'); x = 1;\n").is_empty());
+    }
+
+    #[test]
+    fn directive_after_a_continuation_is_not_a_directive() {
+        assert!(parse("x = [1, ... %#ok<NOSEMI>\n 2];\n").is_empty());
+    }
+
+    #[test]
+    fn only_the_first_directive_of_a_comment_counts() {
+        let s = parse("x = 1; %#ok<AGROW> %#ok<NOSEMI>\n");
+        assert!(s.is_suppressed(1, "AGROW"));
+        assert!(!s.is_suppressed(1, "NOSEMI"));
+        assert_eq!(s.named_ids().len(), 1);
+    }
+
+    #[test]
+    fn unclosed_directive_runs_to_the_end_of_the_comment() {
+        assert!(parse("x = 1; %#ok<NOSEMI\n").is_suppressed(1, "NOSEMI"));
+    }
+
+    #[test]
+    fn named_ids_carry_the_column_matlab_reports() {
+        // One ID: the `%` (column 8). Several IDs: each ID's own column.
+        let one = parse("x = 1; %#ok<AGROW>\n");
+        assert_eq!(one.named_ids()[0].column, 8);
+        let several = parse("x = 1; %#ok<NOSEMI,AGROW>\n");
+        let columns: Vec<usize> = several.named_ids().iter().map(|n| n.column).collect();
+        assert_eq!(columns, vec![13, 20]);
+    }
+
+    #[test]
+    fn wildcards_are_not_named_ids() {
+        assert!(parse("x = 1; %#ok<*NOSEMI*>\n").named_ids().is_empty());
+        assert!(parse("x = 1; %#ok<*>\n").named_ids().is_empty());
     }
 }

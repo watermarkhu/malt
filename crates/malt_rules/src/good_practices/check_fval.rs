@@ -1,4 +1,5 @@
 use super::*;
+use crate::analysis::reaching::{reaching, Binding};
 
 impl GoodPracticesEngine {
     /// FVAL: `feval` with a literal function name or handle, which can be a
@@ -45,7 +46,22 @@ fn is_literal_feval(call: Node, source: &str) -> bool {
         .children(&mut cursor)
         .find(|c| c.kind() == "arguments")
         .and_then(|args| args.named_child(0));
-    first.is_some_and(|a| matches!(a.kind(), "string" | "handle_operator"))
+    let Some(first) = first else {
+        return false;
+    };
+    match first.kind() {
+        "string" | "handle_operator" => true,
+        // Probed: `f = @sin; feval(f, 2)` and `f = @(x) ...; feval(f, 2)` are FVAL;
+        // a function parameter is not.
+        "identifier" => {
+            let name = &source[first.byte_range()];
+            matches!(
+                reaching(first, source, name).binding,
+                Binding::Value(v) if matches!(v.kind(), "handle_operator" | "lambda")
+            )
+        }
+        _ => false,
+    }
 }
 
 #[cfg(test)]
@@ -68,5 +84,32 @@ mod tests {
     fn fval_ignores_dynamic_callee_and_unused_outputs() {
         assert!(!fval("r = feval(fh, 1);\n"));
         assert!(!fval("function r = f()\nend\n"));
+    }
+}
+
+#[cfg(test)]
+mod handle_variable_tests {
+    use super::*;
+    use crate::test_util::{has_id, lint_file};
+
+    fn fires(src: &str) -> bool {
+        let e = GoodPracticesEngine::from_config(
+            &malt_core::Config::from_toml("[lint]\npreset = \"all\"\n").unwrap(),
+        );
+        has_id(&lint_file(&*e, src), "FVAL")
+    }
+
+    #[test]
+    fn fval_fires_on_variable_bound_to_handle() {
+        // Probed: `f = @sin; feval(f, 2)` is FVAL.
+        assert!(fires("f = @sin;\ny = feval(f, 2) + 1;\n"));
+    }
+
+    #[test]
+    fn fval_silent_on_function_parameter_handle() {
+        // Probed silent: a handle passed in as a parameter.
+        assert!(!fires(
+            "function a = g(f)\nfor k = 1:3\n    a = feval(f, k) + 2;\nend\nend\n"
+        ));
     }
 }

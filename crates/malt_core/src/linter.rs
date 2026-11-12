@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::ops::Range;
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::path::Path;
@@ -101,7 +102,10 @@ fn statement_span(source: &str, pos: usize) -> Range<usize> {
 ///
 /// When [`Linter::inline_suppression`] is enabled (the default), diagnostics
 /// on lines carrying a `%#ok<...>` directive comment are filtered out, mirroring
-/// MATLAB's inline suppression.
+/// MATLAB's inline suppression. A directive that names an active check which
+/// reported nothing on its line gets an MSNU (`A Code Analyzer message was once
+/// suppressed here...`, Info); a directive naming an ID malt does not track is
+/// silent (MATLAB's MSNE is not emitted).
 pub struct Linter {
     registry: RuleRegistry,
     parser: Parser,
@@ -228,8 +232,21 @@ impl Linter {
         // Step 4: Apply inline suppression directives (%#ok<...>).
         // A directive on a line suppresses matching diagnostics on that line only.
         if self.inline_suppression {
-            let suppressions = suppression::parse(source);
+            let suppressions = suppression::from_tree(source, &tree);
+            // MSNU reads what the checks reported before the directives removed it.
+            // An analysis that did not complete cannot say what was generated.
+            let analysis_complete = !diagnostics.iter().any(|d| d.rule_id == "QUIT");
+            let unused = if analysis_complete {
+                unused_suppressions(
+                    &diagnostics,
+                    &suppressions,
+                    &self.registry.active_check_ids(),
+                )
+            } else {
+                Vec::new()
+            };
             diagnostics.retain(|d| !suppressions.is_suppressed(d.line, d.rule_id));
+            diagnostics.extend(unused);
         }
 
         // Step 5: Sort by position for deterministic output
@@ -336,6 +353,44 @@ impl Linter {
             }
         }
     }
+}
+
+/// Message of MATLAB's MSNU: a `%#ok<ID>` directive whose check is active but
+/// generated no message on its line.
+const MSNU_MESSAGE: &str =
+    "A Code Analyzer message was once suppressed here, but the message is no longer generated.";
+
+/// MSNU diagnostics for the named check IDs of `suppressions` that are active
+/// but produced no diagnostic with that ID on their line.
+///
+/// Only the IDs in `active` are considered: an ID malt does not declare, or
+/// has switched off, is never reported, so a missing check cannot produce it.
+/// The MSNU itself is not suppressible (MATLAB reports it even when named by
+/// a directive on its line).
+fn unused_suppressions(
+    diagnostics: &[Diagnostic],
+    suppressions: &suppression::Suppressions,
+    active: &HashSet<&'static str>,
+) -> Vec<Diagnostic> {
+    let generated: HashSet<(usize, &str)> =
+        diagnostics.iter().map(|d| (d.line, d.rule_id)).collect();
+    suppressions
+        .named_ids()
+        .iter()
+        .filter(|named| {
+            active.contains(named.id.as_str())
+                && !generated.contains(&(named.line, named.id.as_str()))
+        })
+        .map(|named| Diagnostic {
+            rule_id: "MSNU",
+            message: MSNU_MESSAGE.to_string(),
+            severity: Severity::Info,
+            byte_range: named.byte_range.clone(),
+            line: named.line,
+            column: named.column,
+            fix: None,
+        })
+        .collect()
 }
 
 /// Depth of the deepest node of `tree` (the root is level 0). Iterative, so
@@ -455,6 +510,10 @@ mod tests {
             &["identifier"]
         }
 
+        fn active_check_ids(&self) -> Vec<&'static str> {
+            vec!["RULEA", "RULEB"]
+        }
+
         fn check(&self, ctx: &NodeContext) -> Vec<Diagnostic> {
             let node = ctx.node;
             let text = &ctx.source[node.byte_range()];
@@ -531,9 +590,11 @@ mod tests {
     #[test]
     fn inline_suppression_directive_on_other_line_does_not_suppress() {
         let diags = lint_with("aa = 1;\n%#ok<RULEA>\nbb = 2;\n");
-        assert_eq!(diags.len(), 2, "got: {diags:?}");
+        assert_eq!(diags.len(), 3, "got: {diags:?}");
         assert!(diags.iter().any(|d| d.rule_id == "RULEA"));
         assert!(diags.iter().any(|d| d.rule_id == "RULEB"));
+        // The directive on line 2 names RULEA, which reported nothing there.
+        assert!(diags.iter().any(|d| d.rule_id == "MSNU" && d.line == 2));
     }
 
     #[test]
@@ -556,6 +617,117 @@ mod tests {
         assert_eq!(diags.len(), 2, "got: {diags:?}");
         assert!(diags.iter().any(|d| d.rule_id == "RULEA"));
         assert!(diags.iter().any(|d| d.rule_id == "RULEB"));
+    }
+
+    // -- MSNU: a directive naming an active check that reported nothing ----------
+
+    fn msnu_of(diags: &[Diagnostic]) -> Vec<(usize, usize)> {
+        diags
+            .iter()
+            .filter(|d| d.rule_id == "MSNU")
+            .map(|d| (d.line, d.column))
+            .collect()
+    }
+
+    #[test]
+    fn unused_single_id_is_reported_at_the_percent_sign() {
+        // Probe: `y = x + 1; %#ok<PFBNS>` gives MSNU at column 12, the `%`.
+        let diags = lint_with("bb = 2; %#ok<RULEA>\n");
+        assert_eq!(msnu_of(&diags), vec![(1, 9)]);
+        let msnu = diags.iter().find(|d| d.rule_id == "MSNU").unwrap();
+        assert_eq!(msnu.severity, Severity::Info);
+        assert_eq!(
+            msnu.message,
+            "A Code Analyzer message was once suppressed here, but the message is no longer generated."
+        );
+    }
+
+    #[test]
+    fn unused_ids_of_a_several_id_directive_are_reported_at_their_own_columns() {
+        // Probe: `z = x; %#ok<AGROW,NASGU>` gives MSNU at column 13 (AGROW's own column).
+        // Here RULEA (column 14) and RULEB (column 20) each report nothing on the line.
+        let diags = lint_with("cc = 3; %#ok<RULEA,RULEB>\n");
+        assert_eq!(msnu_of(&diags), vec![(1, 14), (1, 20)]);
+    }
+
+    #[test]
+    fn a_fired_and_suppressed_id_is_used() {
+        // RULEA fires on the line and is suppressed: the directive is in use.
+        let diags = lint_with("aa = 1; %#ok<RULEA>\n");
+        assert!(msnu_of(&diags).is_empty(), "got: {diags:?}");
+    }
+
+    #[test]
+    fn only_the_unused_id_of_a_directive_is_reported() {
+        // RULEB fires and is suppressed; RULEA (column 14) reports nothing.
+        let diags = lint_with("bb = 2; %#ok<RULEA,RULEB>\n");
+        assert_eq!(msnu_of(&diags), vec![(1, 14)]);
+        assert!(
+            !diags.iter().any(|d| d.rule_id == "RULEB"),
+            "got: {diags:?}"
+        );
+    }
+
+    #[test]
+    fn an_id_the_linter_does_not_track_is_never_reported() {
+        // NOSUCHID is not an active check, so no MSNU (MSNE is not emitted).
+        let diags = lint_with("cc = 3; %#ok<NOSUCHID>\n");
+        assert!(msnu_of(&diags).is_empty(), "got: {diags:?}");
+    }
+
+    #[test]
+    fn wildcard_directives_are_never_reported() {
+        let diags = lint_with("cc = 3; %#ok<*RULE*>\n");
+        assert!(msnu_of(&diags).is_empty(), "got: {diags:?}");
+    }
+
+    #[test]
+    fn bare_directives_are_never_reported() {
+        // MATLAB reports an unused bare `%#ok`; malt does not, because a bare
+        // directive would answer for every check on its line.
+        let diags = lint_with("cc = 3; %#ok\n");
+        assert!(msnu_of(&diags).is_empty(), "got: {diags:?}");
+    }
+
+    #[test]
+    fn msnu_is_not_suppressed_by_a_directive_that_matches_it() {
+        // Probe: `disp(x); %#ok<AGROW,MSNU>` reports MSNU for AGROW and for MSNU
+        // itself, so a directive does not hide an MSNU. `*SNU*` matches MSNU here.
+        let diags = lint_with("cc = 3; %#ok<RULEA,*SNU*>\n");
+        assert_eq!(msnu_of(&diags), vec![(1, 14)]);
+    }
+
+    #[test]
+    fn no_msnu_when_suppression_is_disabled() {
+        let registry = RuleRegistry::new(vec![Box::new(MultiRule)], &Config::default());
+        let mut linter = Linter::new(registry);
+        linter.set_inline_suppression(false);
+        let diags = linter
+            .lint("bb = 2; %#ok<RULEA>\n", Path::new("test.m"))
+            .expect("lint should succeed");
+        assert!(msnu_of(&diags).is_empty(), "got: {diags:?}");
+    }
+
+    #[test]
+    fn no_msnu_when_the_analysis_did_not_complete() {
+        // A panicking rule makes the file QUIT: nothing can be said about what was generated.
+        let registry = RuleRegistry::new(
+            vec![Box::new(PanicRule), Box::new(MultiRule)],
+            &Config::default(),
+        );
+        let mut linter = Linter::new(registry);
+        let diags = linter
+            .lint("bb = 2; %#ok<RULEA>\n", Path::new("test.m"))
+            .expect("lint should succeed");
+        assert!(diags.iter().any(|d| d.rule_id == "QUIT"), "got: {diags:?}");
+        assert!(msnu_of(&diags).is_empty(), "got: {diags:?}");
+    }
+
+    #[test]
+    fn a_directive_in_a_string_or_after_a_continuation_reports_nothing() {
+        // Neither is a directive (probes q3 and q1), so RULEA is not named.
+        assert!(msnu_of(&lint_with("disp('%#ok<RULEA>'); bb = 2;\n")).is_empty());
+        assert!(msnu_of(&lint_with("bb = [1, ... %#ok<RULEA>\n 2];\n")).is_empty());
     }
 
     // -- depth limit -----------------------------------------------------------

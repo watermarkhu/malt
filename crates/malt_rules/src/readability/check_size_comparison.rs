@@ -140,7 +140,13 @@ mod tests {
 
     #[test]
     fn isrow_size_dim1_equals_one_fires() {
+        // Off under the mathworks preset (probed silent); fires under `all`.
         let diags = lint_nodes(&*engine(), "x = size(a, 1) == 1;\n");
+        assert!(!has_id(&diags, "ISROW"), "got: {diags:?}");
+        let all = ReadabilityEngine::from_config(
+            &Config::from_toml("[lint]\npreset = \"all\"\n").unwrap(),
+        );
+        let diags = lint_nodes(&*all, "x = size(a, 1) == 1;\n");
         assert!(has_id(&diags, "ISROW"), "got: {diags:?}");
     }
 
@@ -154,7 +160,10 @@ mod tests {
 
     #[test]
     fn iscol_size_dim2_equals_one_fires() {
-        let diags = lint_nodes(&*engine(), "x = size(a, 2) == 1;\n");
+        let all = ReadabilityEngine::from_config(
+            &Config::from_toml("[lint]\npreset = \"all\"\n").unwrap(),
+        );
+        let diags = lint_nodes(&*all, "x = size(a, 2) == 1;\n");
         assert!(has_id(&diags, "ISCOL"), "got: {diags:?}");
     }
 

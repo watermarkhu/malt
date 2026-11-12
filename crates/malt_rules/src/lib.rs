@@ -227,6 +227,27 @@ mod tests {
         ids
     }
 
+    fn lint_positions(config: &Config, source: &str) -> Vec<(&'static str, usize, usize)> {
+        let registry = malt_core::RuleRegistry::new(active_rules(config), config);
+        let mut linter = malt_core::Linter::new(registry);
+        linter
+            .lint(source, std::path::Path::new("probe.m"))
+            .unwrap()
+            .iter()
+            .map(|d| (d.rule_id, d.line, d.column))
+            .collect()
+    }
+
+    #[test]
+    fn unused_directive_for_an_active_check_is_msnu() {
+        // MATLAB probe s2: PFBNS stays silent here because both statements index
+        // `c` alike, so the directive on line 4 names nothing; MSNU at the `%`, column 20.
+        let source =
+            "c = foo();\nparfor i = 1:N\n    a(i) = c(i,1);\n    b(i) = c(i,1); %#ok<PFBNS>\nend\n";
+        let found = lint_positions(&Config::default(), source);
+        assert!(found.contains(&("MSNU", 4, 20)), "got: {found:?}");
+    }
+
     #[test]
     fn checks_that_matlab_leaves_off_are_off_under_the_default_preset() {
         // MATLAB's factory configuration never reports these (probed with checkcode

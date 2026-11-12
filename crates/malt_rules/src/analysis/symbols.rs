@@ -557,6 +557,15 @@ impl<'a> Builder<'a> {
                 self.record_save_reads(node);
                 self.visit_children(node);
             }
+            // `syms a b real` declares each plain name as a variable: a store, so an
+            // unused one is dead in a function (probed: NASGU on `w0` and `b`).
+            "command"
+                if node
+                    .named_child(0)
+                    .is_some_and(|c| c.kind() == "command_name" && self.node_text(c) == "syms") =>
+            {
+                self.record_syms_stores(node);
+            }
             // `a;` is a command with one `command_name` in this grammar: a read of `a`.
             "command" if node.named_child_count() == 1 => {
                 if let Some(name) = node
@@ -1417,6 +1426,38 @@ impl<'a> Builder<'a> {
     /// Each is a full assignment at the position of its name, so MATLAB reports
     /// an unread store there (probed: `x = 1; load('a.mat', 'x')` reports both).
     /// Options (`-mat`) store nothing.
+    /// Declares each plain name of a `syms` command as a variable, defined at the
+    /// end of the statement. `x(t)` declarations and the assumption keywords
+    /// (`real`, `positive`, ...) are not declared here.
+    fn record_syms_stores(&mut self, node: tree_sitter::Node<'a>) {
+        const ASSUMPTIONS: &[&str] = &["real", "positive", "unreal", "rational", "integer"];
+        let mut cursor = node.walk();
+        for arg in node.named_children(&mut cursor) {
+            let name = self.node_text(arg);
+            let plain = name
+                .chars()
+                .next()
+                .is_some_and(|c| c.is_alphabetic() || c == '_')
+                && name.chars().all(|c| c.is_alphanumeric() || c == '_');
+            if arg.kind() == "command_name" || !plain || ASSUMPTIONS.contains(&name) {
+                continue;
+            }
+            let pos = arg.start_position();
+            self.add_def(VarDef {
+                name: name.to_string(),
+                kind: DefKind::Assignment,
+                byte_range: arg.byte_range(),
+                effect_start: node.end_byte(),
+                partial: false,
+                multi_output: false,
+                prealloc: false,
+                block_start: node.parent().map_or(0, |p| p.start_byte()),
+                line: pos.row + 1,
+                column: pos.column + 1,
+            });
+        }
+    }
+
     fn record_load_stores(&mut self, node: tree_sitter::Node<'a>) {
         let mut cursor = node.walk();
         let args: Vec<tree_sitter::Node<'a>> = match node.kind() {

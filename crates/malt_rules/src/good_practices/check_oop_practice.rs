@@ -337,6 +337,10 @@ fn first_object_assignment<'a>(
 /// Check whether a `field_expression` accesses a field of the method's object
 /// (`obj.X` where `obj` is the first input argument).
 fn is_object_field_access(fe: Node, source: &str, info: &MethodInfo) -> bool {
+    // Probed: a static method has no object, so `T.value` on its input is silent.
+    if info.is_static {
+        return false;
+    }
     let Some(obj) = fe.child_by_field_name("object") else {
         return false;
     };
@@ -472,6 +476,29 @@ fn check_method_body(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // Probed: a static method has no object, so `T.value` on its input is silent.
+    #[test]
+    fn mcnpn_silent_on_input_field_in_static_method() {
+        let source = "classdef mc\n    properties\n        Data = []\n    end\n    methods (Static)\n        function obj = fromTable(T)\n            obj = mc(T.value);\n        end\n    end\n    methods\n        function obj = mc(a)\n            obj.Data = a;\n        end\n    end\nend\n";
+        assert!(
+            oop_ids_for(source, "MCNPN").is_empty(),
+            "got: {:?}",
+            oop_ids(source)
+        );
+    }
+
+    // Probed: `obj.Nope` on the object argument of a method is MCNPN.
+    #[test]
+    fn mcnpn_fires_on_undeclared_member_of_object_argument() {
+        let source = "classdef mc\n    properties\n        Data = []\n    end\n    methods\n        function r = get(obj, T)\n            r = T.value;\n            r = obj.Nope;\n        end\n    end\nend\n";
+        assert_eq!(
+            oop_ids_for(source, "MCNPN").len(),
+            1,
+            "got: {:?}",
+            oop_ids(source)
+        );
+    }
 
     fn oop_ids(source: &str) -> Vec<&'static str> {
         let tree = parse(source);

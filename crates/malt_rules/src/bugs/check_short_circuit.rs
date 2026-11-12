@@ -1,4 +1,5 @@
 use super::*;
+use crate::analysis::elementwise::elementwise_operands;
 
 /// Functions that return `true` for a scalar logical produced by `&&`/`||`.
 const ALWAYS_TRUE: &[&str] = &["isscalar", "islogical", "isreal"];
@@ -77,12 +78,20 @@ impl BugsEngine {
         if !matches!(op.as_str(), "&&" | "||" | "&" | "|") {
             return Vec::new();
         }
-        let (Some(left), Some(right)) = (node.child(0), node.child(2)) else {
-            return Vec::new();
+        // `&` and `|` bind looser than comparisons in MATLAB, not in the tree:
+        // compare the operands MATLAB sees (`x & x > 1` is `x` and `x > 1`).
+        let (left_text, right_text) = if op == "&" || op == "|" {
+            let Some((left, right)) = elementwise_operands(node, source) else {
+                return Vec::new();
+            };
+            (left.text(source), right.text(source))
+        } else {
+            let (Some(left), Some(right)) = (node.child(0), node.child(2)) else {
+                return Vec::new();
+            };
+            (node_text(left, source), node_text(right, source))
         };
-        if normalize_whitespace(node_text(left, source))
-            != normalize_whitespace(node_text(right, source))
-        {
+        if normalize_whitespace(left_text) != normalize_whitespace(right_text) {
             return Vec::new();
         }
         let pos = node.start_position();
@@ -151,6 +160,19 @@ mod tests {
     fn lbodup_no_fire_on_distinct_operands() {
         let diags = node_diags("y = a && b;\n");
         assert!(!has_id(&diags, "LBODUP"), "got: {diags:?}");
+    }
+
+    #[test]
+    fn lbodup_silent_on_mis_nested_elementwise_operands() {
+        // Probed: MATLAB is silent on `x & x > 1` and `x > 1 & 1`. The tree has
+        // `x & x` and `1 & 1` as nodes, but MATLAB's operands differ.
+        for src in [
+            "if x & x > 1\n    c = 1;\nend\n",
+            "if x > 1 & 1\n    c = 1;\nend\n",
+        ] {
+            let diags = node_diags(src);
+            assert!(!has_id(&diags, "LBODUP"), "{src}: got: {diags:?}");
+        }
     }
 
     #[test]

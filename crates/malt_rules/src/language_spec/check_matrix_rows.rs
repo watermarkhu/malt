@@ -2,6 +2,19 @@
 
 use super::*;
 
+/// A numeric literal, optionally signed: the only elements whose width MATLAB knows.
+fn is_number_literal(node: tree_sitter::Node) -> bool {
+    match node.kind() {
+        "number" => true,
+        "unary_operator" => {
+            let mut cursor = node.walk();
+            let operands: Vec<_> = node.named_children(&mut cursor).collect();
+            operands.len() == 1 && operands[0].kind() == "number"
+        }
+        _ => false,
+    }
+}
+
 impl LanguageSpecEngine {
     /// ROWLN: Matrix rows must be the same length.
     pub(crate) fn check_matrix_rows(
@@ -42,15 +55,20 @@ impl LanguageSpecEngine {
 
         for child in matrix_node.children(&mut cursor) {
             if child.kind() == "row" {
-                // Count the number of expression elements in this row
+                // Count the number of expression elements in this row. Probed: MATLAB
+                // reports ROWLN only when every element is a number literal; variables,
+                // calls, indexing, strings, ranges and nested matrices have widths it
+                // does not know, so any other element leaves the matrix alone.
                 let mut elem_count = 0;
                 let mut inner_cursor = child.walk();
                 for elem in child.children(&mut inner_cursor) {
-                    let k = elem.kind();
-                    // Skip punctuation/separators
-                    if k != "," && k != ";" && k != "[" && k != "]" && k != " " && elem.is_named() {
-                        elem_count += 1;
+                    if !elem.is_named() || elem.kind() == "comment" {
+                        continue;
                     }
+                    if !is_number_literal(elem) {
+                        return;
+                    }
+                    elem_count += 1;
                 }
                 row_lengths.push(elem_count);
             }
@@ -75,5 +93,56 @@ impl LanguageSpecEngine {
                 });
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::test_util::{has_id, lint_file};
+    use malt_core::Config;
+
+    fn engine() -> Box<dyn Rule> {
+        LanguageSpecEngine::from_config(&Config::default())
+    }
+
+    // Probed: MATLAB reports ROWLN for literal rows of different widths.
+    #[test]
+    fn rowln_fires_on_literal_rows_of_different_widths() {
+        assert!(has_id(&lint_file(&*engine(), "m = [1 2; 3];\n"), "ROWLN"));
+        assert!(has_id(
+            &lint_file(&*engine(), "m = [1 2; -3 4 5];\n"),
+            "ROWLN"
+        ));
+        assert!(has_id(
+            &lint_file(&*engine(), "m = [1 2; 3 4 5]';\n"),
+            "ROWLN"
+        ));
+    }
+
+    // Probed: MATLAB is silent when an element's width is not a number literal.
+    #[test]
+    fn rowln_silent_on_elements_with_unknown_width() {
+        for source in [
+            "m = [a; b c];\n",
+            "m = [stack; r2 c2];\n",
+            "m = [1 2; 'ab'];\n",
+            "m = [1:2 3; 4 5 6];\n",
+            "m = [[1 2] 3; 4 5 6];\n",
+            "m = [1+2 3; 4 5 6 7];\n",
+            "m = [1 2; rand 3 4];\n",
+            "m = [x(1) x(2); 1 2 3];\n",
+        ] {
+            assert!(
+                !has_id(&lint_file(&*engine(), source), "ROWLN"),
+                "unexpected ROWLN for {source:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn rowln_silent_when_continuation_joins_rows_to_equal_width() {
+        let source = "m = [1 2 ...\n 3; 4 5 6];\n";
+        assert!(!has_id(&lint_file(&*engine(), source), "ROWLN"));
     }
 }

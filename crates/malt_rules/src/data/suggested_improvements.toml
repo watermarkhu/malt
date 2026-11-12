@@ -16,6 +16,8 @@
 #   arg_at / arg_kinds / not_arg_kinds / arg_text (function syntax only),
 #   arg_through_variables: the argument variable takes the kinds it is assigned
 #                   (`x = 5; year(x)`), see suggested_improvements.rs.
+#   version_at_least: the argument at arg_at is a dotted release number (`9.10`) at
+#                   least this one (`9.9`); `R2021a` never matches.
 #   within_parfor, not_in_call / not_in_call_literal: usage conditions, see
 #   suggested_improvements.rs. A bare name (`clock`) is a use with no arguments.
 
@@ -427,7 +429,8 @@ replacement = "parsim"
 
 [[checks]]
 id = "NUMCH"
-function_name = "audioread"
+function_name = "get"
+literal_args = ["NumberOfChannels"]
 message = "'NumberOfChannels' is not recommended. Use 'NumChannels' instead."
 replacement = "NumChannels"
 
@@ -541,6 +544,9 @@ replacement = "matlabRelease"
 [[checks]]
 id = "VERLESSMATLAB"
 function_name = "verLessThan"
+literal_args = ["matlab"]
+arg_at = 2
+version_at_least = "9.9"
 message = "verLessThan('matlab', ...) is not recommended. With appropriate code changes, use 'isMATLABReleaseOlderThan' instead."
 replacement = "isMATLABReleaseOlderThan"
 

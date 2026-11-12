@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use crate::config::Config;
 use crate::diagnostic::Severity;
@@ -109,6 +109,14 @@ impl RuleRegistry {
     /// Iterate over all registered rules.
     pub fn all_rules(&self) -> &[Box<dyn Rule>] {
         &self.rules
+    }
+
+    /// The check IDs of every registered rule (see [`Rule::active_check_ids`]).
+    pub fn active_check_ids(&self) -> HashSet<&'static str> {
+        self.rules
+            .iter()
+            .flat_map(|rule| rule.active_check_ids())
+            .collect()
     }
 
     /// Iterate over all rules with their indices (for severity lookup).

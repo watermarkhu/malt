@@ -212,6 +212,16 @@ pub trait Rule: Send + Sync {
         false
     }
 
+    /// The check IDs this rule reports under the current configuration: the
+    /// IDs it is set up to report, minus those switched off.
+    ///
+    /// The linter uses them for MSNU (a `%#ok<ID>` directive whose check
+    /// reported nothing on its line). The default declares none, so a rule that
+    /// does not list its IDs never causes an MSNU.
+    fn active_check_ids(&self) -> Vec<&'static str> {
+        Vec::new()
+    }
+
     /// Check a single node encountered during the single-pass traversal.
     ///
     /// Only called for nodes whose `kind()` is in [`target_node_types`].
