@@ -50,6 +50,16 @@ mod tests {
     }
 
     #[test]
+    fn test_pfevb_fires_on_upper_case_base() {
+        // Probed: MATLAB matches 'BASE' too (pe10).
+        let source = "parfor i = 1:10\n    evalin('BASE', 'x');\nend\n";
+        let tree = parse(source);
+        let eng = engine();
+        let parfor = find_child_of_kind(tree.root_node(), "for_statement").unwrap();
+        assert_eq!(eng.check_pfevb(parfor, source).len(), 1);
+    }
+
+    #[test]
     fn test_pfevb_silent_on_caller_workspace() {
         let source = "parfor i = 1:10\n    evalin('caller','x');\n    x(i) = i;\nend\n";
         let tree = parse(source);

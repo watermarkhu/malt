@@ -21,10 +21,11 @@ impl GoodPracticesEngine {
                 .attributes
                 .iter()
                 .any(|a| a.name == "Constant" && !a.negated);
-            let has_observable = block
-                .attributes
-                .iter()
-                .any(|a| !a.negated && (a.name == "SetObservable" || a.name == "GetObservable"));
+            let has_observable = block.attributes.iter().any(|a| {
+                !a.negated
+                    && (a.name == "SetObservable" || a.name == "GetObservable")
+                    && a.value.as_deref().is_none_or(|v| v == "true")
+            });
             if !has_constant || !has_observable {
                 continue;
             }
@@ -68,5 +69,30 @@ mod tests {
         let tree = parse(source);
         let eng = engine();
         assert!(eng.check_mobsrv(&tree, source).is_empty());
+    }
+}
+
+#[cfg(test)]
+mod probe_p2a_tests {
+    use crate::test_util::lint_file;
+    use malt_core::Config;
+
+    /// Lines of the MOBSRV diagnostics for `src`.
+    fn lines(src: &str) -> Vec<usize> {
+        let e = crate::good_practices::GoodPracticesEngine::from_config(&Config::default());
+        lint_file(&*e, src)
+            .iter()
+            .filter(|d| d.rule_id == "MOBSRV")
+            .map(|d| d.line)
+            .collect()
+    }
+
+    #[test]
+    fn mobsrv_ignores_an_observable_attribute_set_to_false() {
+        // The value rule follows MCPO (probed: `SetObservable = false` is silent there).
+        let on = "classdef C\n properties (Constant, GetObservable)\n  X = 1\n end\nend\n";
+        let off = "classdef C\n properties (Constant, SetObservable = false)\n  X = 1\n end\nend\n";
+        assert_eq!(lines(on), vec![2]);
+        assert!(lines(off).is_empty());
     }
 }

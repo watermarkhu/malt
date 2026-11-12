@@ -41,8 +41,6 @@ const UNSAFE: &[(&str, &str)] = &[
         "y = strcmpi(lower(s), 'abc');\ndisp(y);\n",
         "strcmpi(s, 'abc')",
     ),
-    // f(x) == true equals f(x) only when f returns a logical.
-    ("if numel(A) == true\n  disp(1);\nend\n", "if numel(A)\n"),
 ];
 
 #[test]

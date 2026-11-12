@@ -61,6 +61,25 @@ mod tests {
     }
 
     #[test]
+    fn test_spgv_reports_every_read_and_no_indexed_write() {
+        // Probed: `x = G; z = G;` gives SPGV on both lines (sg06); `G(1) = 1` and
+        // `G.a = 1` are SPGP, not SPGV (sg05, sg17).
+        let count = |body: &str| {
+            let src = format!("function f()\nglobal G\nspmd\n    {body}\nend\nend\n");
+            let engine = crate::good_practices::GoodPracticesEngine::from_config(
+                &malt_core::Config::default(),
+            );
+            crate::test_util::lint_nodes(&*engine, &src)
+                .iter()
+                .filter(|d| d.rule_id == "SPGV")
+                .count()
+        };
+        assert_eq!(count("x = G;\n    z = G;"), 2);
+        assert_eq!(count("G(1) = 1;"), 0);
+        assert_eq!(count("G.a = 1;"), 0);
+    }
+
+    #[test]
     fn test_spgv_silent_on_global_write_in_spmd() {
         let source = "global g2;\nspmd\n    g2 = 1;\nend\n";
         let tree = parse(source);

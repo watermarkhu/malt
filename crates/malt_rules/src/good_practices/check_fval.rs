@@ -49,16 +49,25 @@ fn is_literal_feval(call: Node, source: &str) -> bool {
     let Some(first) = first else {
         return false;
     };
-    match first.kind() {
-        "string" | "handle_operator" => true,
-        // Probed: `f = @sin; feval(f, 2)` and `f = @(x) ...; feval(f, 2)` are FVAL;
-        // a function parameter is not.
-        "identifier" => {
-            let name = &source[first.byte_range()];
-            matches!(
-                reaching(first, source, name).binding,
-                Binding::Value(v) if matches!(v.kind(), "handle_operator" | "lambda")
-            )
+    callee_is_literal(first, source, 0)
+}
+
+/// Whether a `feval` callee is a known function: a character vector, a handle or
+/// an anonymous function, written literally or bound to a variable. Probed: FVAL
+/// for `f = @sin; feval(f, 2)`, `f = 'sin'; feval(f, 1)`, `k = h` chains and a
+/// lambda literal; a function parameter is not.
+fn callee_is_literal(node: Node, source: &str, depth: usize) -> bool {
+    match node.kind() {
+        "string" | "handle_operator" | "lambda" => true,
+        "identifier" if depth < 4 => {
+            let name = &source[node.byte_range()];
+            match reaching(node, source, name).binding {
+                Binding::Value(v) if v.kind() == "identifier" => {
+                    callee_is_literal(v, source, depth + 1)
+                }
+                Binding::Value(v) => matches!(v.kind(), "handle_operator" | "lambda" | "string"),
+                _ => false,
+            }
         }
         _ => false,
     }
@@ -103,6 +112,15 @@ mod handle_variable_tests {
     fn fval_fires_on_variable_bound_to_handle() {
         // Probed: `f = @sin; feval(f, 2)` is FVAL.
         assert!(fires("f = @sin;\ny = feval(f, 2) + 1;\n"));
+    }
+
+    #[test]
+    fn fval_fires_on_probed_callee_forms() {
+        // Probed FVAL: a lambda literal, a character variable, a handle copied through
+        // another variable.
+        assert!(fires("r = feval(@(x) x+1, 2);\n"));
+        assert!(fires("h = 'sin';\nh = 'cos';\nr = feval(h, 1);\n"));
+        assert!(fires("h = @sin;\nk = h;\nr = feval(k, 2);\n"));
     }
 
     #[test]

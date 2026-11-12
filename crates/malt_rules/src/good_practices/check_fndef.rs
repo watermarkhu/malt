@@ -39,6 +39,7 @@ impl GoodPracticesEngine {
         if name.is_empty() || name == stem {
             return Vec::new();
         }
+        let column = name_column(source, byte_range.start, &name);
         vec![Diagnostic {
             rule_id: "FNDEF",
             message: format!(
@@ -48,10 +49,21 @@ impl GoodPracticesEngine {
             severity: Severity::Warning,
             byte_range,
             line,
-            column: 1,
+            column,
             fix: None,
         }]
     }
+}
+
+/// The 1-based column of `name` on the `function` line that holds byte `start`.
+/// MATLAB points at the name (probed: column 10 for `function other()`).
+fn name_column(source: &str, start: usize, name: &str) -> usize {
+    let line_start = source[..start].rfind('\n').map_or(0, |p| p + 1);
+    let line = source[line_start..].lines().next().unwrap_or("");
+    let keyword = line.find("function").map_or(0, |i| i + "function".len());
+    line[keyword..]
+        .find(name)
+        .map_or(1, |i| line[..keyword + i].chars().count() + 1)
 }
 
 /// The name, line and byte range of a function whose header tree-sitter could
@@ -162,6 +174,18 @@ mod tests {
         // Local functions are not the file's main function.
         assert!(!has_id(
             &fndef("function a()\nend\nfunction b()\nend\n", "a.m"),
+            "FNDEF"
+        ));
+    }
+
+    #[test]
+    fn fndef_fires_after_a_leading_blank_line_or_help_comment() {
+        // Probed: MATLAB reports FNDEF at the name in fd04 (`% help` first) and fd11 (blank lines first).
+        let d = fndef("% help text\nfunction other()\nend\n", "fd04.m");
+        let m = d.iter().find(|d| d.rule_id == "FNDEF").expect("FNDEF");
+        assert_eq!((m.line, m.column), (2, 10));
+        assert!(has_id(
+            &fndef("\n\nfunction other()\nend\n", "fd11.m"),
             "FNDEF"
         ));
     }

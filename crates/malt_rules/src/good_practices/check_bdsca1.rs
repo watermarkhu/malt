@@ -15,7 +15,15 @@ impl GoodPracticesEngine {
         if !self.is_check_enabled("BDSCA1") {
             return Vec::new();
         }
-        let Some(condition) = condition_of(node) else {
+        // Probed: an `elseif` condition is reported like an `if` condition.
+        let condition = if node.kind() == "elseif_clause" {
+            (0..node.named_child_count())
+                .filter_map(|i| node.named_child(i))
+                .find(|c| !matches!(c.kind(), "block" | "comment"))
+        } else {
+            condition_of(node)
+        };
+        let Some(condition) = condition else {
             return Vec::new();
         };
         let non_scalar = match condition.kind() {
@@ -82,5 +90,27 @@ mod tests {
         ] {
             assert!(!has_id(&bdsca1_diags(src), "BDSCA1"), "{src}");
         }
+    }
+}
+
+#[cfg(test)]
+mod elseif_tests {
+    use super::*;
+    use crate::test_util::has_id;
+
+    #[test]
+    fn bdsca1_fires_on_an_elseif_condition() {
+        // Probed: `elseif [1 0]` and `elseif [1 2 3]` are reported like `if`.
+        let source = "if x\nelseif [1 0]\n    disp(1);\nend\n";
+        let tree = parse(source);
+        let mut out = Vec::new();
+        let mut stack = vec![tree.root_node()];
+        while let Some(n) = stack.pop() {
+            out.extend(engine().check_bdsca1(n, source));
+            let mut c = n.walk();
+            stack.extend(n.children(&mut c));
+        }
+        assert!(has_id(&out, "BDSCA1"), "got: {out:?}");
+        assert_eq!((out[0].line, out[0].column), (2, 8));
     }
 }

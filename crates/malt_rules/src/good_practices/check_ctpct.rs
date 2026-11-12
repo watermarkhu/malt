@@ -2,7 +2,8 @@ use super::*;
 
 impl GoodPracticesEngine {
     /// CTPCT: `sprintf`/`fprintf` format specifier count does not match the
-    /// number of remaining arguments.
+    /// number of remaining arguments, and the same for a message passed to
+    /// `error`/`warning`.
     pub(crate) fn check_ctpct(&self, node: Node, source: &str) -> Vec<Diagnostic> {
         if !self.is_check_enabled("CTPCT") || node.kind() != "function_call" {
             return Vec::new();
@@ -12,7 +13,8 @@ impl GoodPracticesEngine {
             Some(n) => n,
             None => return Vec::new(),
         };
-        if func_name != "sprintf" && func_name != "fprintf" {
+        let is_message = func_name == "error" || func_name == "warning";
+        if func_name != "sprintf" && func_name != "fprintf" && !is_message {
             return Vec::new();
         }
 
@@ -22,9 +24,10 @@ impl GoodPracticesEngine {
         };
 
         let mut cursor = args_node.walk();
+        // Continuations (`...`) and comments are named nodes but not arguments.
         let args: Vec<Node> = args_node
             .children(&mut cursor)
-            .filter(|c| c.is_named())
+            .filter(|c| c.is_named() && !matches!(c.kind(), "comment" | "line_continuation"))
             .collect();
         // The format is the first argument (for `fprintf`, the second when the
         // first is a file identifier). Only a single string literal is checked:
@@ -42,12 +45,29 @@ impl GoodPracticesEngine {
         };
 
         let fmt_text = node_text(format, source).trim_matches('\'');
+        // `error` and `warning` take an identifier or an action word (`'off'`)
+        // as the first argument, not a format. Only a message with a space is
+        // read as a format (probed: `error('bad id:here', 'x')` is reported,
+        // `warning('off', 'all')` is silent).
+        if is_message && !fmt_text.contains(' ') {
+            return Vec::new();
+        }
         let specifiers = count_format_specifiers(fmt_text);
         let arg_count = args.len() - format_index - 1;
-        // MATLAB flags only a format with no specifiers that gets arguments, or one
-        // with specifiers and no arguments (probed). Two non-zero counts that
-        // differ, such as `fprintf('%d %d', 1)`, are silent.
-        if (specifiers == 0) == (arg_count == 0) {
+        // Probed MATLAB rule: a format with no specifiers that gets arguments is
+        // reported. With specifiers, too few arguments are silent, except that
+        // sprintf and fprintf report none at all (`fprintf('%d %d');` is the only
+        // zero-argument case), and too many are reported only when their count is
+        // not a multiple of the specifier count, because the format is reused
+        // (`sprintf('%d', a, b)` and `sprintf('%d %d', a, b, a, b)` are silent).
+        let mismatch = if specifiers == 0 {
+            arg_count > 0
+        } else if is_message {
+            arg_count > specifiers && !arg_count.is_multiple_of(specifiers)
+        } else {
+            arg_count == 0 || (arg_count > specifiers && !arg_count.is_multiple_of(specifiers))
+        };
+        if !mismatch {
             return Vec::new();
         }
 
@@ -112,16 +132,72 @@ mod tests {
         assert_eq!(diags[0].rule_id, "CTPCT");
     }
 
-    #[test]
-    fn test_ctpct_silent_on_match() {
-        let source = "fprintf('%d', x);\n";
+    /// CTPCT diagnostics for every function call in `source`.
+    fn ctpct(source: &str) -> usize {
         let tree = parse(source);
-        let root = tree.root_node();
         let eng = engine();
+        let mut count = 0;
+        let mut stack = vec![tree.root_node()];
+        while let Some(n) = stack.pop() {
+            count += eng.check_ctpct(n, source).len();
+            let mut c = n.walk();
+            stack.extend(n.children(&mut c));
+        }
+        count
+    }
 
-        let fc = find_descendant_of_kind(root, "function_call").unwrap();
-        let diags = eng.check_ctpct(fc, source);
-        assert!(diags.is_empty());
+    #[test]
+    fn test_ctpct_fires_on_too_many_arguments_not_a_multiple() {
+        // Probed: `sprintf('%s %d', 'a', 1, 2)`, `sprintf('%d %d', a, b, a)`,
+        // `fprintf('%d %d %d', 1, 2, 3, 4)`, `sprintf('%d%d', a, b, c)`, and the
+        // double-quoted `sprintf("%s %d", 'a', 1, 2)`.
+        for source in [
+            "s = sprintf('%s %d', 'a', 1, 2);\n",
+            "s = sprintf('%d %d', a, b, a);\n",
+            "fprintf('%d %d %d', 1, 2, 3, 4);\n",
+            "s = sprintf('%d%d', a, b, c);\n",
+            "s = sprintf(\"%s %d\", 'a', 1, 2);\n",
+        ] {
+            assert_eq!(ctpct(source), 1, "{source}");
+        }
+    }
+
+    #[test]
+    fn test_ctpct_silent_on_too_many_arguments_that_are_a_multiple() {
+        // Probed: the format is reused, so `sprintf('%d', a, b)` is legitimate.
+        for source in [
+            "s = sprintf('%d', a, b);\n",
+            "s = sprintf('%d', a, b, c);\n",
+            "s = sprintf('%d %d', a, b, a, b);\n",
+            "s = sprintf('%d %d', [1 2 3], 4);\n",
+            "fprintf(1, '%d', a, b);\n",
+            "s = sprintf('%s', 'a', 'b', 'c');\n",
+        ] {
+            assert_eq!(ctpct(source), 0, "{source}");
+        }
+    }
+
+    #[test]
+    fn test_ctpct_on_error_and_warning_messages() {
+        // Probed: a message with a space and no specifiers that gets arguments
+        // is reported. Action words and identifiers are not formats, and a
+        // message with specifiers and matching arguments is silent.
+        for source in [
+            "error('Something failed', a);\n",
+            "warning('hello there', a);\n",
+            "error('bad id:here', 'x');\n",
+        ] {
+            assert_eq!(ctpct(source), 1, "{source}");
+        }
+        for source in [
+            "error('x: %d', a, b, c);\n",
+            "warning('x %d', a, b);\n",
+            "error('Failed %d', x);\n",
+            "warning('off', 'all');\n",
+            "error('my:id', 'Something failed');\n",
+        ] {
+            assert_eq!(ctpct(source), 0, "{source}");
+        }
     }
 
     #[test]
@@ -146,6 +222,15 @@ mod tests {
         let fc = find_descendant_of_kind(root, "function_call").unwrap();
         let diags = eng.check_ctpct(fc, source);
         assert!(diags.is_empty());
+    }
+
+    #[test]
+    fn test_ctpct_counts_arguments_not_continuations() {
+        // A `...` continuation is not an argument (fixtures corpus1, corpus4).
+        let source = "s = sprintf('%d %d', ...\n    a, ...\n    b);\n";
+        assert_eq!(ctpct(source), 0);
+        let source = "s = sprintf('%d %d', ...\n    a, ...\n    b, a);\n";
+        assert_eq!(ctpct(source), 1);
     }
 
     #[test]

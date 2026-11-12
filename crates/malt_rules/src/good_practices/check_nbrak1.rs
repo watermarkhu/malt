@@ -15,8 +15,14 @@ impl GoodPracticesEngine {
             return Vec::new();
         };
 
-        // `[5]` or `['abc']` are legitimate 1x1 array literals.
-        if element.kind() == "number" || element.kind() == "string" {
+        // `[5]` or `['abc']` are legitimate 1x1 array literals, but a number that
+        // is an operand is a precedence group (probed: `[2] == x`, `x == [2]`,
+        // `[2] * x` are NBRAK1, while `if [1]` is NBRAK2).
+        let number_operand = element.kind() == "number"
+            && node
+                .parent()
+                .is_some_and(|p| matches!(p.kind(), "comparison_operator" | "binary_operator"));
+        if (element.kind() == "number" && !number_operand) || element.kind() == "string" {
             return Vec::new();
         }
         // `[c{:}]` and `[s.f]` are comma-separated lists, not precedence groups.
@@ -216,6 +222,44 @@ mod fix_tests {
             for d in nbrak1(source) {
                 assert!(d.fix.is_none(), "{source:?} must not be rewritten");
             }
+        }
+    }
+}
+
+#[cfg(test)]
+mod number_operand_tests {
+    use super::*;
+
+    fn nbrak1(source: &str) -> usize {
+        let tree = parse(source);
+        let mut count = 0;
+        let mut stack = vec![tree.root_node()];
+        while let Some(n) = stack.pop() {
+            count += engine().check_nbrak1(n, source).len();
+            let mut c = n.walk();
+            stack.extend(n.children(&mut c));
+        }
+        count
+    }
+
+    #[test]
+    fn fires_on_a_number_that_is_an_operand() {
+        // Probed: `[2] == x`, `x == [2]`, `[2] * x` and `a = [2] == x` are NBRAK1.
+        for source in [
+            "if [2] == x\nend\n",
+            "if x == [2]\nend\n",
+            "a = [2] == x;\n",
+            "b = [2] * x;\n",
+        ] {
+            assert_eq!(nbrak1(source), 1, "{source}");
+        }
+    }
+
+    #[test]
+    fn silent_on_a_bare_number_or_a_multi_element_operand() {
+        // Probed: `if [1]` is NBRAK2 (not reported here); `x == [2 3]` is a list.
+        for source in ["if [1]\nend\n", "c = x == [2 3];\n", "x = [5];\n"] {
+            assert_eq!(nbrak1(source), 0, "{source}");
         }
     }
 }

@@ -1,17 +1,18 @@
+use super::check_comnot::logical_call_literal;
 use super::*;
 
 impl GoodPracticesEngine {
-    /// COMPNOP: `call(...) == true` simplifies to `call(...)`.
+    /// COMPNOP: `f(...) == 1` or `f(...) ~= 0` for a logical call `f` (`any`,
+    /// `all`, `isequal`, `isreal`) simplifies to `f(...)`.
     pub(crate) fn check_compnop(&self, node: Node, source: &str) -> Vec<Diagnostic> {
-        if !self.is_check_enabled("COMPNOP") || node.kind() != "comparison_operator" {
+        if !self.is_check_enabled("COMPNOP") {
             return Vec::new();
         }
-
-        let Some((call_node, literal_node, op)) = self.comparison_with_literal(node, source) else {
+        let Some((call_node, op, value)) = logical_call_literal(node, source) else {
             return Vec::new();
         };
-        let literal = node_text(literal_node, source).trim();
-        if op != "==" || literal != "true" {
+        let is_compnop = (op == "==" && value == 1.0) || (op == "~=" && value == 0.0);
+        if !is_compnop {
             return Vec::new();
         }
 
@@ -21,13 +22,13 @@ impl GoodPracticesEngine {
         vec![Diagnostic {
             rule_id: "COMPNOP",
             message: format!(
-                "This logical comparison simplifies to {call_text}. Did you mean to use {func_name} to evaluate function argument: {call_text}?"
+                "This logical comparison simplifies to {func_name}(...). Did you mean to use {op} to evaluate function argument: {func_name}(...{op}...)?"
             ),
             severity: Severity::Warning,
             byte_range: node.start_byte()..node.end_byte(),
             line: pos.row + 1,
             column: pos.column + 1,
-            // `f(x) == true` is `f(x)` only when f returns a logical.
+            // `f(x) == 1` is `f(x)` only when f returns a logical.
             fix: Some(Fix::new(node.start_byte()..node.end_byte(), call_text).unsafe_fix()),
         }]
     }
@@ -37,67 +38,56 @@ impl GoodPracticesEngine {
 mod tests {
     use super::*;
 
-    #[test]
-    fn test_compnop_fires_on_call_eq_true() {
-        let source = "if isa(x,'double') == true\nend\n";
+    /// COMPNOP diagnostics for every comparison in `source`.
+    fn compnop(source: &str) -> Vec<Diagnostic> {
         let tree = parse(source);
-        let root = tree.root_node();
         let eng = engine();
-
-        let comp = find_descendant_of_kind(root, "comparison_operator").unwrap();
-        let diags = eng.check_compnop(comp, source);
-        assert_eq!(diags.len(), 1);
-        assert_eq!(diags[0].rule_id, "COMPNOP");
-        assert!(diags[0].fix.is_some());
+        let mut out = Vec::new();
+        let mut stack = vec![tree.root_node()];
+        while let Some(n) = stack.pop() {
+            out.extend(eng.check_compnop(n, source));
+            let mut c = n.walk();
+            stack.extend(n.children(&mut c));
+        }
+        out
     }
 
     #[test]
-    fn test_compnop_fix_replaces_comparison_with_call() {
-        let source = "if isa(x,'double') == true\nend\n";
-        let tree = parse(source);
-        let root = tree.root_node();
-        let eng = engine();
-
-        let comp = find_descendant_of_kind(root, "comparison_operator").unwrap();
-        let diags = eng.check_compnop(comp, source);
-        let fix = diags[0].fix.as_ref().unwrap();
-        assert_eq!(&source[fix.byte_range.clone()], "isa(x,'double') == true");
-        assert_eq!(fix.replacement, "isa(x,'double')");
+    fn test_compnop_fires_on_logical_call_eq_one_or_neq_zero() {
+        // Probed: `any(x) == 1`, `any(x) ~= 0` and `isequal(x, s) ~= 0`.
+        for (source, replacement) in [
+            ("a = any(x) == 1;\n", "any(x)"),
+            ("a = any(x) ~= 0;\n", "any(x)"),
+            ("a = isequal(x, s) ~= 0;\n", "isequal(x, s)"),
+        ] {
+            let diags = compnop(source);
+            assert_eq!(diags.len(), 1, "{source}");
+            assert_eq!(diags[0].rule_id, "COMPNOP");
+            assert_eq!(diags[0].fix.as_ref().unwrap().replacement, replacement);
+        }
     }
 
     #[test]
-    fn test_compnop_silent_on_identifier_eq_true() {
-        let source = "if y == true\nend\n";
-        let tree = parse(source);
-        let root = tree.root_node();
-        let eng = engine();
-
-        let comp = find_descendant_of_kind(root, "comparison_operator").unwrap();
-        assert!(eng.check_compnop(comp, source).is_empty());
-        assert!(eng.check_comnot(comp, source).is_empty());
+    fn test_compnop_message_matches_matlab() {
+        let diags = compnop("if any(x) ~= 0\nend\n");
+        assert_eq!(
+            diags[0].message,
+            "This logical comparison simplifies to any(...). Did you mean to use ~= to evaluate function argument: any(...~=...)?"
+        );
     }
 
     #[test]
-    fn test_compnop_silent_on_call_eq_false() {
-        // `== false` belongs to COMPNOT, not COMPNOP.
-        let source = "if isa(x,'double') == false\nend\n";
-        let tree = parse(source);
-        let root = tree.root_node();
-        let eng = engine();
-
-        let comp = find_descendant_of_kind(root, "comparison_operator").unwrap();
-        assert!(eng.check_compnop(comp, source).is_empty());
-    }
-
-    #[test]
-    fn test_compnop_comnot_silent_without_comparison() {
-        let source = "if isa(x,'double')\nend\n";
-        let tree = parse(source);
-        let root = tree.root_node();
-        let eng = engine();
-
-        assert!(find_descendant_of_kind(root, "comparison_operator").is_none());
-        assert!(eng.check_compnop(root, source).is_empty());
-        assert!(eng.check_comnot(root, source).is_empty());
+    fn test_compnop_silent_on_zero_eq_and_logical_literals() {
+        // `== 0` and `~= 1` are COMPNOT; `true`/`false` literals and
+        // non-logical functions are silent (probed).
+        for source in [
+            "a = any(x) == 0;\n",
+            "a = any(x) ~= 1;\n",
+            "a = any(x) == true;\n",
+            "a = isa(x, 'double') == true;\n",
+            "a = isempty(x) == 1;\n",
+        ] {
+            assert!(compnop(source).is_empty(), "{source}");
+        }
     }
 }

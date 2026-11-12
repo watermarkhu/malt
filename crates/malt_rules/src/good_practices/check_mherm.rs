@@ -63,7 +63,8 @@ fn star_operands<'a>(node: Node<'a>, source: &str) -> Option<(Node<'a>, Node<'a>
         return None;
     }
     let op = node.child(1)?;
-    if !matches!(node_text(op, source), "*" | ".*") {
+    // Only the matrix product: `A.*X.*X'` is elementwise and MATLAB is silent (probed).
+    if node_text(op, source) != "*" {
         return None;
     }
     Some((node.child(0)?, node.child(2)?))
@@ -116,5 +117,30 @@ mod tests {
         assert!(!mherm("x = rand(3, 1);\ny = x' * A * x;\n"));
         assert!(!mherm("F = eye(3);\nP = F;\ny = F * P * F' + Q;\n"));
         assert!(!mherm("y = A * G * G';\n"));
+    }
+}
+
+#[cfg(test)]
+mod probe_p2a_tests {
+    use crate::test_util::lint_nodes;
+    use malt_core::Config;
+
+    /// Lines of the `id` diagnostics that the default (mathworks) engine reports for `src`.
+    fn lines(src: &str, id: &str) -> Vec<usize> {
+        let e = crate::good_practices::GoodPracticesEngine::from_config(&Config::default());
+        lint_nodes(&*e, src)
+            .iter()
+            .filter(|d| d.rule_id == id)
+            .map(|d| d.line)
+            .collect()
+    }
+
+    #[test]
+    fn mherm_reports_the_matrix_product_only_not_the_elementwise_one() {
+        // Probed: `A.*X.*X'` (59) is silent; `A*X*X'` (57) is reported at the factor X.
+        let elementwise = "function y = f(A, X)\ny = A.*X.*X';\nend\n";
+        let product = "function y = f(A, X)\ny = A*X*X';\nend\n";
+        assert!(lines(elementwise, "MHERM").is_empty());
+        assert_eq!(lines(product, "MHERM"), vec![2]);
     }
 }

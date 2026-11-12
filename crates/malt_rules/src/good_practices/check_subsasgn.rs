@@ -15,7 +15,7 @@ impl GoodPracticesEngine {
         }
         let is_statement = node
             .parent()
-            .is_some_and(|p| matches!(p.kind(), "source_file" | "block"));
+            .is_some_and(|p| matches!(p.kind(), "source_file" | "block" | "lambda"));
         if !is_statement {
             return Vec::new();
         }
@@ -67,5 +67,30 @@ mod tests {
         ] {
             assert!(!has_id(&subsasgn_diags(src), "SUBSASGN"), "{src}");
         }
+    }
+}
+
+#[cfg(test)]
+mod probe_p2a_tests {
+    use crate::test_util::lint_nodes;
+    use malt_core::Config;
+
+    /// Lines of the `id` diagnostics that the default (mathworks) engine reports for `src`.
+    fn lines(src: &str, id: &str) -> Vec<usize> {
+        let e = crate::good_practices::GoodPracticesEngine::from_config(&Config::default());
+        lint_nodes(&*e, src)
+            .iter()
+            .filter(|d| d.rule_id == id)
+            .map(|d| d.line)
+            .collect()
+    }
+
+    #[test]
+    fn subsasgn_is_reported_as_an_anonymous_function_body_too() {
+        // Probed: `f = @() subsasgn(...)` (167) is reported; an assigned result is not.
+        let lambda = "s = struct();\nf = @() subsasgn(s, substruct('.', 'a'), 1);\n";
+        let assigned = "s = struct();\ns = subsasgn(s, substruct('.', 'a'), 1);\n";
+        assert_eq!(lines(lambda, "SUBSASGN"), vec![2]);
+        assert!(lines(assigned, "SUBSASGN").is_empty());
     }
 }

@@ -17,6 +17,10 @@ impl GoodPracticesEngine {
         else {
             return Vec::new();
         };
+        // Only the one-argument form: `any(a || b, 2)` is silent (probed).
+        if find_child_of_kind(call, "arguments").is_none_or(|a| count_named_children(a) != 1) {
+            return Vec::new();
+        }
         let Some(name @ ("any" | "all")) = get_function_call_name(call, source) else {
             return Vec::new();
         };
@@ -64,6 +68,14 @@ mod tests {
         let d = lint("x = all(a && b);\n");
         let m = d.iter().find(|d| d.rule_id == "SHOCIRAA").unwrap();
         assert!(m.message.contains("all(A && B)"), "{}", m.message);
+    }
+
+    #[test]
+    fn shociraa_silent_with_a_second_argument() {
+        // Probed: `any(a || b, 2)`, `any(a || b, 'all')` and `all(a && b, 1)` are silent.
+        assert!(!has_id(&lint("x = any(a || b, 2);\n"), "SHOCIRAA"));
+        assert!(!has_id(&lint("x = any(a || b, 'all');\n"), "SHOCIRAA"));
+        assert!(!has_id(&lint("x = all(a && b, 1);\n"), "SHOCIRAA"));
     }
 
     #[test]

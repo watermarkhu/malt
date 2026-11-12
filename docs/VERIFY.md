@@ -34,8 +34,9 @@ the repository (`~/.local/share/malt-reference/`: `matlab-allmsg.txt` from
   analysis never reports are off under it and on under `--preset all` (or with an explicit
   rule or category setting):
   - bugs: BDSCA2, STCUL, SHOCIRF, MOCUP
-  - good_practices: ERTAG, WNTAG, CTCH, BDLOG2, COMPNOP, COMPNOT, CTOINW, DUALC, GTARG,
-    LTARG, BDLGI, SIMPT, STRSZ, ELARLOG, ITERS, ADAPPREF, MIPC1, VTFIN
+  - good_practices: ERTAG, WNTAG, CTCH, BDLOG2, CTOINW, GTARG,
+    LTARG, BDLGI, SIMPT, STRSZ, ELARLOG, ITERS, ADAPPREF, MIPC1, VTFIN, MCCPE, MCCSPS (MATLAB never
+    generates the last two)
   - language_spec: FVNIV, USESWNS, PFUTVR, VTPEAL, VTPIN, VTPCON, GPNES
   - readability: LOGSUM, MFAMB; performance: GRIDD; unused: VANUS, NOEFF, PUSE;
     unset_variables: SUSENS, USENS
@@ -158,6 +159,11 @@ that are not installed); LENEMP and LEGPVPAIR are `unverified` (MATLAB reported 
 - `name = value` call arguments are not uses of `name`; the value side still is.
 - AGROW: `x(end+1).f = v` is reported (SAGROW in a script); growth of `x{k}(end+1)` is silent after `cell`, `zeros`, `struct`.
 - NOPRT/NOPTS are silent for calls of a variable holding an anonymous function or handle; the column for an assignment is the `=`.
+- COMPNOT/COMPNOP/DUALC are reported by default: COMPNOT is `== 0`/`~= 1` and COMPNOP `== 1`/`~= 0` on `any`, `all`, `isequal`, `isreal`; `== true`/`false` is silent.
+- CTPCT: too many arguments (count not a multiple of the specifier count) or any argument with zero specifiers is reported; too few is silent.
+- PROP and CPROP: see the check docstrings; CPROP is a bare read or call of a property name in a method that never uses the name as a variable.
+- MCPO/MOBSRV: `SetObservable = false` is silent. MCHDP/MCHDT: only `containers.Map()` as a handle default.
+- Parfor reductions (PFRIN/PFRUS) are reported once per variable, at its first reduction.
 - tree-sitter-matlab gives `|` and `&` higher precedence than the comparison operators: `L > 1 | L < 0.1` parses as `L > (1 | L) < 0.1`. `analysis/elementwise.rs` recovers the true operands (MATLAB: comparison, then `&`, then `|`); use it in every check that reads the operands of `|` or `&` (OR2, AND2, LBODUP use it; FNAN and CHAIN carry older patches).
 - MATLAB reports OR2/AND2 unless an operand is known to be logical (a comparison of values of known class, `isempty`/`ischar`/`strcmp` results, `true`/`false` variables); comparisons of `input`, indexed arrays that grow, struct fields and most function results do not count as known.
 - FNDSB in its variable form (`idx = find(L)`) is reported at the single direct-subscript use of `idx`, inside a function only; the direct form `A(find(...))` is reported everywhere.
@@ -169,3 +175,7 @@ that are not installed); LENEMP and LEGPVPAIR are `unverified` (MATLAB reported 
 ## Real third-party code
 
 `tests/external_toolkit.rs` lints MathWorks' matlab-agentic-toolkit (145 `.m` files, commit `b58be8124631cccb03a67aa79dcef1c9720243e2`) when `MALT_EXTERNAL_TOOLKIT` points to a clone; the code is licensed for MathWorks products only and is not vendored. `toolkit_expected.tsv` holds facts only. First measurement: 34 MATLAB findings, all matched, 83 extra (precision 29%); after fixing, 0 differences. Agent-written corpora measured an easier problem than real code.
+
+## Phase 2 audit gaps (good_practices)
+
+Seen while probing, not fixed: SEPEX/SEPEXR for `catch disp('e')` and `switch x case 1 ...`; grammar errors on `u = (1:2:3:4);`; `@() helper` ADMTHDINV; STCUL (malt reports STCI instead); BDLGI misses `d = 1:3; if d`; BDSCA2 `if [1 0] && true`; MCEB reported at `classdef` instead of the `events` line; SPERR false positive on `error(sprintf(...))`; CFALSE on `isempty(x) == 2`; parfor misses (PFSLO, PFXST, PFUNK, PFUTVR, PFBNS, PFTUSE) and extras (PFIIN, PFSLW, PFBRK, SPBFN); MSNU for a directive on its own line or after `end`.

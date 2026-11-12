@@ -52,6 +52,27 @@ mod tests {
     }
 
     #[test]
+    fn test_pfgv_silent_on_writes_through_an_index_or_field() {
+        // Probed: `G(i) = i`, `G{i} = i`, `G.x = i` and `[G, H] = deal(...)` are PFGP,
+        // not PFGV (pg03, pg04, pg10, pg16, pg19, pv07); an index argument is a read.
+        let count = |body: &str| {
+            let src = format!("function f()\nglobal G H\nparfor i = 1:4\n    {body}\nend\nend\n");
+            let engine = crate::good_practices::GoodPracticesEngine::from_config(
+                &malt_core::Config::default(),
+            );
+            crate::test_util::lint_nodes(&*engine, &src)
+                .iter()
+                .filter(|d| d.rule_id == "PFGV")
+                .count()
+        };
+        assert_eq!(count("G(i) = i;"), 0);
+        assert_eq!(count("G{i} = i;"), 0);
+        assert_eq!(count("G.x = i;"), 0);
+        assert_eq!(count("[G, H] = deal(i, i);"), 0);
+        assert_eq!(count("y(i) = H(i);"), 1);
+    }
+
+    #[test]
     fn test_pfgv_fires_on_global_use() {
         let source = "global gVar;\nparfor i = 1:10\n    gVar = i;\n    x(i) = gVar;\nend\n";
         let tree = parse(source);

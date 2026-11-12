@@ -64,7 +64,18 @@ impl GoodPracticesEngine {
         let matrix_without_assignment = find_child_of_kind(node, "arguments")
             .and_then(|args| args.named_child(0))
             .is_some_and(|arg| arg.kind() == "matrix" && !node_text(arg, source).contains('='));
-        if two_arguments || (!statement_level && !literal_argument) || matrix_without_assignment {
+        // A field access built by concatenation, `eval(['s.' f])`, is EVLDOT with
+        // no assignment (probed); other concatenations without one are silent.
+        // An operating-system command built by concatenation, `eval(['!' c])`, is EVLSYS.
+        let literal_text = find_child_of_kind(node, "arguments")
+            .map(|a| string_literal_text(a, source))
+            .unwrap_or_default();
+        let field_access = literal_text.contains('.');
+        let command = literal_text.trim_start().starts_with('!');
+        if two_arguments
+            || (!statement_level && !literal_argument)
+            || (matrix_without_assignment && !field_access && !command)
+        {
             return Vec::new();
         }
 
@@ -81,6 +92,14 @@ impl GoodPracticesEngine {
         };
         // EVLCS is for a constant statement only (probed): a dynamic argument is silent.
         if check_id == "EVLCS" && !is_constant_argument(&args_text) {
+            return Vec::new();
+        }
+        // EVLCS is for one literal: a concatenation of several is silent (probed: `['x' ' = 1;']`).
+        let mut pieces = Vec::new();
+        if let Some(args) = find_child_of_kind(node, "arguments") {
+            collect_nodes_of_kind(args, "string", &mut pieces);
+        }
+        if check_id == "EVLCS" && pieces.len() > 1 {
             return Vec::new();
         }
 
@@ -167,6 +186,35 @@ mod tests {
             diags.iter().all(|d| d.rule_id != "EVLDUAL"),
             "got: {diags:?}"
         );
+    }
+
+    #[test]
+    fn eval_probed_variants_match_matlab() {
+        use crate::test_util::lint_nodes as lint_file;
+        use malt_core::Config;
+        let e = crate::good_practices::GoodPracticesEngine::from_config(&Config::default());
+        let ids = |src: &str| -> Vec<&'static str> {
+            lint_file(&*e, src)
+                .iter()
+                .map(|d| d.rule_id)
+                .filter(|id| id.starts_with("EVL"))
+                .collect()
+        };
+        // Probed: the constant-name form needs `name = ` as its first literal.
+        assert!(ids("eval(['x = [' num2str(v) '];']);\n").is_empty());
+        assert!(ids("eval(['x = {' num2str(v) '};']);\n").is_empty());
+        assert!(ids("eval(['x = 5' num2str(v) ';']);\n").is_empty());
+        assert!(ids("eval(['x' ' = 1;']);\n").is_empty());
+        assert_eq!(ids("eval(['x = ' '[' num2str(v) ']']);\n"), vec!["EVLEQ"]);
+        // Probed: a constant command is EVLCS; a built one is EVLSYS.
+        assert_eq!(ids("eval('!ls');\n"), vec!["EVLCS"]);
+        assert_eq!(ids("eval('system(''ls'')');\n"), vec!["EVLCS"]);
+        assert_eq!(ids("eval(['!' c]);\n"), vec!["EVLSYS"]);
+        // Probed: a field access built by concatenation is EVLDOT, with or without `=`.
+        assert_eq!(ids("eval(['s.' f]);\n"), vec!["EVLDOT"]);
+        assert_eq!(ids("eval(['s(2).' f]);\n"), vec!["EVLDOT"]);
+        assert_eq!(ids("eval(['s.' f ';']);\n"), vec!["EVLDOT"]);
+        assert!(ids("eval(['q' f]);\n").is_empty());
     }
 
     #[test]

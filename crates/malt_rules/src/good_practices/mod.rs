@@ -344,6 +344,8 @@ pub(crate) const TARGET_NODES: &[&str] = &[
     "comparison_operator",
     "range",
     "if_statement",
+    // BDSCA1 reads an `elseif` condition (probed).
+    "elseif_clause",
     "while_statement",
     "for_statement",
     "spmd_statement",
@@ -376,14 +378,18 @@ impl GoodPracticesEngine {
             .extend(crate::off_under_mathworks(
                 config,
                 &[
-                    "ERTAG", "WNTAG", "CTCH", "BDLOG2", "COMPNOP", "COMPNOT", "CTOINW", "DUALC",
-                    "GTARG", "LTARG", "BDLGI", "SIMPT", "STRSZ", "ELARLOG",
+                    "ERTAG", "WNTAG", "CTCH", "BDLOG2", "CTOINW", "GTARG", "LTARG", "BDLGI",
+                    "SIMPT", "STRSZ", "ELARLOG",
                     // Never reported by MATLAB in the probes or the fixtures.
                     "ITERS",
                     // ADAPPREF: silent in three probes, with and without an app argument.
                     // MIPC1: silent for computer('arch') in four probes.
                     // VTFIN: silent in three validator probes and c4__m1.
                     "ADAPPREF", "MIPC1", "VTFIN",
+                    // MCCPE: never reported by MATLAB in 8 probes (a call of a property is CPROP there,
+                    // and `%#ok<MCCPE>` gives MSNU, so it is not generated). MCCSPS: silent in 8
+                    // probes (`K.K = 3` and `y = K.a` give PROP, CPROP or STRNU instead).
+                    "MCCPE", "MCCSPS",
                 ],
             ));
         Box::new(Self {
@@ -633,31 +639,6 @@ impl GoodPracticesEngine {
         }
 
         diagnostics
-    }
-
-    /// Shared COMPNOP/COMPNOT logic: extract the `(call, literal, operator)`
-    /// triple from a `comparison_operator` node when exactly one operand is a
-    /// `function_call` and the other is the `true`/`false` literal.
-    pub(crate) fn comparison_with_literal<'a>(
-        &self,
-        node: Node<'a>,
-        source: &'a str,
-    ) -> Option<(Node<'a>, Node<'a>, String)> {
-        let lhs = node.child(0)?;
-        let rhs = node.child(2)?;
-        let op = find_operator_text(node, source);
-
-        let (call_node, literal_node) = match (lhs.kind(), rhs.kind()) {
-            ("function_call", "identifier") => (lhs, rhs),
-            ("identifier", "function_call") => (rhs, lhs),
-            _ => return None,
-        };
-        let literal = node_text(literal_node, source).trim();
-        if literal == "true" || literal == "false" {
-            Some((call_node, literal_node, op))
-        } else {
-            None
-        }
     }
 }
 
@@ -1019,10 +1000,15 @@ pub(crate) fn built_assignment(args: &str) -> Option<bool> {
     let mut name = String::new();
     let mut numbered = false;
     let mut assigned = false;
-    for item in items {
+    for (index, item) in items.into_iter().enumerate() {
         if let Some(text) = quoted_body(item) {
             match assign_index(text) {
                 Some(i) => {
+                    // Probed: MATLAB reports this form only when the first literal is
+                    // `name = ` (silent for `'x = ['`, `'x = 5'` and `'x' ' = 1'`).
+                    if (index == 0 && &text[i + 1..] != " ") || (index > 0 && !numbered) {
+                        return None;
+                    }
                     name.push_str(&text[..i]);
                     assigned = true;
                     break;
@@ -1136,7 +1122,9 @@ pub(crate) fn classify_eval_usage(
         || bytes.iter().enumerate().any(|(i, &c)| {
             c == b'.'
                 && i > 0
-                && (bytes[i - 1].is_ascii_alphanumeric() || bytes[i - 1] == b'_')
+                && (bytes[i - 1].is_ascii_alphanumeric()
+                    || bytes[i - 1] == b'_'
+                    || bytes[i - 1] == b')')
                 && bytes
                     .get(i + 1)
                     .is_none_or(|n| n.is_ascii_alphabetic() || *n == b' ')
@@ -1155,6 +1143,8 @@ pub(crate) fn classify_eval_usage(
             .iter()
             .any(|k| trimmed.starts_with(k)))
         && on("EVLSYS")
+        // A constant command is EVLCS (probed: `eval('!ls')`, `eval('system(''ls'')')`).
+        && !is_constant_argument(args_text)
     {
         return (
             "EVLSYS",
@@ -1431,7 +1421,8 @@ pub(crate) fn is_evalin_assignin_base(node: Node, source: &str) -> bool {
     };
     let text = node_text(first_arg, source).trim();
     let text = text.trim_matches('\'').trim_matches('"');
-    text == "base"
+    // MATLAB matches the workspace name without regard to case (probed: 'BASE').
+    text.eq_ignore_ascii_case("base")
 }
 
 /// Check whether a function call / command constructs a distributed array.
@@ -1441,10 +1432,15 @@ pub(crate) fn is_distributed_call(node: Node, source: &str) -> bool {
         "command" => get_command_name(node, source),
         _ => return false,
     };
-    matches!(
-        func_name,
-        Some("distributed") | Some("gpuArray") | Some("codistributed")
-    )
+    // Probed: `distributed(...)` and the constructors `distributed.zeros(...)`,
+    // `distributed.ones(...)` and so on are reported. `gpuArray`,
+    // `codistributed` and `zeros(3, 'distributed')` are silent.
+    func_name == Some("distributed")
+        || node.parent().is_some_and(|p| {
+            p.kind() == "field_expression"
+                && p.child_by_field_name("object")
+                    .is_some_and(|o| node_text(o, source) == "distributed")
+        })
 }
 
 /// Extract the base variable name assigned by an assignment LHS.
@@ -1456,6 +1452,30 @@ pub(crate) fn lhs_base_name(lhs: Node, source: &str) -> Option<String> {
             find_child_of_kind(lhs, "identifier").map(|n| node_text(n, source).to_string())
         }
         _ => None,
+    }
+}
+
+/// Whether an identifier is the base variable of an assignment target: `x`,
+/// `x(i)`, `x{i}`, `x.f` or an element of `[x, y]`. Index arguments are reads,
+/// so `a(G) = 1` does not write `G` (probed: PFGV on `G` there).
+fn is_write_target(id: Node) -> bool {
+    let mut current = id;
+    loop {
+        let Some(parent) = current.parent() else {
+            return false;
+        };
+        match parent.kind() {
+            "function_call" | "multioutput_variable" => current = parent,
+            "field_expression" if parent.child(0).is_some_and(|c| c.id() == current.id()) => {
+                current = parent
+            }
+            "assignment" => {
+                return parent
+                    .child_by_field_name("left")
+                    .is_some_and(|l| l.id() == current.id())
+            }
+            _ => return false,
+        }
     }
 }
 
@@ -1479,18 +1499,12 @@ pub(crate) fn collect_global_use_diagnostics<'a>(
         if !globals.contains(&name) {
             continue;
         }
+        if skip_writes && is_write_target(id) {
+            continue;
+        }
         if let Some(parent) = id.parent() {
             match parent.kind() {
                 "global_operator" | "persistent_operator" => continue,
-                "assignment"
-                    if skip_writes
-                        && parent
-                            .child_by_field_name("left")
-                            .map(|l| l.id() == id.id())
-                            .unwrap_or(false) =>
-                {
-                    continue;
-                }
                 "field_expression"
                     if parent
                         .child_by_field_name("field")
@@ -1502,7 +1516,8 @@ pub(crate) fn collect_global_use_diagnostics<'a>(
                 _ => {}
             }
         }
-        if !seen.insert(name.clone()) {
+        // MATLAB reports PFGV once per variable, but SPGV at every read (probed: sg06).
+        if rule_id == "PFGV" && !seen.insert(name.clone()) {
             continue;
         }
         let pos = id.start_position();
@@ -2283,8 +2298,7 @@ mod tests {
 
     #[test]
     fn test_g3_checks_fire_through_dispatch() {
-        let source =
-            "if isa(x,'double') == true\nend\nif isa(x,'double') ~= true\nend\na = 1:2:3:4;\n";
+        let source = "if any(x) == 1\nend\nif any(x) == 0\nend\na = 1:2:3:4;\n";
         let tree = parse(source);
         let eng = engine();
 

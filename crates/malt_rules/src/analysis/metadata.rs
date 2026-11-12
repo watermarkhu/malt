@@ -831,8 +831,9 @@ impl FileMeta {
         for child in root.children(&mut cursor) {
             let kind = child.kind();
 
-            // Skip comments, line continuations, and whitespace nodes.
-            if kind == "comment" || kind == "line_continuation" {
+            // Skip comments, line continuations, and the unnamed newline tokens that
+            // a leading blank line or a help comment leaves before `function`.
+            if !child.is_named() || kind == "comment" || kind == "line_continuation" {
                 continue;
             }
 

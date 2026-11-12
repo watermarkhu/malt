@@ -16,10 +16,9 @@ impl GoodPracticesEngine {
     /// FXSETL: the iterator of a `for` loop has the same name as the iterator of
     /// an enclosing `for` loop.
     pub(crate) fn check_fxsetl(&self, node: Node, source: &str) -> Vec<Diagnostic> {
-        if !self.is_check_enabled("FXSETL")
-            || node.kind() != "for_statement"
-            || is_parfor_node(node, source)
-        {
+        // A parfor nested in a for with the same variable is reported (probed: fx04);
+        // an outer parfor is not (fx05 gives PFXST instead).
+        if !self.is_check_enabled("FXSETL") || node.kind() != "for_statement" {
             return Vec::new();
         }
         let Some(var) = loop_variable(node) else {
@@ -88,6 +87,16 @@ mod tests {
         assert!(has_id(&fxsetl_diags(src), "FXSETL"));
         let src = "for i = 1:2\n  for j = 1:2\n    for i = 1:2\n    end\n  end\nend\n";
         assert_eq!(fxsetl_diags(src).len(), 1);
+    }
+
+    #[test]
+    fn fxsetl_fires_on_parfor_nested_in_for() {
+        // Probed: `for i ... parfor i ...` gives FXSETL at the parfor's `i` (fx04, column 12).
+        let diags = fxsetl_diags(
+            "function f()\nfor i = 1:3\n    parfor i = 1:2\n        x = i;\n    end\nend\nend\n",
+        );
+        assert_eq!(diags.len(), 1, "got: {diags:?}");
+        assert_eq!((diags[0].line, diags[0].column), (3, 12));
     }
 
     #[test]

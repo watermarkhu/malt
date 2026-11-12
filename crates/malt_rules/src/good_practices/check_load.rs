@@ -26,7 +26,9 @@ impl GoodPracticesEngine {
             return Vec::new();
         }
         // `load('f.mat', 'x')` names variables; options such as `-mat` do not count.
-        if file_argument_count(node, source) > 1 {
+        // A `-regexp` load selects variables by pattern, which MATLAB reports whatever
+        // the names (probed: `load('f.mat', '-regexp', 'a')` and `load(f, 'x', '-regexp', 'a')`).
+        if file_argument_count(node, source) > 1 && !node_text(node, source).contains("-regexp") {
             return Vec::new();
         }
 
@@ -171,6 +173,19 @@ mod tests {
     fn test_load_silent_in_anonymous_function_at_script_level() {
         // Probed: scripts are silent, anonymous functions included.
         assert_eq!(load_count("h = @() load('x.mat');\n"), 0);
+    }
+
+    #[test]
+    fn test_load_fires_with_regexp_option() {
+        // Probed: MATLAB reports LOAD for `-regexp` whatever the variable arguments (ld24, l01-l03).
+        assert_eq!(
+            load_count("function f()\nload('f.mat', '-regexp', 'a')\nend\n"),
+            1
+        );
+        assert_eq!(
+            load_count("function f()\nload('f.mat', 'x', '-regexp', 'a')\nend\n"),
+            1
+        );
     }
 
     #[test]

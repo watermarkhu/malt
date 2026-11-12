@@ -29,11 +29,11 @@ impl GoodPracticesEngine {
             if !is_dependent {
                 continue;
             }
+            // `Access = private` also makes the getter private, and MATLAB reads the value
+            // case-sensitively (`GetAccess = PRIVATE` is ATPPP and still reports MGMD).
             let get_access_private = block.attributes.iter().any(|a| {
-                a.name == "GetAccess"
-                    && a.value
-                        .as_deref()
-                        .is_some_and(|v| v.eq_ignore_ascii_case("private"))
+                (a.name == "GetAccess" || a.name == "Access")
+                    && a.value.as_deref() == Some("private")
             });
             if get_access_private {
                 continue;
@@ -86,5 +86,30 @@ mod tests {
         let tree = parse(source);
         let eng = engine();
         assert!(eng.check_mgmd(&tree, source).is_empty());
+    }
+}
+
+#[cfg(test)]
+mod probe_p2a_tests {
+    use crate::test_util::lint_file;
+    use malt_core::Config;
+
+    /// Lines of the `id` diagnostics that the default (mathworks) engine reports for `src`.
+    fn lines(src: &str, id: &str) -> Vec<usize> {
+        let e = crate::good_practices::GoodPracticesEngine::from_config(&Config::default());
+        lint_file(&*e, src)
+            .iter()
+            .filter(|d| d.rule_id == id)
+            .map(|d| d.line)
+            .collect()
+    }
+
+    #[test]
+    fn mgmd_getter_privacy_is_case_sensitive_and_access_counts() {
+        // Probed: `Access = private` gives a private getter (42); `GetAccess = PRIVATE` does not (51).
+        let access = "classdef C\n properties (Dependent, Access = private)\n  Y = 5\n end\nend\n";
+        let upper = "classdef C\n properties (Dependent, GetAccess = PRIVATE)\n  Y\n end\nend\n";
+        assert!(lines(access, "MGMD").is_empty());
+        assert_eq!(lines(upper, "MGMD"), vec![3]);
     }
 }

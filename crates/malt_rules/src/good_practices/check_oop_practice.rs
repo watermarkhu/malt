@@ -147,16 +147,14 @@ impl GoodPracticesEngine {
                 let Some(info) = methods_by_start.get(&method.start_byte()) else {
                     continue;
                 };
-                let Some(block) = find_child_of_kind(method, "block") else {
-                    continue;
-                };
 
-                // MCSNOV: setter in a value class without an output. MATLAB is
-                // silent when the class has any superclass (probed).
+                // MCSNOV: setter in a value class that does not return the object.
+                // MATLAB is silent when the class has any superclass (probed). An empty
+                // setter has no block, so the block lookup comes after this check.
                 if self.is_check_enabled("MCSNOV")
                     && ctx.no_superclass
                     && info.is_setter
-                    && !info.has_output
+                    && !info.output_is_object
                 {
                     let pos = method.start_position();
                     diagnostics.push(Diagnostic {
@@ -191,6 +189,9 @@ impl GoodPracticesEngine {
                     });
                 }
 
+                let Some(block) = find_child_of_kind(method, "block") else {
+                    continue;
+                };
                 // MCVM: value-class method that writes `obj.F` and never reads the
                 // object again. Silent when the class has any superclass, or when
                 // the method returns the object (probed).
@@ -223,6 +224,15 @@ impl GoodPracticesEngine {
 
         diagnostics
     }
+}
+
+/// Whether `node` is the target of an assignment (`obj.X = ...`); MCNPR reports those, not MCNPN.
+fn is_assignment_target(node: Node) -> bool {
+    node.parent().is_some_and(|p| {
+        p.kind() == "assignment"
+            && p.child_by_field_name("left")
+                .is_some_and(|l| l.id() == node.id())
+    })
 }
 
 /// Strip a `set.`/`get.` prefix from a method name.
@@ -472,6 +482,7 @@ fn check_method_body(
         && ctx.members_known
         && !ctx.has_signature_only
         && node.kind() == "field_expression"
+        && !is_assignment_target(node)
         && is_object_field_access(node, source, info)
     {
         if let Some(field) = node.child_by_field_name("field") {
@@ -975,5 +986,41 @@ mod tests {
         let source = "classdef Foo < handle\n    properties (Constant)\n        C = 1\n    end\n    methods\n        function r = f(obj)\n            r = obj.Z + C.value;\n        end\n        function obj = set.C(obj, val)\n            obj.C = val;\n        end\n    end\nend\n";
         let tree = parse(source);
         assert!(eng.check_oop_practice(&tree, source).is_empty());
+    }
+}
+
+#[cfg(test)]
+mod probe_p2a_tests {
+    use crate::test_util::lint_file;
+    use malt_core::Config;
+
+    /// Lines of the `id` diagnostics that the default (mathworks) engine reports for `src`.
+    fn lines(src: &str, id: &str) -> Vec<usize> {
+        let e = crate::good_practices::GoodPracticesEngine::from_config(&Config::default());
+        lint_file(&*e, src)
+            .iter()
+            .filter(|d| d.rule_id == id)
+            .map(|d| d.line)
+            .collect()
+    }
+
+    #[test]
+    fn mcsnov_fires_on_an_empty_setter_that_does_not_return_the_object() {
+        // Probed: an empty `set.Y(obj, v)` (49) and `r = set.ans(obj, v)` (93) are MCSNOV;
+        // `obj = set.Data(obj, v)` is silent (97).
+        let empty = "classdef C\n properties (Dependent)\n  Y\n end\n methods\n  function set.Y(obj, v)\n  end\n end\nend\n";
+        let returns = "classdef C\n properties\n  Data\n end\n methods\n  function obj = set.Data(obj, v)\n   obj.Data = v;\n  end\n end\nend\n";
+        assert_eq!(lines(empty, "MCSNOV"), vec![6]);
+        assert!(lines(returns, "MCSNOV").is_empty());
+    }
+
+    #[test]
+    fn mcnpn_leaves_an_assigned_unknown_member_to_mcnpr() {
+        // Probed: `obj.Missing = 1` (105) is MCNPR only; `r = obj.Missing;` (104) is MCNPN.
+        let assign = "classdef C\n properties\n  Data\n end\n methods\n  function obj = m(obj)\n   obj.Missing = 1;\n  end\n end\nend\n";
+        let read = "classdef C\n properties\n  Data\n end\n methods\n  function r = m(obj)\n   r = obj.Missing;\n  end\n end\nend\n";
+        assert!(lines(assign, "MCNPN").is_empty());
+        assert_eq!(lines(assign, "MCNPR"), vec![7]);
+        assert_eq!(lines(read, "MCNPN"), vec![7]);
     }
 }
