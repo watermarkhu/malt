@@ -164,7 +164,7 @@ pub struct BugsConfig {
     #[serde(default)]
     pub higher_order_functions: Vec<String>,
 
-    /// Check IDs switched off (BDSCA2 under the `mathworks` preset).
+    /// Check IDs switched off (SHOCIRF and MOCUP under the `mathworks` preset).
     #[serde(default)]
     pub disabled_checks: Vec<String>,
 }
@@ -185,13 +185,9 @@ impl BugsEngine {
         let mut rule_config: BugsConfig = config.rule_params("BUGS_ENGINE");
         // SHOCIRF: MATLAB reports LOGEMP for `isempty(a && b)` in all six probes.
         // MOCUP: MATLAB stayed silent on onCleanup with `clear n` in four probes and bugs__t2:17.
-        // MATLAB reports `&&`/`||` operands with BDSCI/BDLGI instead (probed).
         rule_config
             .disabled_checks
-            .extend(crate::off_under_mathworks(
-                config,
-                &["BDSCA2", "SHOCIRF", "MOCUP"],
-            ));
+            .extend(crate::off_under_mathworks(config, &["SHOCIRF", "MOCUP"]));
         Box::new(Self {
             config: rule_config,
         })
@@ -935,10 +931,12 @@ pub(crate) fn find_operator_text<'a>(node: Node<'a>, source: &'a str) -> String 
     String::new()
 }
 
-/// Check if a node is a known non-scalar value: a matrix literal with at
-/// least two elements, a range, or `zeros`/`ones`/`rand`/`randn`/`eye` called
-/// with literal sizes whose product exceeds one.
-pub(crate) fn is_array_expression(node: Node, source: &str) -> bool {
+/// Whether an operand of `&&` or `||` is an array that BDSCA2 reports: a matrix
+/// literal other than one element (`[]`, `[1 0]`, `[x x]`, `[1 2; 3 4]`) or a
+/// range (`1:3`, `3:1:9`). Probed silent: `[x]`, `[1]`, a parenthesised operand,
+/// `zeros(1,3)`, `ones(2)`, `{1}`, `'abc'`, comparisons, `-[1 0]`, `~[1 0]`,
+/// transposes, and variables holding any of these.
+pub(crate) fn is_array_expression(node: Node, _source: &str) -> bool {
     match node.kind() {
         "matrix" => {
             let mut count = 0;
@@ -950,26 +948,9 @@ pub(crate) fn is_array_expression(node: Node, source: &str) -> bool {
                     .filter(|c| c.is_named() && c.kind() != "comment")
                     .count();
             }
-            count > 1
+            count != 1
         }
         "range" => true,
-        "function_call" => {
-            let Some(name) = extract_call_name(node, source) else {
-                return false;
-            };
-            if !["zeros", "ones", "rand", "randn", "eye"].contains(&name) {
-                return false;
-            }
-            let args = arg_nodes(node);
-            if args.is_empty() || args.iter().any(|a| a.kind() != "number") {
-                return false;
-            }
-            let product: f64 = args
-                .iter()
-                .filter_map(|a| node_text(*a, source).trim().parse::<f64>().ok())
-                .product();
-            product > 1.0
-        }
         _ => false,
     }
 }
@@ -1008,7 +989,7 @@ use crate::test_util::{lint_file, lint_nodes};
 
 #[cfg(test)]
 pub(crate) fn engine() -> Box<dyn Rule> {
-    // Every check on: BDSCA2 is off under the mathworks preset.
+    // Every check on, as under the `all` preset.
     Box::new(BugsEngine {
         config: BugsConfig::default(),
     })

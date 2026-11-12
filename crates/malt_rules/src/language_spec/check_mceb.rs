@@ -7,21 +7,19 @@ impl LanguageSpecEngine {
     /// superclass is reported: MATLAB is silent for any superclass, whether or
     /// not it resolves to a handle class (probed).
     pub(crate) fn check_mceb(&self, class: &ClassMeta, diagnostics: &mut Vec<Diagnostic>) {
-        if !class.events_blocks.is_empty() && class.superclasses.is_empty() {
+        if class.superclasses.is_empty() {
+            // Probed: one report per events block, an empty block included, at the
+            // `events` keyword (not at `classdef`).
             for eb in &class.events_blocks {
-                if !eb.events.is_empty() {
-                    diagnostics.push(Diagnostic {
-                        rule_id: "MCEB",
-                        message: "Events can be defined only in a handle class.".to_string(),
-                        severity: Severity::Error,
-                        byte_range: class.byte_range.clone(),
-                        // Probed: MATLAB reports at the `events` keyword, not at `classdef`.
-                        line: eb.line,
-                        column: 1,
-                        fix: None,
-                    });
-                    break; // Only report once per class
-                }
+                diagnostics.push(Diagnostic {
+                    rule_id: "MCEB",
+                    message: "Events can be defined only in a handle class.".to_string(),
+                    severity: Severity::Error,
+                    byte_range: class.byte_range.clone(),
+                    line: eb.line,
+                    column: 1,
+                    fix: None,
+                });
             }
         }
     }
@@ -47,6 +45,37 @@ end
             !mceb.is_empty(),
             "MCEB should fire when events defined in non-handle class"
         );
+    }
+
+    #[test]
+    fn test_mceb_reports_at_events_line() {
+        // Probed (A1): MATLAB reports MCEB at the `events` line (5), not at `classdef`.
+        let source = "classdef A1\n    properties\n        x = 1;\n    end\n    events\n        DataChanged\n    end\nend\n";
+        let diags = check_source(source, "A1.m");
+        let lines: Vec<usize> = filter_by_id(&diags, "MCEB")
+            .iter()
+            .map(|d| d.line)
+            .collect();
+        assert_eq!(lines, vec![5], "got: {diags:?}");
+    }
+
+    #[test]
+    fn test_mceb_reports_each_events_block_including_empty() {
+        // Probed (A4, A5): an empty `events` block is reported at its line, and each of
+        // two blocks is reported (lines 2 and 5).
+        let empty = check_source("classdef A4\n    events\n    end\nend\n", "A4.m");
+        let lines: Vec<usize> = filter_by_id(&empty, "MCEB")
+            .iter()
+            .map(|d| d.line)
+            .collect();
+        assert_eq!(lines, vec![2], "got: {empty:?}");
+
+        let two = check_source(
+            "classdef A5\n    events\n        Start\n    end\n    events\n        Stop\n    end\nend\n",
+            "A5.m",
+        );
+        let lines: Vec<usize> = filter_by_id(&two, "MCEB").iter().map(|d| d.line).collect();
+        assert_eq!(lines, vec![2, 5], "got: {two:?}");
     }
 
     #[test]

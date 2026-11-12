@@ -378,8 +378,8 @@ impl GoodPracticesEngine {
             .extend(crate::off_under_mathworks(
                 config,
                 &[
-                    "ERTAG", "WNTAG", "CTCH", "BDLOG2", "CTOINW", "GTARG", "LTARG", "BDLGI",
-                    "SIMPT", "STRSZ", "ELARLOG",
+                    "ERTAG", "WNTAG", "CTCH", "BDLOG2", "CTOINW", "GTARG", "LTARG", "SIMPT",
+                    "STRSZ", "ELARLOG",
                     // Never reported by MATLAB in the probes or the fixtures.
                     "ITERS",
                     // ADAPPREF: silent in three probes, with and without an app argument.
@@ -2275,10 +2275,9 @@ mod tests {
     #[test]
     fn test_never_emitted_ids_off_under_mathworks() {
         // Probed: MATLAB reports none of these forms by default (GTARG/LTARG with
-        // a local function and builtins, BDLGI for `b = x + 1; if b`, SIMPT for an
-        // `import` after other code, STRSZ for `'abc' == 'abcd'`, ELARLOG for
-        // `if (x & ok) || r, r = 2; end`). Each sample fires under `all` and is
-        // silent under `mathworks`.
+        // a local function and builtins, SIMPT for an `import` after other code,
+        // STRSZ for `'abc' == 'abcd'`, ELARLOG for `if (x & ok) || r, r = 2; end`).
+        // Each sample fires under `all` and is silent under `mathworks`.
         use crate::test_util::{has_id, lint_file, lint_nodes};
         let cases = [
             (
@@ -2288,10 +2287,6 @@ mod tests {
             (
                 "LTARG",
                 "function f()\n y = helper();\nend\nfunction r = helper(a)\n r = a;\nend\n",
-            ),
-            (
-                "BDLGI",
-                "function f(x)\n b = x + 1;\n if b, r = 1; end\nend\n",
             ),
             ("SIMPT", "function f()\n x = 1;\n import a.b.*\nend\n"),
             ("STRSZ", "function f(s)\n if 'abc' == 'abcd', end\nend\n"),

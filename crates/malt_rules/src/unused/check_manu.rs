@@ -146,4 +146,31 @@ mod tests {
         );
         assert!(!has_id(&diags, "MANU"), "got: {diags:?}");
     }
+
+    #[test]
+    fn manu_silent_when_tilde_placeholder_follows_unused_input() {
+        // Probe U_e: with a `~` placeholder, the unused `obj` is INUSD (line 3), not MANU.
+        let diags = lint_file(
+            &*engine(),
+            "classdef U_e\n    methods\n        function r = k(obj, ~)\n            r = 1;\n        end\n    end\nend\n",
+        );
+        assert!(!has_id(&diags, "MANU"), "got: {diags:?}");
+        let inusd: Vec<usize> = diags
+            .iter()
+            .filter(|d| d.rule_id == "INUSD")
+            .map(|d| d.line)
+            .collect();
+        assert_eq!(inusd, vec![3], "got: {diags:?}");
+    }
+
+    #[test]
+    fn manu_silent_when_input_is_also_an_output() {
+        // Probe U_e: `function obj = set(obj)` that writes a field of its input is not unused.
+        let diags = lint_file(
+            &*engine(),
+            "classdef U_e\n    methods\n        function obj = set(obj)\n            obj.x = 1;\n        end\n    end\nend\n",
+        );
+        assert!(!has_id(&diags, "MANU"), "got: {diags:?}");
+        assert!(!has_id(&diags, "INUSD"), "got: {diags:?}");
+    }
 }

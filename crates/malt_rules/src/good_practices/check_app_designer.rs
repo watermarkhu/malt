@@ -214,6 +214,21 @@ mod tests {
     }
 
     #[test]
+    fn test_admthdinv_fires_on_handle_and_bare_reference_only() {
+        // Probed (AppA): `@() helper` (7), `@(x) helper(1)` (8) and `m = helper;` (9) are
+        // ADMTHDINV; `helper(app)`, `app.helper()` and `cellfun(@helper, ...)` are silent.
+        let source = "classdef MyApp < matlab.apps.AppBase\n    methods (Access = private)\n        function r = helper(~, x)\n            r = x + 1;\n        end\n        function btn(app)\n            f = @() helper;\n            g = @(x) helper(1);\n            m = helper;\n            helper(app);\n            app.helper();\n            c = cellfun(@helper, {1, 2}, 'UniformOutput', false);\n        end\n    end\nend\n";
+        let tree = parse(source);
+        let lines: Vec<usize> = engine()
+            .check_app_designer(&tree, source)
+            .iter()
+            .filter(|d| d.rule_id == "ADMTHDINV")
+            .map(|d| d.line)
+            .collect();
+        assert_eq!(lines, vec![7, 8, 9]);
+    }
+
+    #[test]
     fn test_adprop_fires_on_bare_property_assignment() {
         let source = format!(
             "{APP_CLASS}    properties\n        Count = 0\n    end\n\

@@ -190,6 +190,44 @@ mod tests {
     }
 
     #[test]
+    fn and2_or2_silent_on_parenthesised_known_logical_operands() {
+        // Probed (E1, E2, E3): MATLAB is silent when a parenthesised operand is a known
+        // logical predicate (`islogical`, `isempty`, `isnumeric`, `ischar`).
+        for src in [
+            "function r = e1(x, y)\nr = 0;\nif (islogical(x)) & (y)\n    r = 1;\nend\nend\n",
+            "function r = e2(x, y)\nr = 0;\nif (isempty(x)) | (y > 1)\n    r = 1;\nend\nend\n",
+            "function r = e3(x, y)\nr = 0;\nif (isnumeric(x)) & (ischar(y))\n    r = 1;\nend\nend\n",
+        ] {
+            let diags = lint_nodes(&*engine(), src);
+            assert!(!has_id(&diags, "AND2"), "{src}: got: {diags:?}");
+            assert!(!has_id(&diags, "OR2"), "{src}: got: {diags:?}");
+        }
+    }
+
+    #[test]
+    fn and2_or2_fire_on_parenthesised_comparison_and_plain_operands() {
+        // Probed (E4, E6, E7): MATLAB reports AND2 for `(x > 1) & (y < 2)` and `(x) & (y)`,
+        // and OR2 for `(x > 1) | (y < 0)`; a comparison of inputs is not a known logical.
+        for (src, id) in [
+            (
+                "function r = e4(x, y)\nr = 0;\nif (x > 1) & (y < 2)\n    r = 1;\nend\nend\n",
+                "AND2",
+            ),
+            (
+                "function r = e6(x, y)\nr = 0;\nif (x) & (y)\n    r = 1;\nend\nend\n",
+                "AND2",
+            ),
+            (
+                "function r = e7(x, y)\nr = 0;\nif (x > 1) | (y < 0)\n    r = 1;\nend\nend\n",
+                "OR2",
+            ),
+        ] {
+            let diags = lint_nodes(&*engine(), src);
+            assert!(has_id(&diags, id), "{src}: got: {diags:?}");
+        }
+    }
+
+    #[test]
     fn or2_fires_on_plain_condition_operands() {
         let diags = lint_nodes(&*engine(), "if a | b\n    c = 1;\nend\n");
         assert!(has_id(&diags, "OR2"), "got: {diags:?}");

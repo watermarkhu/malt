@@ -102,4 +102,22 @@ end
         let clans = filter_by_id(&diags, "CLANS");
         assert!(!clans.is_empty(), "CLANS should fire for class named 'ans'");
     }
+
+    #[test]
+    fn test_fcnans_function_with_output_named_ans_in_file() {
+        // Probed (N3): `function r = ans(x)` gives one FCNANS, on the name at line 1.
+        let source = "function r = ans(x)\n    r = x;\nend\n";
+        let diags = check_source(source, "N3.m");
+        let fcnans = filter_by_id(&diags, "FCNANS");
+        assert_eq!(fcnans.len(), 1, "got: {diags:?}");
+        assert_eq!(fcnans[0].line, 1);
+    }
+
+    #[test]
+    fn test_fcnans_silent_for_classdef_method_named_ans() {
+        // Probed (C1): a classdef method named `ans` is MTHANS, not FCNANS.
+        let source = "classdef C1\n    methods\n        function r = ans(obj)\n            r = 1;\n        end\n    end\nend\n";
+        let diags = check_source(source, "C1.m");
+        assert!(filter_by_id(&diags, "FCNANS").is_empty(), "got: {diags:?}");
+    }
 }

@@ -435,4 +435,14 @@ mod tests {
         );
         assert!(!has_id(&diags, "INUSD"), "got: {diags:?}");
     }
+
+    #[test]
+    fn inusd_counts_tilde_placeholder_and_skips_input_that_is_also_output() {
+        // Probes U_a and U_b: `k(obj, ~)` leaves `obj` unused (INUSD on line 1), while
+        // `function obj = setv(obj)` writes a field of its input, so it is used.
+        let diags = lint_file(&*engine(), "function r = k(obj, ~)\nr = 1;\nend\n");
+        assert_eq!(lines_of(&diags, "INUSD"), vec![1], "got: {diags:?}");
+        let diags = lint_file(&*engine(), "function obj = setv(obj)\nobj.x = 1;\nend\n");
+        assert!(!has_id(&diags, "INUSD"), "got: {diags:?}");
+    }
 }

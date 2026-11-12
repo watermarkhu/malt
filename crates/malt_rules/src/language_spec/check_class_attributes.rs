@@ -746,4 +746,56 @@ end
         let diags = check_source(source, "C.m");
         assert!(filter_by_id(&diags, "ATPPP").is_empty());
     }
+
+    #[test]
+    fn test_atppi_atppp_report_bad_properties_values_at_block_line() {
+        // Probed (B1, B2, B3, B6): a bad Access or GetAccess value on a properties block is
+        // ATPPP and a bad SetAccess value is ATPPI; each is reported at the block's line.
+        for (source, id, line) in [
+            (
+                "classdef B1\n    properties (SetAccess = bogus)\n        x = 1;\n    end\nend\n",
+                "ATPPI",
+                2,
+            ),
+            (
+                "classdef B2\n    properties\n        a = 1;\n    end\n    properties (GetAccess = bogus)\n        x = 1;\n    end\nend\n",
+                "ATPPP",
+                5,
+            ),
+            (
+                "classdef B3\n    properties (Access = bogus)\n        x = 1;\n    end\nend\n",
+                "ATPPP",
+                2,
+            ),
+            (
+                "classdef B6\n    properties (Access = Private)\n        x = 1;\n    end\nend\n",
+                "ATPPP",
+                2,
+            ),
+        ] {
+            let diags = check_source(source, "C.m");
+            let hits = filter_by_id(&diags, id);
+            assert_eq!(hits.len(), 1, "{source}: got: {diags:?}");
+            assert_eq!(hits[0].line, line, "{source}: got: {diags:?}");
+        }
+    }
+
+    #[test]
+    fn test_atppi_atppp_silent_for_valid_or_quoted_property_values() {
+        // Probed (Q1, Q2, Q3, Q4, B5): valid Access, GetAccess and SetAccess values, and a
+        // quoted SetAccess value, are silent in MATLAB.
+        for source in [
+            "classdef Q1\n    properties (Access = private)\n        x = 1;\n    end\nend\n",
+            "classdef Q2\n    properties (GetAccess = private)\n        x = 1;\n    end\nend\n",
+            "classdef Q3\n    properties (SetAccess = private)\n        x = 1;\n    end\nend\n",
+            "classdef Q4\n    properties (SetAccess = private, GetAccess = public)\n        x = 1;\n    end\nend\n",
+            "classdef B5\n    properties (SetAccess = 'private')\n        x = 1;\n    end\nend\n",
+        ] {
+            let diags = check_source(source, "C.m");
+            assert!(
+                filter_by_id(&diags, "ATPPI").is_empty() && filter_by_id(&diags, "ATPPP").is_empty(),
+                "{source}: got: {diags:?}"
+            );
+        }
+    }
 }

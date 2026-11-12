@@ -107,4 +107,18 @@ mod tests {
         assert!(findings("u = [1:2:3:4];\n").is_empty());
         assert!(findings("u = (1:2:3);\n").is_empty());
     }
+
+    #[test]
+    fn sepexr_one_line_case_in_function_matches_matlab() {
+        // Probed (S4): `case 1 y = 1;` in a function is SEPEXR at `y` (3:12), with no SYNER
+        // on the following `otherwise y = 2;` line (MATLAB reports SEPEX there, not SEPEXR).
+        let found = findings(
+            "function s4(x)\nswitch x\n    case 1 y = 1;\n    otherwise y = 2;\nend\nend\n",
+        );
+        assert_eq!(found.len(), 1, "{found:?}");
+        assert_eq!(found[0].rule_id, "SEPEXR");
+        assert_eq!((found[0].line, found[0].column), (3, 12));
+        // Probed (S5): the comma form `case 1, y = 1; end` is silent.
+        assert!(findings("function s5(x)\nswitch x\n    case 1, y = 1; end\nend\n").is_empty());
+    }
 }

@@ -76,4 +76,42 @@ end
             "MCPIN should NOT fire for a plain default value"
         );
     }
+
+    #[test]
+    fn test_mcpin_fires_on_bare_class_name_default() {
+        // Probed (P2): `P = P2;` with no parentheses is reported at the default's line.
+        let source = "classdef P2\n    properties\n        P = P2;\n    end\nend\n";
+        let diags = check_source(source, "P2.m");
+        let hits = filter_by_id(&diags, "MCPIN");
+        assert_eq!(hits.len(), 1, "got: {diags:?}");
+        assert_eq!(hits[0].line, 3);
+    }
+
+    #[test]
+    fn test_mcpin_silent_for_constant_property_and_empty_call() {
+        // Probed (P3, P6): a Constant property that builds the class is silent, and so is
+        // `P6.empty(0, 0)`, which does not construct an instance.
+        for source in [
+            "classdef P3\n    properties (Constant)\n        P = P3();\n    end\nend\n",
+            "classdef P6\n    properties\n        x = P6.empty(0, 0);\n    end\nend\n",
+        ] {
+            let diags = check_source(source, "P.m");
+            assert!(
+                filter_by_id(&diags, "MCPIN").is_empty(),
+                "{source}: got: {diags:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_mcpin_fires_on_non_constant_property_beside_constant() {
+        // Probed (P5): the Constant property (line 3) is silent, the other one (line 6) is reported.
+        let source = "classdef P5\n    properties (Constant)\n        A = P5();\n    end\n    properties\n        x P5 = P5();\n    end\nend\n";
+        let diags = check_source(source, "P5.m");
+        let lines: Vec<usize> = filter_by_id(&diags, "MCPIN")
+            .iter()
+            .map(|d| d.line)
+            .collect();
+        assert_eq!(lines, vec![6], "got: {diags:?}");
+    }
 }

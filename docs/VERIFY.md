@@ -33,9 +33,9 @@ the repository (`~/.local/share/malt-reference/`: `matlab-allmsg.txt` from
 - The `mathworks` preset mirrors MATLAB's factory configuration. Checks MATLAB's default
   analysis never reports are off under it and on under `--preset all` (or with an explicit
   rule or category setting):
-  - bugs: BDSCA2, STCUL, SHOCIRF, MOCUP
+  - bugs: STCUL, SHOCIRF, MOCUP
   - good_practices: ERTAG, WNTAG, CTCH, BDLOG2, CTOINW, GTARG,
-    LTARG, BDLGI, SIMPT, STRSZ, ELARLOG, ITERS, ADAPPREF, MIPC1, VTFIN, MCCPE, MCCSPS (MATLAB never
+    LTARG, SIMPT, STRSZ, ELARLOG, ITERS, ADAPPREF, MIPC1, VTFIN, MCCPE, MCCSPS (MATLAB never
     generates the last two)
   - language_spec: FVNIV, USESWNS, PFUTVR, VTPEAL, VTPIN, VTPCON, GPNES
   - readability: LOGSUM, MFAMB; performance: GRIDD; unused: VANUS, NOEFF, PUSE;
@@ -91,6 +91,7 @@ No fixture fails on these.
 | Gap | Note |
 | --- | --- |
 | Overfitting | The first fresh corpus (`corpus1/`, 31 files) measured generalisation before any fixing: 44 of MATLAB's 45 findings matched (recall 98%) and malt reported 28 more (precision about 61%): DEFNU in function-based test files, data entries firing on ordinary calls, class checks with an unresolvable superclass, and a few flow checks. All were fixed and the files joined the fixtures. `corpus2/` (31 files, different themes, unseen) then measured 24 of 27 findings matched, 3 misses and 7 extra (recall 89%, precision 77%): MHERM, the date-function family (TYEAR), DISPLAYPROG, `persistent` redefinitions (REDEF, GPFST), LOAD in anonymous functions, PROP, NASGU with `rethrow`; all fixed. `corpus3/` (33 messy, student, legacy and other-language-style files, MATLAB reports 160 findings on them) measured 134 matched, 26 misses and 12 extra before fixing: SAGROW and AGROW growth in loops, OR2/AND2 (see the precedence rule below), NASGU/PREALL and `syms`, ROWLN, MSNU, FNDSB, VERLESSMATLAB and single rows; all fixed. The number to watch is the first-measurement difference count per MATLAB finding of each new corpus: 29/45, 10/27, 38/160 (0.64, 0.37, 0.24). `corpus4/` (32 files: old-era code, formatting variety, class-heavy code; MATLAB reports 174 findings) measured 170 matched, 4 misses and 9 extra (13 differences, 0.075 per finding) before fixing: logical predicates in AND2/OR2, MCPO/MCVM class gates, RHSFN with a shadowed function, block-comment openers (INBLK), a leading blank line or comment before `function` making the file a script (DEFNU), MSNU for NASGU, NOPTS, STRNU, CTPCT; all fixed. The per-finding rate across the four corpora is 0.64, 0.37, 0.24, 0.075 (plan step 4.1). |
+| BDSCA2 in call arguments | MATLAB reports `disp([1 0] && x)` and `f(x && [1 0])` as BDSCA2; malt does not visit a `&&` inside function-call arguments, so it is silent there (a miss, not an extra). |
 | SAGROW | `x(size(x,2)+1) = v` is reported by MATLAB; only `numel`/`length` are handled. |
 | VERLESSMATLAB | A version held in a variable (`vv = '9.10'; verLessThan('matlab', vv)`) is reported by MATLAB and missed by malt (needs constant propagation); MATLAB reports it for dotted versions of 9.9 or higher, in every position. |
 | OR2, AND2 | Bare calls outside the probed list (`isempty`, `ischar`, `strcmp`, `numel`, `length`, `size`, `any`, `max`, `min`, `mean`, `isnan`, `isfield`) are treated as unknown and stay silent. |
@@ -164,6 +165,7 @@ that are not installed); LENEMP and LEGPVPAIR are `unverified` (MATLAB reported 
 - PROP and CPROP: see the check docstrings; CPROP is a bare read or call of a property name in a method that never uses the name as a variable.
 - MCPO/MOBSRV: `SetObservable = false` is silent. MCHDP/MCHDT: only `containers.Map()` as a handle default.
 - Parfor reductions (PFRIN/PFRUS) are reported once per variable, at its first reduction.
+- BDLGI/BDSCI/BDSCA2 are on by default; ATPPI/ATPPP fire only for invalid attribute values (`Private`, bad `SetAccess`); `(x > 1) & (y < 2)` is AND2; a classdef method named `ans` gives MTHANS only.
 - tree-sitter-matlab gives `|` and `&` higher precedence than the comparison operators: `L > 1 | L < 0.1` parses as `L > (1 | L) < 0.1`. `analysis/elementwise.rs` recovers the true operands (MATLAB: comparison, then `&`, then `|`); use it in every check that reads the operands of `|` or `&` (OR2, AND2, LBODUP use it; FNAN and CHAIN carry older patches).
 - MATLAB reports OR2/AND2 unless an operand is known to be logical (a comparison of values of known class, `isempty`/`ischar`/`strcmp` results, `true`/`false` variables); comparisons of `input`, indexed arrays that grow, struct fields and most function results do not count as known.
 - FNDSB in its variable form (`idx = find(L)`) is reported at the single direct-subscript use of `idx`, inside a function only; the direct form `A(find(...))` is reported everywhere.
@@ -181,8 +183,8 @@ that are not installed); LENEMP and LEGPVPAIR are `unverified` (MATLAB reported 
 Open after the audit and the follow-up pass (probe files are not kept; re-probe before changing):
 
 - Syntax: `try, x = 1; catch ME end` is SYNER in malt (MATLAB: SEPEX plus ENDCT2); EOFER for `if x, disp(1) end` and `while x x=0 end`; NBRAK2 for `[1:2:3]`; NOSEMI on `case 2, y = 2;`.
-- BDLGI (`if d` with `d = 1:3` or `[1 0]`) and BDSCA2 (`if [1 0] && true`): MATLAB reports both; they stay on the off-list until implemented.
 - MSNU for `end %#ok<TRYNC>`, `%#ok<NOPRT>`, SHVAU/ITERS, the second of two own-line directives and a bare `%#ok`: needs `active_check_ids` on more engines (false-MSNU risk).
+- BDSCA2 inside call arguments (`disp([1 0] && x)`) is missed. BDLGI/BDSCI use a reaching-definitions rule inferred from about 60 probes: a variable is reported only when every reaching definition is of the reported kind.
 - Uppercase attribute values (`Dependent = TRUE`): MATLAB's ATTF is not implemented, leaving MGMD/MCANI extras. MTAGS3 is reported at the classdef line. ADMTHDINV misses `@() helper + 1`.
 - Parfor: PFBNS rule unclear (6 misses); PFUNK for `k=i; v(k)=1`; PFRUS/PFRIN/PFVSUB/PFUTMP extras when a reduction variable is read whole; PFOUS misses struct-field sliced writes; PFIIN after `clear k`; PFINCR for `s = [s i]`; PFUTVR is off by design.
 - CFALSE is limited to `any`, `isequal`, `isreal` (others unprobed); STLOW for a letterless literal; INUSD message text includes the argument name; STRNU loop-store fallback is a heuristic.
