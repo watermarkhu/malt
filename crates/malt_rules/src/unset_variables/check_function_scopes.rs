@@ -278,6 +278,43 @@ end
     }
 
     #[test]
+    fn nodef_name_value_argument_name_is_not_a_read() {
+        // Probed: `NumClasses = NaN` in `struct(...)` names an argument, it does not read
+        // the variable; the assignment after the call leaves MATLAB silent.
+        let source = "\
+function s = foo()
+    s = struct(NumClasses = NaN, Counts = []);
+    NumClasses = 3;
+    disp(NumClasses)
+end
+";
+        let diags = lint_file(&*engine(), source);
+        assert!(
+            !diags
+                .iter()
+                .any(|d| d.rule_id == "NODEF" || d.rule_id == "USENS"),
+            "expected no NODEF/USENS for a name-value argument name, got: {diags:?}"
+        );
+    }
+
+    #[test]
+    fn nodef_name_value_argument_value_is_a_read() {
+        // Probed: the value `y` of `A = y` is a read, so NODEF fires there when `y` is
+        // assigned later.
+        let source = "\
+function s = foo()
+    s = struct(A = y);
+    y = 1;
+    disp(s)
+end
+";
+        let diags = lint_file(&*engine(), source);
+        let nodef: Vec<_> = diags.iter().filter(|d| d.rule_id == "NODEF").collect();
+        assert_eq!(nodef.len(), 1, "got: {diags:?}");
+        assert_eq!((nodef[0].line, nodef[0].column), (2, 20));
+    }
+
+    #[test]
     fn never_defined_name_is_a_function_call() {
         let source = "\
 function foo()

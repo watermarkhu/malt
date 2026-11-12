@@ -127,6 +127,11 @@ struct CompatEntry {
     /// Reported only in a script file.
     #[serde(default)]
     script_only: bool,
+    /// The first argument is text: a quoted literal, or a variable that every
+    /// assignment in its scope gives a literal of (`ismethod(mdl, ...)` with an
+    /// object `mdl` is not reported).
+    #[serde(default)]
+    first_arg_text: bool,
     /// Fewest outputs the call is assigned to: `[a, b] = f(x)` has two.
     #[serde(default)]
     min_outputs: Option<usize>,
@@ -506,6 +511,17 @@ fn literal<'a>(arg: tree_sitter::Node, source: &'a str) -> Option<&'a str> {
     }
 }
 
+/// Whether an argument is text: a quoted literal, or a variable that every
+/// assignment in its scope gives a text literal (see `variable_kinds`).
+fn is_text_argument(arg: tree_sitter::Node, source: &str) -> bool {
+    let kinds = if arg.kind() == "identifier" {
+        crate::suggested_improvements::variable_kinds(arg, source)
+    } else {
+        crate::suggested_improvements::argument_kinds(arg, source).to_vec()
+    };
+    kinds.contains(&"text")
+}
+
 /// Whether an entry's argument conditions hold for a call with these arguments.
 fn applies(
     entry: &CompatEntry,
@@ -515,6 +531,13 @@ fn applies(
     script: bool,
 ) -> bool {
     if entry.script_only && !script {
+        return false;
+    }
+    if entry.first_arg_text
+        && !args
+            .first()
+            .is_some_and(|arg| is_text_argument(*arg, source))
+    {
         return false;
     }
     if entry.min_args.is_some_and(|min| args.len() < min)
@@ -989,6 +1012,35 @@ mod tests {
         assert!(!fires("x = solve(p, 'Options', o);\n", "OPTMNVP"));
         assert!(!fires("x = solve(p, o);\n", "OPTMOPT"));
         assert!(!fires("x = solve(p);\n", "OPTMSLV"));
+    }
+
+    #[test]
+    fn bare_nargout_fires_in_a_script_only() {
+        // MATLAB probes: `nargout(f)` and `nargout('max')` in a script report nothing
+        // (only the bare `nargout` of a script does, which malt does not match yet).
+        assert!(!fires("nOut = max(0, nargout(task.Fcn));\n", "FINSNO"));
+        assert!(!fires("x = nargout('max');\n", "FINSNO"));
+        assert!(!fires(
+            "function r = f(fcn)\nr = nargout(fcn);\nend\n",
+            "FINSNO"
+        ));
+    }
+
+    #[test]
+    fn ismethod_fires_on_a_text_first_argument_only() {
+        // MATLAB probes: `ismethod` with a char or string literal, or a variable
+        // assigned one, reports IMCLASS; an object, a parameter or `class(x)` does not.
+        assert!(fires("c = ismethod('abc', 'x');\n", "IMCLASS"));
+        assert!(fires("s = 'abc';\nc = ismethod(s, 'x');\n", "IMCLASS"));
+        assert!(fires(
+            "str = \"abc\";\nc = ismethod(str, 'x');\n",
+            "IMCLASS"
+        ));
+        assert!(!fires(
+            "function f(mdl)\nc = ismethod(mdl, 'x');\nend\n",
+            "IMCLASS"
+        ));
+        assert!(!fires("c = ismethod(class(mdl), 'x');\n", "IMCLASS"));
     }
 
     #[test]

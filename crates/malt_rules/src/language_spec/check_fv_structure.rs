@@ -13,7 +13,7 @@ impl LanguageSpecEngine {
         self.check_fvdrep(blocks, diagnostics);
         self.check_fvioa(blocks, diagnostics);
         self.check_fvrepo(blocks, source, diagnostics);
-        self.check_fvvrep(blocks, diagnostics);
+        self.check_fvvrep(blocks, source, diagnostics);
         self.check_fvovrep(blocks, diagnostics);
         self.check_fvnrep_fvrepd(blocks, source, diagnostics);
         self.check_fvood_fvooi_fvoon(blocks, source, diagnostics);

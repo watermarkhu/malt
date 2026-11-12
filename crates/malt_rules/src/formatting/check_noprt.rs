@@ -35,7 +35,7 @@ impl FormattingEngine {
             return;
         }
 
-        let start = node.start_position();
+        let start = super::check_nopts::assignment_report_position(node);
         let end_byte = node.end_byte();
         diagnostics.push(Diagnostic {
             rule_id: "NOPRT",

@@ -1206,6 +1206,13 @@ impl<'a> Builder<'a> {
             self.record_use(node);
             return;
         };
+        // The name of a `Name = value` call argument is not a read: `struct(Counts = [])`
+        // does not use `Counts` (probed: MATLAB reports no NODEF for it). The value is.
+        if parent.kind() == "arguments"
+            && node.next_sibling().is_some_and(|next| next.kind() == "=")
+        {
+            return;
+        }
 
         match parent.kind() {
             // Already handled by visit_assignment.

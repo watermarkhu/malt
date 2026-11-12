@@ -70,4 +70,20 @@ end
             "FVORDN should NOT fire when positional arguments precede name-value arguments"
         );
     }
+
+    #[test]
+    fn test_fvordn_fires_class_typed_after_name_value() {
+        // Probed: `opts.Name = 1` then `b pkg.Class` reports FVORDN at the class-typed line.
+        let source = "\
+function f(opts, b)
+arguments
+    opts.Name = 1
+    b pkg.Class
+end
+";
+        let diags = check_source(source, "f.m");
+        let fvordn = filter_by_id(&diags, "FVORDN");
+        assert_eq!(fvordn.len(), 1, "got: {diags:?}");
+        assert_eq!((fvordn[0].line, fvordn[0].column), (4, 5));
+    }
 }

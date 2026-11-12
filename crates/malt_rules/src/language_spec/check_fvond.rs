@@ -70,4 +70,18 @@ end
             "FVOND should NOT fire when a default value uses a positional argument"
         );
     }
+
+    #[test]
+    fn test_fvond_no_fire_class_typed_default_call() {
+        // Probed: `y pkg.Class = pkg.Class()` is a class name, not a name-value argument.
+        let source = "\
+function f(a, y)
+arguments
+    a double
+    y pkg.Class = pkg.Class()
+end
+";
+        let diags = check_source(source, "f.m");
+        assert!(filter_by_id(&diags, "FVOND").is_empty(), "got: {diags:?}");
+    }
 }

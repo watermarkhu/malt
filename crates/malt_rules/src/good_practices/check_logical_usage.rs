@@ -6,7 +6,7 @@
 //! on provable cases:
 //!
 //! - BDLGI  — the condition variable was assigned from an arithmetic operator.
-//! - BDLOG1 — the condition variable is logical but not scalar.
+//! - BDLOG1 — a transposed condition (`if a'`); MATLAB reports no other form.
 //! - BDLOG2 — the condition value is scalar but not provably logical.
 //! - BDSCI  — the condition variable was assigned from an array-producing
 //!   expression (`a:b`, `[...]`, `{...}`).
@@ -215,20 +215,9 @@ fn check_bare_condition(
                 });
             }
 
-            if eng.is_check_enabled("BDLOG1") && info.kind == TypeKind::Logical && !info.scalar {
-                diagnostics.push(Diagnostic {
-                    rule_id: "BDLOG1",
-                    message: "A scalar logical value is expected in the conditional expression. \
-                              Use 'any' or 'all' to reduce the array to a logical scalar."
-                        .to_string(),
-                    severity: Severity::Warning,
-                    byte_range: value.start_byte()..value.end_byte(),
-                    line: pos.row + 1,
-                    column: pos.column + 1,
-                    fix: None,
-                });
-            }
-
+            // MATLAB never reports BDLOG1 for a variable condition (probed with
+            // non-scalar comparisons, `true(3)`, `~v` and `while`); only for a
+            // transposed one, below.
             if eng.is_check_enabled("BDLOG2")
                 && info.kind != TypeKind::Logical
                 && (info.scalar || classes.scalar_literal.get(name) == Some(&true))
@@ -334,10 +323,20 @@ mod tests {
     // -- BDLOG1 -------------------------------------------------------------
 
     #[test]
-    fn test_bdlog1_fires_on_non_scalar_logical_condition() {
-        let source = "x = a > b;\nwhile x\n    y = 1;\nend\n";
-        let ids = logical_ids(source, "BDLOG1");
-        assert_eq!(ids.len(), 1, "got: {:?}", logical_ids(source, "BDLOG1"));
+    fn test_bdlog1_silent_for_logical_variable_conditions() {
+        // MATLAB probes: `a = [1 2 3] > 1; if a`, `c = [1 2] > 0; elseif c`,
+        // `c = v > 0; while c`, `c = true(3); if c`, `c = ~v; if c` and
+        // `c = v > 0 && n > 0; if c` report no BDLOG1.
+        for source in [
+            "a = [1 2 3] > 1;\nif a\n    y = 1;\nend\n",
+            "c = [1 2] > 0;\nif n == 1\n    y = 1;\nelseif c\n    y = 2;\nend\n",
+            "function f(v)\nc = v > 0;\nwhile c\n    break\nend\nend\n",
+            "c = true(3);\nif c\n    y = 1;\nend\n",
+            "function f(v)\nc = ~v;\nif c\n    y = 1;\nend\nend\n",
+            "function f(v, n)\nc = v > 0 && n > 0;\nif c\n    y = 1;\nend\nend\n",
+        ] {
+            assert!(logical_ids(source, "BDLOG1").is_empty(), "{source:?}");
+        }
     }
 
     #[test]

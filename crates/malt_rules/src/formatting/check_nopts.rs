@@ -21,7 +21,7 @@ impl FormattingEngine {
             return;
         }
 
-        let start = node.start_position();
+        let start = assignment_report_position(node);
         let end_byte = node.end_byte();
         diagnostics.push(Diagnostic {
             rule_id: "NOPTS",
@@ -60,12 +60,53 @@ pub(crate) fn is_expression_statement(node: Node, source: &str) -> bool {
             word.chars().all(|c| c.is_alphanumeric() || c == '_')
                 && is_variable_name(node, word, source)
         }
+        // Probed: `f(1)` after `f = @(v) v;` or `f = @sin;` is silent (a call of a
+        // function handle); after `f = 3;` it echoes like indexing.
         "function_call" => node
             .child_by_field_name("name")
             .filter(|name| name.kind() == "identifier")
-            .is_some_and(|name| is_variable_name(node, text_of(name, source), source)),
+            .is_some_and(|name| {
+                let name = text_of(name, source);
+                is_variable_name(node, name, source) && !is_handle_variable(node, name, source)
+            }),
         _ => false,
     }
+}
+
+/// Where MATLAB points at a statement: an assignment at its `=` (probed:
+/// `x(2) = 3` at column 6, `s.a = 1` at column 5), anything else at its start.
+pub(crate) fn assignment_report_position(node: Node) -> tree_sitter::Point {
+    if node.kind() == "assignment" {
+        let operator = (0..node.child_count())
+            .filter_map(|i| node.child(i))
+            .find(|c| c.kind() == "=");
+        if let Some(op) = operator {
+            return op.start_position();
+        }
+    }
+    node.start_position()
+}
+
+/// Whether `name` holds a function handle or an anonymous function at `node`:
+/// its last whole assignment before `node` has a handle or lambda right-hand side.
+fn is_handle_variable(node: Node, name: &str, source: &str) -> bool {
+    let mut scope = node;
+    let mut current = node.parent();
+    while let Some(parent) = current {
+        scope = parent;
+        if parent.kind() == "function_definition" {
+            break;
+        }
+        current = parent.parent();
+    }
+    crate::good_practices::collect_simple_lhs_assignments(scope, source)
+        .iter()
+        .filter(|(n, lhs)| n == name && lhs.end_byte() <= node.start_byte())
+        .map(|(_, lhs)| *lhs)
+        .max_by_key(|lhs| lhs.end_byte())
+        .and_then(|lhs| lhs.parent())
+        .and_then(|assignment| assignment.child_by_field_name("right"))
+        .is_some_and(|rhs| matches!(rhs.kind(), "lambda" | "handle_operator" | "function_handle"))
 }
 
 /// Source text of `node`, empty when it is not valid UTF-8.
@@ -205,6 +246,45 @@ mod tests {
             diags.iter().any(|d| d.rule_id == "NOPTS" && d.line == 6),
             "got: {diags:?}"
         );
+    }
+
+    #[test]
+    fn nopts_silent_on_call_of_function_handle_variable() {
+        // Probed in MATLAB: `f(1)` after `f = @(v) v;` or `f = @sin;` is silent.
+        for source in [
+            "f = @(v) v;\nf(1)\n",
+            "g = @sin;\ng(1)\n",
+            "f = @(v) v;\nf(1, 2)\n",
+        ] {
+            let diags = lint(source);
+            assert!(!has_id(&diags, "NOPTS"), "{source}: got: {diags:?}");
+        }
+    }
+
+    #[test]
+    fn nopts_fires_on_call_of_number_variable() {
+        // Probed in MATLAB: `f = 3; f(1)` echoes in a function (NOPRT) as in a script.
+        let diags = lint("f = 3;\nf(1)\n");
+        assert!(has_id(&diags, "NOPTS"), "got: {diags:?}");
+        let diags = lint("function g()\nf = 3;\nf(1)\nend\n");
+        assert!(has_id(&diags, "NOPRT"), "got: {diags:?}");
+    }
+
+    #[test]
+    fn nopts_and_noprt_point_at_the_assignment_operator() {
+        // Probed in MATLAB: the column is the `=` (`x(2) = 3` at 6, `s.a = 1` at 5,
+        // `[a, b] = size(1)` at 8, `x=1` at 2).
+        let column = |source: &str, id: &str| {
+            lint(source)
+                .iter()
+                .find(|d| d.rule_id == id)
+                .map(|d| d.column)
+        };
+        assert_eq!(column("x(2) = 3\n", "NOPTS"), Some(6));
+        assert_eq!(column("s.a = 1\n", "NOPTS"), Some(5));
+        assert_eq!(column("[a, b] = size(1)\n", "NOPTS"), Some(8));
+        assert_eq!(column("x=1\n", "NOPTS"), Some(2));
+        assert_eq!(column("function f()\nx(2) = 3\nend\n", "NOPRT"), Some(6));
     }
 
     #[test]

@@ -254,6 +254,11 @@ id = "ISCLSTR"
 function_name = "iscellstr"
 message = "To support string in addition to cellstr, include a call to 'isstring'."
 replacement = "isstring"
+# MATLAB is silent when the statement or `if` header also calls isstring, and
+# for a cell argument (`{...}`, `cell(...)`, or a variable assigned one).
+not_with_call = "isstring"
+arg_through_variables = true
+not_arg_kinds = ["cell"]
 
 [[checks]]
 id = "EMTAG"
@@ -415,7 +420,7 @@ replacement = ""
 [[checks]]
 id = "STRCLQT"
 function_name = "string"
-arg_kinds = ["cell"]
+arg_kinds = ["char_cell"]
 max_args = 1
 message = "'string({'str1', 'str2'})' is not recommended. Use '[\"str1\", \"str2\"]' instead."
 replacement = ""

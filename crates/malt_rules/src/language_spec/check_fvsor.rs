@@ -187,4 +187,21 @@ end
             "FVSOR should NOT fire when an ignored argument is declared as ~"
         );
     }
+
+    #[test]
+    fn test_fvsor_no_fire_class_typed_declarations() {
+        // Probed: a class-typed declaration (`camObj pkg.Class`, with extra spaces, or
+        // with a size) is positional, not a name-value argument, so MATLAB is silent.
+        let source = "\
+function f(camObj, trackData, intrinsics)
+arguments
+    camObj   pkg.CameraData
+    trackData pkg.ActorTrackData
+    intrinsics (1,1) struct
+end
+";
+        let diags = check_source(source, "f.m");
+        assert!(filter_by_id(&diags, "FVSOR").is_empty(), "got: {diags:?}");
+        assert!(filter_by_id(&diags, "FVORDN").is_empty(), "got: {diags:?}");
+    }
 }

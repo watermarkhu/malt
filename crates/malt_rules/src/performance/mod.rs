@@ -516,16 +516,24 @@ impl PerformanceEngine {
 
         let lhs_text = node_text(lhs, source);
 
-        // Pattern 1: x(end+1) = ... or x{end+1} = ...
-        // `s.f(end+1) = ...` names a field: MATLAB does not report it (probed).
+        // Pattern 1: x(end+1) = ..., x{end+1} = ... or x(end+1).f = ... (the growth
+        // index is in the first bracket group). `end+1` grows on every initial value
+        // (probed, parameters included); the size form `x(numel(x)+1)` only when `x`
+        // starts empty (probed: silent after `zeros(1,0)`). `s.f(end+1) = ...` names a
+        // field: MATLAB does not report it (probed).
         let field_base = lhs_text
             .split(['(', '{'])
             .next()
             .is_some_and(|base| base.contains('.'));
         let base = lhs_text.split(['(', '{']).next().unwrap_or("").trim();
-        if (lhs.kind() == "function_call" || lhs.kind() == "cell_index")
-            && !field_base
-            && (contains_end_plus_pattern(lhs, source) || contains_size_plus_one(lhs, source, base))
+        let first = check_index_growth::first_index_group(lhs_text);
+        if matches!(
+            lhs.kind(),
+            "function_call" | "cell_index" | "field_expression"
+        ) && !field_base
+            && (check_index_growth::first_group_has_end_plus_one(first)
+                || (check_index_growth::first_group_has_size_plus_one(first, base)
+                    && check_index_growth::starts_growable(lhs, source, base)))
         {
             diags.push(make_diag(check_id, node));
             return;
@@ -955,26 +963,6 @@ pub(crate) fn has_inv_operand(node: tree_sitter::Node, source: &str) -> bool {
         }
     }
     false
-}
-
-/// Check if an indexing expression contains `end+1` or `end + 1` pattern.
-pub(crate) fn contains_end_plus_pattern(node: tree_sitter::Node, source: &str) -> bool {
-    let text = node_text(node, source);
-    // Simple textual check: look for "end+1" or "end + 1" within parentheses or braces.
-    let normalized: String = text.chars().filter(|c| !c.is_whitespace()).collect();
-    normalized.contains("end+1")
-}
-
-/// Check if an indexing expression of `base` contains `numel(base)+1` or
-/// `length(base)+1`, the same growth as `end+1` (both probed in MATLAB).
-pub(crate) fn contains_size_plus_one(node: tree_sitter::Node, source: &str, base: &str) -> bool {
-    if base.is_empty() {
-        return false;
-    }
-    let text = node_text(node, source);
-    let normalized: String = text.chars().filter(|c| !c.is_whitespace()).collect();
-    normalized.contains(&format!("numel({base})+1"))
-        || normalized.contains(&format!("length({base})+1"))
 }
 
 /// Check if a matrix literal `[...]` contains a variable name as an element.

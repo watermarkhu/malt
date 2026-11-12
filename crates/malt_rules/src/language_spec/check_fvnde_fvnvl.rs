@@ -38,8 +38,19 @@ impl LanguageSpecEngine {
                 let has_default = prop_has_default(prop) || tail.contains('=');
                 let has_validation = prop_has_validation(prop) || head.contains('{');
                 if nde && has_default {
-                    self.push_diag(
-                        prop,
+                    // MATLAB points at the default value, not at the declaration.
+                    let value_start = tail
+                        .find('=')
+                        .map(|eq| {
+                            let after = &tail[eq + 1..];
+                            let blanks = after.len() - after.trim_start().len();
+                            prop.start_byte() + name_len + eq + 1 + blanks
+                        })
+                        .unwrap_or(prop.start_byte());
+                    self.push_diag_bytes(
+                        source,
+                        value_start,
+                        prop.end_byte(),
                         "FVNDE",
                         "When specifying name-value arguments using a class name, it is illegal to specify default values for the arguments.",
                         diagnostics,
@@ -166,5 +177,23 @@ end
             filter_by_id(&diags, "FVNVL").is_empty(),
             "FVNVL should NOT fire for a regular name-value argument with validation"
         );
+    }
+
+    #[test]
+    fn test_fvnde_points_at_default_value() {
+        // Probed: MATLAB reports at the default value `1` (line 4, column 50).
+        let source = "\
+function r = f(a, opts)
+arguments
+    a
+    opts.?matlab.graphics.chart.primitive.Line = 1
+end
+r = a;
+end
+";
+        let diags = check_source(source, "f.m");
+        let fvnde = filter_by_id(&diags, "FVNDE");
+        assert_eq!(fvnde.len(), 1, "got: {diags:?}");
+        assert_eq!((fvnde[0].line, fvnde[0].column), (4, 50));
     }
 }

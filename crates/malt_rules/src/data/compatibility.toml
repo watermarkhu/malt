@@ -20,6 +20,8 @@
 #   max_args      - (optional) most arguments the call has
 #   second_arg    - (optional) shape of the second argument: "string" or "optimoptions"
 #   script_only   - (optional) reported only in a script file
+#   first_arg_text - (optional) the first argument is text: a quoted literal, or a
+#                    variable whose every assignment in scope is one
 #   min_outputs   - (optional) fewest outputs the call is assigned to: `[a, b] = f(x)` has two
 
 # =============================================================================
@@ -1594,6 +1596,8 @@ function_name = "nargout"
 severity = "error"
 message = "Support for 'nargout' in a script has been removed."
 category = "compatibility"
+script_only = true
+max_args = 0
 
 [[checks]]
 id = "DISGVER"
@@ -1694,6 +1698,7 @@ function_name = "ismethod"
 severity = "warning"
 message = "In a future release, 'ismethod' will treat a string or character vector in its first input as a 'string' or 'char' class object. Pass an object to 'ismethod' or use any(strcmp('methodName', methods('ClassName'))) instead."
 category = "compatibility"
+first_arg_text = true
 
 [[checks]]
 id = "WEBREMOVE"

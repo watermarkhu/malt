@@ -2827,8 +2827,15 @@ pub(crate) fn prop_has_ignored(prop: tree_sitter::Node) -> bool {
 }
 
 /// Whether the property is a name-value argument (`struct.field`).
+///
+/// A declaration with a class name (`camObj pkg.Class`) also holds a `property_name`
+/// node, but the grammar gives its plain name the `name` field, and a name-value
+/// declaration has no such field or sets it to the `property_name` itself.
 pub(crate) fn prop_has_name_value(prop: tree_sitter::Node) -> bool {
     find_child_kind(prop, "property_name").is_some()
+        && prop
+            .child_by_field_name("name")
+            .is_none_or(|name| name.kind() == "property_name")
 }
 
 /// Whether the property is a name-value argument, including the class form `struct.?Class`.
@@ -2879,11 +2886,6 @@ pub(crate) fn prop_has_default(prop: tree_sitter::Node) -> bool {
 /// Whether the property declares validation functions.
 pub(crate) fn prop_has_validation(prop: tree_sitter::Node) -> bool {
     find_child_kind(prop, "validation_functions").is_some()
-}
-
-/// Whether the property declares a size constraint.
-pub(crate) fn prop_has_dimensions(prop: tree_sitter::Node) -> bool {
-    find_child_kind(prop, "dimensions").is_some()
 }
 
 /// Collect the `property` and `class_property` children of an arguments block.

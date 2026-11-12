@@ -372,14 +372,15 @@ fn unused_suppressions(
     suppressions: &suppression::Suppressions,
     active: &HashSet<&'static str>,
 ) -> Vec<Diagnostic> {
-    let generated: HashSet<(usize, &str)> =
-        diagnostics.iter().map(|d| (d.line, d.rule_id)).collect();
     suppressions
         .named_ids()
         .iter()
         .filter(|named| {
             active.contains(named.id.as_str())
-                && !generated.contains(&(named.line, named.id.as_str()))
+                && !diagnostics.iter().any(|d| {
+                    d.rule_id == named.id
+                        && suppressions.suppresses_from(named.line, d.line, &named.id)
+                })
         })
         .map(|named| Diagnostic {
             rule_id: "MSNU",

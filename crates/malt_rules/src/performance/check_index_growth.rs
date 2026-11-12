@@ -64,6 +64,54 @@ pub(crate) fn indexed_write_grows(target: tree_sitter::Node, source: &str) -> bo
     is_growable_initial_value(r.binding, source)
 }
 
+/// The first bracket group of an indexed target, brackets included: `(end+1)`
+/// in `x(end+1).f`, `{i}` in `x{i}(end+1)`. Empty when the text has no bracket.
+pub(crate) fn first_index_group(text: &str) -> &str {
+    let Some(open) = text.find(['(', '{']) else {
+        return "";
+    };
+    let mut depth = 0usize;
+    for (i, c) in text[open..].char_indices() {
+        match c {
+            '(' | '{' => depth += 1,
+            ')' | '}' => {
+                depth -= 1;
+                if depth == 0 {
+                    return &text[open..=open + i];
+                }
+            }
+            _ => {}
+        }
+    }
+    ""
+}
+
+/// Whether the first bracket group of a target grows its variable by one with
+/// `end+1` (`x(end+1)`, `x{end+1}`, `x(end+1).f`). MATLAB reports this on every
+/// initial value, parameters included (probed).
+pub(crate) fn first_group_has_end_plus_one(group: &str) -> bool {
+    group
+        .chars()
+        .filter(|c| !c.is_whitespace())
+        .collect::<String>()
+        .contains("end+1")
+}
+
+/// Whether the first bracket group of a target holds `numel(base)+1` or
+/// `length(base)+1`, the size form of the same growth.
+pub(crate) fn first_group_has_size_plus_one(group: &str, base: &str) -> bool {
+    let normalized: String = group.chars().filter(|c| !c.is_whitespace()).collect();
+    normalized.contains(&format!("numel({base})+1"))
+        || normalized.contains(&format!("length({base})+1"))
+}
+
+/// Whether `base` starts as a value the growth checks follow (undefined, `[]`,
+/// `{}`, a number or a literal) before `target`. Probed: the size form
+/// `x(numel(x)+1)` is silent after `zeros(1,0)` and `cell(1,0)`.
+pub(crate) fn starts_growable(target: tree_sitter::Node, source: &str, base: &str) -> bool {
+    is_growable_initial_value(reaching(target, source, base).binding, source)
+}
+
 /// Whether `base` is written by an indexed assignment before the outermost loop
 /// (in the same function, or the file) that encloses `target`.
 fn indexed_write_before_loop(target: tree_sitter::Node, source: &str, base: &str) -> bool {
@@ -96,7 +144,10 @@ fn indexed_write_before_loop(target: tree_sitter::Node, source: &str, base: &str
         if n.kind() == "assignment" {
             if let Some(left) = n.child_by_field_name("left") {
                 let text = node_text(left, source);
+                // A plain field write (`x.f = []`) does not size `x` (probed: `x(i) = i`
+                // after it still reports); only a write with a bracket counts.
                 if left.kind() != "identifier"
+                    && text.contains(['(', '{'])
                     && text
                         .split(['(', '{', '.'])
                         .next()
@@ -242,6 +293,116 @@ mod tests {
     fn growth_silent_on_function_parameter() {
         let src = "function r = f(r, n)\nfor i = 1:n\n    r(i) = i;\nend\nend\n";
         assert!(!growth(src), "{src}");
+    }
+
+    #[test]
+    fn growth_fires_on_end_plus_one_for_any_initial_value() {
+        // Probed in MATLAB: `x(end+1)`, `x{end+1}`, `x(end+1,:)`, `x(end+1).f` and
+        // `x = [x i]` report whatever `x` holds, call results included.
+        for src in [
+            "x = zeros(1, 0);\nfor i = 1:3\n    x(end+1) = i;\nend\n",
+            "x = cell(3, 1);\nfor i = 1:3\n    x{end+1} = i;\nend\n",
+            "x = struct('f', {});\nfor i = 1:3\n    x(end+1).f = i;\nend\n",
+            "x = ones(1, 3);\nfor i = 1:3\n    x(end+1, :) = [i i];\nend\n",
+            "x = [];\nfor i = 1:3\n    x = [x i];\nend\n",
+        ] {
+            assert!(growth(src), "{src}");
+        }
+    }
+
+    #[test]
+    fn growth_silent_on_element_of_call_result_cell_or_struct() {
+        // Probed in MATLAB: silent for `x{i}(end+1)`, `x(i).f(end+1)` and
+        // `x{i} = [x{i} i]` when `x` holds a call result (`cell`, `struct`, `zeros`).
+        for src in [
+            "c = cell(3, 1);\nfor i = 1:3\n    c{i}(end+1) = i;\nend\n",
+            "c = cell(1, 3);\nfor i = 1:3\n    c{mod(i, 2) + 1}(end+1) = i;\nend\n",
+            "c = cell(3, 1);\nfor ci = 1:3\n    for cj = ci+1:3\n        c{ci}(end+1) = cj;\n    end\nend\n",
+            "s = struct('f', {});\nfor i = 1:3\n    s(i).f(end+1) = i;\nend\n",
+            "c = cell(3, 1);\nfor i = 1:3\n    c{i} = [c{i} i];\nend\n",
+        ] {
+            assert!(!growth(src), "{src}");
+        }
+    }
+
+    #[test]
+    fn growth_fires_on_element_of_undefined_or_empty_cell_or_struct() {
+        // Probed in MATLAB: SAGROW for these with `c`/`s` undefined, `{}` or `[]`.
+        for src in [
+            "for i = 1:3\n    c{i}(end+1) = i;\nend\n",
+            "c = {};\nfor i = 1:3\n    c{i}(end+1) = i;\nend\n",
+            "c = [];\nfor i = 1:3\n    c{i}(end+1) = i;\nend\n",
+            "s = [];\nfor i = 1:3\n    s(i).f(end+1) = i;\nend\n",
+            "c = {};\nfor i = 1:3\n    c{i} = [c{i} i];\nend\n",
+            "for ci = 1:3\n    for cj = ci+1:3\n        c{ci}(end+1) = cj;\n    end\nend\n",
+        ] {
+            assert!(growth(src), "{src}");
+        }
+    }
+
+    #[test]
+    fn growth_silent_on_constant_index_and_size_form_after_call_result() {
+        // Probed in MATLAB: a constant index does not grow the variable on every
+        // iteration; `x(numel(x)+1)` is silent after `zeros(1,0)` and `struct(...)`.
+        for src in [
+            "x = cell(3, 1);\nfor i = 1:3\n    x{3}(end+1) = i;\nend\n",
+            "for i = 1:3\n    x{3}(end+1) = i;\nend\n",
+            "x = struct('f', {});\nfor i = 1:3\n    x(2).f(end+1) = i;\nend\n",
+            "x = zeros(1, 0);\nfor i = 1:3\n    x(numel(x)+1) = i;\nend\n",
+            "x = struct('f', {});\nfor i = 1:3\n    x(numel(x)+1).f = i;\nend\n",
+        ] {
+            assert!(!growth(src), "{src}");
+        }
+    }
+
+    #[test]
+    fn growth_fires_on_size_form_after_empty_value() {
+        // Probed in MATLAB: SAGROW for `x(numel(x)+1)` after `[]` or undefined `x`,
+        // and for a struct element `x(numel(x)+1).f` after `[]`.
+        for src in [
+            "x = [];\nfor i = 1:3\n    x(numel(x)+1) = i;\nend\n",
+            "for i = 1:3\n    x(numel(x)+1) = i;\nend\n",
+            "x = [];\nfor i = 1:3\n    x(numel(x)+1).f = i;\nend\n",
+        ] {
+            assert!(growth(src), "{src}");
+        }
+    }
+
+    #[test]
+    fn growth_fires_after_a_plain_field_write_to_the_base() {
+        // Probed in MATLAB: `x.f = []` before the loop does not size `x`, so
+        // `x(i) = i`, `x{i} = [x{i} i]` and `x(i).f = i` still report.
+        for src in [
+            "x.f = [];\nfor i = 1:3\n    x(i) = i;\nend\n",
+            "x.f = [];\nfor i = 1:3\n    x{i} = [x{i} i];\nend\n",
+            "x.f = [];\nfor i = 1:3\n    x(i).f = i;\nend\n",
+        ] {
+            assert!(growth(src), "{src}");
+        }
+    }
+
+    #[test]
+    fn growth_on_parameter_follows_the_probes() {
+        // Probed in MATLAB: `x(end+1)` on an input argument reports; the element
+        // form `x{i}(end+1)` does not.
+        let end = "function f(x)\nfor i = 1:3\n    x(end+1) = i;\nend\nend\n";
+        assert!(has_id(&lint_file(&*engine(), end), "AGROW"));
+        let deep = "function f(x)\nfor i = 1:3\n    x{i}(end+1) = i;\nend\nend\n";
+        assert!(!growth(deep));
+    }
+
+    #[test]
+    fn agrow_fires_on_struct_element_field_growth() {
+        // Probed in MATLAB: AGROW for `x(end+1).f = v` in a function (so a
+        // `%#ok<AGROW>` on it is used); SAGROW in a script.
+        let src = "function f()\nx = struct([]);\nfor i = 1:3\n    x(end+1).f = i;\nend\nend\n";
+        assert!(has_id(&lint_file(&*engine(), src), "AGROW"));
+        let src = "x = struct([]);\nfor i = 1:3\n    x(end+1).f = i;\nend\n";
+        let diags = lint_file(&*engine(), src);
+        assert!(
+            has_id(&diags, "SAGROW") && !has_id(&diags, "AGROW"),
+            "{diags:?}"
+        );
     }
 
     #[test]

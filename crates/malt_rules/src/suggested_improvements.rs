@@ -116,6 +116,10 @@ struct SuggestedEntry {
     /// The argument at `arg_at` has exactly this source text (`now`).
     #[serde(default)]
     arg_text: String,
+    /// Not when the statement or `if` header that holds the call also calls this
+    /// function (`if iscellstr(x) || isstring(x)`).
+    #[serde(default)]
+    not_with_call: String,
     /// The argument at `arg_at`, when it is a variable, takes the kinds that
     /// every assignment to it in its scope gives (`x = 5; year(x)`). A
     /// parameter or a value that is not a literal leaves the kind unknown.
@@ -152,6 +156,9 @@ impl SuggestedEntry {
             return false;
         }
         if self.within_parfor && !inside_parfor(node, source) {
+            return false;
+        }
+        if !self.not_with_call.is_empty() && statement_calls(node, source, &self.not_with_call) {
             return false;
         }
         if !self.not_in_call.is_empty()
@@ -213,15 +220,88 @@ impl SuggestedEntry {
 }
 
 /// The kinds of a function-syntax argument, for the `arg_kinds` conditions.
-fn argument_kinds(arg: tree_sitter::Node, source: &str) -> &'static [&'static str] {
+pub(crate) fn argument_kinds(arg: tree_sitter::Node, source: &str) -> &'static [&'static str] {
     match arg.kind() {
         "number" => &["number"],
+        "cell" if is_char_literal_cell(arg, source) => &["cell", "char_cell"],
         "cell" => &["cell"],
+        "function_call" if call_name_is(arg, source, "cell") => &["cell"],
         "string" if source[arg.byte_range()].starts_with('\'') => &["char", "text"],
         "string" => &["text"],
         "range" | "matrix" if is_number_expr(arg) => &["number"],
         _ => &[],
     }
+}
+
+/// Whether a cell literal holds one or more single-quoted character literals and
+/// nothing else (`{'a', 'b'}`, `{'a'; 'b'}`). A cs-list, a variable, a
+/// double-quoted string or a transposed cell is not.
+fn is_char_literal_cell(cell: tree_sitter::Node, source: &str) -> bool {
+    let mut count = 0usize;
+    char_literals_only(cell, source, &mut count) && count > 0
+}
+
+/// Counts the single-quoted literals under `node`, the elements of a cell
+/// literal, descending into its rows; false at any other element.
+fn char_literals_only(node: tree_sitter::Node, source: &str, count: &mut usize) -> bool {
+    for i in 0..node.named_child_count() {
+        let Some(child) = node.named_child(i) else {
+            continue;
+        };
+        match child.kind() {
+            "comment" => {}
+            "string" if source[child.byte_range()].starts_with('\'') => *count += 1,
+            "row" | "array" => {
+                if !char_literals_only(child, source, count) {
+                    return false;
+                }
+            }
+            _ => return false,
+        }
+    }
+    true
+}
+
+/// Whether the function call `node` calls `name`.
+fn call_name_is(node: tree_sitter::Node, source: &str, name: &str) -> bool {
+    node.child_by_field_name("name")
+        .is_some_and(|callee| &source[callee.byte_range()] == name)
+}
+
+/// Whether the statement that holds `node` also calls `name`. For a call in an
+/// `if` header (or an `elseif` condition) the header is every condition of that
+/// `if`, not its bodies: `if iscellstr(x) || isstring(x)` holds `isstring`.
+/// Otherwise the whole top-level statement counts.
+fn statement_calls(node: tree_sitter::Node, source: &str, name: &str) -> bool {
+    let mut current = node;
+    let group = loop {
+        let Some(parent) = current.parent() else {
+            return false;
+        };
+        match parent.kind() {
+            "block" | "source_file" => break current,
+            "if_statement" => break parent,
+            _ => current = parent,
+        }
+    };
+    calls_named(group, source, name, group.kind() == "if_statement")
+}
+
+/// Whether `node` or a descendant calls `name`; with `skip_blocks`, the bodies
+/// (`block` nodes) are not searched.
+fn calls_named(node: tree_sitter::Node, source: &str, name: &str, skip_blocks: bool) -> bool {
+    if node.kind() == "function_call" && call_name_is(node, source, name) {
+        return true;
+    }
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        if !(skip_blocks && child.kind() == "block")
+            && calls_named(child, source, name, skip_blocks)
+        {
+            return true;
+        }
+    }
+    false
 }
 
 /// Whether `node` is a range or a matrix of number literals (`1:3`, `[1 2]`).
@@ -252,7 +332,7 @@ fn is_number_expr(node: tree_sitter::Node) -> bool {
 /// `arg_through_variables` (`x = 5; year(x)`). Every assignment must be a
 /// literal of a kind. A parameter, a loop variable, a multiple assignment or any
 /// other value leaves the kind unknown, and then the call is not reported.
-fn variable_kinds(ident: tree_sitter::Node, source: &str) -> Vec<&'static str> {
+pub(crate) fn variable_kinds(ident: tree_sitter::Node, source: &str) -> Vec<&'static str> {
     let name = &source[ident.byte_range()];
     let scope = enclosing_function(ident).unwrap_or_else(|| root_of(ident));
     let mut kinds = Vec::new();
@@ -1061,6 +1141,43 @@ mod tests {
         assert!(rule_ids("s = string(x);\n").is_empty());
         assert_eq!(rule_ids("s = string({'a', 'b'});\n"), vec!["STRCLQT"]);
         assert!(rule_ids("s = string({'a'}, 1);\n").is_empty());
+    }
+
+    #[test]
+    fn string_of_a_cell_needs_only_single_quoted_literals() {
+        // MATLAB probes: `string({'a'; 'b'})`, `string({'a', ''})` and `string({'a'})`
+        // report STRCLQT; a cs-list, a variable, a double-quoted element, a
+        // transposed cell and a second argument do not.
+        assert_eq!(rule_ids("s = string({'a'; 'b'});\n"), vec!["STRCLQT"]);
+        assert_eq!(rule_ids("s = string({'a', ''});\n"), vec!["STRCLQT"]);
+        assert_eq!(rule_ids("s = string({'a'});\n"), vec!["STRCLQT"]);
+        assert!(rule_ids("s = string({s.f});\n").is_empty());
+        assert!(rule_ids("s = string({PanelPerFold{1}.Family});\n").is_empty());
+        assert!(rule_ids("s = string({'a', v});\n").is_empty());
+        assert!(rule_ids("s = string({\"a\", \"b\"});\n").is_empty());
+        assert!(rule_ids("s = string({'a', 'b'}');\n").is_empty());
+    }
+
+    #[test]
+    fn iscellstr_silent_beside_isstring_or_on_a_known_cell() {
+        // MATLAB probes: ISCLSTR is reported for `if iscellstr(v)`, `x = iscellstr(v);`,
+        // `if n > 0 || iscellstr(v)` and an `elseif` after an `if n > 0`; it is silent
+        // with `isstring` in the same expression, statement or `if` chain, and for a
+        // cell literal, a `cell(...)` value or a variable assigned a cell.
+        assert_eq!(rule_ids("if iscellstr(v)\nend\n"), vec!["ISCLSTR"]);
+        assert_eq!(rule_ids("x = iscellstr(v);\n"), vec!["ISCLSTR"]);
+        assert_eq!(rule_ids("if n > 0 || iscellstr(v)\nend\n"), vec!["ISCLSTR"]);
+        assert_eq!(
+            rule_ids("if n > 0\nelseif iscellstr(v)\nend\n"),
+            vec!["ISCLSTR"]
+        );
+        assert!(rule_ids("if isstring(v) || iscellstr(v)\nend\n").is_empty());
+        assert!(rule_ids("x = iscellstr(v) || isstring(v);\n").is_empty());
+        assert!(rule_ids("if isstring(v)\nelseif iscellstr(v)\nend\n").is_empty());
+        assert!(rule_ids("if iscellstr(v)\nelseif isstring(v)\nend\n").is_empty());
+        assert!(rule_ids("if iscellstr({'a', 'b'})\nend\n").is_empty());
+        assert!(rule_ids("c = cell(2, 1);\nif iscellstr(c)\nend\n").is_empty());
+        assert!(rule_ids("x1 = {'a', 'b'};\nif iscellstr(x1)\nend\n").is_empty());
     }
 
     #[test]

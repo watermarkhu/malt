@@ -1036,6 +1036,9 @@ fn is_variable_use(node: Node) -> bool {
         }
         "field_expression" => !super::symbols::is_field_name(node),
         "function_arguments" | "function_output" | "function_definition" => false,
+        // The name of a `Name = value` call argument is not a read (probed: MATLAB
+        // reports no NODEF on `NumClasses` in `struct(NumClasses = NaN)`).
+        "arguments" => node.next_sibling().is_none_or(|next| next.kind() != "="),
         _ => true,
     }
 }
