@@ -120,6 +120,8 @@ use serde::Deserialize;
 use tree_sitter::Node;
 
 use crate::analysis::control_flow::{in_unreachable_code, is_split_statement_continuation};
+use crate::analysis::elementwise::call_name;
+use crate::analysis::reaching::{reaching, Binding};
 use crate::analysis::symbols::SymbolTable;
 use crate::readability::is_variable_defined_before;
 
@@ -477,9 +479,16 @@ impl BugsEngine {
                 let identifier_variable = rhs.kind() == "identifier"
                     && is_variable_defined_before(node_text(rhs, source), rhs.start_byte(), table)
                     && !in_unreachable_code(node, source);
+                // Probed: `[~, idx] = v(2)` is reported when `v` holds a numeric
+                // literal (`max = 3; [~, idx] = max(y)` shadows the function).
+                let indexed_variable = rhs.kind() == "function_call"
+                    && call_name(rhs, source)
+                        .is_some_and(|name| variable_holds_numeric_literal(rhs, name, source))
+                    && !in_unreachable_code(node, source);
                 if lhs.kind() == "multioutput_variable"
                     && has_comma
                     && (identifier_variable
+                        || indexed_variable
                         || matches!(
                             rhs.kind(),
                             "number"
@@ -738,6 +747,33 @@ impl Rule for BugsEngine {
 // ---------------------------------------------------------------------------
 
 /// Extract the text of a node from the source.
+/// Whether the callee `name` of `call` is a variable holding a numeric literal
+/// at that point, so `call` is an index and not a function call. Probed:
+/// `v = 3` and `v = [1 2 3]` are reported; `zeros(3)`, `input(...)`, `'abc'` and
+/// `y(1)` are silent.
+fn variable_holds_numeric_literal(call: Node, name: &str, source: &str) -> bool {
+    let r = reaching(call, source, name);
+    !r.indexed_since
+        && match r.binding {
+            Binding::Value(rhs) => is_numeric_literal(rhs),
+            _ => false,
+        }
+}
+
+/// Whether `node` is a number, a negated number, or a matrix of them.
+fn is_numeric_literal(node: Node) -> bool {
+    match node.kind() {
+        "number" => true,
+        "unary_operator" => node.named_child(0).is_some_and(is_numeric_literal),
+        "matrix" | "row" => {
+            let mut cursor = node.walk();
+            let children: Vec<Node> = node.named_children(&mut cursor).collect();
+            !children.is_empty() && children.iter().all(|c| is_numeric_literal(*c))
+        }
+        _ => false,
+    }
+}
+
 pub(crate) fn node_text<'a>(node: Node<'a>, source: &'a str) -> &'a str {
     &source[node.start_byte()..node.end_byte()]
 }
@@ -1188,6 +1224,38 @@ end
     }
 
     // -- RHSFN ---------------------------------------------------------------
+
+    #[test]
+    fn rhsfn_fires_on_index_of_variable_holding_numeric_literal() {
+        // Probed: `v(2)` is an index when `v` is a variable with a numeric literal.
+        for src in [
+            "v = 3;\n[a, b] = v(2);\n",
+            "v = [1 2 3];\n[a, b] = v(2:3);\n",
+            "v = -3;\n[a, b] = v(1);\n",
+            // Probed (k_names_zoo.m:40): `max = 3` shadows the function.
+            "y = [4 5 6];\nmax = 3;\n[~, idx] = max(y);\n",
+        ] {
+            let diags = file_diags(src);
+            assert!(has_id(&diags, "RHSFN"), "{src}: got: {diags:?}");
+        }
+    }
+
+    #[test]
+    fn rhsfn_silent_on_index_of_variable_without_numeric_literal() {
+        // Probed: `zeros(3)`, `input(...)`, a char literal, an element of an
+        // input, and an undefined callee are all silent.
+        for src in [
+            "v = zeros(3);\n[a, b] = v(2);\n",
+            "v = input('x');\n[a, b] = v(2);\n",
+            "v = 'abc';\n[a, b] = v(2);\n",
+            "function r = f(y)\nv = y(1);\n[a, b] = v(2);\nr = a + b;\nend\n",
+            "[a, b] = q(2);\n",
+            "y = [4 5 6];\n[~, idx] = max(y);\n",
+        ] {
+            let diags = file_diags(src);
+            assert!(!has_id(&diags, "RHSFN"), "{src}: got: {diags:?}");
+        }
+    }
 
     #[test]
     fn rhsfn_fires_on_multioutput_with_single_value_rhs() {

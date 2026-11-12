@@ -19,8 +19,25 @@ use super::reaching::{is_constant, reaching, Binding};
 /// Nesting limit for following assignments through other variables.
 const MAX_DEPTH: usize = 8;
 
-/// Calls whose result MATLAB knows to be logical (probed: OR2 and AND2 silent).
-const LOGICAL_CALLS: &[&str] = &["isempty", "ischar", "strcmp"];
+/// Calls whose result MATLAB knows to be logical (probed: OR2 and AND2 silent
+/// on `&` and `|` with an unknown operand on the other side). `isfield`,
+/// `isreal`, `isvector`, `any`, `exist`, `xor` and `strncmp` are reported, so
+/// they are not here.
+const LOGICAL_CALLS: &[&str] = &[
+    "isempty",
+    "ischar",
+    "strcmp",
+    "strcmpi",
+    "isstruct",
+    "isnumeric",
+    "iscell",
+    "islogical",
+    "isa",
+    "isequal",
+    "isobject",
+    "isinteger",
+    "isfloat",
+];
 
 /// Calls whose result MATLAB knows to be numeric (probed: comparisons of their
 /// results are silent for OR2 and AND2).
@@ -199,6 +216,11 @@ fn logical_value(node: Node, source: &str, depth: usize) -> bool {
     }
     match node.kind() {
         "parenthesized_expression" => node
+            .named_child(0)
+            .is_some_and(|inner| logical_value(inner, source, depth + 1)),
+        // Probed: `~` of a known logical (`~isstruct(x)`, `~isempty(x)`) is silent;
+        // `~x` of an unknown input is reported.
+        "not_operator" => node
             .named_child(0)
             .is_some_and(|inner| logical_value(inner, source, depth + 1)),
         "comparison_operator" => all_named_known(node, source, depth),
@@ -384,6 +406,35 @@ mod tests {
         assert_eq!(known(src, "&"), (false, true));
         let src = "x = input('x');\nn = numel(x);\nif n > 3 | x > 0\nend\n";
         assert_eq!(known(src, "|"), (true, false));
+    }
+
+    #[test]
+    fn type_predicates_are_known_logical_but_not_all_predicates() {
+        // Probed: `isstruct`, `isnumeric` and `~isempty` are silent; `exist`,
+        // `isfield` and `xor` are reported.
+        assert_eq!(
+            known("if isstruct(x) & isfield(x, 'a')\nend\n", "&"),
+            (true, false)
+        );
+        assert_eq!(
+            known("if exist('x') & ~isempty(x)\nend\n", "&"),
+            (false, true)
+        );
+        assert_eq!(
+            known("if isnumeric(x) & ~isempty(x)\nend\n", "&"),
+            (true, true)
+        );
+        assert_eq!(
+            known("if exist('x') & isfield(x, 'a')\nend\n", "&"),
+            (false, false)
+        );
+        assert_eq!(known("if xor(x, 1) & y > 1\nend\n", "&"), (false, false));
+    }
+
+    #[test]
+    fn negated_unknown_is_not_known_logical() {
+        // Probed: `~x` with an unknown input is reported.
+        assert_eq!(known("if ~x & y > 1\nend\n", "&"), (false, false));
     }
 
     #[test]

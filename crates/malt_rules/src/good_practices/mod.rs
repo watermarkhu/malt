@@ -1659,6 +1659,51 @@ pub(crate) fn collect_simple_lhs_assignments<'a>(
     out
 }
 
+/// Field stores `v.f = ...` inside a node, as (variable name, `v` node). A
+/// store creates or changes `v`, so a later bare `v` statement is a variable.
+pub(crate) fn collect_field_lhs_assignments<'a>(
+    node: Node<'a>,
+    source: &str,
+) -> Vec<(String, Node<'a>)> {
+    let mut out = Vec::new();
+    let mut assignments = Vec::new();
+    collect_nodes_of_kind(node, "assignment", &mut assignments);
+    for assign in assignments {
+        if let Some(lhs) = assign.child_by_field_name("left") {
+            if lhs.kind() == "field_expression" {
+                if let Some(base) = lhs.named_child(0) {
+                    if base.kind() == "identifier" {
+                        out.push((node_text(base, source).to_string(), base));
+                    }
+                }
+            }
+        }
+    }
+    out
+}
+
+/// The last plain assignment `name = ...` inside `root` that starts at or after
+/// `from` and ends before `before` (the most recent whole-variable definition).
+pub(crate) fn last_plain_assignment_before<'a>(
+    root: Node<'a>,
+    name: &str,
+    from: usize,
+    before: usize,
+    source: &str,
+) -> Option<Node<'a>> {
+    let mut assignments = Vec::new();
+    collect_nodes_of_kind(root, "assignment", &mut assignments);
+    assignments
+        .into_iter()
+        .filter(|assign| assign.start_byte() >= from && assign.end_byte() <= before)
+        .filter(|assign| {
+            assign
+                .child_by_field_name("left")
+                .is_some_and(|lhs| lhs.kind() == "identifier" && node_text(lhs, source) == name)
+        })
+        .max_by_key(|assign| assign.end_byte())
+}
+
 /// Indexed assignments `v(...) = ...` inside a node, as (variable name, `v` node).
 pub(crate) fn collect_indexed_lhs_assignments<'a>(
     node: Node<'a>,

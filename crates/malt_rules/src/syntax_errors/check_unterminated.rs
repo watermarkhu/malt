@@ -12,7 +12,7 @@ impl SyntaxErrorsEngine {
         }
 
         if self.is_check_enabled("INBLK") {
-            Self::walk_unterminated_comments(root, source, &mut diagnostics);
+            diagnostics.extend(Self::unterminated_block_comment(source));
         }
 
         diagnostics
@@ -90,31 +90,36 @@ impl SyntaxErrorsEngine {
         }
     }
 
-    pub(crate) fn walk_unterminated_comments(
-        node: Node,
-        source: &str,
-        diagnostics: &mut Vec<Diagnostic>,
-    ) {
-        if node.kind() == "comment" {
-            let text = &source[node.start_byte()..node.end_byte()];
-            if text.starts_with("%{") && !text.contains("%}") {
-                let pos = node.start_position();
-                diagnostics.push(Diagnostic {
-                    rule_id: "INBLK",
-                    message: "A block comment is unterminated at the end of the file.".to_string(),
-                    severity: Severity::Error,
-                    byte_range: node.byte_range(),
-                    line: pos.row + 1,
-                    column: pos.column + 1,
-                    fix: None,
-                });
+    /// INBLK, read as MATLAB reads block comments: a block opens on a line that
+    /// is only `%{` (surrounding whitespace allowed) and closes on a line that is
+    /// only `%}`. Openers nest. `%{ text`, `x = 1; %{`, `%} text` and `%}x` are
+    /// plain comments (probed: the code after `%{ text` runs). A block still open
+    /// at the end of the file is reported at the file's last character (probed).
+    pub(crate) fn unterminated_block_comment(source: &str) -> Option<Diagnostic> {
+        let mut depth: usize = 0;
+        for line in source.lines() {
+            match line.trim() {
+                "%{" => depth += 1,
+                "%}" => depth = depth.saturating_sub(1),
+                _ => {}
             }
-            return;
         }
-        let mut cursor = node.walk();
-        for child in node.children(&mut cursor) {
-            Self::walk_unterminated_comments(child, source, diagnostics);
+        if depth == 0 {
+            return None;
         }
+        let text = source.trim_end_matches(['\r', '\n']);
+        let last_line = text.rsplit('\n').next().unwrap_or("");
+        let line = text.matches('\n').count() + 1;
+        let end = text.len();
+        Some(Diagnostic {
+            rule_id: "INBLK",
+            message: "A block comment is unterminated at the end of the file.".to_string(),
+            severity: Severity::Error,
+            byte_range: end - last_line.len()..end,
+            line,
+            column: last_line.chars().count().max(1),
+            fix: None,
+        })
     }
 }
 
@@ -255,9 +260,51 @@ mod tests {
         assert!(has_id(&diags, "INBLK"), "got: {diags:?}");
     }
 
+    // Probe c4_B v7, s8, s9, pf1: `%{ text` and `%{text` are plain comments in
+    // MATLAB (the code after them runs), so no block is open at the end.
     #[test]
-    fn inblk_fires_on_unterminated_block_comment_at_eof() {
-        let diags = lint_file(&*engine(), "%{ unterminated");
+    fn inblk_ok_when_opener_has_text_on_its_line() {
+        for src in [
+            "%{ unterminated",
+            "%{ text\nx = 1;\n",
+            "%{text\nx = 1;\n",
+            "x = 1; %{\nx\n",
+        ] {
+            let diags = lint_file(&*engine(), src);
+            assert!(!has_id(&diags, "INBLK"), "{src:?} got: {diags:?}");
+        }
+    }
+
+    // Probe c4_B v5: `%} trailing` does not close, so the block runs to the end
+    // and INBLK is at the last character of the file (line 3, column 11).
+    #[test]
+    fn inblk_at_eof_when_closer_has_text_on_its_line() {
+        let diags = lint_file(&*engine(), "%{\nzq5 = 1;\n%} trailing\n");
+        let inblk: Vec<_> = diags.iter().filter(|d| d.rule_id == "INBLK").collect();
+        assert_eq!(inblk.len(), 1, "got: {diags:?}");
+        assert_eq!((inblk[0].line, inblk[0].column), (3, 11));
+    }
+
+    // Probe c4_B v16: the nested opener is still open at the end (line 3, column 2).
+    #[test]
+    fn inblk_fires_for_unterminated_nested_block() {
+        let diags = lint_file(&*engine(), "%{\nzq16 = 1;\n%{\n");
+        let inblk: Vec<_> = diags.iter().filter(|d| d.rule_id == "INBLK").collect();
+        assert_eq!(inblk.len(), 1, "got: {diags:?}");
+        assert_eq!((inblk[0].line, inblk[0].column), (3, 2));
+    }
+
+    // Probe c4_B v8 and s11: nested blocks that both close are fine.
+    #[test]
+    fn inblk_ok_on_nested_closed_block_comment() {
+        let diags = lint_file(&*engine(), "%{\n%{\nx\n%}\ny\n%}\n");
+        assert!(!has_id(&diags, "INBLK"), "got: {diags:?}");
+    }
+
+    // Probe c4_B s2, s3, s5, s6: indentation and trailing whitespace are allowed.
+    #[test]
+    fn inblk_fires_on_indented_unterminated_block_comment() {
+        let diags = lint_file(&*engine(), "  %{  \nx = 1;\n");
         assert!(has_id(&diags, "INBLK"), "got: {diags:?}");
     }
 

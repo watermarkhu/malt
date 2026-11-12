@@ -121,6 +121,13 @@ pub struct UnusedConfig {
 // Constants
 // ---------------------------------------------------------------------------
 
+/// Check IDs this engine can report (the `rule_id`s of its checks). Used for
+/// MSNU through [`Rule::active_check_ids`], minus the switched-off ones.
+pub(crate) const CHECK_IDS: &[&str] = &[
+    "ASGLU", "DEFNU", "EQEFF", "INUSA", "INUSD", "MANU", "NASGU", "NOEFF", "NUSED", "PREALL",
+    "PUSE", "SETNU", "UNRCH", "VANUS", "VUNUS",
+];
+
 /// Variables that are always considered "used" — MATLAB built-in specials.
 pub(crate) const ALWAYS_USED: &[&str] = &["varargin", "varargout", "nargin", "nargout"];
 
@@ -210,6 +217,14 @@ impl Rule for UnusedEngine {
 
     fn has_file_check(&self) -> bool {
         true
+    }
+
+    fn active_check_ids(&self) -> Vec<&'static str> {
+        CHECK_IDS
+            .iter()
+            .copied()
+            .filter(|id| !self.is_check_disabled(id))
+            .collect()
     }
 
     fn check_file(&self, ctx: &FileContext) -> Vec<Diagnostic> {

@@ -116,6 +116,42 @@ mod tests {
         assert!(has_id(&diags, "DEFNU"), "got: {diags:?}");
     }
 
+    // Probe c4_B k/k_block_comments.m: MATLAB reports no DEFNU for the file's
+    // function when help comments or blank lines come before the `function` line.
+    // MSNU needs the IDs this engine reports: NASGU and DEFNU are active, and a
+    // check listed in `disabled_checks` is not.
+    #[test]
+    fn active_check_ids_follow_disabled_checks() {
+        let active = engine().active_check_ids();
+        assert!(
+            active.contains(&"NASGU") && active.contains(&"DEFNU"),
+            "got: {active:?}"
+        );
+        let engine = UnusedEngine {
+            config: UnusedConfig {
+                disabled_checks: vec!["nasgu".to_string()],
+                ..Default::default()
+            },
+        };
+        let active = engine.active_check_ids();
+        assert!(
+            !active.contains(&"NASGU") && active.contains(&"DEFNU"),
+            "got: {active:?}"
+        );
+    }
+
+    #[test]
+    fn defnu_silent_on_primary_after_help_comment_or_blank_line() {
+        for src in [
+            "% help\nfunction out = f(in)\nout = in;\nend\n",
+            "% help\n\n%% more help\nfunction out = f(in)\nout = in;\nend\n",
+            "\nfunction out = f(in)\nout = in;\nend\n",
+        ] {
+            let diags = lint_file(&*engine(), src);
+            assert!(!has_id(&diags, "DEFNU"), "{src:?} got: {diags:?}");
+        }
+    }
+
     #[test]
     fn defnu_silent_on_duplicate_function_name() {
         // Probe ls-b__t6: the second `function t6()` is REDEF, not DEFNU.

@@ -40,6 +40,25 @@ impl GoodPracticesEngine {
                 if is_argument_or_shared || !is_field_store(tree, def.byte_range.clone()) {
                     continue;
                 }
+                // Probed: when the latest whole-variable definition before the store
+                // is not `struct(...)` (a function call, `[]`, `containers.Map`, a
+                // number, `get_handle`), MATLAB is silent: it may be a handle object.
+                // With no earlier definition, or one built by `struct(...)`, it reports.
+                let defined_otherwise = last_plain_assignment_before(
+                    tree.root_node(),
+                    &def.name,
+                    scope.byte_range.start,
+                    def.byte_range.start,
+                    source,
+                )
+                .and_then(|assign| assign.child_by_field_name("right"))
+                .is_some_and(|rhs| {
+                    rhs.kind() != "function_call"
+                        || get_function_call_name(rhs, source) != Some("struct")
+                });
+                if defined_otherwise {
+                    continue;
+                }
                 diagnostics.push(Diagnostic {
                     rule_id: "STRNU",
                     message: "This variable, apparently a structure, is changed but the value might be unused."
@@ -60,6 +79,20 @@ impl GoodPracticesEngine {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // Probe c4_B t1-t5, t7, t9 (l_registry.m:82): MATLAB is silent for a variable
+    // from a function call, `[]`, `containers.Map`, a number or an overwrite by a
+    // call; only a `struct(...)` value is reported (probe t6).
+    #[test]
+    fn strnu_silent_unless_built_by_struct() {
+        assert!(strnu("function f()\nreg = l_reg_probe();\nreg.Count = 0;\nend\n").is_empty());
+        assert!(strnu("function f()\ns = [];\ns.a = 1;\nend\n").is_empty());
+        assert!(strnu("function f()\ns = containers.Map();\ns.Count = 0;\nend\n").is_empty());
+        assert!(strnu("function f()\ns = 5;\ns.a = 1;\nend\n").is_empty());
+        assert!(
+            strnu("function f()\ns = struct('a', 1);\ns = my_fun();\ns.a = 1;\nend\n").is_empty()
+        );
+    }
 
     /// The STRNU diagnostics for `source`, as (line, column).
     fn strnu(source: &str) -> Vec<(usize, usize)> {

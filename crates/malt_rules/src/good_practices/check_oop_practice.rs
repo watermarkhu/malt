@@ -8,6 +8,8 @@ struct MethodInfo {
     first_input: Option<String>,
     /// Whether the method declares a non-`~` output.
     has_output: bool,
+    /// Whether the method returns its object (an output has the object's name).
+    output_is_object: bool,
     /// Whether this is a property setter (`set.X`).
     is_setter: bool,
     /// Whether the enclosing methods block has the `Static` attribute.
@@ -109,6 +111,11 @@ impl GoodPracticesEngine {
                         base_name: strip_set_get(&m.name),
                         first_input: m.inputs.iter().find(|i| *i != "~").cloned(),
                         has_output: m.outputs.iter().any(|o| o != "~"),
+                        output_is_object: m
+                            .inputs
+                            .iter()
+                            .find(|i| *i != "~")
+                            .is_some_and(|first| m.outputs.contains(first)),
                         is_setter: m.is_setter,
                         is_static: m
                             .method_attributes
@@ -184,15 +191,17 @@ impl GoodPracticesEngine {
                     });
                 }
 
-                // MCVM: value-class method without an output modifies the object.
-                // Silent when the class has any superclass (probed).
+                // MCVM: value-class method that writes `obj.F` and never reads the
+                // object again. Silent when the class has any superclass, or when
+                // the method returns the object (probed).
                 if self.is_check_enabled("MCVM")
                     && ctx.no_superclass
                     && !info.is_setter
                     && !info.is_static
-                    && !info.has_output
+                    && !info.output_is_object
                 {
-                    if let Some(lhs) = first_object_assignment(block, source, info) {
+                    if let Some(assign) = first_unread_object_assignment(block, source, info) {
+                        let lhs = assign.child_by_field_name("left").unwrap_or(assign);
                         let pos = lhs.start_position();
                         diagnostics.push(Diagnostic {
                             rule_id: "MCVM",
@@ -306,32 +315,110 @@ fn collect_mccsps(
     }
 }
 
-/// Find the first assignment that writes a field of the object (`obj.X = ...`),
-/// used for MCVM.
-fn first_object_assignment<'a>(
-    node: Node<'a>,
+/// The assignment `obj.F = ...` that MATLAB reports for MCVM: the first one after
+/// which `obj` is never read on the same path. Probed: with `obj.X = x;
+/// obj.Y = 2;` the second write is reported (the second write reads `obj`), and
+/// with `if c, obj.X = 1; else, obj.X = 2; end` only the first branch is
+/// reported, because the other branch is not a read on the same path.
+fn first_unread_object_assignment<'a>(
+    body: Node<'a>,
     source: &str,
     info: &MethodInfo,
 ) -> Option<Node<'a>> {
+    let obj = info.first_input.as_deref()?;
+    let mut writes = Vec::new();
+    collect_object_assignments(body, source, info, &mut writes);
+    writes
+        .into_iter()
+        .find(|write| !object_read_after(body, *write, obj, source))
+}
+
+/// Every assignment that writes a field of the method's object (`obj.X = ...`),
+/// in source order.
+fn collect_object_assignments<'a>(
+    node: Node<'a>,
+    source: &str,
+    info: &MethodInfo,
+    out: &mut Vec<Node<'a>>,
+) {
     if node.kind() == "function_definition" || node.kind() == "class_definition" {
-        return None;
+        return;
     }
     if node.kind() == "assignment" {
         if let Some(left) = node.child_by_field_name("left") {
-            if left.kind() == "field_expression" && is_object_field_access(left, source, info) {
-                return Some(left);
+            // Probed: an indexed write `obj.X(2) = x` is not reported.
+            let indexed = node_text(left, source).contains(['(', '{']);
+            if left.kind() == "field_expression"
+                && !indexed
+                && is_object_field_access(left, source, info)
+            {
+                out.push(node);
             }
         }
     }
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
         if child.is_named() {
-            if let Some(found) = first_object_assignment(child, source, info) {
-                return Some(found);
-            }
+            collect_object_assignments(child, source, info, out);
         }
     }
-    None
+}
+
+/// Whether `obj` is used after `write` in `body`, on a path that reaches the
+/// end of the write: a later use in a sibling `elseif`/`else`/`case` branch of
+/// the write's own branch does not count.
+fn object_read_after(body: Node, write: Node, obj: &str, source: &str) -> bool {
+    let mut uses = Vec::new();
+    collect_identifiers(body, obj, source, &mut uses);
+    uses.into_iter()
+        .any(|u| u.start_byte() >= write.end_byte() && !in_sibling_branch(u, write))
+}
+
+/// Every identifier named `name` under `node`, in source order.
+fn collect_identifiers<'a>(node: Node<'a>, name: &str, source: &str, out: &mut Vec<Node<'a>>) {
+    if node.kind() == "identifier" && node_text(node, source) == name {
+        out.push(node);
+    }
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        collect_identifiers(child, name, source, out);
+    }
+}
+
+/// Whether `node` lies in a different branch of an `if` or `switch` statement
+/// than `write` does.
+fn in_sibling_branch(node: Node, write: Node) -> bool {
+    let mut ancestor = write.parent();
+    while let Some(stmt) = ancestor {
+        if matches!(stmt.kind(), "if_statement" | "switch_statement") && contains(stmt, node) {
+            if let (Some(a), Some(b)) = (
+                branch_containing(stmt, write),
+                branch_containing(stmt, node),
+            ) {
+                if a.id() != b.id() && is_branch(a) && is_branch(b) {
+                    return true;
+                }
+            }
+        }
+        ancestor = stmt.parent();
+    }
+    false
+}
+
+fn contains(outer: Node, inner: Node) -> bool {
+    outer.start_byte() <= inner.start_byte() && inner.end_byte() <= outer.end_byte()
+}
+
+/// The direct child of `stmt` that contains `node`.
+fn branch_containing<'a>(stmt: Node<'a>, node: Node) -> Option<Node<'a>> {
+    let mut cursor = stmt.walk();
+    let found = stmt.children(&mut cursor).find(|c| contains(*c, node));
+    found
+}
+
+/// Whether a child of an `if` or `switch` is one of its branches.
+fn is_branch(node: Node) -> bool {
+    node.kind() == "block" || node.kind().ends_with("_clause")
 }
 
 /// Check whether a `field_expression` accesses a field of the method's object
@@ -728,6 +815,124 @@ mod tests {
         // Probes C, D, E: a class with a superclass is not reported as a value class.
         let source = "classdef Foo < Bar\n    properties\n        X\n    end\n    methods\n        function bump(obj, v)\n            obj.X = v;\n        end\n    end\nend\n";
         assert!(oop_ids_for(source, "MCVM").is_empty());
+    }
+
+    /// Source of a value class `Foo` with property `X` and one method body.
+    fn value_method(signature: &str, body: &str) -> String {
+        format!(
+            "classdef Foo\n    properties\n        X (1,1) double = 0\n        Y (1,1) double = 0\n    end\n    methods\n        function {signature}\n{body}        end\n    end\nend\n"
+        )
+    }
+
+    #[test]
+    fn test_mcvm_fires_when_output_is_not_assigned() {
+        // Probed (l_vector2.m:75): `function r = withX(obj, x)` with `r` never set.
+        let source = value_method("r = withX(obj, x)", "            obj.X = x;\n");
+        assert_eq!(
+            oop_ids_for(&source, "MCVM").len(),
+            1,
+            "got: {:?}",
+            oop_ids(&source)
+        );
+    }
+
+    #[test]
+    fn test_mcvm_fires_when_output_is_another_value() {
+        // Probed: `r = []` and `r = 1` are not the object.
+        for body in [
+            "            obj.X = x;\n            r = [];\n",
+            "            obj.X = x;\n            r = 1;\n",
+        ] {
+            let source = value_method("r = withX(obj, x)", body);
+            assert_eq!(
+                oop_ids_for(&source, "MCVM").len(),
+                1,
+                "{body}: {:?}",
+                oop_ids(&source)
+            );
+        }
+    }
+
+    #[test]
+    fn test_mcvm_fires_on_write_in_if_and_before_return() {
+        // Probed: a write inside `if`, and a write before an early `return`.
+        let source = value_method(
+            "withX(obj, x)",
+            "            if x > 0\n                obj.X = x;\n            end\n",
+        );
+        assert_eq!(
+            oop_ids_for(&source, "MCVM").len(),
+            1,
+            "got: {:?}",
+            oop_ids(&source)
+        );
+        let source = value_method(
+            "r = withX(obj, x)",
+            "            obj.X = x;\n            if x > 0\n                r = 1;\n                return\n            end\n            r = 2;\n",
+        );
+        assert_eq!(
+            oop_ids_for(&source, "MCVM").len(),
+            1,
+            "got: {:?}",
+            oop_ids(&source)
+        );
+    }
+
+    #[test]
+    fn test_mcvm_reports_only_the_write_nobody_reads() {
+        // Probed: `obj.X = x; obj.Y = 2;` reports one write, the second.
+        let source = value_method(
+            "withX(obj, x)",
+            "            obj.X = x;\n            obj.Y = 2;\n",
+        );
+        assert_eq!(
+            oop_ids_for(&source, "MCVM").len(),
+            1,
+            "got: {:?}",
+            oop_ids(&source)
+        );
+        // Probed: the first branch of an if/else is reported once.
+        let source = value_method(
+            "r = withX(obj, x)",
+            "            if x > 0\n                obj.X = x;\n            else\n                obj.X = -x;\n            end\n            r = 1;\n",
+        );
+        assert_eq!(
+            oop_ids_for(&source, "MCVM").len(),
+            1,
+            "got: {:?}",
+            oop_ids(&source)
+        );
+    }
+
+    #[test]
+    fn test_mcvm_silent_when_object_is_read_after_write() {
+        // Probed: `obj.X = x; r = obj.X;`, `numel(obj)`, `q = obj`, `if obj.X > 0`.
+        for body in [
+            "            obj.X = x;\n            r = obj.X;\n",
+            "            obj.X = x;\n            r = numel(obj);\n",
+            "            obj.X = x;\n            q = obj;\n            r = 1;\n",
+            "            obj.X = x;\n            if obj.X > 0\n                r = 1;\n            end\n",
+        ] {
+            let source = value_method("r = withX(obj, x)", body);
+            assert!(oop_ids_for(&source, "MCVM").is_empty(), "{body}: {:?}", oop_ids(&source));
+        }
+    }
+
+    #[test]
+    fn test_mcvm_silent_when_method_returns_object_or_writes_an_element() {
+        // Probed: an output named like the object returns it; `obj.X(2) = x` is not reported.
+        let source = value_method("obj = withX(obj, x)", "            obj.X = x;\n");
+        assert!(
+            oop_ids_for(&source, "MCVM").is_empty(),
+            "got: {:?}",
+            oop_ids(&source)
+        );
+        let source = value_method("r = withX(obj, x)", "            obj.X(2) = x;\n");
+        assert!(
+            oop_ids_for(&source, "MCVM").is_empty(),
+            "got: {:?}",
+            oop_ids(&source)
+        );
     }
 
     #[test]

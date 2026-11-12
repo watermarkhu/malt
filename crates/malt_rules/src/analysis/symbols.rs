@@ -432,12 +432,15 @@ impl<'a> Builder<'a> {
     }
 
     /// Check if the first non-comment child of `source_file` is a function.
+    /// Line breaks (anonymous `"\n"` nodes) are skipped too: a help comment or
+    /// blank line before the `function` line keeps it the file's function.
     fn first_meaningful_child_is_function(root: &tree_sitter::Node) -> bool {
         let count = root.child_count();
         for i in 0..count {
             if let Some(child) = root.child(i) {
                 match child.kind() {
                     "comment" | "line_continuation" => continue,
+                    _ if !child.is_named() => continue,
                     // A class file is not a script: its properties, attributes
                     // and method names are declarations, not variable uses.
                     "function_definition" | "class_definition" => return true,

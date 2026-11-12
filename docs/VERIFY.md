@@ -16,8 +16,8 @@ of how it got here is in git and in the plan's progress log.
 
 `tests/fixtures/matlab_expected.tsv` holds what MATLAB reports for every fixture
 (path, line, ID: facts only, no message text). The test fails on any difference, a
-missed finding or an extra one: malt matches MATLAB on all 304 fixtures under the default configuration: the 209
-the rules were fitted to, and `corpus1/`, `corpus2/` and `corpus3/` (31, 31 and 33 fresh files,
+missed finding or an extra one: malt matches MATLAB on all 336 fixtures under the default configuration: the 209
+the rules were fitted to, and `corpus1/` to `corpus4/` (31, 31, 33 and 32 fresh files,
 written independently of the rules). A new fixture needs its MATLAB expectations: run
 `docs/scripts/matlab_probe.m` over it and append the rows (relative path, line, ID;
 line 0 becomes 1) to `matlab_expected.tsv`.
@@ -81,7 +81,7 @@ PRMNOIN, LOOPPRAGMAWITHOUTFOR, FPASE).
 
 ## Suppression directives and MSNU
 
-`%#ok<ID>` directives are read from comment nodes as MATLAB does: the comment must start with `%#ok`, only the first directive per comment counts, and directives in strings, after `...`, `%%#ok` or mid-comment do not count; a bare `%#ok` suppresses everything on its line. MSNU ("a message was once suppressed here") is emitted for an ID named in a directive that is *active* in the engine and produced no diagnostic on its line (`Rule::active_check_ids`, implemented by the performance engine only; other engines never cause an MSNU). Risk: a finding malt misses where MATLAB reports it makes malt report MSNU for the user's directive. A bare `%#ok` that suppresses nothing (MATLAB reports MSNU) and GRIDD (MATLAB reports MSNU although malt has it off under `mathworks`) are not emitted.
+`%#ok<ID>` directives are read from comment nodes as MATLAB does: the comment must start with `%#ok`, only the first directive per comment counts, and directives in strings, after `...`, `%%#ok` or mid-comment do not count; a bare `%#ok` suppresses everything on its line. MSNU ("a message was once suppressed here") is emitted for an ID named in a directive that is *active* in the engine and produced no diagnostic on its line (`Rule::active_check_ids`, implemented by the performance and unused engines; other engines never cause an MSNU). Risk for the unused engine: NASGU has known gaps, so a directive on an unhandled NASGU case gets a false MSNU. Risk: a finding malt misses where MATLAB reports it makes malt report MSNU for the user's directive. A bare `%#ok` that suppresses nothing (MATLAB reports MSNU) and GRIDD (MATLAB reports MSNU although malt has it off under `mathworks`) are not emitted.
 
 ## Known gaps
 
@@ -89,10 +89,14 @@ No fixture fails on these.
 
 | Gap | Note |
 | --- | --- |
-| Overfitting | The first fresh corpus (`corpus1/`, 31 files) measured generalisation before any fixing: 44 of MATLAB's 45 findings matched (recall 98%) and malt reported 28 more (precision about 61%): DEFNU in function-based test files, data entries firing on ordinary calls, class checks with an unresolvable superclass, and a few flow checks. All were fixed and the files joined the fixtures. `corpus2/` (31 files, different themes, unseen) then measured 24 of 27 findings matched, 3 misses and 7 extra (recall 89%, precision 77%): MHERM, the date-function family (TYEAR), DISPLAYPROG, `persistent` redefinitions (REDEF, GPFST), LOAD in anonymous functions, PROP, NASGU with `rethrow`; all fixed. `corpus3/` (33 messy, student, legacy and other-language-style files, MATLAB reports 160 findings on them) measured 134 matched, 26 misses and 12 extra before fixing: SAGROW and AGROW growth in loops, OR2/AND2 (see the precedence rule below), NASGU/PREALL and `syms`, ROWLN, MSNU, FNDSB, VERLESSMATLAB and single rows; all fixed. The number to watch is the first-measurement difference count per MATLAB finding of each new corpus: 29/45, 10/27, 38/160 (0.64, 0.37, 0.24). A fourth unseen corpus is the next measurement (plan step 4.1). |
+| Overfitting | The first fresh corpus (`corpus1/`, 31 files) measured generalisation before any fixing: 44 of MATLAB's 45 findings matched (recall 98%) and malt reported 28 more (precision about 61%): DEFNU in function-based test files, data entries firing on ordinary calls, class checks with an unresolvable superclass, and a few flow checks. All were fixed and the files joined the fixtures. `corpus2/` (31 files, different themes, unseen) then measured 24 of 27 findings matched, 3 misses and 7 extra (recall 89%, precision 77%): MHERM, the date-function family (TYEAR), DISPLAYPROG, `persistent` redefinitions (REDEF, GPFST), LOAD in anonymous functions, PROP, NASGU with `rethrow`; all fixed. `corpus3/` (33 messy, student, legacy and other-language-style files, MATLAB reports 160 findings on them) measured 134 matched, 26 misses and 12 extra before fixing: SAGROW and AGROW growth in loops, OR2/AND2 (see the precedence rule below), NASGU/PREALL and `syms`, ROWLN, MSNU, FNDSB, VERLESSMATLAB and single rows; all fixed. The number to watch is the first-measurement difference count per MATLAB finding of each new corpus: 29/45, 10/27, 38/160 (0.64, 0.37, 0.24). `corpus4/` (32 files: old-era code, formatting variety, class-heavy code; MATLAB reports 174 findings) measured 170 matched, 4 misses and 9 extra (13 differences, 0.075 per finding) before fixing: logical predicates in AND2/OR2, MCPO/MCVM class gates, RHSFN with a shadowed function, block-comment openers (INBLK), a leading blank line or comment before `function` making the file a script (DEFNU), MSNU for NASGU, NOPTS, STRNU, CTPCT; all fixed. The per-finding rate across the four corpora is 0.64, 0.37, 0.24, 0.075 (plan step 4.1). |
 | SAGROW | `x(size(x,2)+1) = v` is reported by MATLAB; only `numel`/`length` are handled. |
 | VERLESSMATLAB | A version held in a variable (`vv = '9.10'; verLessThan('matlab', vv)`) is reported by MATLAB and missed by malt (needs constant propagation); MATLAB reports it for dotted versions of 9.9 or higher, in every position. |
 | OR2, AND2 | Bare calls outside the probed list (`isempty`, `ischar`, `strcmp`, `numel`, `length`, `size`, `any`, `max`, `min`, `mean`, `isnan`, `isfield`) are treated as unknown and stay silent. |
+| DEEPC | malt reports a nested `%{`; MATLAB was silent on nested block comments in the probes (depth 3 not probed). |
+| CTPCT | MATLAB reports too many arguments (`sprintf('%s %d', 'a', 1, 2)`); malt only handles zero specifiers or zero arguments. |
+| MCVM | The "later read" of `obj` is textual (sibling `if`/`switch` branches excluded); loops are not modelled. |
+| RHSFN | `[a,b] = v(...)` is reported only when `v` holds a numeric literal; chains through other variables are not followed. |
 | Message text | The test compares file, line and ID, not the text of dynamic messages (for example MATLAB quotes names in MCNPN: `'foo' is referenced...`). |
 | Statement right after a stray `end` | tree-sitter parses it as ERROR tokens plus a number, so malt misses MATLAB's NASGU for `z = 1;` there. |
 | `eval` through a variable | MATLAB reports EVLCS for `t = 'x = 1;'; eval(t)` and EVLEQ for `t = ['x = ' num2str(v)]; eval(t)`; malt is silent on both. `['a.b = ' num2str(v) ';']` is EVLEQ in MATLAB and EVLDOT in malt. |
@@ -143,10 +147,13 @@ that are not installed); LENEMP and LEGPVPAIR are `unverified` (MATLAB reported 
 - Statements after `error(...)`, `return`, `break`, `continue` and after `while true` without
   `break` are unreachable and many checks skip them; this is probed per check (STCMP and
   FLUDLR still fire after `error`).
+- A block comment opener is a line that is only `%{` (whitespace allowed) and the closer a line that is only `%}`; `%{ text`, `x = 1; %{` and `%} text` are plain comments (INBLK).
+- A file is a function file when its first statement is a `function`, ignoring comments and blank lines (an earlier version let a leading blank line or help comment turn the file into a script).
+- AND2/OR2 are silent when an operand is a known-logical predicate: `isstruct`, `isnumeric`, `iscell`, `ischar`, `islogical`, `isa`, `isequal`, `strcmp`, `strcmpi`, `isempty`, `isobject`, `isinteger`, `isfloat`, `~` of those, `true`/`false`; `exist`, `isfield`, `isreal`, `isvector`, `any`, `all`, `contains`, `isfile`, `xor`, `isnan` are reported.
 - tree-sitter-matlab gives `|` and `&` higher precedence than the comparison operators: `L > 1 | L < 0.1` parses as `L > (1 | L) < 0.1`. `analysis/elementwise.rs` recovers the true operands (MATLAB: comparison, then `&`, then `|`); use it in every check that reads the operands of `|` or `&` (OR2, AND2, LBODUP use it; FNAN and CHAIN carry older patches).
 - MATLAB reports OR2/AND2 unless an operand is known to be logical (a comparison of values of known class, `isempty`/`ischar`/`strcmp` results, `true`/`false` variables); comparisons of `input`, indexed arrays that grow, struct fields and most function results do not count as known.
 - FNDSB in its variable form (`idx = find(L)`) is reported at the single direct-subscript use of `idx`, inside a function only; the direct form `A(find(...))` is reported everywhere.
-- Class checks that depend on handle-ness or inherited members (MCVM, MCSNOV, MCEB; MCNPN and MCNPR for anything but `handle`) are silent whenever the class lists a superclass, whether or not it resolves.
+- Class checks that depend on handle-ness or inherited members (MCVM, MCSNOV, MCEB, MCPO; MCNPN and MCNPR for anything but `handle`) are silent whenever the class lists a superclass, whether or not it resolves.
 - NODEF is reported for a read with no reaching definition when the name is assigned somewhere
   later in the function, and silent otherwise. INUSD uses the entry value's liveness: an input
   overwritten before any read, or read only after `error(...)`, is unused.

@@ -90,7 +90,37 @@ fn has_settled_operand(node: tree_sitter::Node, source: &str) -> bool {
 /// Calls that MATLAB reports as a bare OR2 operand (probed). A bare call not
 /// in this list is left alone: MATLAB's answer for it is not known.
 const OR2_CALLS: &[&str] = &[
-    "numel", "length", "isnan", "any", "mean", "max", "min", "isfield",
+    "numel",
+    "length",
+    "isnan",
+    "any",
+    "mean",
+    "max",
+    "min",
+    "isfield",
+    "isreal",
+    "isvector",
+    "isscalar",
+    "ismember",
+    "all",
+    "exist",
+    "strncmp",
+    "contains",
+    "startsWith",
+    "isfile",
+    "isfolder",
+    "xor",
+    "isinf",
+    "isfinite",
+    "isrow",
+    "iscolumn",
+    "ismatrix",
+    "not",
+    "and",
+    "or",
+    "isprop",
+    "isvarname",
+    "isspace",
 ];
 
 /// Whether an OR2 candidate `|` is a plain condition operand. Probed: MATLAB is
@@ -306,6 +336,60 @@ mod settled_tests {
         ] {
             let diags = lint_nodes(&*engine(), src);
             assert!(has_id(&diags, "AND2"), "{src}: got: {diags:?}");
+        }
+    }
+
+    #[test]
+    fn and2_silent_on_type_predicate_operands() {
+        // Probed (j_stats_helpers.m:56, :61, :66): `isstruct`, `isnumeric`, and
+        // `~isempty` are known logical, so MATLAB is silent on each of these.
+        for src in [
+            "out = 1;\nif isstruct(out) & isfield(out, 'mean')\n    c = 1;\nend\n",
+            "out = 1;\nif exist('out') & ~isempty(out)\n    c = 1;\nend\n",
+            "data = 1;\nif isnumeric(data) & ~isempty(data)\n    c = 1;\nend\n",
+            "x = input('x');\nif true & x > 1\n    c = 1;\nend\n",
+        ] {
+            let diags = lint_nodes(&*engine(), src);
+            assert!(!has_id(&diags, "AND2"), "{src}: got: {diags:?}");
+        }
+    }
+
+    #[test]
+    fn and2_fires_on_predicates_matlab_reports() {
+        // Probed: `exist`, `isfile`, `xor`, and `~x` of an unknown input are not
+        // known logical, so `&` with such an operand is AND2.
+        for src in [
+            "x = input('x');\nif exist('x') & x > 1\n    c = 1;\nend\n",
+            "x = input('x');\nif isfile(x) & x > 1\n    c = 1;\nend\n",
+            "x = input('x');\nif xor(x, 1) & x > 1\n    c = 1;\nend\n",
+            "x = input('x');\nif ~x & x > 1\n    c = 1;\nend\n",
+        ] {
+            let diags = lint_nodes(&*engine(), src);
+            assert!(has_id(&diags, "AND2"), "{src}: got: {diags:?}");
+        }
+    }
+
+    #[test]
+    fn or2_fires_on_predicates_matlab_reports_as_bare_operand() {
+        // Probed: these predicates are reported as a bare OR2 operand.
+        for src in [
+            "x = input('x');\nif isvector(x) | x > 1\n    c = 1;\nend\n",
+            "x = input('x');\nif contains(x, 'a') | x > 1\n    c = 1;\nend\n",
+        ] {
+            let diags = lint_nodes(&*engine(), src);
+            assert!(has_id(&diags, "OR2"), "{src}: got: {diags:?}");
+        }
+    }
+
+    #[test]
+    fn or2_silent_on_type_predicate_bare_operand() {
+        // Probed: `isnumeric` and `iscell` are known logical, so `|` is silent.
+        for src in [
+            "x = input('x');\nif isnumeric(x) | x > 1\n    c = 1;\nend\n",
+            "x = input('x');\nif iscell(x) | x > 1\n    c = 1;\nend\n",
+        ] {
+            let diags = lint_nodes(&*engine(), src);
+            assert!(!has_id(&diags, "OR2"), "{src}: got: {diags:?}");
         }
     }
 

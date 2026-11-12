@@ -26,12 +26,22 @@ impl GoodPracticesEngine {
             .children(&mut cursor)
             .filter(|c| c.is_named())
             .collect();
-        let format_index = match args.iter().position(|a| a.kind() == "string") {
-            Some(i) => i,
-            None => return Vec::new(),
+        // The format is the first argument (for `fprintf`, the second when the
+        // first is a file identifier). Only a single string literal is checked:
+        // probed, MATLAB is silent for a concatenated `['%s' ...]`, a variable
+        // or `strcat(...)` format.
+        let format_index =
+            if func_name == "fprintf" && args.first().is_some_and(|a| a.kind() != "string") {
+                1
+            } else {
+                0
+            };
+        let format = match args.get(format_index) {
+            Some(format) if format.kind() == "string" => *format,
+            _ => return Vec::new(),
         };
 
-        let fmt_text = node_text(args[format_index], source).trim_matches('\'');
+        let fmt_text = node_text(format, source).trim_matches('\'');
         let specifiers = count_format_specifiers(fmt_text);
         let arg_count = args.len() - format_index - 1;
         // MATLAB flags only a format with no specifiers that gets arguments, or one
@@ -57,6 +67,24 @@ impl GoodPracticesEngine {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // Probe c4_B ct/c1, c2, c4, c7, c8 (k_continuations.m:49): MATLAB is silent
+    // when the format is not one plain string literal.
+    #[test]
+    fn test_ctpct_silent_on_format_that_is_not_one_literal() {
+        for source in [
+            "s = sprintf(['%s: %.2f ' ...\n    '%d'], 'a', 1, 2);\n",
+            "s = sprintf(['%s: %.2f ' '%d'], 'a', 1, 2);\n",
+            "s = sprintf(strcat('%s', '%d'), 'a', 2);\n",
+            "f = '%s: %.2f'; s = sprintf(f, 'a', 1);\n",
+            "s = sprintf(['%s ' 'x'], 'a', 1);\n",
+        ] {
+            let tree = parse(source);
+            let eng = engine();
+            let fc = find_descendant_of_kind(tree.root_node(), "function_call").unwrap();
+            assert!(eng.check_ctpct(fc, source).is_empty(), "{source:?}");
+        }
+    }
 
     #[test]
     fn test_ctpct_fires_on_mismatch() {

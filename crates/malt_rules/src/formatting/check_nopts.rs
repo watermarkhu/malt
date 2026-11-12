@@ -98,6 +98,9 @@ fn is_variable_name(node: Node, name: &str, source: &str) -> bool {
         || crate::good_practices::collect_indexed_lhs_assignments(scope, source)
             .iter()
             .any(|(n, lhs)| n == name && lhs.end_byte() <= node.start_byte())
+        || crate::good_practices::collect_field_lhs_assignments(scope, source)
+            .iter()
+            .any(|(n, lhs)| n == name && lhs.end_byte() <= node.start_byte())
 }
 
 /// Whether `name` is an input argument of the function `scope`. Probed: a bare
@@ -131,6 +134,20 @@ mod tests {
     }
 
     // -- NOPTS ---------------------------------------------------------------
+
+    // Probe c4_B n1 (k_oneliners.m:35): `st` is defined by the field store, so the
+    // bare `st` after `;` echoes (NOPTS). Probe n4: a bare field read is silent.
+    #[test]
+    fn nopts_bare_variable_defined_by_field_store() {
+        let diags = lint("st.name='demo'; st.value=42; st");
+        assert!(has_id(&diags, "NOPTS"), "got: {diags:?}");
+    }
+
+    #[test]
+    fn nopts_silent_on_bare_field_read() {
+        let diags = lint("st.name='demo'; st.value=42; st.name");
+        assert!(!has_id(&diags, "NOPTS"), "got: {diags:?}");
+    }
 
     #[test]
     fn nopts_assignment_in_script_without_semicolon() {
