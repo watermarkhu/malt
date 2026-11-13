@@ -28,9 +28,11 @@ as `"NAMING_ENGINE"` and uses `has_file_check() = true`: it walks the tree
 once to extract all named entities, then applies every enabled check to
 each matching entity, emitting diagnostics with the specific rule ID.
 
-Only `maxLength` (default 63, MATLAB's `namelengthmax`) and `minLength`
-(default 2) produce diagnostics without user configuration; the other
-seven check types require configuration.
+MATLAB's factory configuration has no naming limits, so no check reports
+anything until it is configured: a check without its option is silent.
+A variable is reported once per function (or script) at its first
+occurrence there, as MATLAB does, and a regular expression must match the
+whole name.
 
 ## Check IDs
 
@@ -525,8 +527,8 @@ Naming check for variable casing
 ### Incorrect
 
 ```matlab
-myvar1 = 1;       % naming.variable.casing — style configured, e.g. camelCase
-classdef myClass  % naming.class.casing — style configured, e.g. PascalCase
+myvar1 = 1;       % naming.variable.casing — style configured, e.g. lowerCamelCase
+classdef myClass  % naming.class.casing — style configured, e.g. UpperCamelCase
 end
 ```
 
@@ -545,14 +547,20 @@ Each of the 81 checks can be configured individually through its rule ID:
 ```toml
 [lint.rules."naming.class.casing"]
 severity = "error"
-style = "PascalCase"
+style = "UpperCamelCase"
 
 [lint.rules."naming.function.maxLength"]
 severity = "warn"
 max = 32
 
 [lint.rules."naming.variable.disallowedPrefix"]
-prefix = "temp"
+prefix = ["temp", "tmp"]
 ```
+
+`style` takes MATLAB's names: `lowerCamelCase`, `UpperCamelCase`,
+`lowercase_with_underscores`, `UPPERCASE_WITH_UNDERSCORES`, `lowercase` and
+`UPPERCASE`. The older names `camelCase`, `PascalCase`, `snake_case` and
+`UPPER_CASE` are accepted as aliases. `prefix`, `suffix` and `phrase` take a
+string or an array of strings.
 
 See [Configuration](../configuration.md) for the full parameter list and [rules.md](../rules.md) for the complete rule inventory.
