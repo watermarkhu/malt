@@ -364,10 +364,7 @@ fn collect_assigned_kinds(
     source: &str,
     kinds: &mut Vec<&'static str>,
 ) -> bool {
-    for i in 0..scope.child_count() {
-        let Some(child) = scope.child(i) else {
-            continue;
-        };
+    for child in crate::analysis::symbols::children_of(scope) {
         match child.kind() {
             "function_definition" => continue,
             "assignment" => {

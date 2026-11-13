@@ -274,6 +274,7 @@ mod tests {
         parser
             .set_language(&tree_sitter_matlab::LANGUAGE.into())
             .expect("failed to load tree-sitter-matlab");
+        malt_core::note_parse();
         parser.parse(source, None).expect("parse failed")
     }
 

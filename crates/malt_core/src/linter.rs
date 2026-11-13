@@ -229,7 +229,23 @@ impl Linter {
             .parse(source, None)
             .ok_or(LintError::ParseFailed)?;
 
-        // Too deep to analyze safely: say so instead of crashing or hanging.
+        // MATLAB's own limits (NOSPC, MXASET) stop the analysis: MATLAB reports
+        // nothing else for such a file (probed). A tree too deep for malt to walk
+        // safely gets MALT_TOO_DEEP unless one of those limits applies.
+        let mut limits = Vec::new();
+        for &idx in self.registry.file_check_rules() {
+            let mut found = self.registry.get_rule(idx).check_limits(&tree, source);
+            if let Some(severity) = self.registry.severity_override(idx) {
+                for diag in &mut found {
+                    diag.severity = severity;
+                }
+            }
+            limits.extend(found);
+        }
+        if !limits.is_empty() {
+            limits.sort_by(|a, b| a.line.cmp(&b.line).then(a.column.cmp(&b.column)));
+            return Ok(limits);
+        }
         let depth = tree_depth(&tree);
         if depth > self.max_tree_depth {
             return Ok(vec![Self::too_deep_diagnostic(

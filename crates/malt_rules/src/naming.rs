@@ -512,17 +512,14 @@ fn collect_recursive<'a>(
             }
 
             // Recurse into function body with Function context.
-            let child_count = node.child_count();
-            for i in 0..child_count {
-                if let Some(child) = node.child(i) {
-                    collect_recursive(
-                        child,
-                        source,
-                        entities,
-                        first_function_seen,
-                        EntityContext::Function,
-                    );
-                }
+            for child in crate::analysis::symbols::children_of(node) {
+                collect_recursive(
+                    child,
+                    source,
+                    entities,
+                    first_function_seen,
+                    EntityContext::Function,
+                );
             }
             return; // Don't recurse again below.
         }
@@ -542,62 +539,50 @@ fn collect_recursive<'a>(
             }
 
             // Recurse into class children (methods, properties, events, enumeration).
-            let child_count = node.child_count();
-            for i in 0..child_count {
-                if let Some(child) = node.child(i) {
-                    collect_recursive(child, source, entities, first_function_seen, context);
-                }
+            for child in crate::analysis::symbols::children_of(node) {
+                collect_recursive(child, source, entities, first_function_seen, context);
             }
             return;
         }
 
         "methods" => {
             // Children are function_definitions → Method.
-            let child_count = node.child_count();
-            for i in 0..child_count {
-                if let Some(child) = node.child(i) {
-                    collect_recursive(
-                        child,
-                        source,
-                        entities,
-                        first_function_seen,
-                        EntityContext::Methods,
-                    );
-                }
+            for child in crate::analysis::symbols::children_of(node) {
+                collect_recursive(
+                    child,
+                    source,
+                    entities,
+                    first_function_seen,
+                    EntityContext::Methods,
+                );
             }
             return;
         }
 
         "events" => {
             // Children are event identifiers.
-            let child_count = node.child_count();
-            for i in 0..child_count {
-                if let Some(child) = node.child(i) {
-                    collect_recursive(
-                        child,
-                        source,
-                        entities,
-                        first_function_seen,
-                        EntityContext::Events,
-                    );
-                }
+            for child in crate::analysis::symbols::children_of(node) {
+                collect_recursive(
+                    child,
+                    source,
+                    entities,
+                    first_function_seen,
+                    EntityContext::Events,
+                );
             }
             return;
         }
 
         "enumeration" => {
             // Children are enum nodes.
-            let child_count = node.child_count();
-            for i in 0..child_count {
-                if let Some(child) = node.child(i) {
-                    collect_recursive(
-                        child,
-                        source,
-                        entities,
-                        first_function_seen,
-                        EntityContext::Enumeration,
-                    );
-                }
+            for child in crate::analysis::symbols::children_of(node) {
+                collect_recursive(
+                    child,
+                    source,
+                    entities,
+                    first_function_seen,
+                    EntityContext::Enumeration,
+                );
             }
             return;
         }
@@ -622,21 +607,18 @@ fn collect_recursive<'a>(
                 });
             } else {
                 // Fallback: find the first identifier child.
-                let child_count = node.child_count();
-                for i in 0..child_count {
-                    if let Some(child) = node.child(i) {
-                        if child.kind() == "identifier" {
-                            let name = node_text(child, source);
-                            let pos = child.start_position();
-                            entities.push(NamedEntity {
-                                entity: NamingEntity::Property,
-                                name,
-                                byte_range: child.start_byte()..child.end_byte(),
-                                line: pos.row + 1,
-                                column: pos.column + 1,
-                            });
-                            break;
-                        }
+                for child in crate::analysis::symbols::children_of(node) {
+                    if child.kind() == "identifier" {
+                        let name = node_text(child, source);
+                        let pos = child.start_position();
+                        entities.push(NamedEntity {
+                            entity: NamingEntity::Property,
+                            name,
+                            byte_range: child.start_byte()..child.end_byte(),
+                            line: pos.row + 1,
+                            column: pos.column + 1,
+                        });
+                        break;
                     }
                 }
             }
@@ -657,21 +639,18 @@ fn collect_recursive<'a>(
                         column: pos.column + 1,
                     });
                 } else {
-                    let child_count = node.child_count();
-                    for i in 0..child_count {
-                        if let Some(child) = node.child(i) {
-                            if child.kind() == "identifier" {
-                                let name = node_text(child, source);
-                                let pos = child.start_position();
-                                entities.push(NamedEntity {
-                                    entity: NamingEntity::Enumeration,
-                                    name,
-                                    byte_range: child.start_byte()..child.end_byte(),
-                                    line: pos.row + 1,
-                                    column: pos.column + 1,
-                                });
-                                break;
-                            }
+                    for child in crate::analysis::symbols::children_of(node) {
+                        if child.kind() == "identifier" {
+                            let name = node_text(child, source);
+                            let pos = child.start_position();
+                            entities.push(NamedEntity {
+                                entity: NamingEntity::Enumeration,
+                                name,
+                                byte_range: child.start_byte()..child.end_byte(),
+                                line: pos.row + 1,
+                                column: pos.column + 1,
+                            });
+                            break;
                         }
                     }
                 }
@@ -697,11 +676,8 @@ fn collect_recursive<'a>(
     }
 
     // Default: recurse into children with the same context.
-    let child_count = node.child_count();
-    for i in 0..child_count {
-        if let Some(child) = node.child(i) {
-            collect_recursive(child, source, entities, first_function_seen, context);
-        }
+    for child in crate::analysis::symbols::children_of(node) {
+        collect_recursive(child, source, entities, first_function_seen, context);
     }
 }
 

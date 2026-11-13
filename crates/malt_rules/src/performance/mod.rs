@@ -480,11 +480,8 @@ impl PerformanceEngine {
             }
         }
 
-        let count = node.child_count();
-        for i in 0..count {
-            if let Some(child) = node.child(i) {
-                self.traverse_for_growth(&child, source, now_in_loop, now_in_function, diags);
-            }
+        for child in crate::analysis::symbols::children_of(node) {
+            self.traverse_for_growth(&child, source, now_in_loop, now_in_function, diags);
         }
     }
 
@@ -805,17 +802,14 @@ pub(crate) fn extract_command_args<'a>(
     source: &'a str,
 ) -> Vec<&'a str> {
     let mut args = Vec::new();
-    let count = node.child_count();
-    for i in 0..count {
-        if let Some(child) = node.child(i) {
-            // Skip the command_name (first child) and punctuation.
-            if child.kind() == "command_name" || child.kind() == ";" || child.kind() == "," {
-                continue;
-            }
-            let text = node_text(child, source).trim();
-            if !text.is_empty() {
-                args.push(text);
-            }
+    for child in crate::analysis::symbols::children_of(node) {
+        // Skip the command_name (first child) and punctuation.
+        if child.kind() == "command_name" || child.kind() == ";" || child.kind() == "," {
+            continue;
+        }
+        let text = node_text(child, source).trim();
+        if !text.is_empty() {
+            args.push(text);
         }
     }
     args
@@ -825,16 +819,13 @@ pub(crate) fn extract_command_args<'a>(
 pub(crate) fn extract_operator<'a>(node: tree_sitter::Node<'a>, source: &'a str) -> &'a str {
     // The operator is typically the second child (between left and right operands),
     // or we can scan children for the operator token.
-    let count = node.child_count();
-    for i in 0..count {
-        if let Some(child) = node.child(i) {
-            let text = node_text(child, source);
-            // Operator tokens are short and not identifiers/expressions.
-            match text {
-                "+" | "-" | "*" | "/" | "\\" | "^" | ".*" | "./" | ".\\" | ".^" | "&" | "|"
-                | "&&" | "||" | "==" | "~=" | "<" | ">" | "<=" | ">=" => return text,
-                _ => continue,
-            }
+    for child in crate::analysis::symbols::children_of(node) {
+        let text = node_text(child, source);
+        // Operator tokens are short and not identifiers/expressions.
+        match text {
+            "+" | "-" | "*" | "/" | "\\" | "^" | ".*" | "./" | ".\\" | ".^" | "&" | "|" | "&&"
+            | "||" | "==" | "~=" | "<" | ">" | "<=" | ">=" => return text,
+            _ => continue,
         }
     }
     ""
@@ -849,32 +840,23 @@ pub(crate) fn extract_operator<'a>(node: tree_sitter::Node<'a>, source: &'a str)
 /// tree-sitter-matlab does not attach a field name to this child, so the
 /// arguments list is located by node kind.
 pub(crate) fn find_arguments<'a>(node: tree_sitter::Node<'a>) -> Option<tree_sitter::Node<'a>> {
-    let count = node.child_count();
-    for i in 0..count {
-        if let Some(child) = node.child(i) {
-            if child.kind() == "arguments" {
-                return Some(child);
-            }
-        }
-    }
-    None
+    crate::analysis::symbols::children_of(node)
+        .into_iter()
+        .find(|child| child.kind() == "arguments")
 }
 
 /// Check if a function_call has a specific string argument.
 pub(crate) fn has_string_arg(node: tree_sitter::Node, source: &str, value: &str) -> bool {
-    let count = node.child_count();
-    for i in 0..count {
-        if let Some(child) = node.child(i) {
-            let text = node_text(child, source);
-            // Match quoted strings: 'value' or "value"
-            let trimmed = text.trim_matches('\'').trim_matches('"');
-            if trimmed.eq_ignore_ascii_case(value) {
-                return true;
-            }
-            // Recurse into arguments node.
-            if child.kind() == "arguments" && has_string_arg(child, source, value) {
-                return true;
-            }
+    for child in crate::analysis::symbols::children_of(node) {
+        let text = node_text(child, source);
+        // Match quoted strings: 'value' or "value"
+        let trimmed = text.trim_matches('\'').trim_matches('"');
+        if trimmed.eq_ignore_ascii_case(value) {
+            return true;
+        }
+        // Recurse into arguments node.
+        if child.kind() == "arguments" && has_string_arg(child, source, value) {
+            return true;
         }
     }
     false
@@ -924,13 +906,10 @@ pub(crate) fn is_in_condition(node: tree_sitter::Node) -> bool {
                     return is_descendant_of(node, cond);
                 }
                 // Fallback: check if node appears before the "block" child.
-                let count = p.child_count();
-                for i in 0..count {
-                    if let Some(child) = p.child(i) {
-                        if child.kind() == "block" {
-                            // If node is before the block, it's in the condition.
-                            return node.start_byte() < child.start_byte();
-                        }
+                for child in crate::analysis::symbols::children_of(p) {
+                    if child.kind() == "block" {
+                        // If node is before the block, it's in the condition.
+                        return node.start_byte() < child.start_byte();
                     }
                 }
                 return true;
@@ -950,14 +929,11 @@ pub(crate) fn is_descendant_of(needle: tree_sitter::Node, haystack: tree_sitter:
 
 /// Check if an `inv()` call is an operand of a binary_operator.
 pub(crate) fn has_inv_operand(node: tree_sitter::Node, source: &str) -> bool {
-    let count = node.child_count();
-    for i in 0..count {
-        if let Some(child) = node.child(i) {
-            if child.kind() == "function_call" {
-                if let Some(name) = extract_func_name(child, source) {
-                    if name == "inv" {
-                        return true;
-                    }
+    for child in crate::analysis::symbols::children_of(node) {
+        if child.kind() == "function_call" {
+            if let Some(name) = extract_func_name(child, source) {
+                if name == "inv" {
+                    return true;
                 }
             }
         }
@@ -968,16 +944,13 @@ pub(crate) fn has_inv_operand(node: tree_sitter::Node, source: &str) -> bool {
 /// Check if a matrix literal `[...]` contains a variable name as an element.
 pub(crate) fn matrix_contains_var(node: tree_sitter::Node, source: &str, var_name: &str) -> bool {
     // Walk the matrix's children looking for an identifier matching var_name.
-    let count = node.child_count();
-    for i in 0..count {
-        if let Some(child) = node.child(i) {
-            if child.kind() == "identifier" && node_text(child, source) == var_name {
-                return true;
-            }
-            // Recurse into rows.
-            if child.kind() == "row" && matrix_contains_var(child, source, var_name) {
-                return true;
-            }
+    for child in crate::analysis::symbols::children_of(node) {
+        if child.kind() == "identifier" && node_text(child, source) == var_name {
+            return true;
+        }
+        // Recurse into rows.
+        if child.kind() == "row" && matrix_contains_var(child, source, var_name) {
+            return true;
         }
     }
     false
@@ -1048,13 +1021,10 @@ pub(crate) fn fix_replace_operator(
     old_op: &str,
     new_op: &str,
 ) -> Option<Fix> {
-    let count = node.child_count();
-    for i in 0..count {
-        if let Some(child) = node.child(i) {
-            let text = node_text(child, source);
-            if text == old_op {
-                return Some(Fix::new(child.start_byte()..child.end_byte(), new_op));
-            }
+    for child in crate::analysis::symbols::children_of(node) {
+        let text = node_text(child, source);
+        if text == old_op {
+            return Some(Fix::new(child.start_byte()..child.end_byte(), new_op));
         }
     }
     None

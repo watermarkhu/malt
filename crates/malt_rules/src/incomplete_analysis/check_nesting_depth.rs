@@ -91,4 +91,41 @@ mod tests {
         let diags = lint_file(&*engine(), "if x\n    y = 1;\nend\n");
         assert!(!has_id(&diags, "NOSPC"), "got: {diags:?}");
     }
+
+    #[test]
+    fn nospc_stops_the_analysis_of_a_deep_loop_nest() {
+        // MATLAB probe (400 nested `for`s with an undefined variable and a NOSEMI
+        // inside): NOSPC is the only message.
+        let diags = lint_file(&*engine(), &nested(&vec!["for"; 400]));
+        assert_eq!(diags.len(), 1, "got: {diags:?}");
+        assert!(has_id(&diags, "NOSPC"));
+    }
+
+    #[test]
+    fn nospc_is_reported_for_loop_nests_past_malt_s_depth_limit() {
+        // Weight 3 per `for`: 332 nested ones (996) give NOSPC, 331 (993) do not.
+        let diags = lint_file(&*engine(), &nested(&vec!["for"; 332]));
+        assert_eq!(diags.len(), 1, "got: {diags:?}");
+        assert!(has_id(&diags, "NOSPC"));
+        let diags = lint_file(&*engine(), &nested(&vec!["for"; 331]));
+        assert!(!has_id(&diags, "NOSPC"), "got: {diags:?}");
+    }
+
+    #[test]
+    fn deep_nests_of_each_kind_get_the_limit_not_a_crash() {
+        for kinds in [vec!["if"; 2000], vec!["for"; 2000], vec!["switch"; 2000]] {
+            let diags = lint_file(&*engine(), &nested(&kinds));
+            assert_eq!(diags.len(), 1, "got: {diags:?}");
+            assert!(has_id(&diags, "NOSPC"));
+        }
+    }
+
+    #[test]
+    fn mxaset_stops_the_analysis_of_a_long_operator_chain() {
+        // MATLAB probe: a chain of 1,000 terms gives MXASET alone.
+        let source = format!("x = {};\nq = 2\n", vec!["1"; 1000].join("+"));
+        let diags = lint_file(&*engine(), &source);
+        assert_eq!(diags.len(), 1, "got: {diags:?}");
+        assert!(has_id(&diags, "MXASET"));
+    }
 }

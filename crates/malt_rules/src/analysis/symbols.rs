@@ -42,6 +42,17 @@ use tree_sitter::Tree;
 /// Whether a `function_call` is the trailing call of a dotted expression:
 /// `inline(x)` in `coder.inline(x)` or `obj.method(x)`. Its name is then a
 /// member of the object or package in front of it, not a function in scope.
+/// The children of `node`, collected with a cursor. `Node::child(i)` walks from
+/// the first child, so a loop over it is quadratic in the number of children
+/// (a file of 50,000 statements, or 2,000 functions, pays for it).
+pub(crate) fn children_of<'t>(
+    node: impl std::borrow::Borrow<tree_sitter::Node<'t>>,
+) -> Vec<tree_sitter::Node<'t>> {
+    let node = *node.borrow();
+    let mut cursor = node.walk();
+    node.children(&mut cursor).collect()
+}
+
 pub(crate) fn is_qualified_call(call: tree_sitter::Node) -> bool {
     call.parent().is_some_and(|p| {
         p.kind() == "field_expression" && p.named_child(0).is_some_and(|o| o.id() != call.id())
@@ -463,17 +474,14 @@ impl<'a> Builder<'a> {
     /// Line breaks (anonymous `"\n"` nodes) are skipped too: a help comment or
     /// blank line before the `function` line keeps it the file's function.
     fn first_meaningful_child_is_function(root: &tree_sitter::Node) -> bool {
-        let count = root.child_count();
-        for i in 0..count {
-            if let Some(child) = root.child(i) {
-                match child.kind() {
-                    "comment" | "line_continuation" => continue,
-                    _ if !child.is_named() => continue,
-                    // A class file is not a script: its properties, attributes
-                    // and method names are declarations, not variable uses.
-                    "function_definition" | "class_definition" => return true,
-                    _ => return false,
-                }
+        for child in crate::analysis::symbols::children_of(root) {
+            match child.kind() {
+                "comment" | "line_continuation" => continue,
+                _ if !child.is_named() => continue,
+                // A class file is not a script: its properties, attributes
+                // and method names are declarations, not variable uses.
+                "function_definition" | "class_definition" => return true,
+                _ => return false,
             }
         }
         false
@@ -492,12 +500,14 @@ impl<'a> Builder<'a> {
         let first_function = children.iter().find(|c| c.kind() == "function_definition");
         has_error
             && first_function.is_some_and(|f| {
-                (0..f.child_count()).filter_map(|i| f.child(i)).any(|c| {
-                    c.kind() == "arguments_statement"
-                        && (0..c.child_count())
-                            .filter_map(|i| c.child(i))
-                            .any(|m| m.is_missing())
-                })
+                crate::analysis::symbols::children_of(f)
+                    .into_iter()
+                    .any(|c| {
+                        c.kind() == "arguments_statement"
+                            && (0..c.child_count())
+                                .filter_map(|i| c.child(i))
+                                .any(|m| m.is_missing())
+                    })
             })
     }
 
@@ -539,10 +549,7 @@ impl<'a> Builder<'a> {
         });
         self.first_file_function_seen = true;
         let mut name_seen = false;
-        for i in 0..root.child_count() {
-            let Some(child) = root.child(i) else {
-                continue;
-            };
+        for child in crate::analysis::symbols::children_of(root) {
             match child.kind() {
                 "function" => {}
                 "function_arguments" => self.extract_input_identifiers(child),
@@ -557,11 +564,8 @@ impl<'a> Builder<'a> {
 
     /// Visit all children of a node, dispatching each to the appropriate handler.
     fn visit_children(&mut self, node: tree_sitter::Node<'a>) {
-        let count = node.child_count();
-        for i in 0..count {
-            if let Some(child) = node.child(i) {
-                self.visit_node(child);
-            }
+        for child in crate::analysis::symbols::children_of(node) {
+            self.visit_node(child);
         }
     }
 
@@ -721,26 +725,23 @@ impl<'a> Builder<'a> {
 
         // Recurse into the function body (all children except the ones we
         // already handled).
-        let count = node.child_count();
-        for i in 0..count {
-            if let Some(child) = node.child(i) {
-                let kind = child.kind();
-                if kind == "function_arguments" || kind == "function_output" {
-                    // Already handled above.
+        for child in crate::analysis::symbols::children_of(node) {
+            let kind = child.kind();
+            if kind == "function_arguments" || kind == "function_output" {
+                // Already handled above.
+                continue;
+            }
+            if kind == "identifier" {
+                // Skip the function name identifier (it's the `name` field).
+                if node
+                    .child_by_field_name("name")
+                    .map(|n| n.id() == child.id())
+                    .unwrap_or(false)
+                {
                     continue;
                 }
-                if kind == "identifier" {
-                    // Skip the function name identifier (it's the `name` field).
-                    if node
-                        .child_by_field_name("name")
-                        .map(|n| n.id() == child.id())
-                        .unwrap_or(false)
-                    {
-                        continue;
-                    }
-                }
-                self.visit_node(child);
             }
+            self.visit_node(child);
         }
 
         self.pop_scope();
@@ -804,13 +805,10 @@ impl<'a> Builder<'a> {
     fn extract_function_outputs(&mut self, func_node: tree_sitter::Node<'a>) {
         let Some(output_node) = func_node.child_by_field_name("output") else {
             // Also try iterating children for "function_output".
-            let count = func_node.child_count();
-            for i in 0..count {
-                if let Some(child) = func_node.child(i) {
-                    if child.kind() == "function_output" {
-                        self.extract_output_identifiers(child);
-                        return;
-                    }
+            for child in crate::analysis::symbols::children_of(func_node) {
+                if child.kind() == "function_output" {
+                    self.extract_output_identifiers(child);
+                    return;
                 }
             }
             return;
@@ -837,28 +835,25 @@ impl<'a> Builder<'a> {
                 });
             }
             "multioutput_variable" | "function_output" => {
-                let count = node.child_count();
-                for i in 0..count {
-                    if let Some(child) = node.child(i) {
-                        if child.kind() == "identifier" {
-                            let pos = child.start_position();
-                            self.add_def(VarDef {
-                                name: self.node_text(child).to_string(),
-                                kind: DefKind::OutputArg,
-                                byte_range: child.start_byte()..child.end_byte(),
-                                effect_start: child.start_byte(),
-                                partial: false,
-                                multi_output: false,
-                                prealloc: false,
-                                block_start: 0,
-                                line: pos.row + 1,
-                                column: pos.column + 1,
-                            });
-                        } else if child.kind() == "multioutput_variable" {
-                            self.extract_output_identifiers(child);
-                        }
-                        // Skip `ignored_argument` (~).
+                for child in crate::analysis::symbols::children_of(node) {
+                    if child.kind() == "identifier" {
+                        let pos = child.start_position();
+                        self.add_def(VarDef {
+                            name: self.node_text(child).to_string(),
+                            kind: DefKind::OutputArg,
+                            byte_range: child.start_byte()..child.end_byte(),
+                            effect_start: child.start_byte(),
+                            partial: false,
+                            multi_output: false,
+                            prealloc: false,
+                            block_start: 0,
+                            line: pos.row + 1,
+                            column: pos.column + 1,
+                        });
+                    } else if child.kind() == "multioutput_variable" {
+                        self.extract_output_identifiers(child);
                     }
+                    // Skip `ignored_argument` (~).
                 }
             }
             _ => {}
@@ -867,39 +862,33 @@ impl<'a> Builder<'a> {
 
     /// Extract input arguments from `function_arguments`.
     fn extract_function_inputs(&mut self, func_node: tree_sitter::Node<'a>) {
-        let count = func_node.child_count();
-        for i in 0..count {
-            if let Some(child) = func_node.child(i) {
-                if child.kind() == "function_arguments" {
-                    self.extract_input_identifiers(child);
-                    return;
-                }
+        for child in crate::analysis::symbols::children_of(func_node) {
+            if child.kind() == "function_arguments" {
+                self.extract_input_identifiers(child);
+                return;
             }
         }
     }
 
     /// Extract identifiers from a `function_arguments` node.
     fn extract_input_identifiers(&mut self, args_node: tree_sitter::Node<'a>) {
-        let count = args_node.child_count();
-        for i in 0..count {
-            if let Some(child) = args_node.child(i) {
-                if child.kind() == "identifier" {
-                    let pos = child.start_position();
-                    self.add_def(VarDef {
-                        name: self.node_text(child).to_string(),
-                        kind: DefKind::InputArg,
-                        byte_range: child.start_byte()..child.end_byte(),
-                        effect_start: child.start_byte(),
-                        partial: false,
-                        multi_output: false,
-                        prealloc: false,
-                        block_start: 0,
-                        line: pos.row + 1,
-                        column: pos.column + 1,
-                    });
-                }
-                // Skip `ignored_argument` (~).
+        for child in crate::analysis::symbols::children_of(args_node) {
+            if child.kind() == "identifier" {
+                let pos = child.start_position();
+                self.add_def(VarDef {
+                    name: self.node_text(child).to_string(),
+                    kind: DefKind::InputArg,
+                    byte_range: child.start_byte()..child.end_byte(),
+                    effect_start: child.start_byte(),
+                    partial: false,
+                    multi_output: false,
+                    prealloc: false,
+                    block_start: 0,
+                    line: pos.row + 1,
+                    column: pos.column + 1,
+                });
             }
+            // Skip `ignored_argument` (~).
         }
     }
 
@@ -926,28 +915,25 @@ impl<'a> Builder<'a> {
 
         // Extract lambda parameters. In tree-sitter-matlab, the lambda's
         // arguments node contains the parameter identifiers.
-        let count = node.child_count();
-        for i in 0..count {
-            if let Some(child) = node.child(i) {
-                if child.kind() == "arguments" || child.kind() == "lambda_arguments" {
-                    let arg_count = child.child_count();
-                    for j in 0..arg_count {
-                        if let Some(arg) = child.child(j) {
-                            if arg.kind() == "identifier" {
-                                let arg_pos = arg.start_position();
-                                self.add_def(VarDef {
-                                    name: self.node_text(arg).to_string(),
-                                    kind: DefKind::LambdaParam,
-                                    byte_range: arg.start_byte()..arg.end_byte(),
-                                    effect_start: arg.start_byte(),
-                                    partial: false,
-                                    multi_output: false,
-                                    prealloc: false,
-                                    block_start: 0,
-                                    line: arg_pos.row + 1,
-                                    column: arg_pos.column + 1,
-                                });
-                            }
+        for child in crate::analysis::symbols::children_of(node) {
+            if child.kind() == "arguments" || child.kind() == "lambda_arguments" {
+                let arg_count = child.child_count();
+                for j in 0..arg_count {
+                    if let Some(arg) = child.child(j) {
+                        if arg.kind() == "identifier" {
+                            let arg_pos = arg.start_position();
+                            self.add_def(VarDef {
+                                name: self.node_text(arg).to_string(),
+                                kind: DefKind::LambdaParam,
+                                byte_range: arg.start_byte()..arg.end_byte(),
+                                effect_start: arg.start_byte(),
+                                partial: false,
+                                multi_output: false,
+                                prealloc: false,
+                                block_start: 0,
+                                line: arg_pos.row + 1,
+                                column: arg_pos.column + 1,
+                            });
                         }
                     }
                 }
@@ -955,8 +941,8 @@ impl<'a> Builder<'a> {
         }
 
         // Visit body (all children that are not the arguments).
-        for i in 0..count {
-            if let Some(child) = node.child(i) {
+        for child in children_of(node) {
+            {
                 let kind = child.kind();
                 if kind == "arguments" || kind == "lambda_arguments" {
                     continue;
@@ -1049,32 +1035,29 @@ impl<'a> Builder<'a> {
                 });
             }
             "multioutput_variable" => {
-                let count = lhs.child_count();
-                for i in 0..count {
-                    if let Some(child) = lhs.child(i) {
-                        if child.kind() == "identifier" {
-                            let pos = child.start_position();
-                            self.add_def(VarDef {
-                                name: self.node_text(child).to_string(),
-                                kind: DefKind::Assignment,
-                                byte_range: child.start_byte()..child.end_byte(),
-                                effect_start: effect,
-                                partial: false,
-                                multi_output: true,
-                                prealloc: false,
-                                block_start: 0,
-                                line: pos.row + 1,
-                                column: pos.column + 1,
-                            });
-                        } else if matches!(
-                            child.kind(),
-                            "field_expression" | "function_call" | "cell_index"
-                        ) {
-                            // `[s.a, b] = f()`: a partial store into `s`.
-                            self.partial_assignment(child, effect);
-                        }
-                        // Skip `ignored_argument` (~) and punctuation.
+                for child in crate::analysis::symbols::children_of(lhs) {
+                    if child.kind() == "identifier" {
+                        let pos = child.start_position();
+                        self.add_def(VarDef {
+                            name: self.node_text(child).to_string(),
+                            kind: DefKind::Assignment,
+                            byte_range: child.start_byte()..child.end_byte(),
+                            effect_start: effect,
+                            partial: false,
+                            multi_output: true,
+                            prealloc: false,
+                            block_start: 0,
+                            line: pos.row + 1,
+                            column: pos.column + 1,
+                        });
+                    } else if matches!(
+                        child.kind(),
+                        "field_expression" | "function_call" | "cell_index"
+                    ) {
+                        // `[s.a, b] = f()`: a partial store into `s`.
+                        self.partial_assignment(child, effect);
                     }
+                    // Skip `ignored_argument` (~) and punctuation.
                 }
             }
             // `A(i) = v`, `s.f = v`, `C{i} = v`: a partial assignment.
@@ -1151,14 +1134,11 @@ impl<'a> Builder<'a> {
     fn visit_for_statement(&mut self, node: tree_sitter::Node<'a>) {
         // The for statement has an `iterator` child that contains the loop
         // variable and the range expression.
-        let count = node.child_count();
-        for i in 0..count {
-            if let Some(child) = node.child(i) {
-                if child.kind() == "iterator" {
-                    self.visit_iterator(child);
-                } else {
-                    self.visit_node(child);
-                }
+        for child in crate::analysis::symbols::children_of(node) {
+            if child.kind() == "iterator" {
+                self.visit_iterator(child);
+            } else {
+                self.visit_node(child);
             }
         }
     }
@@ -1169,32 +1149,29 @@ impl<'a> Builder<'a> {
     /// Everything else (the range expression) is visited for usages.
     fn visit_iterator(&mut self, node: tree_sitter::Node<'a>) {
         let mut found_var = false;
-        let count = node.child_count();
-        for i in 0..count {
-            if let Some(child) = node.child(i) {
-                if !found_var && child.kind() == "identifier" {
-                    // This is the loop variable.
-                    let pos = child.start_position();
-                    self.add_def(VarDef {
-                        name: self.node_text(child).to_string(),
-                        kind: DefKind::ForIterator,
-                        byte_range: child.start_byte()..child.end_byte(),
-                        effect_start: child.start_byte(),
-                        partial: false,
-                        multi_output: false,
-                        prealloc: false,
-                        block_start: 0,
-                        line: pos.row + 1,
-                        column: pos.column + 1,
-                    });
-                    found_var = true;
-                } else if child.kind() == "=" {
-                    // Skip the `=` token.
-                    continue;
-                } else {
-                    // Range expression — visit for usages.
-                    self.visit_node(child);
-                }
+        for child in crate::analysis::symbols::children_of(node) {
+            if !found_var && child.kind() == "identifier" {
+                // This is the loop variable.
+                let pos = child.start_position();
+                self.add_def(VarDef {
+                    name: self.node_text(child).to_string(),
+                    kind: DefKind::ForIterator,
+                    byte_range: child.start_byte()..child.end_byte(),
+                    effect_start: child.start_byte(),
+                    partial: false,
+                    multi_output: false,
+                    prealloc: false,
+                    block_start: 0,
+                    line: pos.row + 1,
+                    column: pos.column + 1,
+                });
+                found_var = true;
+            } else if child.kind() == "=" {
+                // Skip the `=` token.
+                continue;
+            } else {
+                // Range expression — visit for usages.
+                self.visit_node(child);
             }
         }
     }
@@ -1205,24 +1182,21 @@ impl<'a> Builder<'a> {
     ///
     /// Each child identifier is a declaration.
     fn visit_global_persistent(&mut self, node: tree_sitter::Node<'a>, kind: DefKind) {
-        let count = node.child_count();
-        for i in 0..count {
-            if let Some(child) = node.child(i) {
-                if child.kind() == "identifier" {
-                    let pos = child.start_position();
-                    self.add_def(VarDef {
-                        name: self.node_text(child).to_string(),
-                        kind,
-                        byte_range: child.start_byte()..child.end_byte(),
-                        effect_start: child.start_byte(),
-                        partial: false,
-                        multi_output: false,
-                        prealloc: false,
-                        block_start: 0,
-                        line: pos.row + 1,
-                        column: pos.column + 1,
-                    });
-                }
+        for child in crate::analysis::symbols::children_of(node) {
+            if child.kind() == "identifier" {
+                let pos = child.start_position();
+                self.add_def(VarDef {
+                    name: self.node_text(child).to_string(),
+                    kind,
+                    byte_range: child.start_byte()..child.end_byte(),
+                    effect_start: child.start_byte(),
+                    partial: false,
+                    multi_output: false,
+                    prealloc: false,
+                    block_start: 0,
+                    line: pos.row + 1,
+                    column: pos.column + 1,
+                });
             }
         }
     }
@@ -1382,15 +1356,9 @@ impl<'a> Builder<'a> {
 
     /// Find the first `identifier` child of a node.
     fn first_identifier_child(node: tree_sitter::Node) -> Option<tree_sitter::Node> {
-        let count = node.child_count();
-        for i in 0..count {
-            if let Some(child) = node.child(i) {
-                if child.kind() == "identifier" {
-                    return Some(child);
-                }
-            }
-        }
-        None
+        crate::analysis::symbols::children_of(node)
+            .into_iter()
+            .find(|child| child.kind() == "identifier")
     }
 
     /// Record the callee names of the function calls in a validator. Their
@@ -1579,6 +1547,7 @@ mod tests {
         parser
             .set_language(&tree_sitter_matlab::LANGUAGE.into())
             .expect("failed to load tree-sitter-matlab");
+        malt_core::note_parse();
         parser.parse(source, None).expect("parse failed")
     }
 

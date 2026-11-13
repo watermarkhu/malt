@@ -140,16 +140,31 @@ struct Flow {
     /// Set after a construct the walker cannot follow (a dynamic call, a loop
     /// that can `break` or `continue`): every name may then hold any value.
     opaque: bool,
+    /// The names whose definitions are kept, see [`boolean_identifiers`]. `None`
+    /// keeps every name. A name outside the set is never asked about, so its
+    /// definitions are not kept: a loop variable then costs nothing per clone.
+    tracked: Option<std::rc::Rc<std::collections::HashSet<String>>>,
 }
 
 impl Flow {
+    fn tracks(&self, name: &str) -> bool {
+        self.tracked
+            .as_ref()
+            .is_none_or(|names| names.contains(name))
+    }
+
     /// A whole assignment: the only definition of `name` from here on.
     fn kill(&mut self, name: &str, class: DefClass) {
-        self.defs.insert(name.to_string(), vec![class]);
+        if self.tracks(name) {
+            self.defs.insert(name.to_string(), vec![class]);
+        }
     }
 
     /// A write that keeps the earlier values (an indexed assignment).
     fn add(&mut self, name: &str, class: DefClass) {
+        if !self.tracks(name) {
+            return;
+        }
         let classes = self.defs.entry(name.to_string()).or_default();
         if !classes.contains(&class) {
             classes.push(class);
@@ -198,7 +213,10 @@ impl FlowWalker<'_> {
         match node.kind() {
             "function_definition" => {
                 // A function has its own variables; its inputs are unknown on entry.
-                let mut inner = Flow::default();
+                let mut inner = Flow {
+                    tracked: flow.tracked.clone(),
+                    ..Flow::default()
+                };
                 if let Some(args) = child_of_kind(node, "function_arguments") {
                     for id in identifiers_in(args) {
                         inner.kill(self.text(id), OTHER);
@@ -269,7 +287,10 @@ impl FlowWalker<'_> {
             "switch_statement" => self.visit_switch(node, flow),
             "try_statement" => {
                 let pre = flow.clone();
-                let mut result = Flow::default();
+                let mut result = Flow {
+                    tracked: flow.tracked.clone(),
+                    ..Flow::default()
+                };
                 let mut tried = pre.clone();
                 for i in 0..node.named_child_count() {
                     let Some(child) = node.named_child(i) else {
@@ -546,6 +567,34 @@ fn condition_of(node: Node) -> Option<Node> {
         .find(|c| !matches!(c.kind(), "block" | "comment"))
 }
 
+/// The names that a boolean use can ask about: every identifier under the
+/// condition of an `if`, `elseif`, `while` or `switch`, and under any `&&` or `||`
+/// (a superset of [`FlowWalker::boolean_use`]'s sites). Only their definitions
+/// need to be tracked.
+fn boolean_identifiers(
+    tree: &tree_sitter::Tree,
+    source: &str,
+) -> std::collections::HashSet<String> {
+    let mut roots = Vec::new();
+    let mut stack = vec![tree.root_node()];
+    while let Some(node) = stack.pop() {
+        match node.kind() {
+            "if_statement" | "elseif_clause" | "while_statement" | "switch_statement" => {
+                roots.extend(condition_of(node));
+            }
+            "boolean_operator" => roots.push(node),
+            _ => {}
+        }
+        let mut cursor = node.walk();
+        stack.extend(node.named_children(&mut cursor));
+    }
+    roots
+        .into_iter()
+        .flat_map(identifiers_in)
+        .map(|id| source[id.byte_range()].to_string())
+        .collect()
+}
+
 /// Every identifier below `node`, in source order.
 fn identifiers_in(node: Node) -> Vec<Node> {
     let mut out = Vec::new();
@@ -652,7 +701,11 @@ impl GoodPracticesEngine {
             want_log1: self.is_check_enabled("BDLOG1"),
             decided: BTreeMap::new(),
         };
-        walker.visit(tree.root_node(), &mut Flow::default());
+        let mut root = Flow {
+            tracked: Some(std::rc::Rc::new(boolean_identifiers(tree, source))),
+            ..Flow::default()
+        };
+        walker.visit(tree.root_node(), &mut root);
         diagnostics.extend(walker.decided.into_values().flatten());
 
         diagnostics

@@ -20,10 +20,7 @@ impl FormattingEngine {
         }
         let mut open = None;
         let mut close = None;
-        for i in 0..node.child_count() {
-            let Some(child) = node.child(i) else {
-                continue;
-            };
+        for child in crate::analysis::symbols::children_of(node) {
             match child.kind() {
                 "(" if open.is_none() => open = Some(child),
                 ")" if open.is_some() && close.is_none() => close = Some(child),

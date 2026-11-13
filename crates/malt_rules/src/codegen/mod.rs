@@ -292,19 +292,16 @@ impl CodegenEngine {
 
     /// Recursively find nested function definitions (depth > 1).
     fn find_nested_functions(node: &tree_sitter::Node, depth: usize, diags: &mut Vec<Diagnostic>) {
-        let count = node.child_count();
-        for i in 0..count {
-            if let Some(child) = node.child(i) {
-                if child.kind() == "function_definition" {
-                    if depth >= 1 {
-                        // This is a nested function
-                        diags.push(make_diag("EMNST", child));
-                    }
-                    // Recurse into this function to find deeper nesting
-                    Self::find_nested_functions(&child, depth + 1, diags);
-                } else {
-                    Self::find_nested_functions(&child, depth, diags);
+        for child in crate::analysis::symbols::children_of(node) {
+            if child.kind() == "function_definition" {
+                if depth >= 1 {
+                    // This is a nested function
+                    diags.push(make_diag("EMNST", child));
                 }
+                // Recurse into this function to find deeper nesting
+                Self::find_nested_functions(&child, depth + 1, diags);
+            } else {
+                Self::find_nested_functions(&child, depth, diags);
             }
         }
     }
@@ -438,15 +435,12 @@ pub(crate) fn is_inside_loop(node: tree_sitter::Node) -> bool {
 
 /// Check if a matrix literal contains a variable name as an element.
 pub(crate) fn matrix_contains_var(node: tree_sitter::Node, source: &str, var_name: &str) -> bool {
-    let count = node.child_count();
-    for i in 0..count {
-        if let Some(child) = node.child(i) {
-            if child.kind() == "identifier" && node_text(child, source) == var_name {
-                return true;
-            }
-            if child.kind() == "row" && matrix_contains_var(child, source, var_name) {
-                return true;
-            }
+    for child in crate::analysis::symbols::children_of(node) {
+        if child.kind() == "identifier" && node_text(child, source) == var_name {
+            return true;
+        }
+        if child.kind() == "row" && matrix_contains_var(child, source, var_name) {
+            return true;
         }
     }
     false

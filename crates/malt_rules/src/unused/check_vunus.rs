@@ -59,10 +59,8 @@ fn walk_vunus(node: Node, table: &SymbolTable, source: &str, diagnostics: &mut V
     if is_statement_level && !node.has_error() && has_trailing_semicolon(node, source) {
         check_discarded(node, table, source, diagnostics);
     }
-    for i in 0..node.child_count() {
-        if let Some(child) = node.child(i) {
-            walk_vunus(child, table, source, diagnostics);
-        }
+    for child in crate::analysis::symbols::children_of(node) {
+        walk_vunus(child, table, source, diagnostics);
     }
 }
 

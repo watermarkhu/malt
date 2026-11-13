@@ -611,14 +611,12 @@ impl SyntaxErrorsEngine {
     }
 
     /// True if the node is contained within an ERROR node.
-    pub(crate) fn inside_error(mut node: Node) -> bool {
-        while let Some(parent) = node.parent() {
-            if parent.is_error() {
-                return true;
-            }
-            node = parent;
-        }
-        false
+    pub(crate) fn inside_error(node: Node) -> bool {
+        crate::analysis::ancestors::has_ancestor(
+            node,
+            crate::analysis::ancestors::SLOT_ERROR,
+            |p| p.is_error(),
+        )
     }
 
     /// Parse a hex or binary literal into (is_hex, digit count, type suffix).
@@ -775,11 +773,9 @@ impl SyntaxErrorsEngine {
 
     pub(crate) fn last_named_child(node: Node) -> Option<Node> {
         let mut last = None;
-        for i in 0..node.child_count() {
-            if let Some(c) = node.child(i) {
-                if c.is_named() {
-                    last = Some(c);
-                }
+        for c in crate::analysis::symbols::children_of(node) {
+            if c.is_named() {
+                last = Some(c);
             }
         }
         last
@@ -787,17 +783,15 @@ impl SyntaxErrorsEngine {
 
     pub(crate) fn call_error_nodes(call: Node) -> Vec<Node> {
         let mut errors = Vec::new();
-        for i in 0..call.child_count() {
-            if let Some(c) = call.child(i) {
-                if c.is_error() {
-                    errors.push(c);
-                }
-                if c.kind() == "arguments" {
-                    for j in 0..c.child_count() {
-                        if let Some(cc) = c.child(j) {
-                            if cc.is_error() {
-                                errors.push(cc);
-                            }
+        for c in crate::analysis::symbols::children_of(call) {
+            if c.is_error() {
+                errors.push(c);
+            }
+            if c.kind() == "arguments" {
+                for j in 0..c.child_count() {
+                    if let Some(cc) = c.child(j) {
+                        if cc.is_error() {
+                            errors.push(cc);
                         }
                     }
                 }

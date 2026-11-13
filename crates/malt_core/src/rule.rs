@@ -238,4 +238,11 @@ pub trait Rule: Send + Sync {
     fn check_file(&self, _ctx: &FileContext) -> Vec<Diagnostic> {
         Vec::new()
     }
+
+    /// MATLAB's own limits that stop the analysis of a file (NOSPC, MXASET), run
+    /// before any other check on every tree. MATLAB then reports only these, so
+    /// a file that reaches one is not analysed further. Default returns none.
+    fn check_limits(&self, _tree: &tree_sitter::Tree, _source: &str) -> Vec<Diagnostic> {
+        Vec::new()
+    }
 }

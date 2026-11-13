@@ -3389,6 +3389,7 @@ mod tests {
         parser
             .set_language(&language.into())
             .expect("failed to set MATLAB language");
+        malt_core::note_parse();
         parser.parse(source, None).expect("failed to parse")
     }
 

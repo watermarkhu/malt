@@ -252,11 +252,8 @@ impl FormattingEngine {
         }
 
         // Recurse into children.
-        let child_count = node.child_count();
-        for i in 0..child_count {
-            if let Some(child) = node.child(i) {
-                self.visit_recursive(child, source, diagnostics);
-            }
+        for child in crate::analysis::symbols::children_of(node) {
+            self.visit_recursive(child, source, diagnostics);
         }
     }
 }
@@ -268,28 +265,18 @@ impl FormattingEngine {
 /// Returns `true` if a node is inside a `function_definition` (i.e., in a
 /// function/method body) as opposed to at script level.
 pub(crate) fn is_in_function(node: Node) -> bool {
-    let mut current = node.parent();
-    while let Some(p) = current {
-        if p.kind() == "function_definition" {
-            return true;
-        }
-        current = p.parent();
-    }
-    false
+    crate::analysis::ancestors::has_ancestor(node, crate::analysis::ancestors::SLOT_FUNCTION, |p| {
+        p.kind() == "function_definition"
+    })
 }
 
 /// Returns `true` if `node` is inside a `parfor` loop body. Probed: MATLAB gives
 /// no NOPTS or NOPRT for statements there (a `for_statement` whose first token
 /// is `parfor`).
 pub(crate) fn is_in_parfor(node: Node) -> bool {
-    let mut current = node.parent();
-    while let Some(p) = current {
-        if p.kind() == "for_statement" && p.child(0).map(|c| c.kind()) == Some("parfor") {
-            return true;
-        }
-        current = p.parent();
-    }
-    false
+    crate::analysis::ancestors::has_ancestor(node, crate::analysis::ancestors::SLOT_PARFOR, |p| {
+        p.kind() == "for_statement" && p.child(0).map(|c| c.kind()) == Some("parfor")
+    })
 }
 
 /// Get the byte offset of the start of the line containing `byte_offset`.
@@ -370,6 +357,7 @@ mod tests {
         parser
             .set_language(&tree_sitter_matlab::LANGUAGE.into())
             .expect("failed to load tree-sitter-matlab");
+        malt_core::note_parse();
         parser.parse(source, None).expect("parse failed")
     }
 

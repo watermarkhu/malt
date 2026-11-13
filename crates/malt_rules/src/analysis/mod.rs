@@ -5,6 +5,7 @@
 //! - [`metadata`]: Function/class metadata extraction from parse trees.
 //! - [`typing`]: Conservative one-pass type inference for variables.
 
+pub mod ancestors;
 pub mod control_flow;
 pub mod elementwise;
 pub mod liveness;

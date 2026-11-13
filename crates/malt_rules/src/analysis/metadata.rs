@@ -301,15 +301,9 @@ fn extract_attribute_value(attr_node: Node, source: &str) -> Option<String> {
 
 /// Find the first child of a node with the given kind.
 fn find_first_child_of_kind<'a>(node: Node<'a>, kind: &str) -> Option<Node<'a>> {
-    let child_count = node.child_count();
-    for i in 0..child_count {
-        if let Some(child) = node.child(i) {
-            if child.kind() == kind {
-                return Some(child);
-            }
-        }
-    }
-    None
+    crate::analysis::symbols::children_of(node)
+        .into_iter()
+        .find(|child| child.kind() == kind)
 }
 
 // ---------------------------------------------------------------------------
@@ -328,13 +322,10 @@ fn build_function_name(func_node: Node, source: &str) -> Option<String> {
     let base_name = node_text(name_node, source);
 
     // Check for `set.` or `get.` prefix child.
-    let child_count = func_node.child_count();
-    for i in 0..child_count {
-        if let Some(child) = func_node.child(i) {
-            let kind = child.kind();
-            if kind == "set." || kind == "get." {
-                return Some(format!("{}{}", kind, base_name));
-            }
+    for child in crate::analysis::symbols::children_of(func_node) {
+        let kind = child.kind();
+        if kind == "set." || kind == "get." {
+            return Some(format!("{}{}", kind, base_name));
         }
     }
 
@@ -1036,6 +1027,7 @@ mod tests {
         parser
             .set_language(&language.into())
             .expect("failed to set MATLAB language");
+        malt_core::note_parse();
         parser.parse(source, None).expect("failed to parse")
     }
 

@@ -221,17 +221,41 @@ impl IncompleteAnalysisEngine {
             metrics.last_node_is_error = last.is_error() || last.is_missing();
         }
 
-        Self::walk_tree(root, &mut metrics, Depths::default());
+        Self::walk_tree(root, &mut metrics);
         metrics
     }
 
-    /// Recursive DFS traversal that collects error counts and the nesting
-    /// measures of each check in a single pass.
-    fn walk_tree(node: Node, metrics: &mut TreeMetrics, parent: Depths) {
+    /// Walks the tree in pre-order with a cursor, so a deep tree costs no native
+    /// stack: the nesting of each node is its parent's, plus its own contribution.
+    fn walk_tree(root: Node, metrics: &mut TreeMetrics) {
+        let mut cursor = root.walk();
+        // The nesting of the current node's parent, and of the ancestors above it.
+        let mut parent = Depths::default();
+        let mut ancestors: Vec<Depths> = Vec::new();
+        loop {
+            let depths = Self::visit_node(cursor.node(), parent, metrics);
+            if cursor.goto_first_child() {
+                ancestors.push(parent);
+                parent = depths;
+                continue;
+            }
+            loop {
+                if cursor.goto_next_sibling() {
+                    break;
+                }
+                if !cursor.goto_parent() {
+                    return;
+                }
+                parent = ancestors.pop().unwrap_or_default();
+            }
+        }
+    }
+
+    /// The nesting of `node`, given its parent's, and the metrics it raises.
+    fn visit_node(node: Node, parent: Depths, metrics: &mut TreeMetrics) -> Depths {
         if node.is_error() {
             metrics.error_count += 1;
         }
-
         let line = node.start_position().row + 1;
         let mut depths = parent;
         match node.kind() {
@@ -257,11 +281,7 @@ impl IncompleteAnalysisEngine {
             }
             _ => {}
         }
-
-        let mut cursor = node.walk();
-        for child in node.children(&mut cursor) {
-            Self::walk_tree(child, metrics, depths);
-        }
+        depths
     }
 }
 
@@ -295,6 +315,14 @@ impl Rule for IncompleteAnalysisEngine {
         true
     }
 
+    fn check_limits(&self, tree: &tree_sitter::Tree, source: &str) -> Vec<Diagnostic> {
+        let metrics = self.collect_metrics(tree.root_node());
+        let mut diagnostics = Vec::new();
+        self.check_operator_depth(&metrics, source, &mut diagnostics);
+        self.check_nesting_depth(&metrics, source, &mut diagnostics);
+        diagnostics
+    }
+
     fn check_file(&self, ctx: &FileContext) -> Vec<Diagnostic> {
         let mut diagnostics = Vec::new();
         let root = ctx.tree.root_node();
@@ -304,16 +332,14 @@ impl Rule for IncompleteAnalysisEngine {
 
         let metrics = self.collect_metrics(root);
 
-        // MXASET: an expression with too many nested binary operators.
-        self.check_operator_depth(&metrics, source, &mut diagnostics);
-
         // TMSMS: Too many parse errors.
         self.check_parse_errors(&metrics, source, &mut diagnostics);
 
+        // MDEEP: Parentheses/brackets nested too deeply.
+        // MXASET: an expression with too many nested binary operators.
+        self.check_operator_depth(&metrics, source, &mut diagnostics);
         // NOSPC: statements nested too deeply (weighted by statement kind).
         self.check_nesting_depth(&metrics, source, &mut diagnostics);
-
-        // MDEEP: Parentheses/brackets nested too deeply.
         self.check_paren_depth(&metrics, source, &mut diagnostics);
 
         // DEEPN: Functions nested too deeply.
@@ -345,13 +371,14 @@ impl Rule for IncompleteAnalysisEngine {
 // ---------------------------------------------------------------------------
 
 /// Find the last (rightmost, deepest) descendant node in a tree.
-pub(crate) fn last_descendant(node: Node) -> Option<Node> {
-    let child_count = node.child_count();
-    if child_count == 0 {
-        return Some(node);
+pub(crate) fn last_descendant(mut node: Node) -> Option<Node> {
+    loop {
+        let child_count = node.child_count();
+        if child_count == 0 {
+            return Some(node);
+        }
+        node = node.child(child_count - 1)?;
     }
-    let last_child = node.child(child_count - 1)?;
-    last_descendant(last_child)
 }
 
 // ---------------------------------------------------------------------------

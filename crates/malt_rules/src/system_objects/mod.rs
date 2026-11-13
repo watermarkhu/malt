@@ -220,17 +220,14 @@ impl SystemObjectsEngine {
         source: &str,
         diags: &mut Vec<Diagnostic>,
     ) {
-        let count = node.child_count();
-        for i in 0..count {
-            if let Some(child) = node.child(i) {
-                if child.kind() == "class_definition" {
-                    // Check if this class inherits from matlab.System
-                    if is_system_object_class(child, source) {
-                        self.check_system_class(child, source, diags);
-                    }
+        for child in crate::analysis::symbols::children_of(node) {
+            if child.kind() == "class_definition" {
+                // Check if this class inherits from matlab.System
+                if is_system_object_class(child, source) {
+                    self.check_system_class(child, source, diags);
                 }
-                self.find_system_classes(&child, source, diags);
             }
+            self.find_system_classes(&child, source, diags);
         }
     }
 
@@ -241,15 +238,12 @@ impl SystemObjectsEngine {
         source: &str,
         diags: &mut Vec<Diagnostic>,
     ) {
-        let count = class_node.child_count();
-        for i in 0..count {
-            if let Some(child) = class_node.child(i) {
-                if child.kind() == "properties" {
-                    self.check_sodeprop(child, source, diags);
-                    self.check_sodfltval(child, source, diags);
-                    self.check_sorsrvdnm(child, source, diags);
-                    self.check_sotunprop(child, source, diags);
-                }
+        for child in crate::analysis::symbols::children_of(class_node) {
+            if child.kind() == "properties" {
+                self.check_sodeprop(child, source, diags);
+                self.check_sodfltval(child, source, diags);
+                self.check_sorsrvdnm(child, source, diags);
+                self.check_sotunprop(child, source, diags);
             }
         }
 
@@ -401,14 +395,11 @@ pub(crate) fn method_header<'a>(
 /// Check if a class definition inherits from matlab.System.
 pub(crate) fn is_system_object_class(class_node: tree_sitter::Node, source: &str) -> bool {
     // Look for superclasses node containing "matlab.System"
-    let count = class_node.child_count();
-    for i in 0..count {
-        if let Some(child) = class_node.child(i) {
-            if child.kind() == "superclasses" {
-                let text = node_text(child, source);
-                if text.contains("matlab.System") {
-                    return true;
-                }
+    for child in crate::analysis::symbols::children_of(class_node) {
+        if child.kind() == "superclasses" {
+            let text = node_text(child, source);
+            if text.contains("matlab.System") {
+                return true;
             }
         }
     }

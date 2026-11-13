@@ -236,6 +236,8 @@ Open: loop nests of 500+ and operator chains of 999+ hit the safety limit first 
 
 Open: MSNE (needs MATLAB's full ID list); a bare `%#ok` claimed by a wildcard gets MSNU in MATLAB; `x = 1 %c` then `-x` and `x = 1` then `-x + 2` (NOPRC); `[a;b;c] = size(x)` (LHROW only) and NOPAR2 false positives on quoted name-value calls; `s('a' = 1, 2)` is FVACS; BADCH for leading underscores outside function names.
 
-## Performance (Phase 2 follow-up)
+## Performance and depth limits (Phase 2 follow-up)
 
-Release timings after the first optimisation pass: 5,000 straight-line statements 0.67 s (was 23 s), 20,000 about 5 s, 50,000 about 20 s (target 5 s); a 320-deep `for` nest about 30 s (target 2 s: `loop_head` runs O(depth^2) times and clones live sets of size O(depth); NASGU and STRNU each run the dead-store analysis); 2,000 functions in one file 20 s (not profiled). Inputs and the generator are in /tmp/probe/perf_B*, not in the repo.
+Release timings after two passes: a 320-deep `for` nest 2.1 s (was 30 s), 200-deep 0.65 s, 500-deep and 320-deep `if` nests report NOSPC in about 0.1 s and skip the deep analyses, 5,000 straight-line statements 0.7 s (was 23 s), 20,000 about 4 s, 50,000 about 16 s, 2,000 functions in one file about 21 s. Remaining cause: tree-sitter's `Node::parent()` costs O(top-level children), and `SymbolTable::build` calls it for every identifier and function (about ten builds per file); `is_shadowed` and the compatibility `root_of` path rebuild the whole table per call; `dead_stores` runs three times per file. The fix is to carry parents down the builder's recursion and share one symbol table and one dead-store result per file.
+
+`Rule::check_limits` runs before the depth guard: NOSPC (weighted nesting >= 994; 331 nested `for` weigh 993, 332 fire) and MXASET (>= 998 nested binary operators) are then the only output, as in MATLAB; `MALT_TOO_DEEP` remains for other deep trees. Open: 2,000 nested brackets (MATLAB: MDEEP), deeply nested anonymous functions (MATLAB: NOSPC, threshold unprobed) and nested functions (DEEPN) still give `MALT_TOO_DEEP`; debug-build stack use and the wasm build were not checked.

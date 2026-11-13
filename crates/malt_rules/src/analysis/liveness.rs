@@ -48,8 +48,146 @@ use tree_sitter::{Node, Tree};
 
 use super::symbols::{is_qualified_call, DefKind, Scope, ScopeKind, SymbolTable};
 
-/// The variables that may still be read before they are overwritten.
-type Live = HashSet<String>;
+/// Interned variable names of one analysis: a name has a dense id, its position in `list`.
+#[derive(Default)]
+struct Names {
+    ids: HashMap<String, u32>,
+    list: Vec<String>,
+}
+
+impl Names {
+    /// The id of `name`, interned on first use.
+    fn intern(&mut self, name: &str) -> u32 {
+        if let Some(&id) = self.ids.get(name) {
+            return id;
+        }
+        let id = self.list.len() as u32;
+        self.ids.insert(name.to_string(), id);
+        self.list.push(name.to_string());
+        id
+    }
+
+    /// The id of `name` if it is interned. A name that is not interned is in no set.
+    fn get(&self, name: &str) -> Option<u32> {
+        self.ids.get(name).copied()
+    }
+}
+
+/// The variables that may still be read before they are overwritten, as a bit
+/// set over the interned names. Copying and merging a set costs one word per 64
+/// names, so a scope with many variables and deep nesting stays cheap.
+#[derive(Clone, Default)]
+struct Live {
+    words: Vec<u64>,
+}
+
+impl Live {
+    fn new() -> Self {
+        Self::default()
+    }
+
+    fn insert(&mut self, id: u32) {
+        let word = id as usize / 64;
+        if self.words.len() <= word {
+            self.words.resize(word + 1, 0);
+        }
+        self.words[word] |= 1u64 << (id % 64);
+    }
+
+    fn remove(&mut self, id: u32) {
+        if let Some(word) = self.words.get_mut(id as usize / 64) {
+            *word &= !(1u64 << (id % 64));
+        }
+    }
+
+    fn contains(&self, id: u32) -> bool {
+        self.words
+            .get(id as usize / 64)
+            .is_some_and(|word| word & (1u64 << (id % 64)) != 0)
+    }
+
+    /// Adds every name of `other`.
+    fn absorb(&mut self, other: &Live) {
+        if self.words.len() < other.words.len() {
+            self.words.resize(other.words.len(), 0);
+        }
+        for (word, other) in self.words.iter_mut().zip(&other.words) {
+            *word |= other;
+        }
+    }
+
+    /// The names of both sets.
+    fn union(&self, other: &Live) -> Live {
+        let mut out = self.clone();
+        out.absorb(other);
+        out
+    }
+
+    /// The ids in the set, in increasing order.
+    fn ids(&self) -> impl Iterator<Item = u32> + '_ {
+        self.words.iter().enumerate().flat_map(|(i, &word)| {
+            (0..64u32)
+                .filter(move |&bit| word & (1u64 << bit) != 0)
+                .map(move |bit| i as u32 * 64 + bit)
+        })
+    }
+}
+
+impl PartialEq for Live {
+    fn eq(&self, other: &Live) -> bool {
+        let len = self.words.len().max(other.words.len());
+        (0..len).all(|i| {
+            self.words.get(i).copied().unwrap_or(0) == other.words.get(i).copied().unwrap_or(0)
+        })
+    }
+}
+
+impl Eq for Live {}
+
+/// Subtree facts, memoised per node id for one analysis, so a loop nested in
+/// loops is not rescanned at every level.
+#[derive(Default)]
+struct Facts {
+    memo: HashMap<usize, u8>,
+}
+
+/// A `break` under the node.
+const FACT_BREAK: u8 = 1;
+/// A `break`, `continue` or `return` under the node.
+const FACT_JUMP: u8 = 2;
+/// A `block` under the node.
+const FACT_BLOCK: u8 = 4;
+
+impl Facts {
+    fn of(&mut self, node: Node) -> u8 {
+        if let Some(&bits) = self.memo.get(&node.id()) {
+            return bits;
+        }
+        let mut bits = match node.kind() {
+            "break_statement" => FACT_BREAK | FACT_JUMP,
+            "continue_statement" | "return_statement" => FACT_JUMP,
+            "block" => FACT_BLOCK,
+            _ => 0,
+        };
+        for child in children(node) {
+            bits |= self.of(child);
+        }
+        self.memo.insert(node.id(), bits);
+        bits
+    }
+
+    fn has_break(&mut self, node: Node) -> bool {
+        self.of(node) & FACT_BREAK != 0
+    }
+
+    fn contains_jump(&mut self, node: Node) -> bool {
+        self.of(node) & FACT_JUMP != 0
+    }
+
+    fn has_block(&mut self, node: Node) -> bool {
+        self.of(node) & FACT_BLOCK != 0
+    }
+}
 
 /// The variables with a known truth value at one point of a scope.
 type Known = HashMap<String, bool>;
@@ -113,21 +251,34 @@ pub fn dead_stores(table: &SymbolTable, index: usize, tree: &Tree, source: &str)
         return None;
     }
 
-    let mut excluded: Live = scope
+    let mut names = Names::default();
+    let def_ids: Vec<u32> = scope.defs.iter().map(|d| names.intern(&d.name)).collect();
+    let use_ids: Vec<u32> = scope.uses.iter().map(|u| names.intern(&u.name)).collect();
+    let mut excluded = Live::new();
+    for def in scope
         .defs
         .iter()
         .filter(|d| matches!(d.kind, DefKind::Global | DefKind::Persistent))
-        .map(|d| d.name.clone())
-        .collect();
-    compound_targets(body, source, &mut excluded);
+    {
+        excluded.insert(names.intern(&def.name));
+    }
+    let mut compound = Vec::new();
+    compound_targets(body, source, &mut compound);
+    for name in &compound {
+        excluded.insert(names.intern(name));
+    }
     // A nested function shares the variables of the functions around it.
     let mut outer = match scope.kind {
         ScopeKind::NestedFunction => scope.parent,
         _ => None,
     };
     while let Some(index) = outer.and_then(|i| table.scopes.get(i)) {
-        excluded.extend(index.defs.iter().map(|d| d.name.clone()));
-        excluded.extend(index.uses.iter().map(|u| u.name.clone()));
+        for def in &index.defs {
+            excluded.insert(names.intern(&def.name));
+        }
+        for usage in &index.uses {
+            excluded.insert(names.intern(&usage.name));
+        }
         outer = index.parent;
     }
     for &child in &scope.children {
@@ -139,19 +290,21 @@ pub fn dead_stores(table: &SymbolTable, index: usize, tree: &Tree, source: &str)
             !matches!(c.kind, ScopeKind::Lambda)
                 && (scope.kind != ScopeKind::Script || c.kind == ScopeKind::NestedFunction)
         }) {
-            excluded.extend(child.uses.iter().map(|u| u.name.clone()));
-            excluded.extend(child.defs.iter().map(|d| d.name.clone()));
+            for usage in &child.uses {
+                excluded.insert(names.intern(&usage.name));
+            }
+            for def in &child.defs {
+                excluded.insert(names.intern(&def.name));
+            }
         }
     }
-    let exit: Live = match scope.kind {
-        ScopeKind::Script => scope.defs.iter().map(|d| d.name.clone()).collect(),
-        _ => scope
-            .defs
-            .iter()
-            .filter(|d| d.kind == DefKind::OutputArg)
-            .map(|d| d.name.clone())
-            .collect(),
-    };
+    // Live at the end: every variable of a script, the outputs of a function.
+    let mut exit = Live::new();
+    for (def, &id) in scope.defs.iter().zip(&def_ids) {
+        if scope.kind == ScopeKind::Script || def.kind == DefKind::OutputArg {
+            exit.insert(id);
+        }
+    }
 
     let mut def_spans: Vec<(usize, usize, usize)> = scope
         .defs
@@ -170,6 +323,9 @@ pub fn dead_stores(table: &SymbolTable, index: usize, tree: &Tree, source: &str)
     let mut analysis = Analysis {
         scope,
         source,
+        names,
+        def_ids,
+        use_ids,
         exit: exit.clone(),
         excluded,
         truths: scope_truths(table, index, tree, source),
@@ -180,13 +336,18 @@ pub fn dead_stores(table: &SymbolTable, index: usize, tree: &Tree, source: &str)
         bail: false,
         def_spans,
         use_spans,
+        facts: Facts::default(),
     };
     let before_body = analysis.block(body, exit, true);
     if analysis.bail {
         return None;
     }
-    let mut entry = analysis.finish(before_body);
-    entry.extend(analysis.excluded.iter().cloned());
+    let mut live = analysis.finish(before_body);
+    live.absorb(&analysis.excluded);
+    let entry = live
+        .ids()
+        .map(|id| analysis.names.list[id as usize].clone())
+        .collect();
     analysis.reports.sort_unstable();
     analysis.reports.dedup();
     analysis.partial_reports.sort_unstable();
@@ -232,10 +393,20 @@ pub fn scope_truths(
     let Some(body) = scope_body(scope, tree) else {
         return HashMap::new();
     };
+    let mut def_spans: Vec<(usize, usize, usize)> = scope
+        .defs
+        .iter()
+        .enumerate()
+        .map(|(i, d)| (d.byte_range.start, d.byte_range.end, i))
+        .collect();
+    def_spans.sort_unstable();
     let mut pass = ConstPass {
         scope,
         source,
         truths: HashMap::new(),
+        def_spans,
+        def_names: scope.defs.iter().map(|d| d.name.as_str()).collect(),
+        facts: Facts::default(),
     };
     pass.sequence(&named(body), Some(Known::new()));
     pass.truths
@@ -310,13 +481,13 @@ fn calls_dynamic(node: Node, source: &str) -> bool {
 /// Adds the variables that a compound assignment (`k += 1`) changes under `node`.
 /// The grammar has no compound assignment: `k += 1` parses as a command and
 /// `x(2) -= 3` as a binary operator with an error. Function definitions are skipped.
-fn compound_targets(node: Node, source: &str, out: &mut Live) {
+fn compound_targets(node: Node, source: &str, out: &mut Vec<String>) {
     if node.kind() == "function_definition" {
         return;
     }
     if matches!(node.kind(), "command" | "binary_operator" | "ERROR") {
         if let Some(name) = compound_target(&source[node.byte_range()]) {
-            out.insert(name);
+            out.push(name);
         }
     }
     for child in children(node) {
@@ -458,17 +629,6 @@ fn ends_function_early(node: Node) -> bool {
             .all(|child| !has_block(child))
 }
 
-fn has_break(node: Node) -> bool {
-    node.kind() == "break_statement" || children(node).into_iter().any(has_break)
-}
-
-fn contains_jump(node: Node) -> bool {
-    matches!(
-        node.kind(),
-        "break_statement" | "continue_statement" | "return_statement"
-    ) || children(node).into_iter().any(contains_jump)
-}
-
 /// A clause of an `if` statement: its condition (`None` for `else`) and its statements.
 pub(crate) struct Clause<'t> {
     /// The `if_statement` for the first clause, else the `elseif_clause` or `else_clause`.
@@ -532,6 +692,12 @@ struct LoopTargets {
 struct Analysis<'a> {
     scope: &'a Scope,
     source: &'a str,
+    /// The interned names of the scope, see [`Names`].
+    names: Names,
+    /// The name id of each def of `scope.defs`.
+    def_ids: Vec<u32>,
+    /// The name id of each use of `scope.uses`.
+    use_ids: Vec<u32>,
     /// Live at the end of the scope: the workspace of a script, or the outputs of a function.
     exit: Live,
     /// Names that are never reported.
@@ -552,6 +718,8 @@ struct Analysis<'a> {
     def_spans: Vec<(usize, usize, usize)>,
     /// `(start, end, index)` of each use of `scope.uses`, sorted by start.
     use_spans: Vec<(usize, usize, usize)>,
+    /// Memoised subtree facts (`break`, jumps, blocks).
+    facts: Facts,
 }
 
 /// The indices of the spans of `spans` (sorted by start) that lie within `range`.
@@ -621,9 +789,9 @@ impl Analysis<'_> {
 
     /// A `while` whose condition is constant true and that has no `break`: the
     /// statements after it cannot run.
-    fn is_infinite_loop(&self, node: Node) -> bool {
+    fn is_infinite_loop(&mut self, node: Node) -> bool {
         node.kind() == "while_statement"
-            && !has_break(node)
+            && !self.facts.has_break(node)
             && named(node)
                 .into_iter()
                 .filter(|c| is_condition(node, *c))
@@ -666,7 +834,7 @@ impl Analysis<'_> {
             // the function is its own scope, and the rest of the node is a plain
             // statement of this scope (see `ends_function_early`).
             "ERROR" if ends_function_early(node) => self.leaf(node, after, report),
-            _ if has_block(node) => {
+            _ if self.facts.has_block(node) => {
                 self.bail = true;
                 after
             }
@@ -685,7 +853,13 @@ impl Analysis<'_> {
         let range = node.byte_range();
         let source = self.source;
         let cleared = clear_names(&source[range.clone()]);
-        let mut kills: Live = cleared.clone().unwrap_or_default().into_iter().collect();
+        let mut kills = Live::new();
+        // A name that is not interned is in no set, so clearing it changes nothing.
+        for name in cleared.iter().flatten() {
+            if let Some(id) = self.names.get(name) {
+                kills.insert(id);
+            }
+        }
         let mut reads = if cleared.is_some() {
             Live::new()
         } else {
@@ -704,29 +878,30 @@ impl Analysis<'_> {
             if def.kind != DefKind::Assignment {
                 continue;
             }
+            let id = self.def_ids[index];
             if object {
-                kills.insert(def.name.clone());
+                kills.insert(id);
                 continue;
             }
             if def.partial {
-                if report && !after.contains(&def.name) && !self.excluded.contains(&def.name) {
+                if report && !after.contains(id) && !self.excluded.contains(id) {
                     self.partial_reports.push(index);
                 }
-                reads.insert(def.name.clone());
+                reads.insert(id);
                 continue;
             }
-            kills.insert(def.name.clone());
-            if report && !after.contains(&def.name) && !self.excluded.contains(&def.name) {
+            kills.insert(id);
+            if report && !after.contains(id) && !self.excluded.contains(id) {
                 self.reports.push(index);
             }
         }
         // `after` is owned, so it is updated in place: a script's exit set holds
         // every variable, and copying it per statement is quadratic.
         let mut live = after;
-        for name in &kills {
-            live.remove(name);
+        for id in kills.ids() {
+            live.remove(id);
         }
-        live.extend(reads);
+        live.absorb(&reads);
         self.finish(live)
     }
 
@@ -737,7 +912,7 @@ impl Analysis<'_> {
             .into_iter()
             .filter(|part| {
                 if is_condition(clause, *part) {
-                    reads.extend(self.uses_in(part.byte_range()));
+                    reads.absorb(&self.uses_in(part.byte_range()));
                     false
                 } else {
                     true
@@ -767,22 +942,22 @@ impl Analysis<'_> {
                 break;
             }
             if let Some(condition) = clause.condition {
-                reads.extend(self.uses_in(condition.byte_range()));
+                reads.absorb(&self.uses_in(condition.byte_range()));
             }
             match self.clause_truth(&clause) {
                 Some(false) => {}
                 Some(true) => {
-                    out.extend(self.branch(&clause.parts, after.clone(), report));
+                    out.absorb(&self.branch(&clause.parts, after.clone(), report));
                     reachable = false;
                 }
-                None => out.extend(self.branch(&clause.parts, after.clone(), report)),
+                None => out.absorb(&self.branch(&clause.parts, after.clone(), report)),
             }
         }
         // The condition of the last clause may be false: nothing runs.
         if reachable {
-            out.extend(after);
+            out.absorb(&after);
         }
-        out.extend(reads);
+        out.absorb(&reads);
         self.finish(out)
     }
 
@@ -807,7 +982,7 @@ impl Analysis<'_> {
                         loop_var_seen = true;
                         continue;
                     }
-                    reads.extend(self.uses_in(part.byte_range()));
+                    reads.absorb(&self.uses_in(part.byte_range()));
                 }
             } else {
                 body.push(child);
@@ -821,9 +996,9 @@ impl Analysis<'_> {
         // `i = 5; for i = 1:3, end` reports `i = 5`), so no value of it reaches the loop.
         let mut top = self.loop_head(&body, &after, after.clone(), var.as_deref(), report);
         if let Some(name) = var.as_deref() {
-            top.remove(name);
+            self.drop_name(&mut top, name);
         }
-        top.extend(reads);
+        top.absorb(&reads);
         self.finish(top)
     }
 
@@ -841,16 +1016,16 @@ impl Analysis<'_> {
         after: Live,
         report: bool,
     ) -> Live {
-        if body.iter().any(|stmt| has_break(*stmt)) {
+        if body.iter().any(|stmt| self.facts.has_break(*stmt)) {
             self.bail = true;
             return after;
         }
         let mut top = self.branch(body, after.clone(), report);
         if let Some(name) = var {
-            top.remove(name);
+            self.drop_name(&mut top, name);
         }
-        top.extend(after);
-        top.extend(reads);
+        top.absorb(&after);
+        top.absorb(&reads);
         self.finish(top)
     }
 
@@ -867,7 +1042,7 @@ impl Analysis<'_> {
         let mut condition = None;
         for child in named(node) {
             if is_condition(node, child) {
-                reads.extend(self.uses_in(child.byte_range()));
+                reads.absorb(&self.uses_in(child.byte_range()));
                 condition = Some(child);
             } else {
                 body.push(child);
@@ -876,12 +1051,12 @@ impl Analysis<'_> {
         let truth = condition.and_then(|c| self.truths.get(&c.start_byte()).copied());
         let top = match truth {
             // The body never runs.
-            Some(false) => after.union(&reads).cloned().collect(),
+            Some(false) => after.union(&reads),
             // The loop is left only by `break`, so `after` is reached only through one.
             Some(true) => self.loop_head(&body, &after, reads, None, report),
             // The condition is evaluated before every pass, so it is live at the head.
             None => {
-                let base: Live = after.union(&reads).cloned().collect();
+                let base = after.union(&reads);
                 self.loop_head(&body, &after, base, None, report)
             }
         };
@@ -908,10 +1083,10 @@ impl Analysis<'_> {
             let mut entry = self.branch(body, top.clone(), false);
             self.loops.pop();
             if let Some(name) = var {
-                entry.remove(name);
+                self.drop_name(&mut entry, name);
             }
             let mut next = base.clone();
-            next.extend(entry);
+            next.absorb(&entry);
             if next == top {
                 break;
             }
@@ -934,24 +1109,26 @@ impl Analysis<'_> {
         let mut has_otherwise = false;
         for child in named(node) {
             match child.kind() {
-                _ if is_condition(node, child) => reads.extend(self.uses_in(child.byte_range())),
+                _ if is_condition(node, child) => {
+                    reads.absorb(&self.uses_in(child.byte_range()));
+                }
                 "case_clause" => {
                     let parts = self.clause_parts(child, &mut reads);
-                    out.extend(self.branch(&parts, after.clone(), report));
+                    out.absorb(&self.branch(&parts, after.clone(), report));
                 }
                 "otherwise_clause" => {
                     has_otherwise = true;
                     let parts = self.clause_parts(child, &mut reads);
-                    out.extend(self.branch(&parts, after.clone(), report));
+                    out.absorb(&self.branch(&parts, after.clone(), report));
                 }
                 _ => {}
             }
         }
         // Without an otherwise clause no case may match.
         if !has_otherwise {
-            out.extend(after);
+            out.absorb(&after);
         }
-        out.extend(reads);
+        out.absorb(&reads);
         self.finish(out)
     }
 
@@ -978,25 +1155,34 @@ impl Analysis<'_> {
 
         // An error can leave the try body at any statement.
         let saved = self.extra.clone();
-        self.extra.extend(catch_live.iter().cloned());
+        self.extra.absorb(&catch_live);
         let body_live = self.branch(&body, after, report);
         self.extra = saved;
 
         let mut out = body_live;
-        out.extend(catch_live);
+        out.absorb(&catch_live);
         self.finish(out)
     }
 
     /// Variables read by the identifiers inside `range`.
     fn uses_in(&self, range: Range<usize>) -> Live {
-        within(&self.use_spans, range)
-            .map(|i| self.scope.uses[i].name.clone())
-            .collect()
+        let mut live = Live::new();
+        for index in within(&self.use_spans, range) {
+            live.insert(self.use_ids[index]);
+        }
+        live
+    }
+
+    /// Removes the variable `name` from `live`, if it is interned.
+    fn drop_name(&self, live: &mut Live, name: &str) {
+        if let Some(id) = self.names.get(name) {
+            live.remove(id);
+        }
     }
 
     /// Adds the live variables of the enclosing `try` bodies.
     fn finish(&self, mut live: Live) -> Live {
-        live.extend(self.extra.iter().cloned());
+        live.absorb(&self.extra);
         live
     }
 }
@@ -1007,6 +1193,11 @@ struct ConstPass<'a> {
     scope: &'a Scope,
     source: &'a str,
     truths: HashMap<usize, bool>,
+    /// `(start, end, index)` of each def of `scope.defs`, sorted by start.
+    def_spans: Vec<(usize, usize, usize)>,
+    /// The names of the defs of the scope.
+    def_names: HashSet<&'a str>,
+    facts: Facts,
 }
 
 impl ConstPass<'_> {
@@ -1036,7 +1227,7 @@ impl ConstPass<'_> {
             "while_statement" => self.while_statement(node, env),
             "switch_statement" => self.switch_statement(node, env),
             "try_statement" => self.try_statement(node, env),
-            _ if has_block(node) => Some(self.remove_defs(env, node)),
+            _ if self.facts.has_block(node) => Some(self.remove_defs(env, node)),
             _ => Some(self.leaf(node, env)),
         }
     }
@@ -1091,7 +1282,7 @@ impl ConstPass<'_> {
             Some(iterator) => self.remove_defs(env.clone(), iterator),
             None => env,
         };
-        if body.iter().any(|stmt| contains_jump(*stmt)) {
+        if body.iter().any(|stmt| self.facts.contains_jump(*stmt)) {
             let head = self.remove_defs(pre, node);
             self.sequence(&body, Some(head.clone()));
             return Some(head);
@@ -1159,7 +1350,7 @@ impl ConstPass<'_> {
             self.sequence(&body, Some(head.clone()));
         }
         // Only a `break` leaves a loop whose condition is always true.
-        if truth == Some(true) && !has_break(node) {
+        if truth == Some(true) && !self.facts.has_break(node) {
             return None;
         }
         Some(head)
@@ -1204,11 +1395,8 @@ impl ConstPass<'_> {
 
     /// `env` without the variables that the statements under `node` define.
     fn remove_defs(&self, mut env: Known, node: Node) -> Known {
-        let range = node.byte_range();
-        for def in &self.scope.defs {
-            if range.start <= def.byte_range.start && def.byte_range.end <= range.end {
-                env.remove(&def.name);
-            }
+        for index in within(&self.def_spans, node.byte_range()) {
+            env.remove(&self.scope.defs[index].name);
         }
         env
     }
@@ -1219,7 +1407,7 @@ impl ConstPass<'_> {
         match node.kind() {
             "number" => text.parse::<f64>().ok().map(|v| v != 0.0),
             "identifier" => {
-                if self.scope.defs.iter().any(|d| d.name == text) {
+                if self.def_names.contains(text) {
                     env.get(text).copied()
                 } else {
                     match text {

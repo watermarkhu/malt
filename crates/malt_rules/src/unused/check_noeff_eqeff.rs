@@ -88,11 +88,8 @@ pub(crate) fn walk_for_no_effect(
     }
 
     // Recurse into children.
-    let count = node.child_count();
-    for i in 0..count {
-        if let Some(child) = node.child(i) {
-            walk_for_no_effect(child, source, diagnostics, noeff_disabled, eqeff_disabled);
-        }
+    for child in crate::analysis::symbols::children_of(node) {
+        walk_for_no_effect(child, source, diagnostics, noeff_disabled, eqeff_disabled);
     }
 }
 

@@ -835,12 +835,9 @@ inventory::submit!(crate::RuleRegistration::new(
 
 /// Check whether a node has a child of the given kind.
 pub(crate) fn has_child_of_kind(node: Node, kind: &str) -> bool {
-    let count = node.child_count();
-    for i in 0..count {
-        if let Some(child) = node.child(i) {
-            if child.kind() == kind {
-                return true;
-            }
+    for child in crate::analysis::symbols::children_of(node) {
+        if child.kind() == kind {
+            return true;
         }
     }
     false
@@ -848,28 +845,16 @@ pub(crate) fn has_child_of_kind(node: Node, kind: &str) -> bool {
 
 /// Find the first child of a node with the given kind.
 pub(crate) fn find_child_of_kind<'a>(node: Node<'a>, kind: &str) -> Option<Node<'a>> {
-    let count = node.child_count();
-    for i in 0..count {
-        if let Some(child) = node.child(i) {
-            if child.kind() == kind {
-                return Some(child);
-            }
-        }
-    }
-    None
+    crate::analysis::symbols::children_of(node)
+        .into_iter()
+        .find(|child| child.kind() == kind)
 }
 
 /// Get the first named child of a node.
 pub(crate) fn first_named_child(node: Node) -> Option<Node> {
-    let count = node.child_count();
-    for i in 0..count {
-        if let Some(child) = node.child(i) {
-            if child.is_named() {
-                return Some(child);
-            }
-        }
-    }
-    None
+    crate::analysis::symbols::children_of(node)
+        .into_iter()
+        .find(|child| child.is_named())
 }
 
 /// Check if a node is at statement level (parent is `source_file` or `block`).
@@ -1341,15 +1326,9 @@ pub(crate) fn extract_parfor_index_var(node: Node, source: &str) -> Option<Strin
 /// Find the parfor index variable identifier node.
 pub(crate) fn find_parfor_index_identifier(node: Node) -> Option<Node> {
     let iter = find_child_of_kind(node, "iterator")?;
-    let count = iter.child_count();
-    for i in 0..count {
-        if let Some(c) = iter.child(i) {
-            if c.kind() == "identifier" {
-                return Some(c);
-            }
-        }
-    }
-    None
+    crate::analysis::symbols::children_of(iter)
+        .into_iter()
+        .find(|c| c.kind() == "identifier")
 }
 
 /// Walk a node collecting all `function_call` and `command` descendants.
@@ -2117,6 +2096,7 @@ pub(crate) fn parse(source: &str) -> tree_sitter::Tree {
     parser
         .set_language(&tree_sitter_matlab::LANGUAGE.into())
         .expect("failed to load tree-sitter-matlab");
+    malt_core::note_parse();
     parser.parse(source, None).expect("parse failed")
 }
 
