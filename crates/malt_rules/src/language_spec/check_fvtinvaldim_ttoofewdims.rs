@@ -26,6 +26,8 @@ impl LanguageSpecEngine {
                 for child in dims.children(&mut cursor) {
                     match child.kind() {
                         "(" | ")" | "," => {}
+                        // A `...` continuation or a comment is not a dimension.
+                        "line_continuation" | "comment" => {}
                         _ => entries.push(child),
                     }
                 }
@@ -79,6 +81,38 @@ mod tests {
 
     use crate::language_spec::tests::{check_source, filter_by_id};
 
+    #[test]
+    fn test_tinvaldim_no_fire_continuation_inside_dimensions() {
+        // Probed: a `...` continuation inside the size is not a dimension (MATLAB: silent).
+        let source = "\
+function f(a)
+arguments
+    a (1, ...
+        2) double
+end
+end
+";
+        let diags = check_source(source, "f.m");
+        assert!(
+            filter_by_id(&diags, "TINVALDIM").is_empty(),
+            "got: {diags:?}"
+        );
+    }
+
+    #[test]
+    fn test_tinvaldim_fires_identifier_and_negative_dimensions() {
+        // Probed: an identifier (`n`) and a negative number (`-2`) are invalid dimensions.
+        let source = "\
+function f(a, n)
+arguments
+    a (1, n) double
+    n (1, -2) double
+end
+end
+";
+        let diags = check_source(source, "f.m");
+        assert_eq!(filter_by_id(&diags, "TINVALDIM").len(), 2, "got: {diags:?}");
+    }
     #[test]
     fn test_tinvaldim_fires_float_dimension() {
         let source = "\

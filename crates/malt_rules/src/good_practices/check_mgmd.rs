@@ -25,7 +25,7 @@ impl GoodPracticesEngine {
             let is_dependent = block
                 .attributes
                 .iter()
-                .any(|a| a.name == "Dependent" && !a.negated);
+                .any(|a| a.name == "Dependent" && a.is_literal_set());
             if !is_dependent {
                 continue;
             }

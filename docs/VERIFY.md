@@ -35,9 +35,9 @@ the repository (`~/.local/share/malt-reference/`: `matlab-allmsg.txt` from
   rule or category setting):
   - bugs: STCUL, SHOCIRF, MOCUP
   - good_practices: ERTAG, WNTAG, CTCH, BDLOG2, CTOINW, GTARG,
-    LTARG, SIMPT, STRSZ, ELARLOG, ITERS, ADAPPREF, MIPC1, VTFIN, MCCPE, MCCSPS (MATLAB never
+    LTARG, SIMPT, STRSZ, ELARLOG, ITERS, ADAPPREF, MIPC1, VTFIN, MCCPE (MATLAB never
     generates the last two)
-  - language_spec: FVNIV, USESWNS, PFUTVR, VTPEAL, VTPIN, VTPCON, GPNES
+  - language_spec: FVNIV, FVORDO, USESWNS, PFUTVR, VTPEAL, VTPIN, VTPCON, GPNES
   - readability: LOGSUM, MFAMB; performance: GRIDD; unused: VANUS, NOEFF, PUSE;
     unset_variables: SUSENS, USENS
   - compatibility: IDISVARHIGH, the forward-compatibility gates (FCLEN, FCCPV, FCDQS, FCFAV,
@@ -60,6 +60,8 @@ the repository (`~/.local/share/malt-reference/`: `matlab-allmsg.txt` from
 | INVALIDCHECKDISABLE, INVALIDCHECKENABLE, INVALIDCHECKPLACEMENT, INVALIDCHECKPRAGMA | `checkcode` ignores `%#check` pragmas; probably emitted by the editor's analyzer only. |
 | FVUBD, FVONV | MATLAB reports a forward reference in a validator as FVVCON only, and never reports FVONV. |
 | VIDAF, VIDFH, FVOOOV, VINONA | Did not fire in about 40 probes (validators with anonymous functions or handles give FVVCON, FVOCON, VTPCON, FVSYN, FVOON or MCPLD). |
+| FVATF, FVNIV, CTOINE, MWKCL | MATLAB never reports them in 11 to 21 probes each (a value on an Input/Output attribute is ATLAB; FVNIV probes gave FVSOR). Gated off (`*_REPORTED = false`), code kept. |
+| VTPEAL, VTPIN, VTPCON | `checkcode -allmsg` reports none of them in about 30 probes; off under `mathworks`, still emitted under `--preset all`. |
 | SHVAI, SHVAU | MATLAB reported neither in 12 nested-function probes, including the shape malt flagged (gated off: `SHVAI_REPORTED`, `NOT_REPRODUCED`). |
 | CLSUNK | MATLAB is silent on a missing superclass; the name heuristic was removed. |
 | LNGNM | Never reported in about 35 probes with names of 63 to 120 characters (gated off: `NOT_REPRODUCED`). |
@@ -185,6 +187,17 @@ Open after the audit and the follow-up pass (probe files are not kept; re-probe 
 - Syntax: `try, x = 1; catch ME end` is SYNER in malt (MATLAB: SEPEX plus ENDCT2); EOFER for `if x, disp(1) end` and `while x x=0 end`; NBRAK2 for `[1:2:3]`; NOSEMI on `case 2, y = 2;`.
 - MSNU for `end %#ok<TRYNC>`, `%#ok<NOPRT>`, SHVAU/ITERS, the second of two own-line directives and a bare `%#ok`: needs `active_check_ids` on more engines (false-MSNU risk).
 - BDSCA2 inside call arguments (`disp([1 0] && x)`) is missed. BDLGI/BDSCI use a reaching-definitions rule inferred from about 60 probes: a variable is reported only when every reaching definition is of the reported kind.
-- Uppercase attribute values (`Dependent = TRUE`): MATLAB's ATTF is not implemented, leaving MGMD/MCANI extras. MTAGS3 is reported at the classdef line. ADMTHDINV misses `@() helper + 1`.
+- ADMTHDINV misses `@() helper + 1`.
 - Parfor: PFBNS rule unclear (6 misses); PFUNK for `k=i; v(k)=1`; PFRUS/PFRIN/PFVSUB/PFUTMP extras when a reduction variable is read whole; PFOUS misses struct-field sliced writes; PFIIN after `clear k`; PFINCR for `s = [s i]`; PFUTVR is off by design.
 - CFALSE is limited to `any`, `isequal`, `isreal` (others unprobed); STLOW for a letterless literal; INUSD message text includes the argument name; STRNU loop-store fallback is a heuristic.
+
+## Phase 2.2 audit gaps (language_spec)
+
+Open after the audit (re-probe before changing):
+
+- Parser-driven: `opts.?pkg.Class = 1` with a default, `arguments (Output = 'x')` and attribute values like `Input = 1, Foo = 2` give ERROR nodes, so malt reports SYNER and misses FVDAN/FVORDN/FVOND/ATLAB; `y = end + 1;` loses IDXCOLND to a SYNER on the same statement.
+- Class checks: MCMTP false positive (non-static `TestParameterDefinition`); MCCBD (constructor prototype in a methods block), MCSCF, and ATUNK for enumeration attributes are missed; `methods (Static = TRUE)` is NOIN in MATLAB; MATLAB does emit MCCSPS on `ClassName.K = v` in a method.
+- FNCOLND (`disp(end)`), UNRCH after `if 1 return end`, FCONV position (first reference), REDEF for duplicate local functions and constructors, REDEFGG, NBRAK2 on `[narginchk]` and `[1:2:3]`, `function [a, ~]` (MATLAB: syntax error), `a (1 2)` dimensions, ERTXT through a variable.
+- MSNU for language_spec directives (BRKFOR, WTXT, CTOINE) needs `active_check_ids`.
+- PUSE: MATLAB reports it on 7 probes but it is on the `mathworks` off-list; probe before deciding.
+- FVSORO position in an output block, GPNES unprobed positively.

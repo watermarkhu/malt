@@ -11,7 +11,11 @@ fn block_input_elements<'a>(
 ) -> Vec<(String, tree_sitter::Node<'a>)> {
     let mut elements: Vec<(String, tree_sitter::Node<'a>)> = Vec::new();
     for block in blocks {
-        if !(block.role.is_input() || block.is_input_repeating()) {
+        // A Repeating block without the Output attribute is an input block even when it
+        // declares varargout: MATLAB reports that declaration (fvorm02, fvorm05).
+        let repeating_input =
+            block.role.is_repeating() && !block.attributes.iter().any(|a| a == "Output");
+        if !(block.role.is_input() || repeating_input) {
             continue;
         }
         for prop in block_properties(block.node) {
@@ -25,7 +29,9 @@ fn block_input_elements<'a>(
             let Some(name) = name else {
                 continue;
             };
-            if elements.last().is_some_and(|(last, _)| *last == name) {
+            // A repeated name is one function-line input (`opts.A`, `opts.B`; `y.Name`, `y`),
+            // but a repeated `~` is two ignored arguments.
+            if name != "~" && elements.last().is_some_and(|(last, _)| *last == name) {
                 continue;
             }
             elements.push((name, prop));
@@ -98,6 +104,62 @@ impl LanguageSpecEngine {
 mod tests {
 
     use crate::language_spec::tests::{check_source, filter_by_id};
+
+    #[test]
+    fn test_fvsor_fires_repeating_varargout_without_output_attribute() {
+        // Probed: a Repeating block without the Output attribute is an input block, so its
+        // varargout declaration is compared with the function line (MATLAB: line 3).
+        let source = "\
+function [a, varargout] = f(x)
+arguments (Repeating)
+    varargout
+end
+arguments (Repeating)
+    varargout
+end
+end
+";
+        let diags = check_source(source, "f.m");
+        let fvsor = filter_by_id(&diags, "FVSOR");
+        assert_eq!(fvsor.len(), 1, "got: {diags:?}");
+        assert_eq!((fvsor[0].line, fvsor[0].column), (3, 5));
+    }
+
+    #[test]
+    fn test_fvsor_repeated_tilde_is_two_ignored_arguments() {
+        // Probed: `opts.Name`, `~`, `~` against `(opts, ~)` reports the second `~` (line 5).
+        let source = "\
+function fvordi16(opts, ~)
+arguments
+    opts.Name = 1
+    ~
+    ~
+end
+end
+";
+        let diags = check_source(source, "fvordi16.m");
+        let fvsor = filter_by_id(&diags, "FVSOR");
+        assert_eq!(fvsor.len(), 1, "got: {diags:?}");
+        assert_eq!(fvsor[0].line, 5);
+    }
+
+    #[test]
+    fn test_fvsor_repeated_name_collapses_to_one_input() {
+        // Probed: `y.Name` then `y` is one function-line input, so `function f(y, b)` is
+        // partial and MATLAB reports the missing `b` on the function line (line 1, column 15).
+        let source = "\
+function f(y, b)
+arguments
+    y.Name = 'x'
+    y (1,1) double
+end
+end
+";
+        let diags = check_source(source, "f.m");
+        let fvsor = filter_by_id(&diags, "FVSOR");
+        assert_eq!(fvsor.len(), 1, "got: {diags:?}");
+        assert_eq!((fvsor[0].line, fvsor[0].column), (1, 15));
+    }
 
     #[test]
     fn test_fvsor_fires_order_mismatch() {

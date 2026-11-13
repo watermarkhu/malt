@@ -2,6 +2,10 @@
 
 use super::*;
 
+/// Whether FVNIV is reported. Gated off: MATLAB never reports it. An argument that
+/// is not on the function line is FVSOR in MATLAB (probed in 21 forms, and 0 fixtures).
+const FVNIV_REPORTED: bool = false;
+
 impl LanguageSpecEngine {
     /// FVNIV: A declared argument must be an input to the function.
     pub(crate) fn check_fvniv(
@@ -11,7 +15,7 @@ impl LanguageSpecEngine {
         source: &str,
         diagnostics: &mut Vec<Diagnostic>,
     ) {
-        if !self.is_check_enabled("FVNIV") {
+        if !FVNIV_REPORTED || !self.is_check_enabled("FVNIV") {
             return;
         }
         for prop in input_props {

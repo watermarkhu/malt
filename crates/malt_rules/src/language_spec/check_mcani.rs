@@ -9,7 +9,7 @@ impl LanguageSpecEngine {
             let is_abstract = pb
                 .attributes
                 .iter()
-                .any(|a| a.name == "Abstract" && !a.negated);
+                .any(|a| a.name == "Abstract" && a.is_literal_set());
             if is_abstract {
                 for prop in &pb.properties {
                     if prop.has_default {
@@ -52,5 +52,12 @@ end
             !mcani.is_empty(),
             "MCANI should fire when abstract property has default"
         );
+    }
+
+    #[test]
+    fn test_mcani_no_fire_uppercase_abstract_value() {
+        let source = "classdef Foo < handle\n    properties (Abstract = TRUE)\n        p = 1\n    end\nend\n";
+        let diags = crate::language_spec::tests::check_source(source, "Foo.m");
+        assert!(crate::language_spec::tests::filter_by_id(&diags, "MCANI").is_empty());
     }
 }

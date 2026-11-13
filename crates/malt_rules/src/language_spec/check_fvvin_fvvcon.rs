@@ -28,7 +28,7 @@ impl LanguageSpecEngine {
                 let name = if prop_has_name_value(prop) {
                     Some(prop_name_value_text(prop, source))
                 } else {
-                    prop_plain_name(prop, source).filter(|n| n != "varargin")
+                    prop_plain_name(prop, source)
                 };
                 if let Some(name) = name {
                     input_props.push((prop, name));
@@ -37,6 +37,10 @@ impl LanguageSpecEngine {
         }
 
         for (index, (prop, name)) in input_props.iter().enumerate() {
+            // A varargin is a previously declared name for later validators, not validated itself.
+            if name.as_str() == "varargin" {
+                continue;
+            }
             let calls = prop_validator_calls(*prop, source);
             if calls.is_empty() {
                 continue;
@@ -87,6 +91,21 @@ impl LanguageSpecEngine {
 mod tests {
 
     use crate::language_spec::tests::{check_source, filter_by_id};
+
+    #[test]
+    fn test_fvvcon_no_fire_varargin_is_previously_declared() {
+        // Probed: a varargin declared before `x` is a previously declared name (MATLAB: FVREPO only).
+        let source = "\
+function f(varargin, x)
+arguments (Repeating)
+    varargin
+    x double {mustBeFoo(x, varargin)}
+end
+end
+";
+        let diags = check_source(source, "f.m");
+        assert!(filter_by_id(&diags, "FVVCON").is_empty(), "got: {diags:?}");
+    }
 
     #[test]
     fn test_fvvcon_fires_forward_reference() {

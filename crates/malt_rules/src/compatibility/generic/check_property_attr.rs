@@ -51,8 +51,6 @@ const SETERR_MSG: &str =
 const DSPFDF_MSG: &str =
     "'DirectFeedthrough' property of 'dsp.VariableFractionalDelay' class has been removed.";
 
-/// MCGCP message.
-const MCGCP_MSG: &str = "Defining a get method for a constant property is not supported.";
 /// MCPDC message.
 const MCPDC_MSG: &str = "Specifying both the 'Constant' and 'Dependent' attributes on the same property is not supported.";
 /// PSTAT message.
@@ -71,7 +69,6 @@ pub(crate) fn collect_checks(
     match node.kind() {
         "class_definition" => engine.check_class_attributes(node, source, diagnostics),
         "properties" => engine.check_properties_block(node, source, diagnostics),
-        "methods" => engine.check_constant_getter(node, source, diagnostics),
         "string" => engine.check_removed_name(node, source, diagnostics),
         _ => {}
     }
@@ -93,26 +90,6 @@ impl CompatibilityEngine {
         }
         if has_attribute(node, "Visible", source) {
             push_diag("ATVIZW", ATVIZW_MSG, node, Severity::Error, diagnostics);
-        }
-    }
-
-    /// MCGCP: a methods block defines `get.<Prop>` for a Constant property.
-    fn check_constant_getter(&self, node: Node, source: &str, diagnostics: &mut Vec<Diagnostic>) {
-        // Find getters in this methods block.
-        let getter_props: Vec<String> = collect_getter_props(node, source);
-        if getter_props.is_empty() {
-            return;
-        }
-        // Find Constant properties in sibling properties blocks of the parent class.
-        let Some(class) = node.parent() else {
-            return;
-        };
-        let constant_props = collect_constant_props(class, source);
-        for prop in &getter_props {
-            if constant_props.iter().any(|c| c == prop) {
-                push_diag("MCGCP", MCGCP_MSG, node, Severity::Error, diagnostics);
-                break;
-            }
         }
     }
 
@@ -180,48 +157,6 @@ fn attribute_names_in(attrs: Node, source: &str) -> Vec<String> {
                 .find(|c| c.kind() == "identifier")
             {
                 out.push(source[id.start_byte()..id.end_byte()].to_string());
-            }
-        }
-    }
-    out
-}
-
-/// Collect property names that have a `get.` getter in a methods block.
-fn collect_getter_props(node: Node, source: &str) -> Vec<String> {
-    let mut out = Vec::new();
-    let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        if child.kind() == "function_definition" {
-            // getter marker `get.` is an unnamed child; the property follows.
-            let mut fc = child.walk();
-            let kids: Vec<_> = child.children(&mut fc).collect();
-            for (i, k) in kids.iter().enumerate() {
-                if k.kind() == "get." && i + 1 < kids.len() && kids[i + 1].kind() == "identifier" {
-                    let p = &source[kids[i + 1].start_byte()..kids[i + 1].end_byte()];
-                    out.push(p.to_string());
-                }
-            }
-        }
-    }
-    out
-}
-
-/// Collect property names from `Constant` properties blocks in a classdef.
-fn collect_constant_props(class: Node, source: &str) -> Vec<String> {
-    let mut out = Vec::new();
-    let mut cursor = class.walk();
-    for child in class.children(&mut cursor) {
-        if child.kind() == "properties" && has_attribute(child, "Constant", source) {
-            let mut pc = child.walk();
-            for p in child.children(&mut pc) {
-                if p.kind() == "property" {
-                    if let Some(id) = p
-                        .child_by_field_name("name")
-                        .or_else(|| p.children(&mut p.walk()).find(|c| c.kind() == "identifier"))
-                    {
-                        out.push(source[id.start_byte()..id.end_byte()].to_string());
-                    }
-                }
             }
         }
     }
@@ -391,15 +326,6 @@ mod tests {
     fn atvizw_no_visible_not_fires() {
         let d = lint_file(&*engine(), "classdef Foo\nproperties\n x\nend\nend\n");
         assert!(!has_id(&d, "ATVIZW"), "got: {d:?}");
-    }
-
-    #[test]
-    fn mcgcp_getter_for_constant_fires() {
-        let d = lint_file(
-            &*engine(),
-            "classdef Foo\nproperties (Constant)\n x\nend\nmethods\n function v = get.x(o)\n  v = 1;\n end\nend\nend\n",
-        );
-        assert!(has_id(&d, "MCGCP"), "got: {d:?}");
     }
 
     #[test]

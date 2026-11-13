@@ -29,11 +29,7 @@ impl LanguageSpecEngine {
             let mut cursor = range_node.walk();
             let named: Vec<tree_sitter::Node> = range_node.named_children(&mut cursor).collect();
             let is_fractional = |n: &tree_sitter::Node| {
-                n.kind() == "number"
-                    && node_text(*n, source)
-                        .trim()
-                        .parse::<f64>()
-                        .is_ok_and(|v| v.fract() != 0.0)
+                literal_value(*n, source, false).is_some_and(|v| v.fract() != 0.0)
             };
             if named.len() >= 2
                 && (is_fractional(&named[0]) || is_fractional(&named[named.len() - 1]))
@@ -72,6 +68,50 @@ impl LanguageSpecEngine {
         }
         None
     }
+}
+
+/// The value of a literal: a number, optionally signed or in parentheses (`1.5`,
+/// `-1.5`, `(4.5)`). With `binary`, `+ - * /` of such values too. Probed: a parfor
+/// bound `1:(4.5)` and `1:-4.5` is PFRNG, but `1:(2+0.5)` is silent; a worker bound
+/// `spmd (1 - 3)` is SPDEC.
+pub(crate) fn literal_value(node: tree_sitter::Node, source: &str, binary: bool) -> Option<f64> {
+    match node.kind() {
+        "number" => node_text(node, source).trim().parse::<f64>().ok(),
+        "unary_operator" => {
+            let value = literal_value(single_named_child(node)?, source, binary)?;
+            match node_text(node, source).trim_start().chars().next()? {
+                '-' => Some(-value),
+                '+' => Some(value),
+                _ => None,
+            }
+        }
+        "parenthesis" => literal_value(single_named_child(node)?, source, binary),
+        "binary_operator" if binary => {
+            let left = literal_value(node.child_by_field_name("left")?, source, binary)?;
+            let right = literal_value(node.child_by_field_name("right")?, source, binary)?;
+            let mut cursor = node.walk();
+            let operator = node
+                .children(&mut cursor)
+                .find(|c| !c.is_named())
+                .map(|c| node_text(c, source))?;
+            match operator {
+                "+" => Some(left + right),
+                "-" => Some(left - right),
+                "*" => Some(left * right),
+                "/" => Some(left / right),
+                _ => None,
+            }
+        }
+        _ => None,
+    }
+}
+
+/// The only named child of a node, if it has exactly one.
+fn single_named_child(node: tree_sitter::Node) -> Option<tree_sitter::Node> {
+    let mut cursor = node.walk();
+    let mut named = node.named_children(&mut cursor);
+    let child = named.next()?;
+    named.next().is_none().then_some(child)
 }
 
 #[cfg(test)]
@@ -195,5 +235,32 @@ end
             filter_by_id(&diags, "PFRNG").is_empty(),
             "PFRNG should NOT fire for a unit step"
         );
+    }
+
+    #[test]
+    fn test_pfrng_fires_signed_and_parenthesised_fractional_bounds() {
+        // Probed (h06, h12, h22, h24): `-1.5:4`, `(1.5):4`, `1:(4.5)` and `1:-4.5` are PFRNG.
+        let source = "\
+function f()
+    parfor i = -1.5:4
+    end
+    parfor i = (1.5):4
+    end
+    parfor i = 1:(4.5)
+    end
+    parfor i = 1:-4.5
+    end
+end
+";
+        let diags = check_source(source, "f.m");
+        assert_eq!(filter_by_id(&diags, "PFRNG").len(), 4, "got: {diags:?}");
+    }
+
+    #[test]
+    fn test_pfrng_silent_on_binary_bound() {
+        // Probed (h26): MATLAB does not evaluate `1:(2+0.5)` in a parfor header.
+        let source = "function f()\n    parfor i = 1:(2+0.5)\n    end\nend\n";
+        let diags = check_source(source, "f.m");
+        assert!(filter_by_id(&diags, "PFRNG").is_empty(), "got: {diags:?}");
     }
 }

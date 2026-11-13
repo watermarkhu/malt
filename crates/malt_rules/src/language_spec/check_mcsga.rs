@@ -105,4 +105,13 @@ mod constant_accessor_tests {
         assert!(filter_by_id(&diags, "MCSCN").is_empty());
         assert!(filter_by_id(&diags, "MCGCP").is_empty());
     }
+
+    #[test]
+    fn test_mcgcp_reports_at_getter_line() {
+        let source = "classdef Foo < handle\n    properties (Constant)\n        K = 1\n    end\n    methods\n        function r = get.K(obj)\n            r = 2;\n        end\n    end\nend\n";
+        let diags = crate::language_spec::tests::check_source(source, "Foo.m");
+        let hits = crate::language_spec::tests::filter_by_id(&diags, "MCGCP");
+        assert!(!hits.is_empty());
+        assert!(hits.iter().all(|d| d.line == 6));
+    }
 }

@@ -14,6 +14,10 @@ impl LanguageSpecEngine {
             return;
         }
         for block in blocks {
+            // MATLAB reports an ignored output as FVOOI, not FVIDV (probed).
+            if block.attributes.iter().any(|a| a == "Output") {
+                continue;
+            }
             for prop in block_properties(block.node) {
                 if !prop_has_ignored(prop) {
                     continue;
@@ -113,6 +117,24 @@ end
         assert_eq!(fvidv.len(), 2, "got: {diags:?}");
         assert_eq!((fvidv[0].line, fvidv[0].column), (3, 7));
         assert_eq!((fvidv[1].line, fvidv[1].column), (3, 22));
+    }
+
+    #[test]
+    fn test_fvidv_silent_ignored_output() {
+        // MATLAB reports an ignored output as FVOOI, not FVIDV (probed).
+        let source = "\
+function y = f(a)
+arguments (Input)
+    a double
+end
+arguments (Output)
+    ~ (1,1) double
+end
+y = a;
+end
+";
+        let diags = check_source(source, "f.m");
+        assert!(filter_by_id(&diags, "FVIDV").is_empty(), "got: {diags:?}");
     }
 
     #[test]

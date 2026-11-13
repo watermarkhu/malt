@@ -381,7 +381,7 @@ impl LanguageSpecEngine {
             .extend(crate::off_under_mathworks(
                 config,
                 &[
-                    "FVNIV", "USESWNS", "PFUTVR", "VTPEAL", "VTPIN", "VTPCON", "GPNES",
+                    "FVNIV", "USESWNS", "PFUTVR", "VTPEAL", "VTPIN", "VTPCON", "GPNES", "FVORDO",
                 ],
             ));
         Box::new(Self {
@@ -921,6 +921,8 @@ impl LanguageSpecEngine {
                 if current_context == LoopContext::Parfor {
                     self.check_parfor_command(node, source, diagnostics);
                 }
+                // ERTXT / WTXT: command form `error MyTool:id`
+                self.check_error_warning_command(node, source, diagnostics);
                 self.visit_children(node, source, context_stack, nested_functions, diagnostics);
                 return;
             }
@@ -930,11 +932,20 @@ impl LanguageSpecEngine {
                 self.check_parfor_identifier(node, source, context_stack);
                 // PFNAIO: bare `nargin`/`nargout` used as a value
                 self.check_parfor_bare_nargin(node, source, diagnostics);
+                // NCHKOS: bare `narginchk` used as a value
+                self.check_nchkos_bare(node, source, diagnostics);
             }
 
             "identifier" if current_context == LoopContext::Spmd => {
-                // SPWHOS: bare `who`/`whos` used as an assignment value
+                // SPWHOS: bare `who`/`whos` used as a value
                 self.check_spmd_bare_who(node, source, diagnostics);
+                // NCHKOS: bare `narginchk` used as a value
+                self.check_nchkos_bare(node, source, diagnostics);
+            }
+
+            "identifier" => {
+                // NCHKOS: bare `narginchk` used as a value
+                self.check_nchkos_bare(node, source, diagnostics);
             }
 
             "lambda" if current_context == LoopContext::Parfor => {
@@ -2167,7 +2178,6 @@ impl LanguageSpecEngine {
         self.check_mcgsa(class, diagnostics);
         self.check_mcpsg(class, diagnostics);
         self.check_mccsop(class, ctx, diagnostics);
-        self.check_mcscn(class, ctx, diagnostics);
         self.check_mwkcl(class, diagnostics);
         self.check_mwkct(class, diagnostics);
         self.check_mwkref(class, diagnostics);
@@ -2352,18 +2362,6 @@ impl LanguageSpecEngine {
             column,
             fix: None,
         });
-    }
-}
-
-impl LanguageSpecEngine {
-    /// Whether a property is a positional input argument (not ignored, not a
-    /// name-value argument, and not `varargin`).
-    pub(crate) fn fv_is_positional_prop(&self, prop: tree_sitter::Node, source: &str) -> bool {
-        !prop_has_ignored(prop)
-            && !prop_has_name_value_src(prop, source)
-            && prop_plain_name(prop, source)
-                .map(|n| n != "varargin")
-                .unwrap_or(false)
     }
 }
 
@@ -3165,50 +3163,6 @@ pub(crate) fn default_refs_name_value(
     false
 }
 
-/// Build the declaration sequence of an arguments block group.
-///
-/// Consecutive name-value struct names are deduplicated: multiple fields of
-/// the same structure map to a single function-line argument.
-pub(crate) fn block_declaration_sequence(
-    blocks: &[ArgumentsBlockMeta],
-    source: &str,
-    outputs: bool,
-) -> Vec<String> {
-    let mut sequence = Vec::new();
-    for block in blocks {
-        let relevant = if outputs {
-            block.role.is_output() || block.is_output_repeating()
-        } else {
-            block.role.is_input() || block.is_input_repeating()
-        };
-        if !relevant {
-            continue;
-        }
-        for prop in block_properties(block.node) {
-            let name = if prop_has_ignored(prop) {
-                Some("~".to_string())
-            } else if prop_has_name_value(prop) {
-                prop_name_value_struct(prop, source)
-            } else {
-                prop_plain_name(prop, source)
-            };
-            let Some(name) = name else {
-                continue;
-            };
-            if sequence.last() == Some(&name) {
-                continue;
-            }
-            sequence.push(name);
-        }
-    }
-    sequence
-}
-
-/// Whether `sequence` is a prefix of `full`.
-pub(crate) fn is_prefix_of(sequence: &[String], full: &[String]) -> bool {
-    sequence.len() <= full.len() && sequence.iter().zip(full.iter()).all(|(a, b)| a == b)
-}
-
 /// Functions that are not supported inside arguments blocks.
 const BANNED_ARGUMENTS_FUNCTIONS: &[&str] = &[
     "eval",
@@ -3222,10 +3176,9 @@ const BANNED_ARGUMENTS_FUNCTIONS: &[&str] = &[
 ];
 
 /// Built-in MATLAB classes that cannot be subclassed directly.
-const NON_SUBCLASSABLE_BUILTINS: &[&str] = &[
-    "double", "single", "int8", "int16", "int32", "int64", "uint8", "uint16", "uint32", "uint64",
-    "char", "logical", "cell", "struct",
-];
+// MATLAB reports char, cell, struct and function_handle; it was silent on the numeric and
+// logical classes in the probes.
+const NON_SUBCLASSABLE_BUILTINS: &[&str] = &["char", "cell", "struct", "function_handle"];
 
 /// Get the callee name of a `function_call` node.
 pub(crate) fn callee_name(node: tree_sitter::Node, source: &str) -> Option<String> {

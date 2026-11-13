@@ -24,7 +24,7 @@ impl LanguageSpecEngine {
                         .to_string(),
                     severity: Severity::Error,
                     byte_range: class.byte_range.clone(),
-                    line: class.line,
+                    line: pb.line,
                     column: 1,
                     fix: None,
                 });

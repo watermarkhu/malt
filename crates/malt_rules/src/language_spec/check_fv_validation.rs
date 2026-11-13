@@ -45,14 +45,32 @@ impl LanguageSpecEngine {
             let Some(attrs) = find_child_kind(block.node, "attributes") else {
                 continue;
             };
-            let mut cursor = attrs.walk();
-            let children: Vec<tree_sitter::Node> = attrs.children(&mut cursor).collect();
-            for attr in children {
-                if attr.kind() == "identifier"
-                    && !matches!(node_text(attr, source), "Input" | "Output" | "Repeating")
+            // Only attribute names are checked: a value after `=` (`Input = ~true`) is not.
+            let text = node_text(attrs, source);
+            let body_start = text.find('(').map_or(0, |i| i + 1);
+            let body_end = text.rfind(')').unwrap_or(text.len());
+            let mut offset = body_start;
+            for part in text[body_start..body_end].split(',') {
+                let lead = part.len() - part.trim_start().len();
+                let name = part.trim().split('=').next().unwrap_or_default().trim_end();
+                // A dotted name (`pkg.Attr`) is unknown too (probed).
+                if !name.is_empty()
+                    && name
+                        .chars()
+                        .all(|c| c.is_alphanumeric() || c == '_' || c == '.')
+                    && !matches!(name, "Input" | "Output" | "Repeating")
                 {
-                    self.push_diag(attr, "ATUNK", "Unknown attribute name.", diagnostics);
+                    let start = attrs.start_byte() + offset + lead;
+                    self.push_diag_bytes(
+                        source,
+                        start,
+                        start + name.len(),
+                        "ATUNK",
+                        "Unknown attribute name.",
+                        diagnostics,
+                    );
                 }
+                offset += part.len() + 1;
             }
         }
     }
@@ -74,6 +92,36 @@ end
 ";
         let diags = check_source(source, "f.m");
         assert_eq!(filter_by_id(&diags, "ATUNK").len(), 1);
+    }
+
+    #[test]
+    fn test_atunk_fires_unknown_name_after_value() {
+        // MATLAB checks the attribute name after the comma, not the value before it (probed).
+        let source = "\
+function f(x)
+    arguments (Input = true, Foo)
+        x
+    end
+end
+";
+        let diags = check_source(source, "f.m");
+        let atunk = filter_by_id(&diags, "ATUNK");
+        assert_eq!(atunk.len(), 1, "got: {diags:?}");
+        assert_eq!(atunk[0].column, 30);
+    }
+
+    #[test]
+    fn test_atunk_no_fire_value_expression() {
+        // `true` after `=` is an attribute value, not a name (probed: `Input = ~true` is silent).
+        let source = "\
+function f(x)
+    arguments (Input = ~true)
+        x
+    end
+end
+";
+        let diags = check_source(source, "f.m");
+        assert!(filter_by_id(&diags, "ATUNK").is_empty(), "got: {diags:?}");
     }
 
     #[test]

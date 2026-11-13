@@ -16,7 +16,7 @@ impl LanguageSpecEngine {
                         .to_string(),
                     severity: Severity::Error,
                     byte_range: class.byte_range.clone(),
-                    line: class.line,
+                    line: pb.line,
                     column: 1,
                     fix: None,
                 });
@@ -79,5 +79,14 @@ end
         let diags = check_source(source, "Foo.m");
         let hits = filter_by_id(&diags, "MTAGS3");
         assert!(hits.is_empty(), "MTAGS3 should NOT fire for Access alone");
+    }
+
+    #[test]
+    fn test_mtags3_reports_at_properties_line() {
+        let source = "classdef Foo < handle\n    properties (Access = private, SetAccess = public)\n        p = 1\n    end\nend\n";
+        let diags = crate::language_spec::tests::check_source(source, "Foo.m");
+        let hits = crate::language_spec::tests::filter_by_id(&diags, "MTAGS3");
+        assert!(!hits.is_empty());
+        assert!(hits.iter().all(|d| d.line == 2));
     }
 }

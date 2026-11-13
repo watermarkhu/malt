@@ -21,13 +21,38 @@ impl LanguageSpecEngine {
     ) {
         for scope in &symbol_table.scopes {
             for gp_def in scope.defs.iter().filter(|d| is_gp_decl(&d.kind)) {
-                let first_decl = scope
+                let Some(first) = scope
                     .defs
                     .iter()
                     .filter(|d| d.name == gp_def.name && is_gp_decl(&d.kind))
-                    .map(|d| d.byte_range.start)
-                    .min();
-                if first_decl != Some(gp_def.byte_range.start) {
+                    .min_by_key(|d| d.byte_range.start)
+                else {
+                    continue;
+                };
+                if first.byte_range.start != gp_def.byte_range.start {
+                    // A later declaration conflicts with the first when the kinds differ
+                    // or both are persistent (probed: `persistent n` then `global n`, and a
+                    // second `persistent n`, give REDEF at the later name, quoting the first
+                    // declaration's line). Two globals give REDEFGG, reported elsewhere.
+                    let is_input_or_output = scope.defs.iter().any(|d| {
+                        d.name == gp_def.name
+                            && matches!(d.kind, DefKind::InputArg | DefKind::OutputArg)
+                    });
+                    let conflicts = first.kind != gp_def.kind || gp_def.kind == DefKind::Persistent;
+                    if conflicts && !is_input_or_output && self.is_check_enabled("REDEF") {
+                        diagnostics.push(Diagnostic {
+                            rule_id: "REDEF",
+                            message: format!(
+                                "The current use of {} is inconsistent with its previous use or definition (line {}).",
+                                gp_def.name, first.line
+                            ),
+                            severity: Severity::Error,
+                            byte_range: gp_def.byte_range.clone(),
+                            line: gp_def.line,
+                            column: gp_def.column,
+                            fix: None,
+                        });
+                    }
                     continue;
                 }
 
@@ -59,13 +84,19 @@ impl LanguageSpecEngine {
 
                 // PSET: a persistent variable that is read but never assigned in the
                 // scope. Probed: any assignment, even a conditional one, silences it,
-                // and it is reported at the declaration once per name.
+                // and so does another declaration of the name (`persistent n; global n`
+                // gives REDEF only). It is reported at the declaration once per name.
                 if self.is_check_enabled("PSET")
                     && matches!(gp_def.kind, DefKind::Persistent)
                     && !scope
                         .defs
                         .iter()
                         .any(|d| d.name == gp_def.name && !is_gp_decl(&d.kind))
+                    && !scope.defs.iter().any(|d| {
+                        d.name == gp_def.name
+                            && is_gp_decl(&d.kind)
+                            && d.byte_range.start != gp_def.byte_range.start
+                    })
                     && scope.uses.iter().any(|u| u.name == gp_def.name)
                 {
                     diagnostics.push(Diagnostic {
@@ -181,5 +212,59 @@ mod tests {
         // Probed: `m` is assigned, so only `n` is PSET.
         let src = "function y = f(u)\npersistent n m\nm = u;\ny = n + m;\nend\n";
         assert_eq!(ids(src), vec!["PSET"]);
+    }
+
+    /// (rule ID, line) of each diagnostic for `src`, in report order.
+    fn id_lines(src: &str) -> Vec<(&'static str, usize)> {
+        let e = LanguageSpecEngine::from_config(&Config::default());
+        lint_file(&*e, src)
+            .iter()
+            .map(|d| (d.rule_id, d.line))
+            .collect()
+    }
+
+    #[test]
+    fn persistent_then_global_is_redef_at_global() {
+        // Probed (g05): REDEF at the `global n` (line 3), quoting the persistent (line 2);
+        // no PSET for the read `n`.
+        let src = "function y = f(u)\npersistent n\nglobal n\ny = n;\nend\n";
+        assert_eq!(id_lines(src), vec![("REDEF", 3)]);
+    }
+
+    #[test]
+    fn second_persistent_is_redef() {
+        // Probed (g06, g25): a second `persistent n` gives REDEF at its name.
+        let src = "function y = f(u)\npersistent n\npersistent n\nn = u;\ny = n;\nend\n";
+        assert_eq!(id_lines(src), vec![("REDEF", 3)]);
+        let src = "function y = f(u)\npersistent n\ny = n;\npersistent n\nend\n";
+        assert_eq!(id_lines(src), vec![("REDEF", 4)]);
+    }
+
+    #[test]
+    fn global_then_persistent_is_redef_at_persistent() {
+        // Probed (g23): REDEF at the `persistent n` (line 3).
+        let src = "function y = f(u)\nglobal n\npersistent n\ny = n + u;\nend\n";
+        assert_eq!(id_lines(src), vec![("REDEF", 3)]);
+    }
+
+    #[test]
+    fn persistent_then_assignment_then_global_is_redef() {
+        // Probed (g24): the assignment between them does not change the REDEF.
+        let src = "function y = f(u)\npersistent n\nn = u;\nglobal n\ny = n;\nend\n";
+        assert_eq!(id_lines(src), vec![("REDEF", 4)]);
+    }
+
+    #[test]
+    fn two_globals_are_not_redef() {
+        // Probed (g22): two globals give REDEFGG (reported by the compatibility engine), not REDEF.
+        let src = "function y = f(u)\nglobal n\nglobal n\ny = n;\nend\n";
+        assert!(!ids(src).contains(&"REDEF"));
+    }
+
+    #[test]
+    fn global_input_redef_is_not_duplicated() {
+        // The input-argument case stays with the existing REDEFGI report: no REDEF here.
+        let src = "function y = f(u)\nglobal u\nglobal u\ny = u;\nend\n";
+        assert!(!ids(src).contains(&"REDEF"));
     }
 }

@@ -115,6 +115,12 @@ impl AttributeMeta {
     pub fn is_set(&self) -> bool {
         !self.negated && self.value.as_deref() != Some("false")
     }
+
+    /// Whether the attribute is set by a literal: a bare name, `true` or `1`. MATLAB
+    /// cannot evaluate other values (`TRUE`, `~true`) and reports them as ATTF instead.
+    pub fn is_literal_set(&self) -> bool {
+        !self.negated && matches!(self.value.as_deref(), None | Some("true") | Some("1"))
+    }
 }
 
 /// Metadata about a class property.

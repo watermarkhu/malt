@@ -17,6 +17,10 @@ impl LanguageSpecEngine {
             return;
         }
         for block in blocks {
+            // Output blocks give FVOON/FVOOD in MATLAB, not FVNDE/FVNVL (probed).
+            if block.attributes.iter().any(|a| a == "Output") {
+                continue;
+            }
             let mut cursor = block.node.walk();
             let errors: Vec<tree_sitter::Node> = block
                 .node
@@ -36,7 +40,9 @@ impl LanguageSpecEngine {
                 let tail = &text[name_len..];
                 let head = tail.split('=').next().unwrap_or_default();
                 let has_default = prop_has_default(prop) || tail.contains('=');
-                let has_validation = prop_has_validation(prop) || head.contains('{');
+                // A size is validation for a class-name argument (probed: `opts.?double (1,1) = 3`).
+                let has_validation =
+                    prop_has_validation(prop) || head.contains('{') || head.contains('(');
                 if nde && has_default {
                     // MATLAB points at the default value, not at the declaration.
                     let value_start = tail
@@ -177,6 +183,35 @@ end
             filter_by_id(&diags, "FVNVL").is_empty(),
             "FVNVL should NOT fire for a regular name-value argument with validation"
         );
+    }
+
+    #[test]
+    fn test_fvnvl_fires_size_on_class_name() {
+        // MATLAB counts a size as validation for a class-name argument (probed).
+        let source = "\
+function f(opts)
+    arguments
+        opts.?double (1,1) = 3
+    end
+end
+";
+        let diags = check_source(source, "f.m");
+        assert!(!filter_by_id(&diags, "FVNVL").is_empty(), "got: {diags:?}");
+    }
+
+    #[test]
+    fn test_fvnde_silent_output_block() {
+        // MATLAB reports a class-name default in an output block as FVOON/FVOOD, not FVNDE (probed).
+        let source = "\
+function y = f(x)
+    arguments (Output)
+        y.?double = 1
+    end
+    y = x;
+end
+";
+        let diags = check_source(source, "f.m");
+        assert!(filter_by_id(&diags, "FVNDE").is_empty(), "got: {diags:?}");
     }
 
     #[test]

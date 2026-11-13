@@ -1,12 +1,13 @@
 //! See the parent module `super` for the shared engine and helpers.
 
+use super::check_parfor_header::literal_value;
 use super::*;
 
 impl LanguageSpecEngine {
     /// SPDEC / SPDEC3: validate the worker bounds in an `spmd (n)` or `spmd (m, n)` header.
     ///
-    /// Fires SPDEC when a bound is a negative literal or a non-integer literal, and
-    /// SPDEC3 when more than two bounds are given.
+    /// Fires SPDEC when a bound is a negative or non-integer value (a literal, or
+    /// arithmetic on literals), and SPDEC3 when more than two bounds are given.
     pub(crate) fn check_spmd_worker_bounds(
         &self,
         node: tree_sitter::Node,
@@ -28,9 +29,7 @@ impl LanguageSpecEngine {
             }
             if in_parens && child.is_named() {
                 named_bound_count += 1;
-                if child.kind() == "number" || child.kind() == "unary_operator" {
-                    bounds.push(child);
-                }
+                bounds.push(child);
             }
         }
         if named_bound_count == 0 {
@@ -50,10 +49,11 @@ impl LanguageSpecEngine {
             });
         }
         for bound in bounds {
-            let text = node_text(bound, source);
-            let is_negative = text.trim_start().starts_with('-');
-            let is_fractional = text.contains('.');
-            if is_negative || is_fractional {
+            // Judged by value (probed): `-0`, `1.0`, `2.0` and `2*0.5` are valid bounds,
+            // while `-2`, `2.5` and `1 - 3` are not.
+            let is_invalid = literal_value(bound, source, true)
+                .is_some_and(|value| value < 0.0 || value.fract() != 0.0);
+            if is_invalid {
                 let pos = node.start_position();
                 diagnostics.push(Diagnostic {
                     rule_id: "SPDEC",
@@ -143,5 +143,34 @@ end
         let diags = check_source(source, "foo.m");
         let spdec3 = filter_by_id(&diags, "SPDEC3");
         assert!(spdec3.is_empty(), "SPDEC3 should NOT fire for two bounds");
+    }
+
+    #[test]
+    fn test_spdec_fires_arithmetic_negative_bound() {
+        // Probed (w18, w23): `spmd (1 - 2)` and `spmd (1 - 3)` are SPDEC.
+        let source = "function foo()\n    spmd (1 - 3)\n    end\n    spmd (1 - 2)\n    end\nend\n";
+        let diags = check_source(source, "foo.m");
+        assert_eq!(filter_by_id(&diags, "SPDEC").len(), 2, "got: {diags:?}");
+    }
+
+    #[test]
+    fn test_spdec_no_fire_integer_valued_bounds() {
+        // Probed (w07, w13, w15, w21, w22): `1.0`, `-0`, `2.0` and `2*0.5`, `4/2` are valid.
+        let source = "\
+function foo()
+    spmd (1.0)
+    end
+    spmd (-0)
+    end
+    spmd (2.0, 3)
+    end
+    spmd (2*0.5)
+    end
+    spmd (4/2)
+    end
+end
+";
+        let diags = check_source(source, "foo.m");
+        assert!(filter_by_id(&diags, "SPDEC").is_empty(), "got: {diags:?}");
     }
 }

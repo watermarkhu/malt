@@ -24,7 +24,7 @@ impl LanguageSpecEngine {
                             .to_string(),
                     severity: Severity::Error,
                     byte_range: prop.byte_range.clone(),
-                    line: prop.line,
+                    line: class.line,
                     column: 1,
                     fix: None,
                 });
@@ -46,7 +46,7 @@ impl LanguageSpecEngine {
                             .to_string(),
                     severity: Severity::Error,
                     byte_range: method.byte_range.clone(),
-                    line: method.line,
+                    line: class.line,
                     column: 1,
                     fix: None,
                 });
@@ -100,5 +100,14 @@ end
             hits.is_empty(),
             "MABSEAC should NOT fire for Constant properties and Static methods"
         );
+    }
+
+    #[test]
+    fn test_mabseac_reports_at_classdef_line() {
+        let source = "classdef (Abstract, Sealed) Foo < handle\n    properties\n        x = 1\n    end\nend\n";
+        let diags = crate::language_spec::tests::check_source(source, "Foo.m");
+        let hits = crate::language_spec::tests::filter_by_id(&diags, "MABSEAC");
+        assert!(!hits.is_empty());
+        assert!(hits.iter().all(|d| d.line == 1));
     }
 }

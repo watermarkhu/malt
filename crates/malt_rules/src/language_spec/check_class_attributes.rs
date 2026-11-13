@@ -5,13 +5,16 @@
 //! `arguments` blocks:
 //!
 //! - **ATUNK** — the attribute name is not a valid MATLAB attribute.
+//! - **ATTF** — a logical attribute (`Abstract`, `Sealed`, `Hidden`, `Dependent`, ...)
+//!   has a value other than `true`, `false`, `1` or `0`, such as `TRUE` or `~true`.
+//! - **ATTOF** — the class attribute `Abstract` is set to `false` or `0`.
 //! - **ATLAB** — the `Input`/`Output` arguments-block attribute is assigned a
 //!   value or negated.
-//! - **ATNAS** — a class-level meta-class attribute (`AllowedSubclasses`,
+//! - **ATAS** — a meta-class attribute (`AllowedSubclasses`,
 //!   `InferiorClasses`) has a value that is neither a single meta-class object
 //!   nor a cell array of meta-class objects.
 //! - **ATNPI** — a class-level access attribute has an unexpected value.
-//! - **ATNPP** — an events-block access attribute has an unexpected value
+//! - **ATPPP** — an events-block access attribute has an unexpected value
 //!   (no `immutable`).
 //! - **ATPPI** — a properties-block access attribute has an unexpected value.
 //! - **ATPPP** — a methods-block access attribute has an unexpected value
@@ -34,7 +37,6 @@ const CLASS_ATTRS: &[&str] = &[
     "Enumeration",
     "InferiorClasses",
     "ContainsNonPublicMembers",
-    "Access",
     "DynamicProps",
     "ExplicitProperties",
 ];
@@ -88,6 +90,24 @@ const EVENT_ATTRS: &[&str] = &["ListenAccess", "NotifyAccess", "Hidden"];
 /// Attribute names that take a single meta-class object or a cell array of
 /// meta-class objects as their value (ATNAS/ATAS).
 const METACLASS_ATTRS: &[&str] = &["AllowedSubclasses", "InferiorClasses"];
+
+/// Attributes whose value is a logical (ATTF). MATLAB evaluates only literal values.
+const LOGICAL_ATTRS: &[&str] = &[
+    "Abstract",
+    "Sealed",
+    "Hidden",
+    "ConstructOnLoad",
+    "HandleCompatible",
+    "Dependent",
+    "Constant",
+    "Static",
+    "Transient",
+    "WeakHandle",
+    "NonCopyable",
+    "AbortSet",
+    "SetObservable",
+    "GetObservable",
+];
 
 /// Which level an attribute appears at; selects the access-value check ID.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -196,18 +216,11 @@ impl LanguageSpecEngine {
         if METACLASS_ATTRS.contains(&attr.name.as_str()) {
             if let Some(value) = attr.value.as_deref() {
                 if !meta_class_value_is_valid(value) {
-                    let (rule_id, message) = match level {
-                        AttrLevel::Class => (
-                            "ATNAS",
-                            "Set attribute to a single meta-class object or a cell array \
-                             of meta-class objects.",
-                        ),
-                        _ => (
-                            "ATAS",
-                            "The attribute value is unexpected. Use a single meta-class \
-                             object or a cell array of meta-class objects.",
-                        ),
-                    };
+                    let (rule_id, message) = (
+                        "ATAS",
+                        "The attribute value is unexpected. Use a single meta-class \
+                         object or a cell array of meta-class objects.",
+                    );
                     if self.is_check_enabled(rule_id) {
                         diagnostics.push(Diagnostic {
                             rule_id,
@@ -240,7 +253,45 @@ impl LanguageSpecEngine {
             return;
         }
 
-        // Access attribute value checks (ATNPI / ATNPP / ATPPI / ATPPP).
+        // ATTF: a logical attribute must be `true`/`false` (or `1`/`0`) for MATLAB to
+        // evaluate it. ATTOF: a class-level `Abstract` set to false or 0.
+        if LOGICAL_ATTRS.contains(&attr.name.as_str()) {
+            if let Some(value) = attr.value.as_deref() {
+                if !matches!(value, "true" | "false" | "1" | "0") && self.is_check_enabled("ATTF") {
+                    diagnostics.push(Diagnostic {
+                        rule_id: "ATTF",
+                        message: format!(
+                            "The Code Analyzer is unable to determine if the expression \
+                             assigned to the '{}' attribute evaluates to true or false.",
+                            attr.name
+                        ),
+                        severity: Severity::Warning,
+                        byte_range: range.clone(),
+                        line,
+                        column: 1,
+                        fix: None,
+                    });
+                }
+            }
+        }
+        if matches!(level, AttrLevel::Class)
+            && attr.name == "Abstract"
+            && matches!(attr.value.as_deref(), Some("false") | Some("0"))
+            && self.is_check_enabled("ATTOF")
+        {
+            diagnostics.push(Diagnostic {
+                rule_id: "ATTOF",
+                message: "Setting the class attribute Abstract to false is not recommended."
+                    .to_string(),
+                severity: Severity::Warning,
+                byte_range: range.clone(),
+                line,
+                column: 1,
+                fix: None,
+            });
+        }
+
+        // Access attribute value checks (ATNPI / ATPPP / ATPPI).
         if is_access_attr_name(&attr.name, level) {
             if let Some(value) = attr.value.as_deref() {
                 let (allowed, rule_id, message) = match level {
@@ -272,9 +323,9 @@ impl LanguageSpecEngine {
                     ),
                     AttrLevel::Event => (
                         &["public", "private", "protected"][..],
-                        "ATNPP",
-                        "Set attribute to 'public', 'private', 'protected', or a cell \
-                         array of meta-classes instead.",
+                        "ATPPP",
+                        "The attribute value is unexpected. Use 'public', 'private', \
+                         'protected', or a cell array of meta-classes instead.",
                     ),
                 };
                 if !access_value_is_valid(value, allowed) && self.is_check_enabled(rule_id) {
@@ -361,7 +412,10 @@ fn is_access_attr_name(name: &str, level: AttrLevel) -> bool {
 /// Whether a meta-class attribute value is a single meta-class object or a
 /// cell array of meta-class objects.
 fn meta_class_value_is_valid(value: &str) -> bool {
-    value.starts_with('?') || value.starts_with('{')
+    if let Some(inner) = value.strip_prefix('{').and_then(|v| v.strip_suffix('}')) {
+        return inner.split(',').all(|e| e.trim().starts_with('?'));
+    }
+    value.starts_with('?')
 }
 
 #[cfg(test)]
@@ -501,7 +555,7 @@ end
 ";
         let diags = check_source(source, "MyClass.m");
         assert!(
-            !filter_by_id(&diags, "ATNAS").is_empty(),
+            !filter_by_id(&diags, "ATAS").is_empty(),
             "ATNAS should fire when AllowedSubclasses is not a meta-class or cell array"
         );
     }
@@ -514,7 +568,7 @@ end
 ";
         let diags = check_source(source, "MyClass.m");
         assert!(
-            filter_by_id(&diags, "ATNAS").is_empty(),
+            filter_by_id(&diags, "ATAS").is_empty(),
             "ATNAS should NOT fire for valid meta-class values"
         );
     }
@@ -522,15 +576,15 @@ end
     // -- ATNPI / ATNPP / ATPPI / ATPPP ---------------------------------------
 
     #[test]
-    fn test_atnpi_fires_bad_class_access_value() {
+    fn test_atunk_fires_class_access() {
         let source = "\
 classdef (Access = 42) Foo
 end
 ";
         let diags = check_source(source, "Foo.m");
         assert!(
-            !filter_by_id(&diags, "ATNPI").is_empty(),
-            "ATNPI should fire for a bad class Access value"
+            !filter_by_id(&diags, "ATUNK").is_empty(),
+            "ATUNK should fire for Access on a class: MATLAB rejects it as unknown"
         );
     }
 
@@ -626,7 +680,7 @@ end
 ";
         let diags = check_source(source, "Foo.m");
         assert!(
-            !filter_by_id(&diags, "ATNPP").is_empty(),
+            !filter_by_id(&diags, "ATPPP").is_empty(),
             "ATNPP should fire for 'ListenAccess = immutable'"
         );
     }
@@ -642,7 +696,7 @@ end
 ";
         let diags = check_source(source, "Foo.m");
         assert!(
-            filter_by_id(&diags, "ATNPP").is_empty(),
+            filter_by_id(&diags, "ATPPP").is_empty(),
             "ATNPP should NOT fire for valid event access values"
         );
     }
@@ -797,5 +851,71 @@ end
                 "{source}: got: {diags:?}"
             );
         }
+    }
+
+    #[test]
+    fn test_attf_fires_uppercase_logical_value() {
+        let source = "classdef (Abstract = TRUE) Foo < handle\nend\n";
+        let diags = crate::language_spec::tests::check_source(source, "Foo.m");
+        assert!(!crate::language_spec::tests::filter_by_id(&diags, "ATTF").is_empty());
+    }
+
+    #[test]
+    fn test_attf_fires_non_literal_property_value() {
+        let source =
+            "classdef Foo < handle\n    properties (Dependent = TRUE)\n        x\n    end\nend\n";
+        let diags = crate::language_spec::tests::check_source(source, "Foo.m");
+        assert!(!crate::language_spec::tests::filter_by_id(&diags, "ATTF").is_empty());
+    }
+
+    #[test]
+    fn test_attf_no_fire_literal_values() {
+        let source = "classdef (Abstract = true, Sealed = 1) Foo < handle\n    properties (Dependent = false)\n        x\n    end\nend\n";
+        let diags = crate::language_spec::tests::check_source(source, "Foo.m");
+        assert!(crate::language_spec::tests::filter_by_id(&diags, "ATTF").is_empty());
+    }
+
+    #[test]
+    fn test_attof_fires_class_abstract_false() {
+        let source = "classdef (Abstract = false) Foo < handle\nend\n";
+        let diags = crate::language_spec::tests::check_source(source, "Foo.m");
+        assert!(!crate::language_spec::tests::filter_by_id(&diags, "ATTOF").is_empty());
+    }
+
+    #[test]
+    fn test_attof_no_fire_property_abstract_false() {
+        let source =
+            "classdef Foo < handle\n    properties (Abstract = false)\n        x\n    end\nend\n";
+        let diags = crate::language_spec::tests::check_source(source, "Foo.m");
+        assert!(crate::language_spec::tests::filter_by_id(&diags, "ATTOF").is_empty());
+    }
+
+    #[test]
+    fn test_atas_fires_cell_of_names_and_bare_name() {
+        let cell = "classdef (AllowedSubclasses = {ValueBasic}) Foo\nend\n";
+        let bare = "classdef (InferiorClasses = double) Foo\nend\n";
+        for source in [cell, bare] {
+            let diags = crate::language_spec::tests::check_source(source, "Foo.m");
+            assert!(
+                !crate::language_spec::tests::filter_by_id(&diags, "ATAS").is_empty(),
+                "{source}"
+            );
+            assert!(crate::language_spec::tests::filter_by_id(&diags, "ATNAS").is_empty());
+        }
+    }
+
+    #[test]
+    fn test_atas_no_fire_meta_class_cell() {
+        let source = "classdef (AllowedSubclasses = {?ValueBasic, ?HandleSub}) Foo\nend\n";
+        let diags = crate::language_spec::tests::check_source(source, "Foo.m");
+        assert!(crate::language_spec::tests::filter_by_id(&diags, "ATAS").is_empty());
+    }
+
+    #[test]
+    fn test_atppp_fires_event_access_value() {
+        let source = "classdef Foo < handle\n    events (NotifyAccess = Private)\n        Ch\n    end\nend\n";
+        let diags = crate::language_spec::tests::check_source(source, "Foo.m");
+        assert!(!crate::language_spec::tests::filter_by_id(&diags, "ATPPP").is_empty());
+        assert!(crate::language_spec::tests::filter_by_id(&diags, "ATNPP").is_empty());
     }
 }

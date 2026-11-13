@@ -77,7 +77,7 @@ impl LanguageSpecEngine {
                         })
                         .unwrap_or(false);
 
-                if !is_block_end {
+                if !is_block_end && !in_control_header(node) {
                     diagnostics.push(Diagnostic {
                         rule_id: "IDXCOLND",
                         message: "The END operator must be used within an array index expression."
@@ -100,6 +100,22 @@ impl LanguageSpecEngine {
     }
 }
 
+/// Whether an `end` sits in the header of an `if`, `elseif`, `while`, `for` or `switch`
+/// statement, where the parse fails. MATLAB reports that as SYNER, not as IDXCOLND
+/// (probed: `if end > 1`).
+fn in_control_header(node: tree_sitter::Node) -> bool {
+    let mut ancestor = node.parent();
+    while let Some(parent) = ancestor {
+        match parent.kind() {
+            "end_keyword" | "ERROR" => ancestor = parent.parent(),
+            "if_statement" | "elseif_clause" | "while_statement" | "for_statement"
+            | "switch_statement" => return true,
+            _ => return false,
+        }
+    }
+    false
+}
+
 #[cfg(test)]
 mod tests {
     use crate::language_spec::LanguageSpecEngine;
@@ -109,6 +125,20 @@ mod tests {
         let mut diags = Vec::new();
         LanguageSpecEngine::check_end_dfs(tree.root_node(), false, &mut diags);
         diags.iter().map(|d| d.line).collect()
+    }
+
+    #[test]
+    fn test_idxcolnd_fires_end_value_in_if_body() {
+        // Probed (e23): `y = end;` inside an `if` body is IDXCOLND at line 3.
+        let source = "function e23(x)\nif x\ny = end;\nend\nend\n";
+        assert_eq!(idxcolnd_lines(source), vec![3]);
+    }
+
+    #[test]
+    fn test_idxcolnd_silent_end_in_if_header() {
+        // Probed (e07): `if end > 1` is a parse error (SYNER), not IDXCOLND.
+        let source = "function e07(x)\nif end > 1\ndisp(1)\nend\nend\n";
+        assert!(idxcolnd_lines(source).is_empty());
     }
 
     #[test]

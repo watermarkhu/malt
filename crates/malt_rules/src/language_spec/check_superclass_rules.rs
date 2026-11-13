@@ -157,11 +157,12 @@ impl LanguageSpecEngine {
                                 fix: None,
                             });
                         }
-                    } else if caller != mname && self.is_check_enabled("MCSCM") {
+                    } else if self.is_check_enabled("MCSCO") {
                         let pos = call_node.start_position();
                         diagnostics.push(Diagnostic {
-                            rule_id: "MCSCM",
-                            message: format!("To call a superclass method, the method name {} must match the name of the subclass method {}.", caller, mname),
+                            rule_id: "MCSCO",
+                            message: "A superclass constructor must be called using the first constructor output argument."
+                                .to_string(),
                             severity: Severity::Error,
                             byte_range: call_node.start_byte()..call_node.end_byte(),
                             line: pos.row + 1,
@@ -172,10 +173,11 @@ impl LanguageSpecEngine {
                 } else if Some(caller.as_str()) == first_output.as_deref() {
                     // Superclass constructor call from a non-constructor method.
                     if self.is_check_enabled("MCSCC") {
-                        let pos = call_node.start_position();
+                        // MATLAB reports at the constructor's definition line, naming the function.
+                        let pos = func_node.start_position();
                         diagnostics.push(Diagnostic {
                             rule_id: "MCSCC",
-                            message: format!("To call the superclass constructor, the name of the subclass constructor {} must match the name of the subclass {}.", caller, class.name),
+                            message: format!("To call the superclass constructor, the name of the subclass constructor {} must match the name of the subclass {}.", mname, class.name),
                             severity: Severity::Error,
                             byte_range: call_node.start_byte()..call_node.end_byte(),
                             line: pos.row + 1,
@@ -739,5 +741,24 @@ end
             hits.is_empty(),
             "MCSCM should NOT fire for a matching method name"
         );
+    }
+
+    #[test]
+    fn test_mcsco_constructor_wrong_name_is_not_mcscm() {
+        let source = "classdef Foo < Bar\n    methods\n        function obj = Foo()\n            q@Bar();\n        end\n    end\nend\n";
+        let diags = crate::language_spec::tests::check_source(source, "Foo.m");
+        assert!(!crate::language_spec::tests::filter_by_id(&diags, "MCSCO").is_empty());
+        assert!(crate::language_spec::tests::filter_by_id(&diags, "MCSCM").is_empty());
+    }
+
+    #[test]
+    fn test_mcscc_reports_at_constructor_definition() {
+        let source = "classdef Foo < Bar\n    methods\n        function obj = Baz()\n            obj@Bar();\n        end\n    end\nend\n";
+        let diags = crate::language_spec::tests::check_source(source, "Foo.m");
+        let hits = crate::language_spec::tests::filter_by_id(&diags, "MCSCC");
+        assert!(!hits.is_empty());
+        assert!(hits
+            .iter()
+            .all(|d| d.line == 3 && d.message.contains("'Baz'") || d.message.contains(" Baz ")));
     }
 }

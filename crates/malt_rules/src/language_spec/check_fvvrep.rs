@@ -14,7 +14,8 @@ impl LanguageSpecEngine {
             return;
         }
         for block in blocks {
-            if block.role.is_repeating() {
+            // Input blocks only: MATLAB is silent on varargin in an Output block.
+            if !block.role.is_input() {
                 continue;
             }
             // MATLAB points at the `varargin` declaration, not at the block.
@@ -36,6 +37,20 @@ impl LanguageSpecEngine {
 mod tests {
 
     use crate::language_spec::tests::{check_source, filter_by_id};
+
+    #[test]
+    fn test_fvvrep_no_fire_varargin_in_output_block() {
+        // Probed: MATLAB is silent on FVVREP for a varargin in an Output block (fvvrep04).
+        let source = "\
+function [a] = f(x)
+arguments (Output)
+    varargin
+end
+end
+";
+        let diags = check_source(source, "f.m");
+        assert!(filter_by_id(&diags, "FVVREP").is_empty(), "got: {diags:?}");
+    }
 
     #[test]
     fn test_fvvrep_fires_varargin_outside_repeating() {
