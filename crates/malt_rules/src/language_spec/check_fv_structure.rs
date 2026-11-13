@@ -22,5 +22,6 @@ impl LanguageSpecEngine {
         self.check_fvatf(blocks, source, diagnostics);
         self.check_fvmcl(blocks, source, diagnostics);
         self.check_fvnde_fvnvl(blocks, source, diagnostics);
+        self.check_fvubd(blocks, source, diagnostics);
     }
 }

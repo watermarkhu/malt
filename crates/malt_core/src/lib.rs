@@ -10,6 +10,7 @@
 //! - [`Config`] and related types for TOML-based configuration.
 
 pub mod config;
+pub mod declaration;
 pub mod diagnostic;
 pub mod fix;
 pub mod linter;

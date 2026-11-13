@@ -76,8 +76,8 @@ impl SyntaxErrorsEngine {
                     });
                 }
             }
-            // NOPAR2: Looks like a missing closing bracket.
-            else if Self::looks_like_missing_bracket(text) {
+            // NOPAR2: Looks like a missing closing bracket (not in a property: MCPLD).
+            else if !Self::inside_property(node) && Self::looks_like_missing_bracket(text) {
                 let is_last = last.is_some_and(|l| l.id() == node.id());
                 if self.is_check_enabled("NOPAR2") && !is_last {
                     let bracket = Self::bracket_kinds(text)
@@ -167,6 +167,24 @@ impl SyntaxErrorsEngine {
                     column: pos.column + 1,
                     fix: None,
                 });
+            }
+            // ENDCT2: a one-line `try` whose `catch ID end` has no separator before
+            // the END. MATLAB reports the missing END at the TRY, not a parse error.
+            else if is_try_catch_end_line(text) {
+                if self.is_check_enabled("ENDCT2") {
+                    diagnostics.push(Diagnostic {
+                        rule_id: "ENDCT2",
+                        message: format!(
+                            "An END might be missing (after line {}), possibly matching TRY.",
+                            pos.row + 1
+                        ),
+                        severity: Severity::Error,
+                        byte_range: start..end,
+                        line: pos.row + 1,
+                        column: pos.column + 1,
+                        fix: None,
+                    });
+                }
             }
             // SYNER: Generic syntax error.
             else if self.is_check_enabled("SYNER")
@@ -446,6 +464,10 @@ impl SyntaxErrorsEngine {
     fn is_known_valid_error(node: &Node, source: &str) -> bool {
         let mut current = node.parent();
         while let Some(ancestor) = current {
+            // An attribute list that does not parse (a line break in it) is a SYNER.
+            if ancestor.kind() == "attributes" {
+                break;
+            }
             if ancestor.kind() == "arguments_statement" {
                 return true;
             }
@@ -489,7 +511,59 @@ impl SyntaxErrorsEngine {
         (Self::is_in_function_call_args(node) && text.contains('='))
             || Self::is_known_valid_error(node, source)
             || is_unreported_syner_text(text)
+            || is_value_end_error(node, text, source)
+            // A property with a validator or an index is MCPLD, not a parse error.
+            || Self::inside_property(*node)
     }
+}
+
+/// True for a one-line `try` whose `catch ID end` has no separator before the END
+/// (`try, x = 1; catch ME end`). The ERROR text starts at the `try`.
+fn is_try_catch_end_line(text: &str) -> bool {
+    let line = text.lines().next().unwrap_or("").trim_start();
+    let Some(rest) = line.strip_prefix("try") else {
+        return false;
+    };
+    if rest.starts_with(|c: char| c.is_alphanumeric() || c == '_') {
+        return false;
+    }
+    let Some(pos) = rest.find("catch") else {
+        return false;
+    };
+    let after = rest[pos + "catch".len()..].trim_start();
+    let ident_len = after
+        .find(|c: char| !(c.is_alphanumeric() || c == '_'))
+        .unwrap_or(after.len());
+    let tail = &after[ident_len..];
+    if ident_len == 0 || !tail.starts_with(char::is_whitespace) {
+        return false;
+    }
+    let tail = tail.trim_start();
+    tail.strip_prefix("end")
+        .is_some_and(|r| !r.starts_with(|c: char| c.is_alphanumeric() || c == '_'))
+}
+
+/// True for an ERROR node that holds a value `end` after `=` or `(`, such as
+/// `y = end + 1;` or `y = (end);`. The grammar ends the assignment at the `end`;
+/// MATLAB reports IDXCOLND there, not a parse error, and check_end_dfs reports it.
+/// A SYNER here would also drop that IDXCOLND with the rest of the statement.
+fn is_value_end_error(node: &Node, text: &str, source: &str) -> bool {
+    // The error span can run on past `end` into the operator that follows (`end*`).
+    let body = text.trim_end_matches(|c: char| {
+        c == ')' || c == '*' || c == '/' || c == '^' || c == '+' || c == '-' || c.is_whitespace()
+    });
+    let Some(before) = body.strip_suffix("end") else {
+        return false;
+    };
+    let prefix = source[..node.start_byte() + before.len()].trim_end();
+    let prefix = prefix.strip_suffix('(').map_or(prefix, str::trim_end);
+    let Some(before_eq) = prefix.strip_suffix('=') else {
+        return false;
+    };
+    // `==`, `~=`, `<=`, `>=`, `+=` and the like are operators, not assignments.
+    !before_eq.trim_end().ends_with([
+        '=', '~', '<', '>', '!', '+', '-', '*', '/', '^', '&', '|', ':', '.',
+    ])
 }
 
 /// True for ERROR text that MATLAB does not report as SYNER: a multi-line body that
@@ -917,6 +991,122 @@ mod dotted_name_value_tests {
         // `Name=1` is a valid name-value argument (MATLAB accepts it).
         let diags = lint_file(&*engine(), "f(Name=1);\n");
         assert!(!has_id(&diags, "NOPAR"), "got: {diags:?}");
+        assert!(!has_id(&diags, "SYNER"), "got: {diags:?}");
+    }
+
+    #[test]
+    fn value_end_after_assignment_or_paren_is_not_syner() {
+        // Probed: MATLAB reports IDXCOLND here, no parse error (a01, a02, a03, a04).
+        for source in [
+            "y = end + 1;\n",
+            "y = (end);\n",
+            "y = end*2;\n",
+            "y = end;\n",
+            "y = end %#ok<IDXCOLND>\n",
+            "function r = f(x)\nr = end + 1;\nend\n",
+        ] {
+            let diags = lint_file(&*engine(), source);
+            assert!(!has_id(&diags, "SYNER"), "{source:?} got: {diags:?}");
+        }
+    }
+
+    #[test]
+    fn end_after_operator_or_in_comparison_stays_syner() {
+        // Probed: `1 + end`, `-end` and `1:end` are parse errors in MATLAB (a05, a06, a13).
+        for source in [
+            "y = 1 + end;\n",
+            "y = -end;\n",
+            "x = 1:3; y = x(end) + end;\n",
+        ] {
+            let diags = lint_file(&*engine(), source);
+            assert!(has_id(&diags, "SYNER"), "{source:?} got: {diags:?}");
+        }
+        let diags = lint_file(&*engine(), "x = 1:3; y = x(end) == 1;\n");
+        assert!(!has_id(&diags, "SYNER"), "got: {diags:?}");
+    }
+
+    #[test]
+    fn one_line_try_catch_id_end_reports_endct2() {
+        // Probed: `try, x = 1; catch ME end` gives ENDCT2 at the TRY (c01).
+        let diags = lint_file(&*engine(), "try, x = 1; catch ME end\n");
+        assert!(has_id(&diags, "ENDCT2"), "got: {diags:?}");
+        assert!(!has_id(&diags, "SYNER"), "got: {diags:?}");
+    }
+
+    #[test]
+    fn one_line_try_catch_with_separator_is_not_endct2() {
+        // Probed: a comma after the catch identifier makes the END valid (tc05).
+        for source in [
+            "try, x = 1; catch ME, end\n",
+            "try, x = 1; catch ME, disp(1); end\n",
+            "try, x = 1; catch end\n",
+        ] {
+            let diags = lint_file(&*engine(), source);
+            assert!(!has_id(&diags, "ENDCT2"), "{source:?} got: {diags:?}");
+        }
+    }
+}
+
+#[cfg(test)]
+mod declaration_shape_tests {
+    use super::*;
+    use crate::test_util::{has_id, lint_file};
+    use malt_core::Config;
+
+    fn engine() -> Box<dyn Rule> {
+        SyntaxErrorsEngine::from_config(&Config::default())
+    }
+
+    fn function_with_arguments(block: &str) -> String {
+        format!("function r = f(x, y)\narguments{block}\n    x double\nend\nr = x;\nend\n")
+    }
+
+    #[test]
+    fn valid_arguments_attribute_values_are_not_syner() {
+        // MATLAB probes: each value gives ATLAB (or nothing), never SYNER or NOPAR2.
+        for attrs in [
+            " (Input = 'abc')",
+            " (Input = [1 2])",
+            " (Input = {1, 2})",
+            " (Input = \"str\")",
+            " (Input = -1)",
+            " (Input = 1:3)",
+            " (Input = ?pkg.Cls)",
+            " (Input = @(v) v)",
+            " (Input=true,Repeating=1)",
+            " (Input = ~true)",
+            " (Input = 1, Foo = 2)",
+        ] {
+            let source = function_with_arguments(attrs);
+            let diags = lint_file(&*engine(), &source);
+            assert!(!has_id(&diags, "SYNER"), "{attrs}: got: {diags:?}");
+            assert!(!has_id(&diags, "NOPAR2"), "{attrs}: got: {diags:?}");
+        }
+    }
+
+    #[test]
+    fn class_name_default_in_arguments_is_not_syner() {
+        // MATLAB probe: FVNDE and FVORDN, no SYNER. The declaration after it stays in the block.
+        let source = "function r = f(x, y)\narguments\n    y.?matlab.unittest.TestCase = 1\n    x double\nend\nr = x;\nend\n";
+        let diags = lint_file(&*engine(), source);
+        assert!(!has_id(&diags, "SYNER"), "got: {diags:?}");
+        assert!(!has_id(&diags, "NOPAR2"), "got: {diags:?}");
+    }
+
+    #[test]
+    fn multi_line_attribute_list_is_still_syner() {
+        // Genuinely invalid (MATLAB reports SYNER at the end of the first line).
+        let source = "function r = f(x)\narguments (Input,\n    Repeating)\n    x double\nend\nr = x;\nend\n";
+        let diags = lint_file(&*engine(), source);
+        assert!(has_id(&diags, "SYNER"), "got: {diags:?}");
+    }
+
+    #[test]
+    fn validator_with_function_handle_in_property_is_mcpld_not_syner() {
+        // MATLAB probe: MCPLD at `@` (line 3), no SYNER.
+        let source = "classdef C\n    properties\n        p {@(v) v > 0} = 1\n        q double\n    end\nend\n";
+        let diags = lint_file(&*engine(), source);
+        assert!(has_id(&diags, "MCPLD"), "got: {diags:?}");
         assert!(!has_id(&diags, "SYNER"), "got: {diags:?}");
     }
 }

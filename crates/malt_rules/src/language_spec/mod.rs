@@ -2964,7 +2964,9 @@ pub(crate) fn prop_has_name_value_src(prop: tree_sitter::Node, source: &str) -> 
 
 /// The struct name of a name-value property, including the class form `struct.?Class`.
 pub(crate) fn prop_name_value_struct_src(prop: tree_sitter::Node, source: &str) -> Option<String> {
-    prop_name_value_struct(prop, source).or_else(|| prop_meta_class_struct(prop, source))
+    // The `?` form first: a class-typed name (`opts.?pkg.Class`) has a dotted
+    // `property_name` that is not the struct.
+    prop_meta_class_struct(prop, source).or_else(|| prop_name_value_struct(prop, source))
 }
 
 /// The struct name of `struct.?Class`, which the grammar does not give a `property_name`.
@@ -3318,6 +3320,7 @@ mod check_fvrepo;
 mod check_fvsor;
 mod check_fvsoro;
 mod check_fvtinvaldim_ttoofewdims;
+mod check_fvubd;
 mod check_fvvin_fvocon;
 mod check_fvvin_fvvcon;
 mod check_fvvrep;
@@ -3385,7 +3388,10 @@ mod tests {
         parser
             .set_language(&language.into())
             .expect("failed to set MATLAB language");
-        parser.parse(source, None).expect("failed to parse")
+        let text = malt_core::declaration::parse_text(source);
+        parser
+            .parse(text.as_deref().unwrap_or(source), None)
+            .expect("failed to parse")
     }
 
     /// Run the language spec engine on source code with a given file path.

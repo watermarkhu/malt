@@ -5,6 +5,7 @@ use std::path::Path;
 
 use tree_sitter::Parser;
 
+use crate::declaration;
 use crate::diagnostic::Diagnostic;
 use crate::registry::RuleRegistry;
 use crate::rule::{FileContext, NodeContext};
@@ -177,9 +178,12 @@ impl Linter {
     /// collected during steps 2 and 3.
     pub fn lint(&mut self, source: &str, file_path: &Path) -> Result<Vec<Diagnostic>, LintError> {
         // Step 1: Parse
+        // Declarations the grammar cannot parse are rewritten to an equal-length
+        // form first; rules still read `source`, which keeps the original text.
+        let parse_text = declaration::parse_text(source);
         let tree = self
             .parser
-            .parse(source, None)
+            .parse(parse_text.as_deref().unwrap_or(source), None)
             .ok_or(LintError::ParseFailed)?;
 
         // Too deep to analyze safely: say so instead of crashing or hanging.

@@ -361,20 +361,27 @@ impl LanguageSpecEngine {
         while let Some(node) = stack.pop() {
             if node.kind() == "arguments_statement" {
                 if let Some(attrs_node) = find_child_kind(node, "attributes") {
-                    let mut names = Vec::new();
-                    let mut has_error = false;
+                    let mut assigned = Vec::new();
                     let mut cursor = attrs_node.walk();
                     for child in attrs_node.children(&mut cursor) {
                         match child.kind() {
-                            "identifier" => names.push(node_text(child, source).to_string()),
-                            "ERROR" => has_error = true,
+                            // The value is blanked in the tree (see declaration.rs), so
+                            // its `=` is read from the source.
+                            "identifier"
+                                if source[child.end_byte()..].trim_start().starts_with('=')
+                                    || source[..child.start_byte()].trim_end().ends_with('~') =>
+                            {
+                                assigned.push(node_text(child, source).to_string());
+                            }
+                            "not_operator" => {
+                                let text = node_text(child, source);
+                                assigned.push(text.trim_start_matches('~').trim().to_string());
+                            }
                             _ => {}
                         }
                     }
-                    if has_error
-                        && names.iter().any(|n| n == "Input" || n == "Output")
-                        && self.is_check_enabled("ATLAB")
-                    {
+                    let is_io = |n: &String| n == "Input" || n == "Output";
+                    if assigned.iter().any(is_io) && self.is_check_enabled("ATLAB") {
                         self.push_diag(
                             attrs_node,
                             "ATLAB",
@@ -917,5 +924,42 @@ end
         let diags = crate::language_spec::tests::check_source(source, "Foo.m");
         assert!(!crate::language_spec::tests::filter_by_id(&diags, "ATPPP").is_empty());
         assert!(crate::language_spec::tests::filter_by_id(&diags, "ATNPP").is_empty());
+    }
+}
+
+#[cfg(test)]
+mod declaration_value_tests {
+    use crate::language_spec::tests::{check_source, filter_by_id};
+
+    #[test]
+    fn atlab_fires_for_a_valued_or_negated_input_output_attribute() {
+        // MATLAB probes: ATLAB on `Input = 'x'`, `Output = 1` and `~Output`, and no SYNER.
+        for attrs in [
+            "Input = 'x'",
+            "Output = 1",
+            "~Output",
+            "Input = [1 2], Repeating",
+        ] {
+            let source =
+                format!("function r = f(x)\narguments ({attrs})\n    x double\nend\nr = x;\nend\n");
+            let diags = check_source(&source, "f.m");
+            assert!(
+                !filter_by_id(&diags, "ATLAB").is_empty(),
+                "{attrs}: got: {diags:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn atlab_silent_for_plain_and_repeating_attributes() {
+        for attrs in ["Input", "Input, Repeating", "Repeating = true"] {
+            let source =
+                format!("function r = f(x)\narguments ({attrs})\n    x double\nend\nr = x;\nend\n");
+            let diags = check_source(&source, "f.m");
+            assert!(
+                filter_by_id(&diags, "ATLAB").is_empty(),
+                "{attrs}: got: {diags:?}"
+            );
+        }
     }
 }
