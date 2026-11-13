@@ -35,10 +35,10 @@
 //! Each check rewrites the flagged construct directly:
 //!
 //! - NOCOMMA removes a comma that repeats a separator (`x = 1;,` → `x = 1;`).
-//! - NCOMMA inserts a comma between space-separated function arguments.
+//! - NCOMMA inserts a comma between space-separated output variables (`[a b]` → `[a, b]`).
 //! - NO4LP removes the parentheses around the `for` header (`for (i = 1:n)` → `for i = 1:n`).
-//! - ALIGN re-indents `elseif`/`else` clauses to the column of their `if`.
-//! - NOPTS and NOPRT strip unnecessary parentheses (`(x)` → `x`).
+//! - ALIGN re-indents the `end` to the column of its keyword (only when the keyword starts its line).
+//! - NOPTS and NOPRT insert the missing semicolon after the statement (`x = 5` → `x = 5;`).
 //!
 //! ## Examples
 //!
@@ -220,8 +220,14 @@ impl FormattingEngine {
         }
 
         // ALIGN: a block keyword whose matching END is indented differently
-        if matches!(kind, "if_statement" | "for_statement" | "while_statement")
-            && self.enabled.align
+        if matches!(
+            kind,
+            "if_statement"
+                | "for_statement"
+                | "while_statement"
+                | "switch_statement"
+                | "try_statement"
+        ) && self.enabled.align
         {
             self.check_align(node, source, diagnostics);
         }
@@ -265,6 +271,20 @@ pub(crate) fn is_in_function(node: Node) -> bool {
     let mut current = node.parent();
     while let Some(p) = current {
         if p.kind() == "function_definition" {
+            return true;
+        }
+        current = p.parent();
+    }
+    false
+}
+
+/// Returns `true` if `node` is inside a `parfor` loop body. Probed: MATLAB gives
+/// no NOPTS or NOPRT for statements there (a `for_statement` whose first token
+/// is `parfor`).
+pub(crate) fn is_in_parfor(node: Node) -> bool {
+    let mut current = node.parent();
+    while let Some(p) = current {
+        if p.kind() == "for_statement" && p.child(0).map(|c| c.kind()) == Some("parfor") {
             return true;
         }
         current = p.parent();

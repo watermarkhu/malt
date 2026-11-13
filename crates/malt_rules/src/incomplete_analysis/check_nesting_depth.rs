@@ -1,9 +1,13 @@
-//! NOSPC: File too complex (maximum nesting depth).
+//! NOSPC: File too complex (nesting of statements).
 
 use super::*;
 
+/// MATLAB reports NOSPC when the weighted nesting of statements on one path
+/// reaches this value (weights in `statement_weight`, in quarter levels).
+const NOSPC_WEIGHT: usize = 994;
+
 impl IncompleteAnalysisEngine {
-    /// NOSPC: File too complex (nesting) — uses the maximum of all nesting depths.
+    /// NOSPC: File too complex (statements nested too deeply).
     pub(crate) fn check_nesting_depth(
         &self,
         metrics: &TreeMetrics,
@@ -12,9 +16,7 @@ impl IncompleteAnalysisEngine {
     ) {
         // Only statement nesting counts: MATLAB reports no NOSPC for deep parentheses
         // or function nesting within the limits probed.
-        let max_depth = metrics.max_statement_depth;
-        let combined_limit = self.config.max_statement_depth;
-        if max_depth > combined_limit {
+        if metrics.max_statement_weight >= NOSPC_WEIGHT {
             diagnostics.push(Diagnostic {
                 rule_id: "NOSPC",
                 message: "The file is too complex to analyze. Refactor the code to improve code maintainability. For example, reduce the nesting level of conditions or functions.".to_string(),
@@ -30,35 +32,58 @@ impl IncompleteAnalysisEngine {
 
 #[cfg(test)]
 mod tests {
-    use super::super::{engine, engine_with};
+    use super::super::engine;
     use crate::test_util::{has_id, lint_file};
+
+    /// Statements opened in the given order, one per kind, then the body and the `end`s.
+    fn nested(kinds: &[&str]) -> String {
+        let mut opened = String::new();
+        for (i, kind) in kinds.iter().enumerate() {
+            opened.push_str(
+                match *kind {
+                    "if" => "if x\n",
+                    "for" => "for k{i} = 1:2\n",
+                    "switch" => "switch x\ncase 1\n",
+                    other => panic!("unknown kind {other}"),
+                }
+                .replace("{i}", &i.to_string())
+                .as_str(),
+            );
+        }
+        let ends = "end\n".repeat(kinds.len());
+        format!("{opened}y = 1;\n{ends}")
+    }
 
     // -- NOSPC: nesting depth -----------------------------------------------
 
     #[test]
-    fn nospc_fires_on_deep_nesting() {
-        let engine = engine_with("max_statement_depth = 2");
-        let diags = lint_file(
-            &*engine,
-            "if x\n    if x\n        if x\n            y = 1;\n        end\n    end\nend\n",
-        );
-        assert!(has_id(&diags, "NOSPC"), "got: {diags:?}");
+    fn nospc_fires_on_nested_ifs_at_weight_996() {
+        // MATLAB probe: 249 nested `if`s (weight 996) give NOSPC, 248 (992) do not.
+        let source = nested(&vec!["if"; 249]);
+        assert!(has_id(&lint_file(&*engine(), &source), "NOSPC"));
+        let source = nested(&vec!["if"; 248]);
+        assert!(!has_id(&lint_file(&*engine(), &source), "NOSPC"));
     }
 
     #[test]
-    fn nospc_ok_on_240_nested_ifs() {
-        // MATLAB probe: 240 nested `if` levels are not too complex.
-        let source = format!("{}y = 1;\n{}", "if x\n".repeat(240), "end\n".repeat(240));
-        let diags = lint_file(&*engine(), &source);
-        assert!(!has_id(&diags, "NOSPC"), "got: {diags:?}");
+    fn nospc_weights_switch_as_eight_quarters() {
+        // MATLAB probe: 125 nested `switch`es (1000) give NOSPC, 124 (992) do not.
+        let source = nested(&vec!["switch"; 125]);
+        assert!(has_id(&lint_file(&*engine(), &source), "NOSPC"));
+        let source = nested(&vec!["switch"; 124]);
+        assert!(!has_id(&lint_file(&*engine(), &source), "NOSPC"));
     }
 
     #[test]
-    fn nospc_fires_on_250_nested_ifs() {
-        // MATLAB probe: 250 nested `if` levels give NOSPC.
-        let source = format!("{}y = 1;\n{}", "if x\n".repeat(250), "end\n".repeat(250));
-        let diags = lint_file(&*engine(), &source);
-        assert!(has_id(&diags, "NOSPC"), "got: {diags:?}");
+    fn nospc_weights_for_as_three_quarters() {
+        // MATLAB probe: 246 `if`s and 3 `for`s (993) do not give NOSPC; 247 `if`s and
+        // 2 `for`s (994) do.
+        let mut kinds = vec!["if"; 246];
+        kinds.extend(["for"; 3]);
+        assert!(!has_id(&lint_file(&*engine(), &nested(&kinds)), "NOSPC"));
+        let mut kinds = vec!["if"; 247];
+        kinds.extend(["for"; 2]);
+        assert!(has_id(&lint_file(&*engine(), &nested(&kinds)), "NOSPC"));
     }
 
     #[test]

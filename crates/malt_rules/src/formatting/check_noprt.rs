@@ -4,8 +4,8 @@ use super::*;
 use crate::analysis::control_flow::is_split_statement_continuation;
 
 impl FormattingEngine {
-    /// Flag an `assignment` statement inside a function that is not terminated
-    /// by a semicolon, so it echoes its result to the console.
+    /// Flag an assignment or expression statement inside a function that is not
+    /// terminated by a semicolon, so it echoes its result to the console.
     pub(crate) fn check_noprt(&self, node: Node, source: &str, diagnostics: &mut Vec<Diagnostic>) {
         let is_statement_level = node
             .parent()
@@ -14,8 +14,8 @@ impl FormattingEngine {
         if !is_statement_level {
             return;
         }
-        // Only function bodies (not scripts).
-        if !is_in_function(node) {
+        // Only function bodies (not scripts), and not parfor bodies (probed: silent).
+        if !is_in_function(node) || is_in_parfor(node) {
             return;
         }
         // `a = 1:2:3:4` parses as a range followed by an ERROR node, and MATLAB
@@ -23,11 +23,13 @@ impl FormattingEngine {
         if node.next_sibling().is_some_and(|s| s.kind() == "ERROR") {
             return;
         }
-        // A statement that a line break splits before `-x`/`+x` is reported by
-        // NOPRC instead (`y = 3` then `-4`).
-        if node
-            .next_named_sibling()
-            .is_some_and(|s| is_split_statement_continuation(s, source))
+        // An assignment that a line break splits before `-x`/`+x` is reported by
+        // NOPRC instead (`y = 3` then `-4`). Probed: an expression statement such
+        // as `~x(1)` before `-x(1)` still gets NOPRT on its own line.
+        if node.kind() == "assignment"
+            && node
+                .next_named_sibling()
+                .is_some_and(|s| is_split_statement_continuation(s, source))
         {
             return;
         }
@@ -35,7 +37,7 @@ impl FormattingEngine {
             return;
         }
 
-        let start = super::check_nopts::assignment_report_position(node);
+        let start = super::check_nopts::report_position(node, source);
         let end_byte = node.end_byte();
         diagnostics.push(Diagnostic {
             rule_id: "NOPRT",
@@ -90,6 +92,36 @@ mod tests {
         let source = "function f()\n    x = 5;\nend\n";
         let diags = lint(source);
         assert!(!has_id(&diags, "NOPRT"), "got: {diags:?}");
+    }
+
+    #[test]
+    fn noprt_expression_before_split_sign_is_still_reported() {
+        // Probed: `~x(1)` on line 3 before `-x(1)` gets NOPRT (only an assignment is
+        // split by the next line's sign; no NOPRC here).
+        let diags = lint("function f(x)\nx = 1;\n~x(1)\n-x(1)\nend\n");
+        assert!(
+            diags.iter().any(|d| d.rule_id == "NOPRT" && d.line == 3),
+            "got: {diags:?}"
+        );
+    }
+
+    #[test]
+    fn noprt_silent_inside_parfor_body() {
+        // Probed: statements in a parfor body give no output (pf3, pf4, f24).
+        let diags = lint("function f()\nparfor k=1:2\n  s = k\nend\nend\n");
+        assert!(!has_id(&diags, "NOPRT"), "got: {diags:?}");
+        let diags = lint("function f()\nparfor k=1:2\n  ~k\nend\nend\n");
+        assert!(!has_id(&diags, "NOPRT"), "got: {diags:?}");
+    }
+
+    #[test]
+    fn noprt_fires_on_negation_and_spmd_body() {
+        // Probed: `~x` (`not_operator`) echoes in a function, and so does a
+        // statement in an spmd body (pf5).
+        let diags = lint("function f(x)\n~x\nend\n");
+        assert!(has_id(&diags, "NOPRT"), "got: {diags:?}");
+        let diags = lint("function f()\nspmd\n  v = 1\nend\nend\n");
+        assert!(has_id(&diags, "NOPRT"), "got: {diags:?}");
     }
 
     #[test]

@@ -62,10 +62,10 @@ Best practice is to separate output variables with commas.
 Each check rewrites the flagged construct directly:
 
 - NOCOMMA removes a comma that repeats a separator (`x = 1;,` → `x = 1;`).
-- NCOMMA inserts a comma between space-separated function arguments.
+- NCOMMA inserts a comma between space-separated output variables (`[a b]` → `[a, b]`).
 - NO4LP removes the parentheses around the `for` header (`for (i = 1:n)` → `for i = 1:n`).
-- ALIGN re-indents `elseif`/`else` clauses to the column of their `if`.
-- NOPTS and NOPRT strip unnecessary parentheses (`(x)` → `x`).
+- ALIGN re-indents the `end` to the column of its keyword (only when the keyword starts its line).
+- NOPTS and NOPRT insert the missing semicolon after the statement (`x = 5` → `x = 5;`).
 
 ## Examples
 

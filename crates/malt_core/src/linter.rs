@@ -42,6 +42,14 @@ const STATEMENT_ERROR_KEPT_IDS: &[&str] = &[
     "BADNOT",
     "BADNOTLHS",
     "EOFER",
+    // Incomplete-analysis limits: MATLAB reports them for the file whatever the
+    // statements hold (TMSMS at line 1 with 1,001 errors on line 1, probed).
+    "TMSMS",
+    "MXASET",
+    "NOSPC",
+    "MDEEP",
+    "DEEPN",
+    "DEEPC",
 ];
 
 /// Removes the diagnostics of the statements that hold a token MATLAB cannot
@@ -136,6 +144,10 @@ pub struct Linter {
 /// nested statement adds two or three levels. Deeper input is reported, not
 /// analyzed, instead of crashing the process or hanging it.
 pub const DEFAULT_MAX_TREE_DEPTH: usize = 1_000;
+
+/// MATLAB stops generating messages at this count and reports TMMSG; the
+/// messages past it are deleted. malt keeps the first ones in source order.
+pub const MATLAB_MAX_MESSAGES: usize = 10_000;
 
 /// Errors that can occur during linting.
 #[derive(Debug, thiserror::Error)]
@@ -244,6 +256,10 @@ impl Linter {
         // Step 3b: MATLAB does not analyse the statement holding a token it cannot parse.
         drop_statements_with_errors(&mut diagnostics, source);
 
+        // Step 3c: MATLAB stops at 10,000 messages (TMMSG), counting every rule's
+        // messages before the %#ok directives remove any.
+        limit_messages(&mut diagnostics, source);
+
         // Step 4: Apply inline suppression directives (%#ok<...>).
         // A directive on a line suppresses matching diagnostics on that line only.
         if self.inline_suppression {
@@ -270,13 +286,16 @@ impl Linter {
         Ok(diagnostics)
     }
 
-    /// The QUIT diagnostic for code nested beyond the analyzer's depth limit.
+    /// The MALT_TOO_DEEP diagnostic for code nested beyond malt's depth limit.
+    ///
+    /// Not a MATLAB check: MATLAB has no such limit on the parse tree. malt stops
+    /// here to keep its own stack from overflowing, and says so under its own ID.
     fn too_deep_diagnostic(source: &str, depth: usize, limit: usize) -> Diagnostic {
         Diagnostic {
-            rule_id: "QUIT",
+            rule_id: "MALT_TOO_DEEP",
             message: format!(
-                "Code analysis did not complete. The code is nested too deeply \
-                 ({depth} levels; the analyzer stops at {limit})."
+                "malt did not analyze this file: the code is nested too deeply \
+                 ({depth} levels; malt stops at {limit}). This is not a MATLAB message."
             ),
             severity: Severity::Error,
             byte_range: 0..source.len().min(1),
@@ -407,6 +426,27 @@ fn unused_suppressions(
             fix: None,
         })
         .collect()
+}
+
+/// Keep the first `MATLAB_MAX_MESSAGES` messages in source order and add TMMSG
+/// when there are more, as MATLAB does (the messages past the limit are deleted).
+fn limit_messages(diagnostics: &mut Vec<Diagnostic>, source: &str) {
+    if diagnostics.len() <= MATLAB_MAX_MESSAGES {
+        return;
+    }
+    diagnostics.sort_by(|a, b| a.line.cmp(&b.line).then(a.column.cmp(&b.column)));
+    diagnostics.truncate(MATLAB_MAX_MESSAGES);
+    diagnostics.push(Diagnostic {
+        rule_id: "TMMSG",
+        message:
+            "More than 10,000 Code Analyzer messages were generated, leading to some being deleted."
+                .to_string(),
+        severity: Severity::Error,
+        byte_range: 0..source.len().min(1),
+        line: 1,
+        column: 1,
+        fix: None,
+    });
 }
 
 /// Depth of the deepest node of `tree` (the root is level 0). Iterative, so
@@ -767,12 +807,13 @@ mod tests {
             .lint(&nested_ifs(2_000), Path::new("deep.m"))
             .unwrap();
         assert_eq!(diags.len(), 1, "got: {diags:?}");
-        assert_eq!(diags[0].rule_id, "QUIT");
+        assert_eq!(diags[0].rule_id, "MALT_TOO_DEEP");
         assert!(
             diags[0].message.contains("nested too deeply"),
             "{}",
             diags[0].message
         );
+        assert!(diags[0].message.contains("not a MATLAB message"));
     }
 
     #[test]
@@ -789,10 +830,77 @@ mod tests {
         linter.set_max_tree_depth(10);
         assert_eq!(
             linter.lint(&source, Path::new("a.m")).unwrap()[0].rule_id,
-            "QUIT"
+            "MALT_TOO_DEEP"
         );
         linter.set_max_tree_depth(DEFAULT_MAX_TREE_DEPTH);
         assert!(linter.lint(&source, Path::new("a.m")).unwrap().is_empty());
+    }
+
+    /// A test-only rule that reports `count` messages for one file.
+    struct ManyRule {
+        count: usize,
+    }
+
+    impl Rule for ManyRule {
+        fn id(&self) -> &'static str {
+            "MANY_TEST"
+        }
+
+        fn description(&self) -> &'static str {
+            "test-only rule with many messages"
+        }
+
+        fn severity(&self) -> Severity {
+            Severity::Warning
+        }
+
+        fn category(&self) -> Category {
+            Category::Bugs
+        }
+
+        fn target_node_types(&self) -> &'static [&'static str] {
+            &[]
+        }
+
+        fn has_file_check(&self) -> bool {
+            true
+        }
+
+        fn check_file(&self, _ctx: &FileContext) -> Vec<Diagnostic> {
+            (0..self.count)
+                .map(|i| Diagnostic {
+                    rule_id: "MANY_TEST",
+                    message: "many".to_string(),
+                    severity: Severity::Warning,
+                    byte_range: 0..1,
+                    line: i + 1,
+                    column: 1,
+                    fix: None,
+                })
+                .collect()
+        }
+    }
+
+    fn lint_many(count: usize) -> Vec<Diagnostic> {
+        let registry = RuleRegistry::new(vec![Box::new(ManyRule { count })], &Config::default());
+        Linter::new(registry)
+            .lint("x = 1;\n", Path::new("many.m"))
+            .unwrap()
+    }
+
+    #[test]
+    fn messages_past_the_matlab_limit_are_dropped_and_tmmsg_added() {
+        let diags = lint_many(MATLAB_MAX_MESSAGES + 1);
+        let kept = diags.iter().filter(|d| d.rule_id == "MANY_TEST").count();
+        assert_eq!(kept, MATLAB_MAX_MESSAGES, "got {} diagnostics", diags.len());
+        assert_eq!(diags.iter().filter(|d| d.rule_id == "TMMSG").count(), 1);
+    }
+
+    #[test]
+    fn exactly_the_matlab_limit_is_kept_without_tmmsg() {
+        let diags = lint_many(MATLAB_MAX_MESSAGES);
+        assert_eq!(diags.len(), MATLAB_MAX_MESSAGES);
+        assert!(diags.iter().all(|d| d.rule_id != "TMMSG"));
     }
 }
 

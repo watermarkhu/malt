@@ -117,6 +117,19 @@ mod tests {
     }
 
     #[test]
+    fn no4lp_parenthesised_header_with_cell_matrix_or_transpose() {
+        // Probed: `for (c = {1,2})`, `for (k = [1 2; 3 4])` and `for (x = y')` are reported.
+        for source in [
+            "for (c = {1,2})\n  disp(c)\nend\n",
+            "for (k = [1 2; 3 4])\n  disp(k)\nend\n",
+            "y = [1 2];\nfor (x = y')\n  disp(x)\nend\n",
+        ] {
+            let diags = lint(source);
+            assert!(has_id(&diags, "NO4LP"), "{source:?} got: {diags:?}");
+        }
+    }
+
+    #[test]
     fn no4lp_fix_removes_the_parentheses() {
         assert_eq!(
             fix_no4lp("for (i = 1:3)\n    disp(i);\nend\n"),

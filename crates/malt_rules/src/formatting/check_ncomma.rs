@@ -27,6 +27,11 @@ impl FormattingEngine {
             if gap.contains(',') || gap.contains(';') {
                 continue;
             }
+            // Probed: `[~ a]` and `[~ ~ a]` are silent, `[a ~]` is reported: a gap
+            // after an ignored output is not reported.
+            if pair[0].kind() == "ignored_argument" {
+                continue;
+            }
             let pos = pair[1].start_position();
             // Replace the whitespace gap by `, `: `[a b]` becomes `[a, b]`, not
             // `[a , b]`. A gap holding anything else (a comment, a continuation)
@@ -74,6 +79,23 @@ mod tests {
         let source = "[a, b] = f();\n";
         let diags = lint(source);
         assert!(!has_id(&diags, "NCOMMA"), "got: {diags:?}");
+    }
+
+    #[test]
+    fn ncomma_gap_after_ignored_output_is_silent() {
+        // Probed: `[~ a]` and `[~ ~ a]` are silent; `[a ~]` is reported at the `~`.
+        assert!(!has_id(&lint("[~ a] = deal(1,2);\n"), "NCOMMA"));
+        assert!(!has_id(&lint("[~ ~ a] = deal(1,2,3);\n"), "NCOMMA"));
+        assert!(has_id(&lint("[a ~] = deal(1,2);\n"), "NCOMMA"));
+    }
+
+    #[test]
+    fn ncomma_reports_only_the_pair_after_an_ignored_output() {
+        // Probed: `[~ a b]` gives one NCOMMA, at the `b` (column 6).
+        let diags = lint("[~ a b] = deal(1,2,3);\n");
+        let ncomma: Vec<_> = diags.iter().filter(|d| d.rule_id == "NCOMMA").collect();
+        assert_eq!(ncomma.len(), 1, "got: {diags:?}");
+        assert_eq!(ncomma[0].column, 6);
     }
 
     #[test]

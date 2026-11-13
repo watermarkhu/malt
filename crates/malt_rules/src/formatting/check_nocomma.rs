@@ -119,6 +119,15 @@ mod tests {
     }
 
     #[test]
+    fn nocomma_second_of_double_comma_in_control_flow() {
+        // Probed: `if x,, disp(1), end` is reported at the second comma (column 6).
+        let diags = lint("x = 1;\nif x,, disp(1), end\n");
+        let nocomma: Vec<_> = diags.iter().filter(|d| d.rule_id == "NOCOMMA").collect();
+        assert_eq!(nocomma.len(), 1, "got: {diags:?}");
+        assert_eq!((nocomma[0].line, nocomma[0].column), (2, 6));
+    }
+
+    #[test]
     fn nocomma_ok_space_separated() {
         assert!(!has_id(&lint("x = [1 2 3];\n"), "NOCOMMA"));
     }
