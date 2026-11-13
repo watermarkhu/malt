@@ -156,7 +156,7 @@ fn always_taken_and_terminates(if_node: tree_sitter::Node, source: &str) -> bool
     let body_terminates = children
         .iter()
         .find(|c| c.kind() == "block")
-        .is_some_and(|body| crate::analysis::control_flow::block_terminates(*body));
+        .is_some_and(|body| crate::analysis::control_flow::block_terminates(*body, source));
     is_true && !has_branch && body_terminates
 }
 

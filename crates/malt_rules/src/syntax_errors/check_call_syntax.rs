@@ -36,8 +36,15 @@ impl SyntaxErrorsEngine {
                 // `c{1}(end)` and `x{1}{2}` are cell indexing, which MATLAB accepts.
                 let name_is_brace =
                     (0..name.child_count()).any(|i| name.child(i).is_some_and(|c| c.kind() == "{"));
-                if name.kind() == "function_call" && !name_is_brace {
-                    let pos = node.start_position();
+                // A chained call `f(1)(2)` is reported at the `(` of the outer call's
+                // arguments, and so is `s.f(1)(2)`, whose name is a field expression
+                // (probed: `x = f(1)(2);` is column 9; `z = s.f(1)(2);` is column 11).
+                let chained_field = name.kind() == "field_expression"
+                    && name
+                        .child_by_field_name("field")
+                        .is_some_and(|f| f.kind() == "function_call");
+                if (name.kind() == "function_call" && !name_is_brace) || chained_field {
+                    let pos = Self::arguments_child(node).unwrap_or(node).start_position();
                     diagnostics.push(Diagnostic {
                             rule_id: "SBTMP",
                             message: "Invalid array indexing or function call. Chaining outputs after parenthesis is not supported."
@@ -60,7 +67,11 @@ impl SyntaxErrorsEngine {
         if self.is_check_enabled("FVACI") && is_brace {
             if let Some(a) = args {
                 if Self::has_eq_token(a) {
-                    let pos = node.start_position();
+                    // MATLAB reports the `=` of the name=value (`x = c{a=1};` is column 8).
+                    let pos = (0..a.child_count())
+                        .find_map(|i| a.child(i).filter(|c| c.kind() == "="))
+                        .unwrap_or(node)
+                        .start_position();
                     diagnostics.push(Diagnostic {
                         rule_id: "FVACI",
                         message: "Use of name-value arguments in cell indexing is not supported."
@@ -146,16 +157,12 @@ mod tests {
     // -- FVSYN: invalid function argument syntax ----------------------------
 
     #[test]
-    fn fvsyn_fires_on_missing_comma() {
+    fn two_values_in_call_are_syner_at_second_value() {
+        // Probed: `f(1 2);` is SYNER at the `2` (column 5), not FVSYN.
         let diags = lint_file(&*engine(), "f(1 2);\n");
-        assert!(has_id(&diags, "FVSYN"), "got: {diags:?}");
-    }
-
-    #[test]
-    fn fvsyn_replaces_syner_in_args() {
-        let diags = lint_file(&*engine(), "f(1 2);\n");
-        assert!(has_id(&diags, "FVSYN"), "got: {diags:?}");
-        assert!(!has_id(&diags, "SYNER"), "got: {diags:?}");
+        assert!(!has_id(&diags, "FVSYN"), "got: {diags:?}");
+        let syner = diags.iter().find(|d| d.rule_id == "SYNER").expect("SYNER");
+        assert_eq!((syner.line, syner.column), (1, 5), "got: {diags:?}");
     }
 
     #[test]
@@ -193,15 +200,19 @@ mod tests {
     // -- FVACS: quoted string as name in name=value -------------------------
 
     #[test]
-    fn fvacs_fires_on_quoted_name() {
-        let diags = lint_file(&*engine(), "f('Bad Name' = 1);\n");
+    fn fvacs_fires_on_identifier_quoted_name() {
+        // Probed: `'a'` and `'Good'` are identifiers in quotes (FVACS).
+        let diags = lint_file(&*engine(), "x = f('Good' = 1);\n");
         assert!(has_id(&diags, "FVACS"), "got: {diags:?}");
+        assert!(!has_id(&diags, "FVAMI"), "got: {diags:?}");
     }
 
     #[test]
-    fn fvacs_fires_on_quoted_name_no_space() {
-        let diags = lint_file(&*engine(), "f('Bad Name'=1);\n");
-        assert!(has_id(&diags, "FVACS"), "got: {diags:?}");
+    fn fvami_fires_on_quoted_name_that_is_not_an_identifier() {
+        // Probed: `f('Bad Name' = 1);` gives FVAMI at the quote (column 3), not FVACS.
+        let diags = lint_file(&*engine(), "f('Bad Name' = 1);\n");
+        assert!(has_id(&diags, "FVAMI"), "got: {diags:?}");
+        assert!(!has_id(&diags, "FVACS"), "got: {diags:?}");
     }
 
     #[test]
@@ -219,15 +230,12 @@ mod tests {
     // -- FVAMI: name not a valid identifier in name=value -------------------
 
     #[test]
-    fn fvami_fires_on_number_name() {
-        let diags = lint_file(&*engine(), "f(123 = 1);\n");
-        assert!(has_id(&diags, "FVAMI"), "got: {diags:?}");
-    }
-
-    #[test]
-    fn fvami_fires_on_number_name_no_space() {
-        let diags = lint_file(&*engine(), "f(123=1);\n");
-        assert!(has_id(&diags, "FVAMI"), "got: {diags:?}");
+    fn fvami_ok_on_number_name() {
+        // Probed: MATLAB reports NOPAR and SYNER for `f(123 = 1)` and `f(123=1)`, not FVAMI.
+        for src in ["f(123 = 1);\n", "f(123=1);\n"] {
+            let diags = lint_file(&*engine(), src);
+            assert!(!has_id(&diags, "FVAMI"), "{src:?} got: {diags:?}");
+        }
     }
 
     #[test]

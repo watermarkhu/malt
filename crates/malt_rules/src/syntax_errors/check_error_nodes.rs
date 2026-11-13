@@ -9,38 +9,109 @@ impl SyntaxErrorsEngine {
         self.walk_error_nodes(root, source, last, &mut diagnostics);
         self.walk_dotted_name_value_calls(root, source, &mut diagnostics);
         Self::walk_end_in_control_header(root, &mut diagnostics);
+        self.walk_source_forms(root, source, &mut diagnostics);
 
-        // ENDPAR: Check if the file ends with a missing closing bracket.
-        if self.is_check_enabled("ENDPAR") {
-            if let Some(last) = last {
-                let start = last.start_byte();
-                let end = last.end_byte().max(start + 1);
-                let text = &source[start..end.min(source.len())];
-                let is_bracket_error = last.is_error() && Self::looks_like_missing_bracket(text);
-                let missing_kind = Self::missing_bracket_opener(last.kind());
-                if is_bracket_error || (last.is_missing() && missing_kind.is_some()) {
-                    let pos = last.start_position();
+        // An unclosed bracket that ends the file: ENDPAR, NOPAR or EOLPAR at the opener.
+        if let Some(last) = last {
+            let start = last.start_byte();
+            let end = last.end_byte().max(start + 1).min(source.len());
+            let text = &source[start..end];
+            let is_bracket_error = last.is_error() && Self::looks_like_missing_bracket(text);
+            let missing_kind = Self::missing_bracket_opener(last.kind());
+            if is_bracket_error || (last.is_missing() && missing_kind.is_some()) {
+                let (opener, at) = if last.is_missing() {
+                    let line_start = source[..start].rfind('\n').map_or(0, |i| i + 1);
+                    let opener = last_unmatched_opener(&source[line_start..start]);
+                    (opener.map(|i| line_start + i), start)
+                } else {
+                    (last_unmatched_opener(text).map(|i| start + i), end)
+                };
+                let diag = opener.and_then(|o| self.unclosed_bracket_diag(source, o, at));
+                if let Some(d) = diag {
+                    diagnostics.push(d);
+                } else if self.is_check_enabled("ENDPAR") {
                     let bracket = Self::bracket_kinds(text)
                         .first()
                         .copied()
                         .or(missing_kind)
                         .unwrap_or("bracket");
+                    let (line, column) = line_col(source, start);
                     diagnostics.push(Diagnostic {
-                            rule_id: "ENDPAR",
-                            message: format!(
-                                "A {bracket} might be missing a closing {bracket}, causing invalid syntax at end of file."
-                            ),
-                            severity: Severity::Error,
-                            byte_range: start..end,
-                            line: pos.row + 1,
-                            column: pos.column + 1,
-                            fix: None,
-                        });
+                        rule_id: "ENDPAR",
+                        message: format!(
+                            "A {bracket} might be missing a closing {bracket}, causing invalid syntax at end of file."
+                        ),
+                        severity: Severity::Error,
+                        byte_range: start..end,
+                        line,
+                        column,
+                        fix: None,
+                    });
                 }
             }
         }
 
         diagnostics
+    }
+
+    /// The diagnostic for a bracket left open, its opener at byte `opener` and the
+    /// error (or the file's end) at byte `at`. A `(` or `{` followed by `;` or `=` is
+    /// NOPAR at that token; followed by a line end it is EOLPAR; at the end of the file
+    /// it is ENDPAR. A `[` is ENDPAR only at the end of the file (`x = [1 2;`), and
+    /// otherwise None, so that NOPAR2 applies (probed: b14, b16, b17, t04, b151).
+    fn unclosed_bracket_diag(&self, source: &str, opener: usize, at: usize) -> Option<Diagnostic> {
+        let bracket = match source.as_bytes()[opener] {
+            b'(' => "(",
+            b'{' => "{",
+            _ => "[",
+        };
+        let closer = match bracket {
+            "(" => ")",
+            "{" => "}",
+            _ => "]",
+        };
+        let rest = source.get(at..)?;
+        let (rule_id, message) = if bracket == "[" {
+            let eof_like = rest
+                .bytes()
+                .all(|b| matches!(b, b'\n' | b'\r' | b' ' | b'\t' | b';' | b','));
+            if !eof_like {
+                return None;
+            }
+            ("ENDPAR", format!("A {bracket} might be missing a closing {closer}, causing invalid syntax at end of file."))
+        } else {
+            // The first `;` or `=` (not a comparison) on the opener's line is the token MATLAB names.
+            let line = &source[opener + 1..];
+            let line = &line[..line.find('\n').unwrap_or(line.len())];
+            let bytes = line.as_bytes();
+            let token = (0..bytes.len()).find_map(|i| match bytes[i] {
+                b';' => Some(';'),
+                b'=' if bytes.get(i + 1) != Some(&b'=')
+                    && !(i > 0 && matches!(bytes[i - 1], b'=' | b'~' | b'<' | b'>')) =>
+                {
+                    Some('=')
+                }
+                _ => None,
+            });
+            match token {
+                Some(c) => ("NOPAR", format!("A '{bracket}' might be missing a closing '{closer}', causing invalid syntax at '{c}'.")),
+                None if source[opener..].contains('\n') => ("EOLPAR", format!("A '{bracket}' might be missing a closing '{closer}', causing invalid syntax at end of line.")),
+                None => ("ENDPAR", format!("A '{bracket}' might be missing a closing '{closer}', causing invalid syntax at end of file.")),
+            }
+        };
+        if !self.is_check_enabled(rule_id) {
+            return None;
+        }
+        let (line, column) = line_col(source, opener);
+        Some(Diagnostic {
+            rule_id,
+            message,
+            severity: Severity::Error,
+            byte_range: opener..opener + 1,
+            line,
+            column,
+            fix: None,
+        })
     }
 
     /// The grammar parses `if end > 1` (an `end` outside any index in a control header),
@@ -71,7 +142,8 @@ impl SyntaxErrorsEngine {
         last: Option<Node>,
         diagnostics: &mut Vec<Diagnostic>,
     ) {
-        if node.is_error() {
+        // An unterminated block comment (`%{` at the end of the file) is INBLK's.
+        if node.is_error() && !source[node.start_byte()..].starts_with("%{") {
             let start = node.start_byte();
             let end = node.end_byte().max(start + 1);
             let pos = node.start_position();
@@ -101,7 +173,11 @@ impl SyntaxErrorsEngine {
             // NOPAR2: Looks like a missing closing bracket (not in a property: MCPLD).
             else if !Self::inside_property(node) && Self::looks_like_missing_bracket(text) {
                 let is_last = last.is_some_and(|l| l.id() == node.id());
-                if self.is_check_enabled("NOPAR2") && !is_last {
+                let opener = last_unmatched_opener(text).map(|i| start + i);
+                let name_value_call = Self::is_in_function_call_args(&node) && text.contains('=');
+                if let Some(d) = opener.and_then(|o| self.unclosed_bracket_diag(source, o, end)) {
+                    diagnostics.push(d);
+                } else if self.is_check_enabled("NOPAR2") && !is_last && !name_value_call {
                     let bracket = Self::bracket_kinds(text)
                         .first()
                         .copied()
@@ -143,7 +219,10 @@ impl SyntaxErrorsEngine {
                         fix: None,
                     });
                 }
-            } else if self.is_check_enabled("ENDCT") && Self::looks_like_missing_end(text, &node) {
+            } else if self.is_check_enabled("ENDCT")
+                && !Self::is_keyword_misuse(&text.to_lowercase())
+                && Self::looks_like_missing_end(text, &node)
+            {
                 diagnostics.push(Diagnostic {
                     rule_id: "ENDCT",
                     message: endct_message(text),
@@ -160,35 +239,30 @@ impl SyntaxErrorsEngine {
                 && Self::is_in_function_call_args(&node)
                 && Self::follows_name_value_argument(&node, source)
             {
+                // MATLAB reports the positional argument that follows, not the comma.
+                let at = Self::next_argument_start(source, start);
+                let (line, column) = line_col(source, at);
                 diagnostics.push(Diagnostic {
                     rule_id: "FVAPN",
                     message: "Move name-value arguments that use the name=value syntax to the end of the argument list.".to_string(),
                     severity: Severity::Error,
-                    byte_range: start..end,
-                    line: pos.row + 1,
-                    column: pos.column + 1,
+                    byte_range: at..at + 1,
+                    line,
+                    column,
                     fix: None,
                 });
             }
-            // FVSYN: Invalid function argument syntax inside a call's argument list.
-            // A value glued to a name (`1x=2`) is a SYNER instead (MATLAB: at `x`).
-            else if self.is_check_enabled("FVSYN")
+            // A name=value in a call that is not a statement: MATLAB reports SYNER at the
+            // `=` (`x = f(a.b=1)`). Two values in a call (`f(1 2)`) are SYNER too, not FVSYN.
+            else if self.is_check_enabled("SYNER")
                 && Self::is_in_function_call_args(&node)
-                && !text.contains('=')
-                && !source[end..].starts_with(char::is_alphabetic)
+                && !Self::call_is_statement(&node)
+                && !Self::call_is_brace(&node)
+                && text.trim_start().starts_with('=')
+                && !source[..start].trim_end().ends_with(['\'', '"'])
             {
-                diagnostics.push(Diagnostic {
-                    rule_id: "FVSYN",
-                    message: format!(
-                        "Invalid function argument syntax at {}.",
-                        text.chars().take(40).collect::<String>().trim()
-                    ),
-                    severity: Severity::Error,
-                    byte_range: start..end,
-                    line: pos.row + 1,
-                    column: pos.column + 1,
-                    fix: None,
-                });
+                let at = start + text.len() - text.trim_start().len();
+                diagnostics.push(Self::syner_at(source, at));
             }
             // ENDCT2: a one-line `try` whose `catch ID end` has no separator before
             // the END. MATLAB reports the missing END at the TRY, not a parse error.
@@ -212,21 +286,12 @@ impl SyntaxErrorsEngine {
             else if self.is_check_enabled("SYNER")
                 && !Self::is_unreported_syner(&node, text, source)
             {
-                let snippet: String = text.chars().take(40).collect();
-                let msg = if snippet.is_empty() {
-                    "Parse error: usage might be invalid MATLAB syntax.".to_string()
-                } else {
-                    format!("Parse error at {snippet}: usage might be invalid MATLAB syntax.")
-                };
-                diagnostics.push(Diagnostic {
-                    rule_id: "SYNER",
-                    message: msg,
-                    severity: Severity::Error,
-                    byte_range: start..end,
-                    line: pos.row + 1,
-                    column: pos.column + 1,
-                    fix: None,
-                });
+                let at = Self::syner_error_offset(&node, text, source);
+                // The range stays the error's, so that a lexical check on the same token
+                // still takes the SYNER's place (see mod.rs).
+                let mut d = Self::syner_at(source, at);
+                d.byte_range = start..end;
+                diagnostics.push(d);
             }
         } else if node.is_missing() {
             if let Some(bracket) = Self::missing_bracket_opener(node.kind()) {
@@ -235,7 +300,17 @@ impl SyntaxErrorsEngine {
                     let start = node.start_byte();
                     let end = node.end_byte().max(start + 1);
                     let pos = node.start_position();
-                    if Self::is_end_of_file(node, source) {
+                    // The opener on this line decides NOPAR, EOLPAR or ENDPAR (`x = f(1;`
+                    // is NOPAR even though only `;` follows). Quoted names are FVAMI/FVACS.
+                    let line_start = source[..start].rfind('\n').map_or(0, |i| i + 1);
+                    let opener = last_unmatched_opener(&source[line_start..start])
+                        .map(|i| line_start + i)
+                        .filter(|&o| !source[o..start].contains(['\'', '"']));
+                    if let Some(d) =
+                        opener.and_then(|o| self.unclosed_bracket_diag(source, o, start))
+                    {
+                        diagnostics.push(d);
+                    } else if Self::is_end_of_file(node, source) {
                         if self.is_check_enabled("ENDPAR") {
                             diagnostics.push(Diagnostic {
                                     rule_id: "ENDPAR",
@@ -374,7 +449,7 @@ impl SyntaxErrorsEngine {
             let has_dotted_argument = node.children(&mut node.walk()).any(|c| {
                 c.kind() == "arguments"
                     && c.named_child(c.named_child_count().saturating_sub(1))
-                        .is_some_and(|a| a.kind() == "field_expression")
+                        .is_some_and(|a| !matches!(a.kind(), "identifier" | "string"))
             });
             if let (Some(name), Some(error), true) = (name, error, has_dotted_argument) {
                 let open = name.end_byte();
@@ -484,6 +559,14 @@ impl SyntaxErrorsEngine {
     }
 
     fn is_known_valid_error(node: &Node, source: &str) -> bool {
+        // A `;` row separator in an output list is LHROW, not a parse error.
+        if node
+            .parent()
+            .is_some_and(|p| p.kind() == "multioutput_variable")
+            && source[node.start_byte()..node.end_byte().min(source.len())].trim() == ";"
+        {
+            return true;
+        }
         let mut current = node.parent();
         while let Some(ancestor) = current {
             // An attribute list that does not parse (a line break in it) is a SYNER.
@@ -531,6 +614,9 @@ impl SyntaxErrorsEngine {
     /// argument, a known valid form, or text that MATLAB reports under another ID.
     fn is_unreported_syner(node: &Node, text: &str, source: &str) -> bool {
         (Self::is_in_function_call_args(node) && text.contains('='))
+            || !Self::literal_end_offsets(text, node.start_byte(), source).is_empty()
+            // A run of commas is NOCOMMA (`x = 1,, y = 2;`), not a parse error.
+            || text.trim_start().starts_with(',')
             || Self::is_known_valid_error(node, source)
             || is_unreported_syner_text(text)
             || is_value_end_error(node, text, source)
@@ -612,6 +698,384 @@ fn is_colon_chain(text: &str) -> bool {
         && text
             .chars()
             .all(|c| c.is_ascii_alphanumeric() || " _:.()[]=\t".contains(c))
+}
+
+impl SyntaxErrorsEngine {
+    /// Errors MATLAB reports from the text, not from the parse tree: `i -= 1` (a command
+    /// in the grammar), an `end` that follows a statement with no separator (with EOFER
+    /// for the file), a `~` in a function's output list, and an `arguments (` line that
+    /// is still open at its end of line.
+    pub(crate) fn walk_source_forms(
+        &self,
+        root: Node,
+        source: &str,
+        diagnostics: &mut Vec<Diagnostic>,
+    ) {
+        // Scripts only: MATLAB is silent on `k += 1;` inside a function (probed in fixtures).
+        if !Self::has_descendant_kind(root, "function_definition") {
+            self.walk_op_assign_commands(root, source, diagnostics);
+        }
+        self.walk_function_output_tilde(root, source, diagnostics);
+        self.check_unseparated_ends(root, source, diagnostics);
+        self.check_arguments_unclosed(source, diagnostics);
+    }
+
+    /// `i += 1` and `i -= 1` parse as a command whose first argument is the operator.
+    /// MATLAB reports SYNER at the `=`.
+    fn walk_op_assign_commands(&self, node: Node, source: &str, diagnostics: &mut Vec<Diagnostic>) {
+        if node.kind() == "command" && self.is_check_enabled("SYNER") {
+            let mut cursor = node.walk();
+            let first = node
+                .children(&mut cursor)
+                .find(|c| c.kind() == "command_argument");
+            if let Some(arg) = first {
+                let text = &source[arg.start_byte()..arg.end_byte()];
+                if matches!(text, "+=" | "-=" | "*=" | "/=" | "^=") {
+                    diagnostics.push(Self::syner_at(source, arg.end_byte() - 1));
+                }
+            }
+        }
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            self.walk_op_assign_commands(child, source, diagnostics);
+        }
+    }
+
+    /// A `~` in a function's output list (`function [a, ~] = f(x)`) is SYNER at the `~`.
+    /// A `~` followed by a comma also gives SYNER at the `]`, and the function's own
+    /// `end` gets one too (probed: b07, t17, t18).
+    fn walk_function_output_tilde(
+        &self,
+        node: Node,
+        source: &str,
+        diagnostics: &mut Vec<Diagnostic>,
+    ) {
+        if node.kind() == "function_definition" && self.is_check_enabled("SYNER") {
+            let mut ignored = Vec::new();
+            let mut cursor = node.walk();
+            for output in node
+                .children(&mut cursor)
+                .filter(|c| c.kind() == "function_output")
+            {
+                Self::collect_kind(output, "ignored_argument", &mut ignored);
+            }
+            if !ignored.is_empty() {
+                for tilde in &ignored {
+                    diagnostics.push(Self::syner_at(source, tilde.start_byte()));
+                    let after = &source[tilde.end_byte()..];
+                    if after.trim_start_matches([' ', '\t']).starts_with(',') {
+                        if let Some(rel) = after.find(']') {
+                            diagnostics.push(Self::syner_at(source, tilde.end_byte() + rel));
+                        }
+                    }
+                }
+                let head = source[..node.end_byte()].trim_end();
+                if head.ends_with("end") {
+                    diagnostics.push(Self::syner_at(source, head.len() - 3));
+                }
+            }
+        }
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            self.walk_function_output_tilde(child, source, diagnostics);
+        }
+    }
+
+    fn collect_kind<'a>(node: Node<'a>, kind: &str, out: &mut Vec<Node<'a>>) {
+        if node.kind() == kind {
+            out.push(node);
+        }
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            Self::collect_kind(child, kind, out);
+        }
+    }
+
+    /// `if x, disp(1) end`: MATLAB reports SYNER at the `end`, which follows a statement
+    /// with no separator, and EOFER for the file. Probed in scripts only: a block inside a
+    /// function gives the SYNER without EOFER.
+    fn check_unseparated_ends(&self, root: Node, source: &str, diagnostics: &mut Vec<Diagnostic>) {
+        let mut skip = Vec::new();
+        Self::collect_skip_ranges(root, &mut skip);
+        let ends = unseparated_block_ends(source, &skip);
+        if ends.is_empty() {
+            return;
+        }
+        if self.is_check_enabled("SYNER") {
+            for &at in &ends {
+                let (line, col) = line_col(source, at);
+                // A SYNER earlier on the same line belongs to the same broken statement.
+                diagnostics.retain(|d| !(d.rule_id == "SYNER" && d.line == line && d.column < col));
+                diagnostics.push(Self::syner_at(source, at));
+            }
+        }
+        if self.is_check_enabled("EOFER") && !Self::has_descendant_kind(root, "function_definition")
+        {
+            diagnostics.push(Diagnostic {
+                rule_id: "EOFER",
+                message: "Code analysis did not complete. File contains too many syntax errors."
+                    .to_string(),
+                severity: Severity::Error,
+                byte_range: 0..1,
+                line: 1,
+                column: 1,
+                fix: None,
+            });
+        }
+    }
+
+    /// `arguments (Input,` with the `(` still open at the end of its line: MATLAB reports
+    /// SYNER at the line end after a comma (probed b11), and EOLPAR at the `(` otherwise
+    /// (probed t20). The error nodes tree-sitter puts on the lines that follow are its
+    /// own cascade and are dropped.
+    fn check_arguments_unclosed(&self, source: &str, diagnostics: &mut Vec<Diagnostic>) {
+        let mut line_start = 0;
+        for (idx, line) in source.split('\n').enumerate() {
+            let at_line = line_start;
+            line_start += line.len() + 1;
+            let Some(rest) = line.trim_start().strip_prefix("arguments") else {
+                continue;
+            };
+            if !rest.starts_with([' ', '\t', '(']) {
+                continue;
+            }
+            let Some(open) = line.find('(') else {
+                continue;
+            };
+            if line[open + 1..].contains(')') {
+                continue;
+            }
+            let line_no = idx + 1;
+            diagnostics.retain(|d| {
+                !(matches!(d.rule_id, "SYNER" | "NOPAR2")
+                    && (line_no..=line_no + 2).contains(&d.line))
+            });
+            let code = line.trim_end();
+            if code.ends_with(',') {
+                if self.is_check_enabled("SYNER") {
+                    let at = at_line + code.len() - 1;
+                    let (line, column) = line_col(source, at);
+                    diagnostics.push(Diagnostic {
+                        rule_id: "SYNER",
+                        message: "Parse error at <EOL>: usage might be invalid MATLAB syntax."
+                            .to_string(),
+                        severity: Severity::Error,
+                        byte_range: at..at + 1,
+                        line,
+                        column,
+                        fix: None,
+                    });
+                }
+            } else if self.is_check_enabled("EOLPAR") {
+                let at = at_line + open;
+                let (line, column) = line_col(source, at);
+                diagnostics.push(Diagnostic {
+                    rule_id: "EOLPAR",
+                    message: "A '(' might be missing a closing ')', causing invalid syntax at end of line.".to_string(),
+                    severity: Severity::Error,
+                    byte_range: at..at + 1,
+                    line,
+                    column,
+                    fix: None,
+                });
+            }
+        }
+    }
+
+    /// A SYNER at byte `at`, naming the token there the way MATLAB does: `'='` and `')'`
+    /// quoted, identifiers and numbers bare, and keywords in capitals.
+    pub(crate) fn syner_at(source: &str, at: usize) -> Diagnostic {
+        let (token, len) = syner_token(&source[at..]);
+        let (line, column) = line_col(source, at);
+        Diagnostic {
+            rule_id: "SYNER",
+            message: format!("Parse error at {token}: usage might be invalid MATLAB syntax."),
+            severity: Severity::Error,
+            byte_range: at..at + len.max(1),
+            line,
+            column,
+            fix: None,
+        }
+    }
+
+    /// The byte MATLAB names for a parse error that tree-sitter reports from `node`: the
+    /// first unmatched closing bracket (`x = [1 2 3]]`), a keyword after `=` (`x = for;`),
+    /// the second of two adjacent values (`x = 1 2`), the second comma of `,,` (`f(1,,2)`),
+    /// and otherwise the start of the error.
+    fn syner_error_offset(node: &Node, text: &str, source: &str) -> usize {
+        let start = node.start_byte();
+        if let Some(i) = unmatched_closer(text).filter(|_| !Self::is_in_function_call_args(node)) {
+            return start + i;
+        }
+        if let Some(i) = keyword_after_equals(text) {
+            return start + i;
+        }
+        let word_len = source[start..]
+            .find(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
+            .unwrap_or(source.len() - start);
+        if word_len > 0 {
+            let rest = &source[start + word_len..];
+            let gap = rest.len() - rest.trim_start_matches([' ', '\t']).len();
+            if gap > 0
+                && rest[gap..].starts_with(|c: char| {
+                    c.is_ascii_alphanumeric() || matches!(c, '_' | '~' | '@' | '\'' | '"')
+                })
+            {
+                return start + word_len + gap;
+            }
+        }
+        if source[start..].starts_with(",,") {
+            return start + 1;
+        }
+        start
+    }
+
+    /// True when the call that holds `node` indexes with braces (`c{a=1}`), which is FVACI.
+    fn call_is_brace(node: &Node) -> bool {
+        let mut current = node.parent();
+        while let Some(ancestor) = current {
+            if ancestor.kind() == "function_call" {
+                let mut cursor = ancestor.walk();
+                return ancestor.children(&mut cursor).any(|c| c.kind() == "{");
+            }
+            current = ancestor.parent();
+        }
+        false
+    }
+
+    /// True when the call that holds `node` is a statement (`f(a.b=1);`), not a value.
+    fn call_is_statement(node: &Node) -> bool {
+        let mut current = node.parent();
+        while let Some(ancestor) = current {
+            if ancestor.kind() == "function_call" {
+                return ancestor
+                    .parent()
+                    .is_some_and(|p| matches!(p.kind(), "source_file" | "block"));
+            }
+            current = ancestor.parent();
+        }
+        false
+    }
+
+    /// The start of the positional argument after a name=value argument (`'b'` in
+    /// `f(1, Name=2, 'b')`): MATLAB reports FVAPN there.
+    fn next_argument_start(source: &str, from: usize) -> usize {
+        match source[from..].find(',') {
+            Some(c) => {
+                let after = from + c + 1;
+                after + (source[after..].len() - source[after..].trim_start().len())
+            }
+            None => from,
+        }
+    }
+}
+
+/// The token MATLAB names at the start of `rest`, quoted when it is punctuation, and
+/// its length in bytes.
+fn syner_token(rest: &str) -> (String, usize) {
+    let word_len = rest
+        .find(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
+        .unwrap_or(rest.len());
+    if word_len > 0 {
+        let word = &rest[..word_len];
+        let shown = if RESERVED_KEYWORDS.contains(&word.to_ascii_lowercase().as_str()) {
+            word.to_ascii_uppercase()
+        } else {
+            word.to_string()
+        };
+        return (shown, word_len);
+    }
+    let len = match rest.chars().next() {
+        None => return (String::new(), 0),
+        Some(c) if matches!(c, '=' | '~' | '<' | '>' | '!') && rest[1..].starts_with('=') => 2,
+        Some(c) => c.len_utf8(),
+    };
+    (format!("'{}'", &rest[..len]), len)
+}
+
+/// The offset of the first closing bracket in `text` that has no opener before it.
+fn unmatched_closer(text: &str) -> Option<usize> {
+    let mut depth = 0usize;
+    for (i, c) in text.char_indices() {
+        match c {
+            '(' | '[' | '{' => depth += 1,
+            ')' | ']' | '}' => {
+                if depth == 0 {
+                    return Some(i);
+                }
+                depth -= 1;
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+/// The offset of a reserved keyword (other than `end`) that follows `=` in `text`.
+fn keyword_after_equals(text: &str) -> Option<usize> {
+    let bytes = text.as_bytes();
+    let mut prev_sig = None;
+    let mut i = 0;
+    while i < bytes.len() {
+        let c = bytes[i];
+        if c.is_ascii_alphabetic() {
+            let s = i;
+            while i < bytes.len() && (bytes[i].is_ascii_alphanumeric() || bytes[i] == b'_') {
+                i += 1;
+            }
+            let word = text[s..i].to_ascii_lowercase();
+            if prev_sig == Some(b'=') && word != "end" && RESERVED_KEYWORDS.contains(&word.as_str())
+            {
+                return Some(s);
+            }
+            prev_sig = Some(bytes[i - 1]);
+            continue;
+        }
+        if !c.is_ascii_whitespace() {
+            prev_sig = Some(c);
+        }
+        i += 1;
+    }
+    None
+}
+
+/// The byte offsets of `end` words that close a block after a statement on the same line
+/// with no separator (`if x, disp(1) end`). Comments, strings, indexes (`x(end)`), fields
+/// (`s.end`), a `catch` line and a previous keyword (`else end`) are not counted.
+fn unseparated_block_ends(source: &str, skip: &[Range<usize>]) -> Vec<usize> {
+    let bytes = source.as_bytes();
+    source
+        .match_indices("end")
+        .map(|(at, _)| at)
+        .filter(|&at| {
+            let before_ok = at == 0
+                || !(bytes[at - 1].is_ascii_alphanumeric() || matches!(bytes[at - 1], b'_' | b'.'));
+            let after_ok = bytes
+                .get(at + 3)
+                .is_none_or(|b| !(b.is_ascii_alphanumeric() || *b == b'_'));
+            if !(before_ok && after_ok) || SyntaxErrorsEngine::in_skip_range(at, skip) {
+                return false;
+            }
+            let line_start = source[..at].rfind('\n').map_or(0, |i| i + 1);
+            let prefix = source[line_start..at].trim_end_matches([' ', '\t']);
+            let Some(prev) = prefix.chars().next_back() else {
+                return false;
+            };
+            let last_word = prefix
+                .rsplit(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
+                .next()
+                .unwrap_or("");
+            let statement_before = prev.is_ascii_alphanumeric() || matches!(prev, ')' | ']' | '}');
+            statement_before
+                && !matches!(
+                    last_word,
+                    "else" | "try" | "otherwise" | "end" | "break" | "continue" | "return"
+                )
+                && !prefix.contains("catch")
+                && !SyntaxErrorsEngine::inside_brackets(prefix)
+                && prefix.matches('(').count() <= prefix.matches(')').count()
+        })
+        .collect()
 }
 
 /// The message for a missing END, naming the block keyword it probably closes.
@@ -709,7 +1173,8 @@ mod tests {
 
     #[test]
     fn nopar2_fires_on_unclosed_bracket_mid_file() {
-        let diags = lint_file(&*engine(), "y = [1 2;\n");
+        // Mid-file only: a `[` left open at the end of the file is ENDPAR (probed b17).
+        let diags = lint_file(&*engine(), "y = [1 2;\nz = 3;\n");
         assert!(has_id(&diags, "NOPAR2"), "got: {diags:?}");
         assert!(!has_id(&diags, "EOLPAR"), "got: {diags:?}");
         assert!(!has_id(&diags, "ENDPAR"), "got: {diags:?}");
@@ -757,16 +1222,19 @@ mod tests {
 
     #[test]
     fn endpar_fires_on_missing_paren_at_eof() {
+        // Probed: `x = f(1;` and `x = f(1 + 2;` are NOPAR at the `;`, not ENDPAR.
         let diags = lint_file(&*engine(), "x = f(1 + 2;\n");
-        assert!(has_id(&diags, "ENDPAR"), "got: {diags:?}");
+        assert!(has_id(&diags, "NOPAR"), "got: {diags:?}");
+        assert!(!has_id(&diags, "ENDPAR"), "got: {diags:?}");
         assert!(!has_id(&diags, "NOPAR2"), "got: {diags:?}");
         assert!(!has_id(&diags, "EOLPAR"), "got: {diags:?}");
     }
 
     #[test]
     fn endpar_fires_on_missing_bracket_at_eof_no_newline() {
+        // Probed (b-series): `x = f(1 + 2;` without a newline is NOPAR at the `;`.
         let diags = lint_file(&*engine(), "x = f(1 + 2;");
-        assert!(has_id(&diags, "ENDPAR"), "got: {diags:?}");
+        assert!(has_id(&diags, "NOPAR"), "got: {diags:?}");
     }
 
     #[test]
@@ -784,7 +1252,6 @@ mod tests {
             "x = f(1;\nfunction foo()\n    x = f(1;\n    y = 2;\nend\nx = f(1 + 2;\n",
         );
         assert!(has_id(&diags, "NOPAR"), "got: {diags:?}");
-        assert!(has_id(&diags, "ENDPAR"), "got: {diags:?}");
     }
 
     #[test]

@@ -25,47 +25,35 @@ impl SyntaxErrorsEngine {
         reported: &mut HashSet<usize>,
     ) {
         if node.is_error() {
-            // STRIN: ERROR node whose text starts with an unmatched quote.
             let start = node.start_byte();
             let end = node.end_byte().min(source.len());
             let text = &source[start..end];
-            if text.starts_with('\'')
-                && text.matches('\'').count() % 2 == 1
-                && !reported.contains(&start)
-                && !Self::is_transpose_position(source, start)
-            {
-                let pos = node.start_position();
-                reported.insert(start);
-                diagnostics.push(Diagnostic {
-                    rule_id: "STRIN",
-                    message: "A quoted character vector is unterminated.".to_string(),
-                    severity: Severity::Error,
-                    byte_range: start..start + 1,
-                    line: pos.row + 1,
-                    column: pos.column + 1,
-                    fix: None,
-                });
+
+            // The single quotes that are not transposes, in order.
+            let mut cursor = node.walk();
+            let quotes: Vec<usize> = node
+                .children(&mut cursor)
+                .filter(|c| c.kind() == "'" && !Self::is_transpose_position(source, c.start_byte()))
+                .map(|c| c.start_byte())
+                .collect();
+            if quotes.is_empty() {
+                // No quote token: the error text itself starts with an unmatched quote.
+                if text.starts_with('\'')
+                    && text.matches('\'').count() % 2 == 1
+                    && !Self::is_transpose_position(source, start)
+                {
+                    Self::push_strin(start, source, diagnostics, reported);
+                }
+            } else {
+                for opener in Self::unterminated_quotes(&quotes, source) {
+                    Self::push_strin(opener, source, diagnostics, reported);
+                }
             }
 
-            // STRIN/DOUQT: direct quote tokens inside the ERROR node.
+            // DOUQT: a `"` token inside the ERROR node.
             let mut cursor = node.walk();
             for child in node.children(&mut cursor) {
-                if child.kind() == "'" {
-                    let pos = child.start_byte();
-                    if !reported.contains(&pos) && !Self::is_transpose_position(source, pos) {
-                        let cpos = child.start_position();
-                        reported.insert(pos);
-                        diagnostics.push(Diagnostic {
-                            rule_id: "STRIN",
-                            message: "A quoted character vector is unterminated.".to_string(),
-                            severity: Severity::Error,
-                            byte_range: pos..pos + 1,
-                            line: cpos.row + 1,
-                            column: cpos.column + 1,
-                            fix: None,
-                        });
-                    }
-                } else if child.kind() == "\"" {
+                if child.kind() == "\"" {
                     let pos = child.start_byte();
                     if !reported.contains(&pos) {
                         let cpos = child.start_position();
@@ -84,10 +72,84 @@ impl SyntaxErrorsEngine {
             }
         }
 
+        // DOUQT: a double-quoted string cannot cross a line (probed: `q = "a` newline `b";`
+        // gives DOUQT at both quotes). The tree holds the closing quote in an ERROR.
+        if node.kind() == "string" && source[node.start_byte()..].starts_with('"') {
+            let mut cursor = node.walk();
+            let closer = node
+                .children(&mut cursor)
+                .find(|c| c.is_error() && source[c.start_byte()..].starts_with('"'));
+            if let Some(closer) = closer {
+                for at in [node.start_byte(), closer.start_byte()] {
+                    if reported.insert(at) {
+                        let (line, column) = line_col(source, at);
+                        diagnostics.push(Diagnostic {
+                            rule_id: "DOUQT",
+                            message: "A double quoted string is unterminated.".to_string(),
+                            severity: Severity::Error,
+                            byte_range: at..at + 1,
+                            line,
+                            column,
+                            fix: None,
+                        });
+                    }
+                }
+            }
+        }
+
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
             Self::walk_unterminated_strings(child, source, diagnostics, reported);
         }
+    }
+
+    /// The openers of the character vectors left unterminated, from the single quotes of one
+    /// ERROR node in order. Inside a string `''` is an escaped quote; a quote closes the string,
+    /// and a line break ends it unterminated (`'abc' 'def` leaves the second quote open).
+    fn unterminated_quotes(quotes: &[usize], source: &str) -> Vec<usize> {
+        let mut unterminated = Vec::new();
+        let mut open: Option<usize> = None;
+        let mut i = 0;
+        while i < quotes.len() {
+            let q = quotes[i];
+            match open {
+                Some(o) if source[o..q].contains('\n') => {
+                    unterminated.push(o);
+                    open = None;
+                    continue;
+                }
+                Some(_) if quotes.get(i + 1) == Some(&(q + 1)) => {
+                    i += 2;
+                    continue;
+                }
+                Some(_) => open = None,
+                None => open = Some(q),
+            }
+            i += 1;
+        }
+        unterminated.extend(open);
+        unterminated
+    }
+
+    fn push_strin(
+        at: usize,
+        source: &str,
+        diagnostics: &mut Vec<Diagnostic>,
+        reported: &mut HashSet<usize>,
+    ) {
+        if !reported.insert(at) {
+            return;
+        }
+        let (line, column) = line_col(source, at);
+        diagnostics.push(Diagnostic {
+            rule_id: "STRIN",
+            message: "A quoted character vector is unterminated.".to_string(),
+            severity: Severity::Error,
+            byte_range: at..at + 1,
+            line,
+            column,
+            fix: None,
+        });
     }
 
     /// INBLK, read as MATLAB reads block comments: a block opens on a line that

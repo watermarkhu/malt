@@ -295,7 +295,7 @@ impl CompatibilityEngine {
         // Match the declaration against all other global declarations.
         for &name in names {
             let text = &source[name.start_byte()..name.end_byte()];
-            if global_declared_earlier(global_node, text, source) {
+            if global_declarations_before(global_node, text, source) == 1 {
                 push_diag("REDEFGG", REDEFGG_MSG, name, Severity::Warning, diagnostics);
             }
         }
@@ -402,21 +402,23 @@ fn collect_identifiers<'a>(node: Node<'a>, source: &'a str, out: &mut HashSet<&'
 
 /// True when the same variable name was declared `global` by an earlier
 /// statement in the file.
-fn global_declared_earlier<'a>(current: Node<'a>, name: &str, source: &'a str) -> bool {
-    // Walk every earlier sibling (and earlier siblings of ancestors) looking
-    // for a global_operator that declares `name`.
+fn global_declarations_before<'a>(current: Node<'a>, name: &str, source: &'a str) -> usize {
+    // Count the earlier siblings (and earlier siblings of ancestors) that declare
+    // `name`. MATLAB reports REDEFGG once, at the first redeclaration: a third
+    // `global n` is silent (probed).
+    let mut count = 0;
     let mut cur = current;
     loop {
         if let Some(prev) = cur.prev_sibling() {
             if node_subtree_has_global(prev, name, source) {
-                return true;
+                count += 1;
             }
             cur = prev;
         } else {
             match cur.parent() {
                 // Code before a function is another scope: stop at its header.
                 Some(parent) if parent.kind() != "function_definition" => cur = parent,
-                _ => return false,
+                _ => return count,
             }
         }
     }
@@ -674,6 +676,21 @@ mod scope_tests {
     fn redefgg_once_not_fires() {
         let d = lint_file(&*engine(), "function f()\n global g;\nend\n");
         assert!(!has_id(&d, "REDEFGG"), "got: {d:?}");
+    }
+
+    #[test]
+    fn redefgg_reported_once_per_name() {
+        // Probed (rd_glob_three.m): a third `global g` is silent; MATLAB reports the second.
+        let d = lint_file(
+            &*engine(),
+            "function f()\n global g;\n global g;\n global g;\nend\n",
+        );
+        let lines: Vec<usize> = d
+            .iter()
+            .filter(|x| x.rule_id == "REDEFGG")
+            .map(|x| x.line)
+            .collect();
+        assert_eq!(lines, vec![3], "got: {d:?}");
     }
 
     #[test]

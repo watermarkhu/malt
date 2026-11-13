@@ -47,7 +47,21 @@ impl SyntaxErrorsEngine {
                             column: number.start_position().column + 1,
                             fix: None,
                         };
-                        if text == "0" && matches!(first, 'x' | 'X') {
+                        if first == '_' {
+                            // MATLAB reads `_` inside a number as an invalid character.
+                            if self.is_check_enabled("BADCH") {
+                                let pos = error.start_position();
+                                diagnostics.push(Diagnostic {
+                                    rule_id: "BADCH",
+                                    message: "Invalid text character(s).".to_string(),
+                                    severity: Severity::Error,
+                                    byte_range: error.start_byte()..error.start_byte() + 1,
+                                    line: pos.row + 1,
+                                    column: pos.column + 1,
+                                    fix: None,
+                                });
+                            }
+                        } else if text == "0" && matches!(first, 'x' | 'X') {
                             if self.is_check_enabled("BADHBH") {
                                 diagnostics.push(at_number("BADHBH", HEX_DIGIT_MESSAGE));
                             }
@@ -75,6 +89,7 @@ impl SyntaxErrorsEngine {
                             ));
                         } else if self.is_check_enabled("BADFP")
                             && matches!(first, 'e' | 'E')
+                            && !text.contains(['e', 'E'])
                             && is_empty_exponent(&err_text[1..])
                         {
                             // `1e` and `1e+` are a float with no exponent digits. A
@@ -84,6 +99,15 @@ impl SyntaxErrorsEngine {
                         }
                     }
                 }
+            }
+
+            // `0xFF.5`: the `.` after a hex literal is not a hex digit (probed: BADHBH).
+            if (text.starts_with("0x") || text.starts_with("0X"))
+                && source[end..].starts_with('.')
+                && source[end + 1..].starts_with(|c: char| c.is_ascii_digit())
+                && self.is_check_enabled("BADHBH")
+            {
+                diagnostics.push(Self::number_diagnostic("BADHBH", HEX_DIGIT_MESSAGE, number));
             }
 
             // Digit-count checks for hex and binary literals.

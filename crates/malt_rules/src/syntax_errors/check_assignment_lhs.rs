@@ -49,16 +49,22 @@ impl SyntaxErrorsEngine {
                 // LHROW: multi-output LHS containing a row separator (`;`).
                 if self.is_check_enabled("LHROW") && lhs.kind() == "multioutput_variable" {
                     let lhs_text = &source[lhs.start_byte()..lhs.end_byte()];
-                    if lhs_text.contains(';') {
+                    if let Some(semi) = lhs_text.find(';') {
+                        // MATLAB reports the first token of the next row (`[a;b] = f()` is column 4).
+                        let after = lhs.start_byte() + semi + 1;
+                        let at = after
+                            + (source[after..].len()
+                                - source[after..].trim_start_matches([' ', '\t']).len());
+                        let (line, column) = line_col(source, at);
                         diagnostics.push(Diagnostic {
                             rule_id: "LHROW",
                             message:
                                 "The left side of an assignment cannot have multiple rows (';')."
                                     .to_string(),
                             severity: Severity::Error,
-                            byte_range: lhs.byte_range(),
-                            line: pos.row + 1,
-                            column: pos.column + 1,
+                            byte_range: at..at + 1,
+                            line,
+                            column,
                             fix: None,
                         });
                     }

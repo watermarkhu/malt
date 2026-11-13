@@ -76,7 +76,6 @@
 //! | BADHBBT | error | no | Binary literal has too many digits for specified type suffix. |
 //! | HEXTOOLONG | error | no | Hexadecimal literal has too many digits. |
 //! | BINARYTOOLONG | error | no | Binary literal has too many digits. |
-//! | VTPOD | error | no | Specify validation in the following order: size, then class, then functions. |
 //!
 //! ## Fix
 //!
@@ -358,6 +357,22 @@ impl SyntaxErrorsEngine {
         false
     }
 
+    /// A block keyword used as a value or a name (`x = for;`, `if = 1`): a plain syntax
+    /// error in MATLAB, not a missing END. `lower` is the lower-cased ERROR text.
+    pub(crate) fn is_keyword_misuse(lower: &str) -> bool {
+        let t = lower.trim();
+        let value = t.strip_prefix('=').map(str::trim).unwrap_or(t);
+        let value = value.trim_end_matches([';', ',']).trim();
+        let assigned_keyword = BLOCK_OPENERS.contains(&value) && t.starts_with('=');
+        let keyword_name = BLOCK_OPENERS.iter().any(|kw| {
+            t.strip_prefix(kw).is_some_and(|rest| {
+                let rest = rest.trim_start();
+                rest.starts_with('=') && !rest.starts_with("==")
+            })
+        });
+        assigned_keyword || keyword_name
+    }
+
     /// that starts with a block-opening keyword).
     pub(crate) fn classify_missing_end(
         node: &Node,
@@ -386,6 +401,10 @@ impl SyntaxErrorsEngine {
                 }
                 sibling = sib.next_sibling();
             }
+        }
+
+        if Self::is_keyword_misuse(&lower) {
+            return None;
         }
 
         // ENDCT2: a block opener appears in the ERROR text or its previous
@@ -480,15 +499,6 @@ impl SyntaxErrorsEngine {
     // BADNOTLHS)
     // -----------------------------------------------------------------------
 
-    /// Returns the first reserved keyword appearing as a whole word in `text`.
-    pub(crate) fn contains_reserved_word(text: &str) -> Option<&'static str> {
-        let lower = text.to_lowercase();
-        RESERVED_KEYWORDS
-            .iter()
-            .find(|&&kw| Self::contains_whole_word(&lower, kw))
-            .copied()
-    }
-
     /// Whole-word substring check: `needle` must not be part of a larger word.
     pub(crate) fn contains_whole_word(haystack: &str, needle: &str) -> bool {
         let mut search_start = 0;
@@ -514,20 +524,6 @@ impl SyntaxErrorsEngine {
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
             if Self::has_descendant_kind(child, kind) {
-                return true;
-            }
-        }
-        false
-    }
-
-    /// Returns true if the node's subtree contains an ERROR or MISSING node.
-    pub(crate) fn has_error_or_missing_descendant(node: Node) -> bool {
-        if node.is_error() || node.is_missing() {
-            return true;
-        }
-        let mut cursor = node.walk();
-        for child in node.children(&mut cursor) {
-            if Self::has_error_or_missing_descendant(child) {
                 return true;
             }
         }
@@ -713,24 +709,30 @@ impl SyntaxErrorsEngine {
     pub(crate) fn push_name_value_diagnostic(
         &self,
         name: Node,
-        _source: &str,
+        source: &str,
         diagnostics: &mut Vec<Diagnostic>,
     ) {
         // A valid MATLAB identifier is a legitimate name=value name.
         if name.kind() == "identifier" {
             return;
         }
-        // `f(a.b=1)` assigns to a field, not a name: MATLAB reports SYNER/NOPAR.
-        if name.kind() == "field_expression" {
+        // Only a quoted name is reported here. `f(a.b=1)`, `f(1=2)` and the like are
+        // NOPAR/SYNER in MATLAB (walk_dotted_name_value_calls), not FVAMI.
+        if name.kind() != "string" && !Self::has_string_child(name) {
             return;
         }
-        let is_string = name.kind() == "string" || Self::has_string_child(name);
-        let check_id = if is_string { "FVACS" } else { "FVAMI" };
+        // A quoted name with identifier text is FVACS (`'a'=1`); other text is FVAMI
+        // (`'Bad Name'=1`, probed).
+        let text = &source[name.start_byte()..name.end_byte()];
+        let inner = text.trim_matches(['\'', '"']);
+        let is_identifier = inner.starts_with(|c: char| c.is_ascii_alphabetic())
+            && inner.chars().all(|c| c.is_ascii_alphanumeric() || c == '_');
+        let check_id = if is_identifier { "FVACS" } else { "FVAMI" };
         if !self.is_check_enabled(check_id) {
             return;
         }
         let pos = name.start_position();
-        let message = if is_string {
+        let message = if is_identifier {
             "Using a character vector or string as a name in name=value syntax is not supported. Remove the quotes around the name."
         } else {
             "Name in name-value argument syntax must be a valid MATLAB identifier."
@@ -757,29 +759,6 @@ impl SyntaxErrorsEngine {
             }
         }
         None
-    }
-
-    /// A class name after the validation functions (`x {mustBeReal} double`) is an
-    /// invalid argument syntax in MATLAB, reported as FVSYN at the class name.
-    pub(crate) fn push_fvsyn_class(
-        &self,
-        node: Node,
-        source: &str,
-        diagnostics: &mut Vec<Diagnostic>,
-    ) {
-        let pos = node.start_position();
-        diagnostics.push(Diagnostic {
-            rule_id: "FVSYN",
-            message: format!(
-                "Invalid function argument syntax at {}.",
-                &source[node.start_byte()..node.end_byte()]
-            ),
-            severity: Severity::Error,
-            byte_range: node.byte_range(),
-            line: pos.row + 1,
-            column: pos.column + 1,
-            fix: None,
-        });
     }
 
     pub(crate) fn arguments_child(node: Node) -> Option<Node> {
@@ -883,7 +862,7 @@ impl Rule for SyntaxErrorsEngine {
         diagnostics.extend(self.scan_source_text(source, &skip_ranges));
 
         // 4. Unicode directional formatting characters (BADCT).
-        diagnostics.extend(self.check_directional_formatting(source));
+        diagnostics.extend(self.check_directional_formatting(source, &skip_ranges));
 
         // 5. Tree ERROR/MISSING node analysis (SYNER, NOPAR2, EOLPAR, ENDPAR, ENDCT).
         diagnostics.extend(self.check_error_nodes(root, source));
@@ -928,7 +907,7 @@ impl Rule for SyntaxErrorsEngine {
         // 13. Call/argument syntax (SBTMP, FVACI, FVACS, FVAMI).
         diagnostics.extend(self.check_call_syntax(root, source));
 
-        // 14. Argument validation order (VTPOD).
+        // 14. Argument validation order (FVSYN, and MCPLD in properties).
         diagnostics.extend(self.check_validation_order(root, source));
 
         // 15. A generic SYNER inside a token that a lexical check already reports
@@ -954,6 +933,22 @@ impl Rule for SyntaxErrorsEngine {
                         .any(|r| r.start < d.byte_range.end && d.byte_range.start < r.end))
         });
 
+        // A `,,` inside parentheses is reported at its second comma (check_file): the SYNER
+        // that tree-sitter puts on the first comma is a duplicate.
+        diagnostics.retain(|d| {
+            !(d.rule_id == "SYNER"
+                && source.as_bytes().get(d.byte_range.start) == Some(&b',')
+                && source.as_bytes().get(d.byte_range.start + 1) == Some(&b','))
+        });
+        // One diagnostic per check ID and position: several error nodes can share a token.
+        let mut seen = HashSet::new();
+        diagnostics.retain(|d| {
+            !matches!(
+                d.rule_id,
+                "SYNER" | "NOPAR" | "NOPAR2" | "EOLPAR" | "ENDPAR" | "BADNOT"
+            ) || seen.insert((d.rule_id, d.byte_range.start))
+        });
+
         diagnostics
     }
 }
@@ -975,6 +970,7 @@ const LEXICAL_CHECKS: &[&str] = &[
     "STRIN",
     "DOUQT",
     "LHROW",
+    "BADNOT",
 ];
 
 // ---------------------------------------------------------------------------
@@ -985,6 +981,27 @@ inventory::submit!(crate::RuleRegistration::new(
     "SYNTAX_ERRORS_ENGINE",
     SyntaxErrorsEngine::from_config
 ));
+
+/// The 1-based line and column of byte `at` in `source`.
+pub(crate) fn line_col(source: &str, at: usize) -> (usize, usize) {
+    let line_start = source[..at].rfind('\n').map_or(0, |i| i + 1);
+    (source[..at].matches('\n').count() + 1, at - line_start + 1)
+}
+
+/// The offset of the last opening bracket in `text` that is still open at its end.
+pub(crate) fn last_unmatched_opener(text: &str) -> Option<usize> {
+    let mut open = Vec::new();
+    for (i, c) in text.char_indices() {
+        match c {
+            '(' | '[' | '{' => open.push(i),
+            ')' | ']' | '}' => {
+                open.pop();
+            }
+            _ => {}
+        }
+    }
+    open.pop()
+}
 
 // ---------------------------------------------------------------------------
 // Tests

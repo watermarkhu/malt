@@ -45,7 +45,7 @@ impl SyntaxErrorsEngine {
     }
 
     /// Byte offsets, within `params`, of identifiers that follow another
-    /// identifier after whitespace only.
+    /// identifier or a `~` after whitespace only.
     fn sepexc_positions(params: &str) -> Vec<usize> {
         let mut positions = Vec::new();
         let mut prev_token_ident = false;
@@ -54,6 +54,11 @@ impl SyntaxErrorsEngine {
         for (i, c) in params.char_indices() {
             if c == ' ' || c == '\t' {
                 pending_ws = true;
+                prev_char_ident = false;
+            } else if c == '~' {
+                // A `~` input is a name for SEPEXC: `(~ a)` reports `a` (probed).
+                prev_token_ident = true;
+                pending_ws = false;
                 prev_char_ident = false;
             } else if c.is_ascii_alphanumeric() || c == '_' {
                 if !prev_char_ident {
@@ -85,9 +90,15 @@ mod tests {
     }
 
     #[test]
+    fn sepexc_positions_point_at_name_after_tilde() {
+        assert_eq!(SyntaxErrorsEngine::sepexc_positions("~ a"), vec![2]);
+        assert_eq!(SyntaxErrorsEngine::sepexc_positions("a ~ b"), vec![4]);
+    }
+
+    #[test]
     fn sepexc_positions_ok_with_commas_tilde_and_single_names() {
         assert!(SyntaxErrorsEngine::sepexc_positions("a, b").is_empty());
-        assert!(SyntaxErrorsEngine::sepexc_positions("~ a").is_empty());
+        assert!(SyntaxErrorsEngine::sepexc_positions("~a").is_empty());
         assert!(SyntaxErrorsEngine::sepexc_positions("varargin").is_empty());
         assert!(SyntaxErrorsEngine::sepexc_positions("").is_empty());
     }

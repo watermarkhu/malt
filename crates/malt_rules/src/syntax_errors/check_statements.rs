@@ -44,6 +44,59 @@ impl SyntaxErrorsEngine {
             }
         }
 
+        // REDEF: a method defined twice in a class's methods blocks, constructors
+        // included (probed: a second `DupCtor(x)` constructor is reported at its line).
+        fn methods_of<'a>(node: Node<'a>, in_methods: bool, out: &mut Vec<Node<'a>>) {
+            if node.kind() == "function_definition" {
+                if in_methods {
+                    out.push(node);
+                }
+                return;
+            }
+            let in_methods = in_methods || node.kind() == "methods";
+            let mut cursor = node.walk();
+            for child in node.children(&mut cursor) {
+                methods_of(child, in_methods, out);
+            }
+        }
+        let mut cursor = root.walk();
+        for class in root
+            .children(&mut cursor)
+            .filter(|c| c.kind() == "class_definition")
+        {
+            let mut methods = Vec::new();
+            methods_of(class, false, &mut methods);
+            let mut first_lines: std::collections::HashMap<String, usize> =
+                std::collections::HashMap::new();
+            for method in methods {
+                let Some(name_node) = method.child_by_field_name("name") else {
+                    continue;
+                };
+                let name = source[name_node.start_byte()..name_node.end_byte()].to_string();
+                let pos = name_node.start_position();
+                match first_lines.get(&name) {
+                    Some(&first_line) => {
+                        if self.is_check_enabled("REDEF") {
+                            diagnostics.push(Diagnostic {
+                                rule_id: "REDEF",
+                                message: format!(
+                                    "The current use of {name} is inconsistent with its previous use or definition (line {first_line})."
+                                ),
+                                severity: Severity::Error,
+                                byte_range: name_node.byte_range(),
+                                line: pos.row + 1,
+                                column: pos.column + 1,
+                                fix: None,
+                            });
+                        }
+                    }
+                    None => {
+                        first_lines.insert(name, pos.row + 1);
+                    }
+                }
+            }
+        }
+
         self.walk_statements(
             root,
             source,
@@ -247,6 +300,27 @@ impl SyntaxErrorsEngine {
             }
         }
 
+        // A function body is its own scope: its variables are not compared with the
+        // file's functions or with another function's variables (probed: `function
+        // f(); x = 1; end` next to `function x(); end` is silent).
+        if kind == "function_definition" {
+            let mut scope_functions = HashSet::new();
+            let mut scope_variables = std::collections::HashMap::new();
+            let mut scope_reported = HashSet::new();
+            let mut cursor = node.walk();
+            for child in node.children(&mut cursor) {
+                self.walk_statements(
+                    child,
+                    source,
+                    diagnostics,
+                    &mut scope_functions,
+                    &mut scope_variables,
+                    &mut scope_reported,
+                );
+            }
+            return;
+        }
+
         // Recurse into children.
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
@@ -322,9 +396,10 @@ mod tests {
     // -- REDEF: identifier as both function name and variable ---------------
 
     #[test]
-    fn redef_fires_on_function_and_variable() {
+    fn redef_ok_for_function_name_assigned_in_its_body() {
+        // Probed (fnclash.m, rd_self_x.m): MATLAB is silent; only NASGU/FNDEF.
         let diags = lint_file(&*engine(), "function foo()\n    foo = 1;\nend\n");
-        assert!(has_id(&diags, "REDEF"), "got: {diags:?}");
+        assert!(!has_id(&diags, "REDEF"), "got: {diags:?}");
     }
 
     #[test]
@@ -383,5 +458,76 @@ mod redef_tests {
         // An assignment through the loop variable is not a command word.
         let diags = lint_file(&*engine(), "for k=1:3\n  k(2) = 1;\nend\n");
         assert!(!has_id(&diags, "REDEF"), "got: {diags:?}");
+    }
+}
+
+#[cfg(test)]
+mod redef_scope_tests {
+    use super::*;
+    use crate::test_util::{has_id, lint_file};
+    use malt_core::Config;
+
+    fn engine() -> Box<dyn Rule> {
+        SyntaxErrorsEngine::from_config(&Config::default())
+    }
+
+    fn redef_lines(src: &str) -> Vec<usize> {
+        lint_file(&*engine(), src)
+            .iter()
+            .filter(|d| d.rule_id == "REDEF")
+            .map(|d| d.line)
+            .collect()
+    }
+
+    #[test]
+    fn redef_fires_for_duplicate_constructor() {
+        // Probed (DupCtor.m): the second constructor, line 5, is reported.
+        let src = "classdef DupCtor\nmethods\nfunction obj = DupCtor()\nend\nfunction obj = DupCtor(x)\nend\nend\nend\n";
+        assert_eq!(redef_lines(src), vec![5]);
+    }
+
+    #[test]
+    fn redef_fires_for_duplicate_method() {
+        // Probed (DupMeth.m): the second `f`, line 6.
+        let src = "classdef DupMeth\nmethods\nfunction r = f(obj)\nr = 1;\nend\nfunction r = f(obj)\nr = 2;\nend\nend\nend\n";
+        assert_eq!(redef_lines(src), vec![6]);
+    }
+
+    #[test]
+    fn redef_ok_for_distinct_methods_and_constructor() {
+        let src = "classdef Ok\nmethods\nfunction obj = Ok()\nend\nfunction r = g(obj)\nr = 1;\nend\nend\nend\n";
+        assert!(redef_lines(src).is_empty());
+    }
+
+    #[test]
+    fn redef_ok_for_variable_and_function_in_different_scopes() {
+        // Probed (rd_scope_two.m, rd_var_fn.m): MATLAB is silent.
+        let src = "function a()\nx = 1;\nend\nfunction b()\nx = 2;\nend\nfunction x()\nend\n";
+        assert!(redef_lines(src).is_empty(), "{:?}", redef_lines(src));
+    }
+
+    #[test]
+    fn redef_ok_for_ans_function_assigning_ans() {
+        // Probed (rd_ansf.m): MATLAB reports FCNANS, not REDEF.
+        assert!(redef_lines("function ans()\nans = 2;\nend\n").is_empty());
+    }
+
+    #[test]
+    fn redef_fires_for_script_variable_then_function() {
+        // Probed (rd_script_fn.m): the function name at line 2 is redefined.
+        assert_eq!(redef_lines("x = 1;\nfunction x()\nend\n"), vec![2]);
+    }
+
+    #[test]
+    fn redef_fires_for_command_word_in_a_function() {
+        // Probed (rd_cmd.m): `psd x` after `psd = 5` inside a function.
+        assert_eq!(
+            redef_lines("function rd_cmd()\npsd = 5;\npsd x\nend\n"),
+            vec![3]
+        );
+        assert!(has_id(
+            &lint_file(&*engine(), "function f()\npsd = 5;\npsd x\nend\n"),
+            "REDEF"
+        ));
     }
 }

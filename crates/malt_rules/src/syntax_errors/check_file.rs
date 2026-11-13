@@ -32,7 +32,9 @@ impl SyntaxErrorsEngine {
             // which MATLAB reads as the end of the text), and `$` and backtick,
             // which MATLAB has no token for. `?` and `@` are parse errors (SYNER).
             if self.is_check_enabled("BADCH")
-                && ((b < 0x20 && !matches!(b, b'\t' | b'\n' | b'\r' | 0)) || b == b'$' || b == b'`')
+                && ((b < 0x20 && !matches!(b, b'\t' | b'\n' | b'\r' | 0x0b | 0x0c | 0))
+                    || b == b'$'
+                    || b == b'`')
                 && !Self::in_skip_range(i, skip_ranges)
             {
                 diagnostics.push(Diagnostic {
@@ -111,15 +113,38 @@ impl SyntaxErrorsEngine {
                 && Self::inside_brackets(&source[line_start..i])
                 && !Self::in_skip_range(i, skip_ranges)
             {
+                // MATLAB reports the second comma (`x = [1,,2];` is column 8).
                 diagnostics.push(Diagnostic {
                     rule_id: "TWOCM",
                     message: "A comma cannot immediately follow another comma.".to_string(),
                     severity: Severity::Error,
-                    byte_range: i..i + 2,
+                    byte_range: i + 1..i + 2,
                     line,
-                    column: i - line_start + 1,
+                    column: i - line_start + 2,
                     fix: None,
                 });
+                i += 2;
+                continue;
+            }
+
+            // `f(1,,2)`: outside brackets MATLAB reports SYNER at the second comma and at the
+            // `)` that closes the call (probed: `f(1,,2);` gives columns 5 and 7).
+            if self.is_check_enabled("SYNER")
+                && b == b','
+                && i + 1 < len
+                && bytes[i + 1] == b','
+                && last_unmatched_opener(&source[line_start..i])
+                    .is_some_and(|o| source.as_bytes()[line_start + o] == b'(')
+                && !Self::in_skip_range(i, skip_ranges)
+            {
+                diagnostics.push(Self::syner_at(source, i + 1));
+                let close = source[i + 2..]
+                    .find(['\n', ')'])
+                    .map(|o| i + 2 + o)
+                    .filter(|&c| bytes[c] == b')');
+                if let Some(close) = close {
+                    diagnostics.push(Self::syner_at(source, close));
+                }
                 i += 2;
                 continue;
             }

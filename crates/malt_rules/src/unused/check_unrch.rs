@@ -15,6 +15,7 @@ impl UnusedEngine {
         }
 
         let mut seen: std::collections::HashSet<(usize, usize)> = std::collections::HashSet::new();
+        collect_empty_try(ctx.tree.root_node(), &mut seen, diagnostics);
 
         // Statements after return/break/continue.
         for span in find_unreachable(ctx.tree, ctx.source) {
@@ -155,6 +156,38 @@ fn emit_unrch(
         column,
         fix: None,
     });
+}
+
+/// A `try` with an empty body: MATLAB reports its `catch` as unreachable (probed:
+/// `try, catch end` and `try, catch ME, end` report the `catch` keyword).
+fn collect_empty_try(
+    node: Node,
+    seen: &mut std::collections::HashSet<(usize, usize)>,
+    diagnostics: &mut Vec<Diagnostic>,
+) {
+    if node.kind() == "try_statement" {
+        let children = named_children(node);
+        let body_has_statement = children
+            .iter()
+            .filter(|c| c.kind() == "block")
+            .flat_map(|block| named_children(*block))
+            .any(|c| c.kind() != "comment");
+        if !body_has_statement {
+            if let Some(catch) = children.iter().find(|c| c.kind() == "catch_clause") {
+                let pos = catch.start_position();
+                emit_unrch(
+                    catch.start_byte()..catch.end_byte(),
+                    pos.row + 1,
+                    pos.column + 1,
+                    seen,
+                    diagnostics,
+                );
+            }
+        }
+    }
+    for child in named_children(node) {
+        collect_empty_try(child, seen, diagnostics);
+    }
 }
 
 /// Collect named children of a node.
@@ -562,5 +595,73 @@ mod tests {
             "function foo()\n    x = 1;\n    disp(x);\nend\n",
         );
         assert!(!has_id(&diags, "UNRCH"), "got: {diags:?}");
+    }
+}
+
+#[cfg(test)]
+mod literal_condition_tests {
+    use super::*;
+    use crate::test_util::lint_file;
+
+    fn engine() -> Box<dyn Rule> {
+        UnusedEngine::from_config(&Config::default())
+    }
+
+    fn unrch(src: &str) -> Vec<(usize, usize)> {
+        lint_file(&*engine(), src)
+            .iter()
+            .filter(|d| d.rule_id == "UNRCH")
+            .map(|d| (d.line, d.column))
+            .collect()
+    }
+
+    #[test]
+    fn unrch_after_constant_true_if_that_returns() {
+        // Probed: `if 1, return, end` (line 2), `if true` and `if ~0` (lines 2-4).
+        assert_eq!(
+            unrch("function f()\nif 1, return, end\ndisp(1)\nend\n"),
+            vec![(3, 1)]
+        );
+        assert_eq!(
+            unrch("function f()\nif true\n return\nend\ndisp(2)\nend\n"),
+            vec![(5, 1)]
+        );
+        assert_eq!(
+            unrch("function f()\nif ~0\n return\nend\ndisp(1)\nend\n"),
+            vec![(5, 1)]
+        );
+    }
+
+    #[test]
+    fn unrch_after_constant_true_if_else_is_dead() {
+        // Probed-consistent: the else of a constant true `if` is dead, and the code
+        // after an `if` whose every live branch returns is unreachable (line 7).
+        let found = unrch("function f()\nif 1\n return\nelse\n disp(1)\nend\ndisp(2)\nend\n");
+        assert!(found.iter().any(|&(line, _)| line == 7), "{found:?}");
+    }
+
+    #[test]
+    fn unrch_silent_after_constant_true_if_that_falls_through() {
+        // Probed (unrch_one_nobr.m): `if 1` without a return leaves the rest reachable.
+        assert!(unrch("function f()\nif 1\n disp(1)\nend\ndisp(2)\nend\n").is_empty());
+    }
+
+    #[test]
+    fn unrch_silent_after_if_on_unknown_condition() {
+        // Probed (unrch_neg.m).
+        assert!(unrch("function f(x)\nif ~x\n return\nend\ndisp(1)\nend\n").is_empty());
+    }
+
+    #[test]
+    fn unrch_at_catch_of_empty_try() {
+        // Probed (try_empty.m, try_c3.m): the `catch` at column 6 is unreachable.
+        assert_eq!(unrch("try, catch end\n"), vec![(1, 6)]);
+        assert_eq!(unrch("try, catch ME, end\n"), vec![(1, 6)]);
+    }
+
+    #[test]
+    fn unrch_silent_for_try_with_a_statement() {
+        // Probed (try_multi.m).
+        assert!(unrch("try\n x = 1;\ncatch, end\n").is_empty());
     }
 }

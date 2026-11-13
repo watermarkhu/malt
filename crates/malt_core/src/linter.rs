@@ -25,8 +25,23 @@ const NUMBER_LITERAL_IDS: &[&str] = &["BADHBH", "BADHBB", "BADFP", "BADHBHT", "B
 /// statement error is itself reported by one of them, or they describe the
 /// structure of the broken region (missing `end` or bracket).
 const STATEMENT_ERROR_KEPT_IDS: &[&str] = &[
-    "NOSEMI", "NOCOMMA", "NOPAR", "NOPAR2", "EOLPAR", "ENDPAR", "ENDCT", "ENDCT2", "ENDCT3",
-    "ENDCT4", "RESWD", "FVSYN", "SBTMP",
+    "NOSEMI",
+    "NOCOMMA",
+    "NOPAR",
+    "NOPAR2",
+    "EOLPAR",
+    "ENDPAR",
+    "ENDCT",
+    "ENDCT2",
+    "ENDCT3",
+    "ENDCT4",
+    "RESWD",
+    "FVSYN",
+    "SBTMP",
+    "INBLK",
+    "BADNOT",
+    "BADNOTLHS",
+    "EOFER",
 ];
 
 /// Removes the diagnostics of the statements that hold a token MATLAB cannot

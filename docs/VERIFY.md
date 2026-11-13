@@ -195,7 +195,7 @@ Open after the audit and the follow-up pass (probe files are not kept; re-probe 
 
 Open after the audit (re-probe before changing):
 
-- Parser-driven (tree-sitter-matlab 1.3.0 gives ERROR nodes for valid MATLAB): `arguments` attribute values and `opts.?pkg.Class = 1` are parse in the fork (the earlier same-length source rewrite is gone); `y = end + 1;` no longer gives SYNER. Still open: `arguments (Input,⏎ Repeating)` line, `enumeration (Foo)` with one `end`, `e = [1 2 3](end)` in a property block (MCPLD), `[end]`/`{end}` (RESWD), `function [a, ~]` (BADNOT), `i += 1;` (SYNER missed), EOFER, UNRCH after `if 1, return, end`.
+- Parser-driven (tree-sitter-matlab gives ERROR nodes for valid MATLAB): `arguments` attribute values and `opts.?pkg.Class = 1` are parse in the fork (the earlier same-length source rewrite is gone); `y = end + 1;` no longer gives SYNER. Still open: `arguments (Input,⏎ Repeating)` line, `enumeration (Foo)` with one `end`, `e = [1 2 3](end)` in a property block (MCPLD), `[end]`/`{end}` (RESWD), `function [a, ~]` (BADNOT), `i += 1;` (SYNER missed), EOFER, UNRCH after `if 1, return, end`.
 - Class checks: MCMTP false positive (non-static `TestParameterDefinition`); MCCBD (constructor prototype in a methods block), MCSCF, and ATUNK for enumeration attributes are missed; `methods (Static = TRUE)` is NOIN in MATLAB; MATLAB does emit MCCSPS on `ClassName.K = v` in a method.
 - FNCOLND (`disp(end)`), UNRCH after `if 1 return end`, FCONV position (first reference), REDEF for duplicate local functions and constructors, REDEFGG, NBRAK2 on `[narginchk]` and `[1:2:3]`, `function [a, ~]` (MATLAB: syntax error), `a (1 2)` dimensions, ERTXT through a variable.
 - MSNU for language_spec directives (BRKFOR, WTXT, CTOINE) needs `active_check_ids`.
@@ -205,3 +205,9 @@ Open after the audit (re-probe before changing):
 ## Parser fork
 
 malt depends on `tree-sitter-matlab` 1.3.3 plus the fork branch `malt-parser-fixes` (watermarkhu/tree-sitter-matlab): `arguments` attribute values, `opts.?pkg.Class = 1`, `end` as an expression outside an index and four-element ranges now parse. The fork also accepts `if end > 1`, which MATLAB rejects; malt reports it as SYNER. Fork changes follow the upstream CONTRIBUTING rules (minimal, no new node types, no generated files in source commits) so they can be sent upstream.
+
+## Phase 2.3 audit gaps (syntax_errors)
+
+Closed: REDEF scoped per function body, REDEF for duplicate methods and constructors, REDEFGG once per name, CLIS/SOFOC/CLTWO lines, SEMFU, BDFIL limit (2048 characters), UNRCH after a constant-true `if` and for `try, catch end`, SYNER/NOPAR/EOLPAR/ENDPAR token positions, EOFER for an unseparated `end` in scripts, RESWD only for `end` inside `[ ]`/`{ }`, BADNOT/BADNOTLHS, BADCH/BADCT, STRIN/DOUQT pairing, FVSYN/MCPLD ordering tokens, keywords used as values (`x = for;`) are SYNER not ENDCT, a `;` row in an output list is LHROW only. `i += 1;` is SYNER in scripts only (silent in functions in the fixtures).
+
+Open: FVAMI on `f('Bad Name' = 1)` (the linter drops the finding because the statement has an ERROR node); FNSWA fires on `function y = _x()` (MATLAB: BADCH; MATLAB never reports FNSWA in the probes); NOSEMI on `case 1 y = 1;`; `u = (1:2:3:4)` M3COL column and `1:2:3:4:5`; `[a;b;c] = size(x)` LHROW and NOPAR2; `[~ ~] = f()` BADNOT at the second `~`; `x = 1e+;` MISSING-node SYNER; a multi-line `"..."` DOUQT shape; EOFER also silences other checks in MATLAB; `IDXCOLND` on `[end + 1]`; NOPAR vs NOPAR2 on `f(123=1)`; REDEF messages do not quote names.

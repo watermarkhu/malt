@@ -319,12 +319,6 @@ Severity: **error** · Auto-fix: **no**
 
 Binary literal has too many digits.
 
-### VTPOD
-
-Severity: **error** · Auto-fix: **no**
-
-Specify validation in the following order: size, then class, then functions.
-
 ## Automatic fixes
 
 Two checks carry automatic fixes:

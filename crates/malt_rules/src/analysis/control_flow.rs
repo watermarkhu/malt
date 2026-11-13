@@ -285,7 +285,7 @@ pub fn in_unreachable_code(node: Node, source: &str) -> bool {
             continue;
         }
         if termination_cause(sibling.kind()).is_some()
-            || (sibling.kind() == "if_statement" && if_terminates(sibling))
+            || (sibling.kind() == "if_statement" && if_terminates(sibling, source))
         {
             return true;
         }
@@ -329,7 +329,7 @@ fn check_block_unreachable(block: Node, source: &str, spans: &mut Vec<Unreachabl
             break;
         } else if let Some(cause) = termination_cause(child.kind()) {
             terminator_found = Some(cause);
-        } else if child.kind() == "if_statement" && if_terminates(*child) {
+        } else if child.kind() == "if_statement" && if_terminates(*child, source) {
             terminator_found = Some("return");
         }
     }
@@ -351,7 +351,7 @@ fn check_block_unreachable(block: Node, source: &str, spans: &mut Vec<Unreachabl
 ///   and ALL branches (if, elseif*, else) terminate, OR
 /// - Its last named statement is a `switch_statement` that has an
 ///   `otherwise_clause` and ALL cases plus otherwise terminate.
-pub fn block_terminates(block_node: Node) -> bool {
+pub fn block_terminates(block_node: Node, source: &str) -> bool {
     let children = named_children(block_node);
 
     for child in &children {
@@ -364,8 +364,8 @@ pub fn block_terminates(block_node: Node) -> bool {
     // Check the last named statement for compound termination.
     if let Some(last) = children.last() {
         match last.kind() {
-            "if_statement" => return if_terminates(*last),
-            "switch_statement" => return switch_terminates(*last),
+            "if_statement" => return if_terminates(*last, source),
+            "switch_statement" => return switch_terminates(*last, source),
             _ => {}
         }
     }
@@ -375,59 +375,70 @@ pub fn block_terminates(block_node: Node) -> bool {
 
 /// Check if an `if_statement` unconditionally terminates.
 ///
-/// Requires an `else_clause`, and every branch body must terminate.
-fn if_terminates(if_node: Node) -> bool {
-    let mut has_else = false;
-    let children = named_children(if_node);
-
-    // The if body is the `block` child directly under the if_statement.
-    // elseif_clause and else_clause are also named children.
-
-    // Find the main if-body block.
-    let mut if_body_terminates = false;
-    for child in &children {
-        if child.kind() == "block" {
-            if_body_terminates = block_terminates(*child);
-            break;
-        }
-    }
-
-    if !if_body_terminates {
-        return false;
-    }
-
-    for child in &children {
+/// Every clause that can run must terminate, and some clause must always run: an
+/// `else_clause`, or a clause whose condition is a literal true. Probed: `if 1,
+/// return, end` makes the code after it unreachable. A clause whose condition is a
+/// literal false never runs.
+fn if_terminates(if_node: Node, source: &str) -> bool {
+    let mut clauses: Vec<(Option<bool>, Node)> = Vec::new();
+    for child in named_children(if_node) {
         match child.kind() {
-            "elseif_clause" => {
-                // Each elseif has a block child.
-                let elseif_children = named_children(*child);
-                let body = elseif_children.iter().find(|c| c.kind() == "block");
-                match body {
-                    Some(b) if block_terminates(*b) => {}
-                    _ => return false,
-                }
-            }
-            "else_clause" => {
-                has_else = true;
-                let else_children = named_children(*child);
-                let body = else_children.iter().find(|c| c.kind() == "block");
-                match body {
-                    Some(b) if block_terminates(*b) => {}
-                    _ => return false,
+            "block" => clauses.push((literal_condition(if_node, source), child)),
+            "elseif_clause" | "else_clause" => {
+                let truth = if child.kind() == "else_clause" {
+                    Some(true)
+                } else {
+                    literal_condition(child, source)
+                };
+                match named_children(child)
+                    .into_iter()
+                    .find(|c| c.kind() == "block")
+                {
+                    Some(body) => clauses.push((truth, body)),
+                    None => return false,
                 }
             }
             _ => {}
         }
     }
+    for (truth, body) in clauses {
+        match truth {
+            Some(false) => {}
+            Some(true) => return block_terminates(body, source),
+            None if !block_terminates(body, source) => return false,
+            None => {}
+        }
+    }
+    false
+}
 
-    // Must have an else clause for complete coverage.
-    has_else
+/// The truth of an `if` or `elseif` clause whose condition is a literal.
+fn literal_condition(clause: Node, source: &str) -> Option<bool> {
+    clause
+        .child_by_field_name("condition")
+        .and_then(|condition| literal_text_truth(node_text(condition, source).trim()))
+}
+
+/// The truth of a literal: `true`, `false`, a number, or one of those negated with
+/// `~`. Variables are not folded here.
+fn literal_text_truth(text: &str) -> Option<bool> {
+    if let Some(rest) = text.strip_prefix('~') {
+        return literal_text_truth(rest.trim_start()).map(|truth| !truth);
+    }
+    match text {
+        "true" => Some(true),
+        "false" => Some(false),
+        _ if text.starts_with(|c: char| c.is_ascii_digit()) => {
+            text.parse::<f64>().ok().map(|value| value != 0.0)
+        }
+        _ => None,
+    }
 }
 
 /// Check if a `switch_statement` unconditionally terminates.
 ///
 /// Requires an `otherwise_clause`, and every case plus otherwise must terminate.
-fn switch_terminates(switch_node: Node) -> bool {
+fn switch_terminates(switch_node: Node, source: &str) -> bool {
     let mut has_otherwise = false;
     let children = named_children(switch_node);
 
@@ -437,7 +448,7 @@ fn switch_terminates(switch_node: Node) -> bool {
                 let case_children = named_children(*child);
                 let body = case_children.iter().find(|c| c.kind() == "block");
                 match body {
-                    Some(b) if block_terminates(*b) => {}
+                    Some(b) if block_terminates(*b, source) => {}
                     _ => return false,
                 }
             }
@@ -446,7 +457,7 @@ fn switch_terminates(switch_node: Node) -> bool {
                 let ow_children = named_children(*child);
                 let body = ow_children.iter().find(|c| c.kind() == "block");
                 match body {
-                    Some(b) if block_terminates(*b) => {}
+                    Some(b) if block_terminates(*b, source) => {}
                     _ => return false,
                 }
             }
@@ -1315,7 +1326,7 @@ end
         let func = first_function(&tree);
         let children = named_children(func);
         let block = children.iter().find(|c| c.kind() == "block").unwrap();
-        assert!(block_terminates(*block));
+        assert!(block_terminates(*block, source));
     }
 
     #[test]
@@ -1329,7 +1340,7 @@ end
         let func = first_function(&tree);
         let children = named_children(func);
         let block = children.iter().find(|c| c.kind() == "block").unwrap();
-        assert!(!block_terminates(*block));
+        assert!(!block_terminates(*block, source));
     }
 
     #[test]
@@ -1347,7 +1358,7 @@ end
         let func = first_function(&tree);
         let children = named_children(func);
         let block = children.iter().find(|c| c.kind() == "block").unwrap();
-        assert!(block_terminates(*block));
+        assert!(block_terminates(*block, source));
     }
 
     #[test]
@@ -1363,7 +1374,7 @@ end
         let func = first_function(&tree);
         let children = named_children(func);
         let block = children.iter().find(|c| c.kind() == "block").unwrap();
-        assert!(!block_terminates(*block));
+        assert!(!block_terminates(*block, source));
     }
 
     // ======================================================================
