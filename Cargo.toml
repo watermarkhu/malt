@@ -26,7 +26,7 @@ malt-core = { path = "crates/malt_core", version = "0.0.0" }
 malt-rules = { path = "crates/malt_rules", version = "0.0.0" }
 tree-sitter = "0.25"
 tree-sitter-language = "0.1"
-tree-sitter-matlab = "1.3"
+tree-sitter-matlab = { git = "https://github.com/watermarkhu/tree-sitter-matlab", rev = "fe5565f1715db3af3a5a02753d7ee84e810f5ca5" }
 serde = { version = "1", features = ["derive"] }
 toml = "0.8"
 thiserror = "2"

@@ -103,14 +103,24 @@ impl LanguageSpecEngine {
 /// Whether an `end` sits in the header of an `if`, `elseif`, `while`, `for` or `switch`
 /// statement, where the parse fails. MATLAB reports that as SYNER, not as IDXCOLND
 /// (probed: `if end > 1`).
-fn in_control_header(node: tree_sitter::Node) -> bool {
-    let mut ancestor = node.parent();
-    while let Some(parent) = ancestor {
+pub(crate) fn in_control_header(node: tree_sitter::Node) -> bool {
+    let mut child = node;
+    while let Some(parent) = child.parent() {
         match parent.kind() {
-            "end_keyword" | "ERROR" => ancestor = parent.parent(),
-            "if_statement" | "elseif_clause" | "while_statement" | "for_statement"
-            | "switch_statement" => return true,
-            _ => return false,
+            "if_statement" | "elseif_clause" | "while_statement" => {
+                return parent
+                    .child_by_field_name("condition")
+                    .is_some_and(|c| c.id() == child.id());
+            }
+            "for_statement" | "switch_statement" => return child.kind() != "block",
+            "block"
+            | "source_file"
+            | "function_definition"
+            | "class_definition"
+            | "function_call"
+            | "cell_index"
+            | "arguments" => return false,
+            _ => child = parent,
         }
     }
     false

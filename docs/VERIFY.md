@@ -195,7 +195,7 @@ Open after the audit and the follow-up pass (probe files are not kept; re-probe 
 
 Open after the audit (re-probe before changing):
 
-- Parser-driven (tree-sitter-matlab 1.3.0 gives ERROR nodes for valid MATLAB): `arguments` attribute values and `opts.?pkg.Class = 1` are repaired by a same-length source rewrite before parsing (`malt_core/src/declaration.rs`); `y = end + 1;` no longer gives SYNER. Still open: `arguments (Input,⏎ Repeating)` line, `enumeration (Foo)` with one `end`, `e = [1 2 3](end)` in a property block (MCPLD), `[end]`/`{end}` (RESWD), `function [a, ~]` (BADNOT), `i += 1;` (SYNER missed), EOFER, UNRCH after `if 1, return, end`.
+- Parser-driven (tree-sitter-matlab 1.3.0 gives ERROR nodes for valid MATLAB): `arguments` attribute values and `opts.?pkg.Class = 1` are parse in the fork (the earlier same-length source rewrite is gone); `y = end + 1;` no longer gives SYNER. Still open: `arguments (Input,⏎ Repeating)` line, `enumeration (Foo)` with one `end`, `e = [1 2 3](end)` in a property block (MCPLD), `[end]`/`{end}` (RESWD), `function [a, ~]` (BADNOT), `i += 1;` (SYNER missed), EOFER, UNRCH after `if 1, return, end`.
 - Class checks: MCMTP false positive (non-static `TestParameterDefinition`); MCCBD (constructor prototype in a methods block), MCSCF, and ATUNK for enumeration attributes are missed; `methods (Static = TRUE)` is NOIN in MATLAB; MATLAB does emit MCCSPS on `ClassName.K = v` in a method.
 - FNCOLND (`disp(end)`), UNRCH after `if 1 return end`, FCONV position (first reference), REDEF for duplicate local functions and constructors, REDEFGG, NBRAK2 on `[narginchk]` and `[1:2:3]`, `function [a, ~]` (MATLAB: syntax error), `a (1 2)` dimensions, ERTXT through a variable.
 - MSNU for language_spec directives (BRKFOR, WTXT, CTOINE) needs `active_check_ids`.
@@ -204,4 +204,4 @@ Open after the audit (re-probe before changing):
 
 ## Parser fork
 
-`tree-sitter-matlab` fixes for `arguments` attribute values, `opts.?pkg.Class = 1`, `end` as an expression and 4-element ranges live on branch `malt-parser-fixes` of the fork (watermarkhu/tree-sitter-matlab); malt works around them until it depends on the fork.
+malt depends on `tree-sitter-matlab` 1.3.3 plus the fork branch `malt-parser-fixes` (watermarkhu/tree-sitter-matlab): `arguments` attribute values, `opts.?pkg.Class = 1`, `end` as an expression outside an index and four-element ranges now parse. The fork also accepts `if end > 1`, which MATLAB rejects; malt reports it as SYNER. Fork changes follow the upstream CONTRIBUTING rules (minimal, no new node types, no generated files in source commits) so they can be sent upstream.

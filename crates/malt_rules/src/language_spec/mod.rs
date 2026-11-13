@@ -3288,6 +3288,7 @@ mod check_ctoine;
 mod check_ctoro;
 mod check_dupnamearg;
 mod check_end_operator;
+pub(crate) use check_end_operator::in_control_header;
 mod check_error_warning_message;
 mod check_fconv;
 mod check_fv_ordering;
@@ -3388,10 +3389,7 @@ mod tests {
         parser
             .set_language(&language.into())
             .expect("failed to set MATLAB language");
-        let text = malt_core::declaration::parse_text(source);
-        parser
-            .parse(text.as_deref().unwrap_or(source), None)
-            .expect("failed to parse")
+        parser.parse(source, None).expect("failed to parse")
     }
 
     /// Run the language spec engine on source code with a given file path.

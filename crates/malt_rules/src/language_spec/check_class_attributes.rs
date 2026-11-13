@@ -365,13 +365,11 @@ impl LanguageSpecEngine {
                     let mut cursor = attrs_node.walk();
                     for child in attrs_node.children(&mut cursor) {
                         match child.kind() {
-                            // The value is blanked in the tree (see declaration.rs), so
-                            // its `=` is read from the source.
-                            "identifier"
-                                if source[child.end_byte()..].trim_start().starts_with('=')
-                                    || source[..child.start_byte()].trim_end().ends_with('~') =>
-                            {
-                                assigned.push(node_text(child, source).to_string());
+                            // `Input = value` is an `attribute` with a value child.
+                            "attribute" if child.named_child_count() > 1 => {
+                                if let Some(name) = child.named_child(0) {
+                                    assigned.push(node_text(name, source).to_string());
+                                }
                             }
                             "not_operator" => {
                                 let text = node_text(child, source);

@@ -8,6 +8,7 @@ impl SyntaxErrorsEngine {
         let last = Self::last_descendant(root);
         self.walk_error_nodes(root, source, last, &mut diagnostics);
         self.walk_dotted_name_value_calls(root, source, &mut diagnostics);
+        Self::walk_end_in_control_header(root, &mut diagnostics);
 
         // ENDPAR: Check if the file ends with a missing closing bracket.
         if self.is_check_enabled("ENDPAR") {
@@ -40,6 +41,27 @@ impl SyntaxErrorsEngine {
         }
 
         diagnostics
+    }
+
+    /// The grammar parses `if end > 1` (an `end` outside any index in a control header),
+    /// MATLAB does not: it is a parse error.
+    fn walk_end_in_control_header(node: Node, diagnostics: &mut Vec<Diagnostic>) {
+        if node.kind() == "end_keyword" && crate::language_spec::in_control_header(node) {
+            let pos = node.start_position();
+            diagnostics.push(Diagnostic {
+                rule_id: "SYNER",
+                message: "Parse error at end: usage might be invalid MATLAB syntax.".to_string(),
+                severity: Severity::Error,
+                byte_range: node.start_byte()..node.end_byte(),
+                line: pos.row + 1,
+                column: pos.column + 1,
+                fix: None,
+            });
+        }
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            Self::walk_end_in_control_header(child, diagnostics);
+        }
     }
 
     pub(crate) fn walk_error_nodes(

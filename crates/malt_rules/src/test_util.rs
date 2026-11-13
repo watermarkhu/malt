@@ -15,10 +15,7 @@ pub fn parse(source: &str) -> tree_sitter::Tree {
     parser
         .set_language(&tree_sitter_matlab::LANGUAGE.into())
         .expect("failed to load tree-sitter-matlab");
-    let text = malt_core::declaration::parse_text(source);
-    parser
-        .parse(text.as_deref().unwrap_or(source), None)
-        .expect("parse failed")
+    parser.parse(source, None).expect("parse failed")
 }
 
 /// Build a `FileContext` with a fixed test file path.

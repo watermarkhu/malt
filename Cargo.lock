@@ -625,9 +625,8 @@ checksum = "009994f150cc0cd50ff54917d5bc8bffe8cad10ca10d81c34da2ec421ae61782"
 
 [[package]]
 name = "tree-sitter-matlab"
-version = "1.3.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8e8d8831a78547f54860dd8467166b1ab0c466d03d43c4bb447af55c024281f7"
+version = "1.3.3"
+source = "git+https://github.com/watermarkhu/tree-sitter-matlab?rev=fe5565f1715db3af3a5a02753d7ee84e810f5ca5#fe5565f1715db3af3a5a02753d7ee84e810f5ca5"
 dependencies = [
  "cc",
  "tree-sitter-language",
