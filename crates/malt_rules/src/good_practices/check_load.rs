@@ -7,22 +7,24 @@ impl GoodPracticesEngine {
             return Vec::new();
         }
 
-        // Only fire on statement-level load calls (not `x = load(...)`), or on any
-        // load call inside an anonymous function (probed: `@() load('f.mat')` in
-        // an argument, an assignment or a cellfun reports LOAD). MATLAB reports
-        // LOAD only inside a function body (probed; scripts are silent).
-        let is_statement = is_statement_level(node);
-        if !(is_statement || in_anonymous_function(node)) || !in_function(node) {
-            return Vec::new();
-        }
-
         let func_name = match node.kind() {
             "function_call" => get_function_call_name(node, source),
             "command" => get_command_name(node, source),
             _ => return Vec::new(),
         };
 
+        // The ancestor walks below are the costly part (`parent()` is linear in
+        // depth), so they run only for a call to `load`.
         if func_name != Some("load") {
+            return Vec::new();
+        }
+
+        // Only fire on statement-level load calls (not `x = load(...)`), or on any
+        // load call inside an anonymous function (probed: `@() load('f.mat')` in
+        // an argument, an assignment or a cellfun reports LOAD). MATLAB reports
+        // LOAD only inside a function body (probed; scripts are silent).
+        let is_statement = is_statement_level(node);
+        if !(is_statement || in_anonymous_function(node)) || !in_function(node) {
             return Vec::new();
         }
         // `load('f.mat', 'x')` names variables; options such as `-mat` do not count.

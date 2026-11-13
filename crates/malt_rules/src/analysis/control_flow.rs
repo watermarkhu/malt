@@ -54,7 +54,8 @@
 //! let da = analyze_definite_assignment(func_node, source);
 //! ```
 
-use std::collections::HashSet;
+use std::cell::RefCell;
+use std::collections::{HashMap, HashSet};
 use tree_sitter::{Node, Tree};
 
 // ---------------------------------------------------------------------------
@@ -270,6 +271,10 @@ fn contains_loop_break(node: Node) -> bool {
 /// `true` when the statement holding `node` follows a `return`, `break`,
 /// `continue`, `error(...)` or an endless `while true` loop in the same block.
 /// MATLAB's style checks skip such statements (only UNRCH reports them).
+///
+/// Every check calls this for its nodes, so the first terminating statement of
+/// each block is memoised (see [`first_terminator`]). A block of n statements
+/// costs one scan, not one scan per statement.
 pub fn in_unreachable_code(node: Node, source: &str) -> bool {
     let mut statement = node;
     while let Some(parent) = statement.parent() {
@@ -278,30 +283,70 @@ pub fn in_unreachable_code(node: Node, source: &str) -> bool {
         }
         statement = parent;
     }
-    let mut previous = statement.prev_named_sibling();
-    while let Some(sibling) = previous {
-        previous = sibling.prev_named_sibling();
-        if sibling.kind() == "comment" {
-            continue;
+    let Some(block) = statement.parent() else {
+        return false;
+    };
+    // A statement is unreachable when a terminating statement comes before it.
+    first_terminator(block, source)
+        .is_some_and(|at| at < statement.start_byte() - block.start_byte())
+}
+
+thread_local! {
+    /// Memo of [`first_terminator`] for the current parse epoch.
+    static TERMINATORS: RefCell<TerminatorMemo> = RefCell::new(TerminatorMemo::default());
+}
+
+/// [`first_terminator`]'s memo: valid for one parse epoch (see
+/// `malt_core::parse_epoch`), because node ids are addresses that a later parse
+/// can reuse.
+#[derive(Default)]
+struct TerminatorMemo {
+    epoch: u64,
+    /// Block id to the offset, from the block start, of its first terminating
+    /// statement. Offsets are relative to the block, so a subtree that occurs at
+    /// two places gives the same answer at both.
+    blocks: HashMap<usize, Option<usize>>,
+}
+
+/// Offset (from the start of `block`) of the first named statement of `block`
+/// that ends control flow for the statements after it, if there is one.
+fn first_terminator(block: Node, source: &str) -> Option<usize> {
+    TERMINATORS.with(|memo| {
+        let mut memo = memo.borrow_mut();
+        let epoch = malt_core::parse_epoch();
+        if memo.epoch != epoch {
+            memo.blocks.clear();
+            memo.epoch = epoch;
         }
-        if termination_cause(sibling.kind()).is_some()
-            || (sibling.kind() == "if_statement" && if_terminates(sibling, source))
-        {
-            return true;
+        if let Some(found) = memo.blocks.get(&block.id()) {
+            return *found;
         }
-        if is_endless_loop(sibling, source) {
-            return true;
-        }
-        let callee = match sibling.kind() {
-            "function_call" => sibling.child_by_field_name("name"),
-            "command" => sibling.named_child(0),
-            _ => None,
-        };
-        if callee.is_some_and(|c| node_text(c, source) == "error") {
-            return true;
-        }
+        let mut cursor = block.walk();
+        let found = block
+            .named_children(&mut cursor)
+            .find(|child| child.kind() != "comment" && ends_control_flow(*child, source))
+            .map(|child| child.start_byte() - block.start_byte());
+        memo.blocks.insert(block.id(), found);
+        found
+    })
+}
+
+/// `true` when `statement` ends control flow for the statements after it in
+/// its block: a `return`, `break`, `continue`, an `if` whose every branch
+/// terminates, an endless `while true` loop, or an `error(...)` call.
+fn ends_control_flow(statement: Node, source: &str) -> bool {
+    if termination_cause(statement.kind()).is_some()
+        || (statement.kind() == "if_statement" && if_terminates(statement, source))
+        || is_endless_loop(statement, source)
+    {
+        return true;
     }
-    false
+    let callee = match statement.kind() {
+        "function_call" => statement.child_by_field_name("name"),
+        "command" => statement.named_child(0),
+        _ => None,
+    };
+    callee.is_some_and(|c| node_text(c, source) == "error")
 }
 
 /// For a single `block` node, find the first terminating statement and mark
@@ -1159,6 +1204,70 @@ fn intersect_sets(sets: &[HashSet<String>]) -> HashSet<String> {
 mod tests {
     use super::*;
     use tree_sitter::Parser;
+
+    /// The assignment statement whose text starts with `prefix`, at the top level of the file.
+    fn statement_starting_with<'t>(tree: &'t Tree, source: &str, prefix: &str) -> Node<'t> {
+        named_children(tree.root_node())
+            .into_iter()
+            .find(|n| source[n.byte_range()].starts_with(prefix))
+            .expect("statement not found")
+    }
+
+    #[test]
+    fn in_unreachable_code_memo_matches_scan_on_long_block() {
+        // 3,000 statements, then a return: every statement after it is unreachable.
+        let body: String = (0..3000).map(|i| format!("x{i} = {i};\n")).collect();
+        let source = format!("{body}return;\ny = 1;\nz = 2;\n");
+        let tree = crate::test_util::parse(&source);
+        assert!(!in_unreachable_code(
+            statement_starting_with(&tree, &source, "x0 "),
+            &source
+        ));
+        assert!(!in_unreachable_code(
+            statement_starting_with(&tree, &source, "x2999 "),
+            &source
+        ));
+        assert!(in_unreachable_code(
+            statement_starting_with(&tree, &source, "y "),
+            &source
+        ));
+        assert!(in_unreachable_code(
+            statement_starting_with(&tree, &source, "z "),
+            &source
+        ));
+
+        // A later parse must not see the memo of this one: same block shape, no return.
+        let plain: String = (0..3000).map(|i| format!("x{i} = {i};\n")).collect();
+        let source = format!("{plain}y = 1;\n");
+        let tree = crate::test_util::parse(&source);
+        assert!(!in_unreachable_code(
+            statement_starting_with(&tree, &source, "y "),
+            &source
+        ));
+    }
+
+    #[test]
+    fn in_unreachable_code_respects_error_and_endless_loop_terminators() {
+        // `error(...)` ends the flow; so does an endless `while true` without a break.
+        let source = "x = 1;\nerror('boom');\na = 1;\nwhile true\n    x = x + 1;\nend\nb = 2;\n";
+        let tree = crate::test_util::parse(source);
+        assert!(!in_unreachable_code(
+            statement_starting_with(&tree, source, "x = 1"),
+            source
+        ));
+        assert!(!in_unreachable_code(
+            statement_starting_with(&tree, source, "error"),
+            source
+        ));
+        assert!(in_unreachable_code(
+            statement_starting_with(&tree, source, "a "),
+            source
+        ));
+        assert!(in_unreachable_code(
+            statement_starting_with(&tree, source, "b "),
+            source
+        ));
+    }
 
     /// Parse MATLAB source and return the tree.
     fn parse(source: &str) -> Tree {

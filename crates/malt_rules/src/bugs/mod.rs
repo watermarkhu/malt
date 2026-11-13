@@ -125,6 +125,57 @@ use crate::analysis::reaching::{reaching, Binding};
 use crate::analysis::symbols::SymbolTable;
 use crate::readability::is_variable_defined_before;
 
+/// The assignment that NOPRC reports for the split statement `continuation`: the
+/// statement before it, when that is a single-line assignment without a
+/// semicolon ending on the line directly above. Comments between the two are
+/// skipped, but a blank line or a comment line is not: MATLAB stays silent for
+/// both, and for a multi-line assignment (probed).
+pub(crate) fn split_assignment_before<'a>(
+    continuation: Node<'a>,
+    source: &str,
+) -> Option<Node<'a>> {
+    let mut previous = continuation.prev_named_sibling()?;
+    while previous.kind() == "comment" {
+        previous = previous.prev_named_sibling()?;
+    }
+    if previous.kind() != "assignment" {
+        return None;
+    }
+    // The node can run on over the line break that ends it, so its last row is
+    // taken from its text without the trailing white space.
+    let text = source[previous.byte_range()].trim_end();
+    let end_row = previous.start_position().row + text.matches('\n').count();
+    let single_line = end_row == previous.start_position().row;
+    let adjacent = end_row + 1 == continuation.start_position().row;
+    let semicolon =
+        text.ends_with(';') || crate::formatting::has_trailing_semicolon(previous, source);
+    (single_line && adjacent && !semicolon).then_some(previous)
+}
+
+/// Whether the statement after `assignment` is a split continuation that NOPRC
+/// reports for this assignment (comments between them are skipped).
+pub(crate) fn noprc_follows(assignment: Node, source: &str) -> bool {
+    let mut next = assignment.next_named_sibling();
+    while let Some(node) = next {
+        if node.kind() != "comment" {
+            return is_split_statement_continuation(node, source)
+                && split_assignment_before(node, source) == Some(assignment);
+        }
+        next = node.next_named_sibling();
+    }
+    false
+}
+
+/// The `=` operator of an assignment, or the assignment itself when the grammar
+/// has no such token.
+fn assignment_operator(assignment: Node) -> Node {
+    let mut cursor = assignment.walk();
+    let operator = assignment
+        .children(&mut cursor)
+        .find(|child| child.kind() == "=");
+    operator.unwrap_or(assignment)
+}
+
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
@@ -390,9 +441,12 @@ impl BugsEngine {
     /// NOPRC: a statement terminated by a line break where continuation (via
     /// `...`) or a semicolon was likely intended.
     ///
-    /// When a line that begins with a unary `+`/`-` follows a completed
-    /// statement, tree-sitter parses it as a separate `unary_operator` at
-    /// statement level — the signature of a split, incomplete statement.
+    /// When a line that begins with a unary `+`/`-` follows an assignment
+    /// without a semicolon, tree-sitter parses it as a separate `unary_operator`
+    /// at statement level, and MATLAB reports the assignment (see
+    /// [`split_assignment_before`]). Probed: a call, an expression, a command, a
+    /// `;`-terminated statement, a multi-line assignment, and a comment or blank
+    /// line between them are not reported.
     ///
     /// # Limitations (heuristic)
     ///
@@ -408,8 +462,9 @@ impl BugsEngine {
 
     fn walk_line_break_termination(node: Node, source: &str, diagnostics: &mut Vec<Diagnostic>) {
         if is_split_statement_continuation(node, source) {
-            if let Some(previous) = node.prev_named_sibling() {
-                let pos = previous.start_position();
+            if let Some(previous) = split_assignment_before(node, source) {
+                // MATLAB reports at the `=` of the assignment.
+                let pos = assignment_operator(previous).start_position();
                 diagnostics.push(Diagnostic {
                     rule_id: "NOPRC",
                     message: "A line break terminates the statement so it may be incomplete. Use ellipsis (...) to continue the statement. Or add a semicolon to hide the output.".to_string(),
@@ -1172,6 +1227,70 @@ a = 1 + 2 + ...
 ";
         let diags = file_diags(src);
         assert!(!has_id(&diags, "NOPRC"), "got: {diags:?}");
+    }
+
+    // MATLAB probes (R2026b): NOPRC is reported at the `=` of an assignment without a
+    // semicolon that ends on the line above a statement starting with `+`/`-`.
+
+    #[test]
+    fn noprc_at_the_equals_sign_of_the_split_assignment() {
+        let diags = file_diags("x.y = 1\n-x\n");
+        assert!(
+            diags
+                .iter()
+                .any(|d| d.rule_id == "NOPRC" && d.line == 1 && d.column == 5),
+            "got: {diags:?}"
+        );
+    }
+
+    #[test]
+    fn noprc_on_last_assignment_of_a_line() {
+        let diags = file_diags("x = 1; y = 2\n-x\n");
+        assert!(
+            diags
+                .iter()
+                .any(|d| d.rule_id == "NOPRC" && d.line == 1 && d.column == 10),
+            "got: {diags:?}"
+        );
+    }
+
+    #[test]
+    fn noprc_no_fire_after_semicolon_assignment() {
+        // Probed: `x = 1;` then `-x` gives no NOPRC (NOPTS on `-x` only).
+        assert!(!has_id(&file_diags("x = 1;\n-x\n"), "NOPRC"));
+        assert!(!has_id(&file_diags("x = 1 ;\n-x\n"), "NOPRC"));
+        assert!(!has_id(&file_diags("x = 1; % c\n-x\n"), "NOPRC"));
+    }
+
+    #[test]
+    fn noprc_no_fire_after_call_expression_or_command() {
+        // Probed: a call, a bare expression and a command before `-x` give no NOPRC.
+        assert!(!has_id(&file_diags("disp(1)\n-x\n"), "NOPRC"));
+        assert!(!has_id(&file_diags("x\n-y\n"), "NOPRC"));
+        assert!(!has_id(&file_diags("format long\n-x\n"), "NOPRC"));
+    }
+
+    #[test]
+    fn noprc_no_fire_across_a_comment_or_blank_line() {
+        // Probed: a comment line or a blank line between the two gives no NOPRC.
+        assert!(!has_id(&file_diags("x = 1\n%c\n-x\n"), "NOPRC"));
+        assert!(!has_id(&file_diags("x = 1\n\n-x\n"), "NOPRC"));
+    }
+
+    #[test]
+    fn noprc_no_fire_after_a_multi_line_assignment() {
+        // Probed: a matrix over two lines, or a continued sum, gives no NOPRC.
+        assert!(!has_id(&file_diags("x = [1 2\n3]\n-x\n"), "NOPRC"));
+        assert!(!has_id(&file_diags("x = 1 + ...\n 2\n-x\n"), "NOPRC"));
+    }
+
+    #[test]
+    fn noprc_fires_inside_a_function_body() {
+        let diags = file_diags("function f(x)\n  y = 1\n  -y\nend\n");
+        assert!(
+            diags.iter().any(|d| d.rule_id == "NOPRC" && d.line == 2),
+            "got: {diags:?}"
+        );
     }
 
     #[test]

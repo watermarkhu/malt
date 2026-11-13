@@ -25,13 +25,12 @@ impl SyntaxErrorsEngine {
                 let name = &source[name_node.start_byte()..name_node.end_byte()];
                 let pos = name_node.start_position();
 
-                // FNSWA: Function name doesn't start with alphabetic character.
-                if self.is_check_enabled("FNSWA")
-                    && !name.starts_with(|c: char| c.is_ascii_alphabetic())
-                {
+                // A name that starts with `_` is an invalid character (BADCH) in MATLAB, not
+                // FNSWA: MATLAB never reported FNSWA in the probes (25 valid and invalid names).
+                if self.is_check_enabled("BADCH") && name.starts_with('_') {
                     diagnostics.push(Diagnostic {
-                        rule_id: "FNSWA",
-                        message: "Function name must start with alphabetic character.".to_string(),
+                        rule_id: "BADCH",
+                        message: "Invalid text character(s).".to_string(),
                         severity: Severity::Error,
                         byte_range: name_node.byte_range(),
                         line: pos.row + 1,
@@ -87,12 +86,14 @@ mod tests {
         assert!(!has_id(&diags, "FNDOT"), "got: {diags:?}");
     }
 
-    // -- FNSWA: function name starts with non-alphabetic --------------------
+    // -- A name starting with `_`: BADCH, not FNSWA (probed) ------------------
 
     #[test]
-    fn fnswa_fires_on_underscore_name() {
+    fn underscore_name_is_badch_not_fnswa() {
+        // Probe: `function y = _x()` gives BADCH at the name, and no FNSWA.
         let diags = lint_file(&*engine(), "function y = _foo()\n    y = 1;\nend\n");
-        assert!(has_id(&diags, "FNSWA"), "got: {diags:?}");
+        assert!(has_id(&diags, "BADCH"), "got: {diags:?}");
+        assert!(!has_id(&diags, "FNSWA"), "got: {diags:?}");
     }
 
     #[test]

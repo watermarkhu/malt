@@ -707,7 +707,9 @@ impl Rule for GoodPracticesEngine {
 
         // String / comparison checks.
         diagnostics.extend(self.check_stcmp(node, source));
-        if !in_unreachable_code(node, source) {
+        // STCI and STISA only report calls, so the (ancestor-walking) reachability
+        // test runs for those alone.
+        if node.kind() == "function_call" && !in_unreachable_code(node, source) {
             diagnostics.extend(self.check_stci(node, source));
             diagnostics.extend(self.check_stisa(node, source));
         }

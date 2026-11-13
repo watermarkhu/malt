@@ -18,31 +18,39 @@ impl UnusedEngine {
         }
 
         for (index, scope) in table.scopes.iter().enumerate() {
+            let is_assignment = |d: &crate::analysis::symbols::VarDef| {
+                matches!(d.kind, DefKind::Assignment | DefKind::ForIterator)
+            };
+            // Names with an input, output, global or persistent definition: they are used outside.
+            let used_outside: std::collections::HashSet<&str> = scope
+                .defs
+                .iter()
+                .filter(|d| !is_assignment(d))
+                .map(|d| d.name.as_str())
+                .collect();
+            // The first assignment of each name (the first of equal start bytes).
+            let mut first: std::collections::HashMap<&str, &crate::analysis::symbols::VarDef> =
+                std::collections::HashMap::new();
+            for d in scope.defs.iter().filter(|d| is_assignment(d)) {
+                let entry = first.entry(d.name.as_str()).or_insert(d);
+                if d.byte_range.start < entry.byte_range.start {
+                    *entry = d;
+                }
+            }
             for def in &scope.defs {
                 // A for-loop variable counts too: a nested function may set it.
-                if !matches!(def.kind, DefKind::Assignment | DefKind::ForIterator) || def.partial {
+                if !is_assignment(def) || def.partial {
                     continue;
                 }
                 let name = &def.name;
-                if self.should_ignore_name(name) {
-                    continue;
-                }
-                // Inputs, outputs, globals and persistents are used outside.
-                if scope.defs.iter().any(|d| {
-                    d.name == *name && !matches!(d.kind, DefKind::Assignment | DefKind::ForIterator)
-                }) {
+                if self.should_ignore_name(name) || used_outside.contains(name.as_str()) {
                     continue;
                 }
                 // Report once per variable, at its first assignment in this scope.
-                let first = scope
-                    .defs
-                    .iter()
-                    .filter(|d| {
-                        matches!(d.kind, DefKind::Assignment | DefKind::ForIterator)
-                            && d.name == *name
-                    })
-                    .min_by_key(|d| d.byte_range.start);
-                if first.is_none_or(|d| d.byte_range != def.byte_range) {
+                if first
+                    .get(name.as_str())
+                    .is_none_or(|d| d.byte_range != def.byte_range)
+                {
                     continue;
                 }
 

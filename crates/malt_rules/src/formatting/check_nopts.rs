@@ -6,6 +6,11 @@ impl FormattingEngine {
     /// Flag an assignment or expression statement at script level that is not
     /// terminated by a semicolon, so it echoes its result to the console.
     pub(crate) fn check_nopts(&self, node: Node, source: &str, diagnostics: &mut Vec<Diagnostic>) {
+        // An assignment that a line break splits before `-x`/`+x` is reported by NOPRC
+        // instead (probed: MATLAB gives NOPRC on `x = 1` and NOPTS on `-x` only).
+        if node.kind() == "assignment" && crate::bugs::noprc_follows(node, source) {
+            return;
+        }
         let is_statement_level = node
             .parent()
             .map(|p| STATEMENT_PARENTS.contains(&p.kind()))

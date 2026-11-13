@@ -172,8 +172,11 @@ impl Rule for Nosemi {
             let extra = if SEQUENCES.contains(&kind) {
                 follows_extra_context(token, source)
             } else if HEADERS.contains(&kind) {
-                // Directly under a header node, a `;` terminates the header line.
+                // Directly under a header node, a `;` terminates the header line, unless a
+                // statement on the `case` line ends with it (`case 1 y = 1;`: MATLAB gives
+                // SEPEXR there, not NOSEMI).
                 ends_its_line(source, token.end_byte())
+                    && !(kind == "case_clause" && has_statement_on_header_line(node))
             } else {
                 false
             };
@@ -207,6 +210,18 @@ fn follows_extra_context(token: Node, source: &str) -> bool {
     }
     // `end; z = 3` needs its `;`: without it `end z = 3` is not a statement.
     prev.is_named() && END_CLOSED.contains(&prev.kind()) && ends_its_line(source, token.end_byte())
+}
+
+/// Whether a statement follows the label of a `case` clause on the label's line:
+/// the named children after the first one (the label) that start on that row.
+fn has_statement_on_header_line(node: Node) -> bool {
+    let row = node.start_position().row;
+    let mut cursor = node.walk();
+    let children: Vec<Node> = node.named_children(&mut cursor).collect();
+    children
+        .iter()
+        .skip(1)
+        .any(|child| child.kind() != "comment" && child.start_position().row == row)
 }
 
 /// Whether nothing but blanks or a comment follows `pos` on its line.
@@ -303,6 +318,15 @@ mod tests {
             nosemi("end_marker = 1;\nwhile k;\n  k = 0;\nend % done\n").len(),
             1
         );
+    }
+
+    #[test]
+    fn statement_on_a_case_line_is_not_an_extra_semicolon() {
+        // Probed: `case 1 y = 1;` gives SEPEXR at `y`, and no NOSEMI.
+        assert!(nosemi("x = 1;\nswitch x\ncase 1 y = 1;\nend\n").is_empty());
+        assert!(nosemi("x = 1;\nswitch x\ncase 1 disp(x);\nend\n").is_empty());
+        // A lone `case 1;` still has an extra semicolon.
+        assert!(!nosemi("x = 1;\nswitch x\ncase 1;\nend\n").is_empty());
     }
 
     #[test]

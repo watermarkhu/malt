@@ -36,7 +36,7 @@
 //! assert!(table.root_scope().is_defined("y"));
 //! ```
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use tree_sitter::Tree;
 
 /// Whether a `function_call` is the trailing call of a dotted expression:
@@ -183,17 +183,38 @@ pub struct Scope {
     pub children: Vec<usize>,
     /// Parent scope index (`None` for top-level).
     pub parent: Option<usize>,
+    /// Positions in `defs`, by name, for [`Scope::defs_of`]. Built once the
+    /// table is complete.
+    def_index: HashMap<String, Vec<usize>>,
+    /// Positions in `uses`, by name, for [`Scope::uses_of`].
+    use_index: HashMap<String, Vec<usize>>,
 }
 
 impl Scope {
+    /// Index `defs` and `uses` by name.
+    fn index_names(&mut self) {
+        self.def_index.clear();
+        for (i, d) in self.defs.iter().enumerate() {
+            self.def_index.entry(d.name.clone()).or_default().push(i);
+        }
+        self.use_index.clear();
+        for (i, u) in self.uses.iter().enumerate() {
+            self.use_index.entry(u.name.clone()).or_default().push(i);
+        }
+    }
+
     /// Get all definitions of a variable by name.
     pub fn defs_of(&self, name: &str) -> Vec<&VarDef> {
-        self.defs.iter().filter(|d| d.name == name).collect()
+        self.def_index
+            .get(name)
+            .map_or_else(Vec::new, |ix| ix.iter().map(|&i| &self.defs[i]).collect())
     }
 
     /// Get all usages of a variable by name.
     pub fn uses_of(&self, name: &str) -> Vec<&VarUse> {
-        self.uses.iter().filter(|u| u.name == name).collect()
+        self.use_index
+            .get(name)
+            .map_or_else(Vec::new, |ix| ix.iter().map(|&i| &self.uses[i]).collect())
     }
 
     /// Get all unique defined variable names.
@@ -309,6 +330,9 @@ impl SymbolTable {
             arguments_unclosed: false,
         };
         builder.run(root);
+        for scope in &mut builder.scopes {
+            scope.index_names();
+        }
         SymbolTable {
             scopes: builder.scopes,
             arguments_unclosed: builder.arguments_unclosed,
@@ -400,6 +424,8 @@ impl<'a> Builder<'a> {
             // Script file: the entire file is one Script scope.
             let pos = root.start_position();
             self.push_scope(Scope {
+                def_index: HashMap::new(),
+                use_index: HashMap::new(),
                 name: String::new(),
                 kind: ScopeKind::Script,
                 byte_range: root.start_byte()..root.end_byte(),
@@ -419,6 +445,8 @@ impl<'a> Builder<'a> {
         if self.scopes.is_empty() {
             let pos = root.start_position();
             self.push_scope(Scope {
+                def_index: HashMap::new(),
+                use_index: HashMap::new(),
                 name: String::new(),
                 kind: ScopeKind::Script,
                 byte_range: root.start_byte()..root.end_byte(),
@@ -498,6 +526,8 @@ impl<'a> Builder<'a> {
             .map(|c| self.node_text(c).to_string())
             .unwrap_or_default();
         self.push_scope(Scope {
+            def_index: HashMap::new(),
+            use_index: HashMap::new(),
             name,
             kind: ScopeKind::Function,
             byte_range: root.start_byte()..root.end_byte(),
@@ -671,6 +701,8 @@ impl<'a> Builder<'a> {
 
         // Push new scope.
         self.push_scope(Scope {
+            def_index: HashMap::new(),
+            use_index: HashMap::new(),
             name: func_name,
             kind: scope_kind,
             byte_range: node.start_byte()..node.end_byte(),
@@ -880,6 +912,8 @@ impl<'a> Builder<'a> {
         let pos = node.start_position();
 
         self.push_scope(Scope {
+            def_index: HashMap::new(),
+            use_index: HashMap::new(),
             name: String::new(),
             kind: ScopeKind::Lambda,
             byte_range: node.start_byte()..node.end_byte(),

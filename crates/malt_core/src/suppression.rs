@@ -10,17 +10,19 @@
 //! This module parses those directives and exposes a [`Suppressions`] map that
 //! the [`crate::Linter`] consults to filter out suppressed diagnostics.
 //!
-//! Supported forms (mirroring MATLAB's `%#ok` syntax):
+//! Supported forms (mirroring MATLAB's `%#ok` syntax, probed against R2026b):
 //!
-//! - `%#ok<NOSEMI>` — suppress the single rule `NOSEMI` on that line.
-//! - `%#ok<*NOSEMI*>` — same, with optional surrounding `*` wildcards.
-//! - `%#ok<*all*>` or `%#ok<*>` — suppress *all* rules on that line.
-//! - `%#ok<NOSEMI,AGROW>` — suppress multiple rules (comma-separated).
-//! - A `*` inside a rule id is a wildcard: `*X*` matches ids containing `X`,
-//!   `X*` matches ids starting with `X`, and `*X` matches ids ending with `X`.
+//! - `%#ok` — suppress every message on the statement it ends (bare form).
+//! - `%#ok<NOSEMI>` — suppress the rule `NOSEMI` on the statement it ends.
+//! - `%#ok<NOSEMI,AGROW>` — suppress several rules (comma-separated).
+//! - `%#ok<*NOSEMI>` — suppress `NOSEMI` in the whole file, wherever the
+//!   directive is. Mixed lists such as `%#ok<AGROW,*NOSEMI>` are allowed.
 //!
-//! A directive applies to the statement it ends: the messages from the first
-//! line of that statement down to the directive's line (see
+//! IDs are exact and case-sensitive. `%#ok<*NOSEMI*>`, `%#ok<NO*>`, `%#ok<*>`,
+//! `%#ok<*all*>` and an ID with a space in it match nothing.
+//!
+//! A line directive applies to the statement it ends: the messages from the
+//! first line of that statement down to the directive's line (see
 //! [`Suppressions::covers`]).
 
 use std::collections::{HashMap, HashSet};
@@ -45,10 +47,12 @@ pub struct NamedId {
 /// Suppression directives parsed from a source buffer, keyed by 1-indexed line.
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct Suppressions {
-    /// Lines on which every rule is suppressed (`%#ok<*all*>` / `%#ok<*>`).
+    /// Lines on which every rule is suppressed by a bare `%#ok`.
     all_lines: HashSet<usize>,
-    /// Lines that suppress specific rule IDs (or wildcard patterns).
+    /// Lines that suppress specific rule IDs (exact names).
     rule_lines: HashMap<usize, Vec<String>>,
+    /// IDs named by a `%#ok<*ID>` wildcard, which suppress them in the whole file.
+    file_wide: HashSet<String>,
     /// Exact IDs named by the directives, in source order.
     named: Vec<NamedId>,
     /// For each directive line, the first line of the statement it ends (see
@@ -59,7 +63,7 @@ pub struct Suppressions {
 impl Suppressions {
     /// Whether no suppression directives were found.
     pub fn is_empty(&self) -> bool {
-        self.all_lines.is_empty() && self.rule_lines.is_empty()
+        self.all_lines.is_empty() && self.rule_lines.is_empty() && self.file_wide.is_empty()
     }
 
     /// The exact check IDs named by the directives (wildcards excluded).
@@ -71,10 +75,20 @@ impl Suppressions {
     ///
     /// `line` is 1-indexed, matching [`crate::Diagnostic::line`].
     pub fn is_suppressed(&self, line: usize, rule_id: &str) -> bool {
-        self.all_lines
-            .iter()
-            .chain(self.rule_lines.keys())
-            .any(|&directive| self.suppresses_from(directive, line, rule_id))
+        self.is_file_wide(rule_id)
+            || self
+                .all_lines
+                .iter()
+                .chain(self.rule_lines.keys())
+                .any(|&directive| self.suppresses_from(directive, line, rule_id))
+    }
+
+    /// Whether a `%#ok<*ID>` wildcard suppresses `rule_id` in the whole file.
+    ///
+    /// MATLAB applies these before the line directives, so a message removed
+    /// this way leaves a named directive on its line unused (MSNU).
+    pub fn is_file_wide(&self, rule_id: &str) -> bool {
+        self.file_wide.contains(rule_id)
     }
 
     /// Whether the directive on line `directive` suppresses a diagnostic at
@@ -88,7 +102,7 @@ impl Suppressions {
         }
         self.rule_lines
             .get(&directive)
-            .is_some_and(|patterns| patterns.iter().any(|p| glob_match(rule_id, p)))
+            .is_some_and(|ids| ids.iter().any(|id| id == rule_id))
     }
 
     /// Whether the directive on line `directive` covers a message on line `line`.
@@ -220,33 +234,33 @@ fn read_directive(source: &str, comment: Node, out: &mut Suppressions) {
     };
 
     // The IDs run to the closing `>`, or to the end of the comment when unclosed.
+    // An ID is taken as written: MATLAB does not trim white space around it.
     let content = &body[..body.find('>').unwrap_or(body.len())];
-    if is_all_directive(content) {
-        out.all_lines.insert(line);
-        return;
-    }
 
     // Each ID with its offset in the comment (for the column of the ID).
     let mut names: Vec<(usize, &str)> = Vec::new();
     let mut part_start = 0;
     for part in content.split(',') {
-        let name = part.trim();
-        if !name.is_empty() {
-            let name_start = part_start + (part.len() - part.trim_start().len());
-            names.push((name_start, name));
+        if !part.is_empty() {
+            names.push((part_start, part));
         }
         part_start += part.len() + 1;
     }
 
     let single = names.len() == 1;
     for (name_start, name) in names {
+        if let Some(id) = name.strip_prefix('*') {
+            out.file_wide.insert(id.to_string());
+            continue;
+        }
+        if name.contains('*') {
+            // `NO*`: not an ID, so it suppresses nothing.
+            continue;
+        }
         out.rule_lines
             .entry(line)
             .or_default()
             .push(name.to_string());
-        if name.contains('*') {
-            continue;
-        }
         let byte = if single {
             comment.start_byte()
         } else {
@@ -268,58 +282,6 @@ fn column_of(source: &str, byte: usize) -> usize {
     source[line_start..byte].chars().count() + 1
 }
 
-/// Whether a directive body means "suppress all rules".
-///
-/// `*all*`, `*`, and `all` (any `*` placement, case-insensitive) all count.
-fn is_all_directive(content: &str) -> bool {
-    let stripped: String = content.chars().filter(|c| *c != '*').collect();
-    let stripped = stripped.trim();
-    stripped.is_empty() || stripped.eq_ignore_ascii_case("all")
-}
-
-/// Match a rule id against a directive pattern.
-///
-/// `*` matches any sequence (including the empty sequence):
-/// - `NOSEMI` matches only the exact id `NOSEMI`.
-/// - `*NOSEMI*` matches any id containing `NOSEMI`.
-/// - `NOSEMI*` matches ids starting with `NOSEMI`.
-/// - `*NOSEMI` matches ids ending with `NOSEMI`.
-fn glob_match(rule_id: &str, pattern: &str) -> bool {
-    let segments: Vec<&str> = pattern.split('*').collect();
-    if segments.len() == 1 {
-        return rule_id == segments[0];
-    }
-
-    // The first segment must match at the start...
-    let first = segments[0];
-    if !first.is_empty() && !rule_id.starts_with(first) {
-        return false;
-    }
-    // ...and the last segment must match at the end.
-    let last = segments[segments.len() - 1];
-    if !last.is_empty() && !rule_id.ends_with(last) {
-        return false;
-    }
-
-    // Middle segments must appear in order between the prefix and suffix.
-    let mut search_from = first.len();
-    let end_bound = rule_id.len() - last.len();
-    for seg in &segments[1..segments.len() - 1] {
-        if seg.is_empty() {
-            continue;
-        }
-        if search_from > end_bound {
-            return false;
-        }
-        let Some(pos) = rule_id[search_from..end_bound].find(*seg) else {
-            return false;
-        };
-        search_from += pos + seg.len();
-    }
-    // The prefix and suffix must not overlap (e.g. "A" does not match "A*A").
-    search_from <= end_bound
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -333,29 +295,6 @@ mod tests {
     }
 
     #[test]
-    fn surrounding_stars_around_rule_are_contains() {
-        let s = parse("x = 1; %#ok<*NOSEMI*>\n");
-        assert!(s.is_suppressed(1, "NOSEMI"));
-        assert!(s.is_suppressed(1, "X_NOSEMI_Y"));
-        assert!(!s.is_suppressed(1, "AGROW"));
-    }
-
-    #[test]
-    fn star_all_suppresses_everything_on_line() {
-        let s = parse("x = 1; %#ok<*all*>\n");
-        assert!(s.is_suppressed(1, "NOSEMI"));
-        assert!(s.is_suppressed(1, "AGROW"));
-        assert!(!s.is_suppressed(2, "NOSEMI"));
-    }
-
-    #[test]
-    fn bare_star_suppresses_everything_on_line() {
-        let s = parse("x = 1; %#ok<*>\n");
-        assert!(s.is_suppressed(1, "NOSEMI"));
-        assert!(s.is_suppressed(1, "AGROW"));
-    }
-
-    #[test]
     fn comma_separated_directive_suppresses_multiple_rules() {
         let s = parse("x = 1; %#ok<NOSEMI,AGROW>\n");
         assert!(s.is_suppressed(1, "NOSEMI"));
@@ -363,19 +302,67 @@ mod tests {
         assert!(!s.is_suppressed(1, "OTHER"));
     }
 
+    // MATLAB probes (R2026b checkcode): `%#ok<*ID>` is exact and file-wide;
+    // `%#ok<*>`, `%#ok<*all*>`, `%#ok<*SEMI*>`, `%#ok<*SEMI>` (partial), `%#ok<NO*>`
+    // and `%#ok<NOSEMI*>` suppress nothing.
+
     #[test]
-    fn wildcard_prefix_suffix_contains() {
-        let contains = parse("x = 1; %#ok<*SEMI*>\n");
-        assert!(contains.is_suppressed(1, "NOSEMI"));
-        assert!(!contains.is_suppressed(1, "AGROW"));
+    fn wildcard_is_file_wide_before_and_after_the_directive() {
+        // Probe: `%#ok<*NOPTS>` on line 3 silences NOPTS on lines 1 and 2.
+        let before = parse("x = 1 %#ok<*NOSEMI>\ny = 2\n");
+        assert!(before.is_suppressed(1, "NOSEMI"));
+        assert!(before.is_suppressed(2, "NOSEMI"));
+        let after = parse("x = 1\ny = 2\nz = 3 %#ok<*NOSEMI>\n");
+        assert!(after.is_suppressed(1, "NOSEMI"));
+        assert!(after.is_suppressed(2, "NOSEMI"));
+        assert!(!after.is_suppressed(1, "AGROW"));
+    }
 
-        let suffix = parse("x = 1; %#ok<*SEMI>\n");
-        assert!(suffix.is_suppressed(1, "NOSEMI"));
-        assert!(!suffix.is_suppressed(1, "NOSEMIA"));
+    #[test]
+    fn wildcard_ids_are_exact() {
+        let s = parse("x = 1 %#ok<*SEMI>\ny = 2 %#ok<*NOSEMIX>\n");
+        assert!(!s.is_suppressed(1, "NOSEMI"));
+        assert!(!s.is_suppressed(2, "NOSEMI"));
+        assert!(!parse("x = 1 %#ok<*NOSEMI*>\n").is_suppressed(1, "NOSEMI"));
+        assert!(!parse("x = 1 %#ok<*>\n").is_suppressed(1, "NOSEMI"));
+        assert!(!parse("x = 1 %#ok<*all*>\n").is_suppressed(1, "NOSEMI"));
+        assert!(!parse("x = 1 %#ok<NO*>\n").is_suppressed(1, "NOSEMI"));
+        assert!(!parse("x = 1 %#ok<NOSEMI*>\n").is_suppressed(1, "NOSEMI"));
+    }
 
-        let prefix = parse("x = 1; %#ok<NO*>\n");
-        assert!(prefix.is_suppressed(1, "NOSEMI"));
-        assert!(!prefix.is_suppressed(1, "AGROW"));
+    #[test]
+    fn mixed_list_has_a_file_wide_and_a_line_id() {
+        // Probe: `%#ok<AGROW,*NOPTS>` on line 2 silences NOPTS on line 1 too.
+        let s = parse("x = 1\ny = 2 %#ok<AGROW,*NOSEMI>\n");
+        assert!(s.is_suppressed(1, "NOSEMI"));
+        assert!(!s.is_suppressed(1, "AGROW"));
+        assert!(s.is_suppressed(2, "AGROW"));
+        let t = parse("x = 1 %#ok<NOSEMI>\ny = 2\n");
+        assert!(!t.is_suppressed(2, "NOSEMI"));
+    }
+
+    #[test]
+    fn names_are_exact_case_sensitive_and_untrimmed() {
+        // Probes: `%#ok<nopts>`, `%#ok< NOPTS>` and `%#ok<NOPTS >` do not suppress NOPTS.
+        assert!(!parse("x = 1 %#ok<nosemi>\n").is_suppressed(1, "NOSEMI"));
+        assert!(!parse("x = 1 %#ok< NOSEMI>\n").is_suppressed(1, "NOSEMI"));
+        assert!(!parse("x = 1 %#ok<NOSEMI >\n").is_suppressed(1, "NOSEMI"));
+    }
+
+    #[test]
+    fn space_before_the_angle_bracket_is_a_bare_directive() {
+        // Probe: `%#ok <NOPTS>` suppressed every message on its line.
+        let s = parse("x = 1 %#ok <NOSEMI>\ny = 2\n");
+        assert!(s.is_suppressed(1, "NOSEMI"));
+        assert!(s.is_suppressed(1, "AGROW"));
+        assert!(!s.is_suppressed(2, "NOSEMI"));
+    }
+
+    #[test]
+    fn wildcard_in_a_block_comment_is_not_a_directive() {
+        // Probe: `%#ok<*NOPTS>` inside `%{ ... %}` silenced nothing.
+        assert!(parse("x = 1\n%{\n%#ok<*NOSEMI>\n%}\n").is_empty());
+        assert!(!parse("x = 1\n%{\n%#ok<*NOSEMI>\n%}\n").is_suppressed(1, "NOSEMI"));
     }
 
     #[test]
@@ -389,20 +376,6 @@ mod tests {
     #[test]
     fn no_directives_is_empty() {
         assert!(parse("x = 1;\ny = 2;\n").is_empty());
-    }
-
-    #[test]
-    fn glob_match_edge_cases() {
-        assert!(glob_match("NOSEMI", "NOSEMI"));
-        assert!(glob_match("NOSEMI", "*"));
-        assert!(glob_match("NOSEMI", "**"));
-        assert!(glob_match("ABCDEF", "*BCD*"));
-        assert!(glob_match("ABCDEF", "A*F"));
-        assert!(!glob_match("ABCDEF", "A*E"));
-        assert!(glob_match("ABCDEF", "*CD*E*"));
-        assert!(!glob_match("AB", "*AB*C*"));
-        assert!(glob_match("A", "*A*"));
-        assert!(!glob_match("A", "A*A"));
     }
 
     // MATLAB probes (R2026b checkcode): a bare `%#ok` suppresses every message on
@@ -508,7 +481,8 @@ mod tests {
 
     #[test]
     fn wildcards_are_not_named_ids() {
-        assert!(parse("x = 1; %#ok<*NOSEMI*>\n").named_ids().is_empty());
+        assert!(parse("x = 1; %#ok<*NOSEMI>\n").named_ids().is_empty());
         assert!(parse("x = 1; %#ok<*>\n").named_ids().is_empty());
+        assert!(parse("x = 1; %#ok<NO*>\n").named_ids().is_empty());
     }
 }

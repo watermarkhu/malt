@@ -2,6 +2,7 @@ use std::collections::HashSet;
 use std::ops::Range;
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::path::Path;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use tree_sitter::Parser;
 
@@ -37,6 +38,8 @@ const STATEMENT_ERROR_KEPT_IDS: &[&str] = &[
     "ENDCT4",
     "RESWD",
     "FVSYN",
+    "FVAMI",
+    "FVACS",
     "SBTMP",
     "INBLK",
     "BADNOT",
@@ -149,6 +152,22 @@ pub const DEFAULT_MAX_TREE_DEPTH: usize = 1_000;
 /// messages past it are deleted. malt keeps the first ones in source order.
 pub const MATLAB_MAX_MESSAGES: usize = 10_000;
 
+/// Number of parses made so far by [`Linter::lint`] and by test helpers. See
+/// [`note_parse`].
+static PARSE_EPOCH: AtomicU64 = AtomicU64::new(0);
+
+/// The current parse epoch. Analyses that memoise by node id (an address that
+/// a later parse may reuse) key their memo by it.
+pub fn parse_epoch() -> u64 {
+    PARSE_EPOCH.load(Ordering::Relaxed)
+}
+
+/// Start a new parse epoch. Call before each parse whose tree rules analyse,
+/// so a memo built for an earlier tree is never read for this one.
+pub fn note_parse() {
+    PARSE_EPOCH.fetch_add(1, Ordering::Relaxed);
+}
+
 /// Errors that can occur during linting.
 #[derive(Debug, thiserror::Error)]
 pub enum LintError {
@@ -204,6 +223,7 @@ impl Linter {
     /// collected during steps 2 and 3.
     pub fn lint(&mut self, source: &str, file_path: &Path) -> Result<Vec<Diagnostic>, LintError> {
         // Step 1: Parse
+        note_parse();
         let tree = self
             .parser
             .parse(source, None)
@@ -261,9 +281,12 @@ impl Linter {
         limit_messages(&mut diagnostics, source);
 
         // Step 4: Apply inline suppression directives (%#ok<...>).
-        // A directive on a line suppresses matching diagnostics on that line only.
+        // A `%#ok<*ID>` wildcard suppresses its ID in the whole file and is applied
+        // first (probed: a named directive whose message a wildcard removed gets MSNU).
+        // A line directive suppresses matching diagnostics on that line only.
         if self.inline_suppression {
             let suppressions = suppression::from_tree(source, &tree);
+            diagnostics.retain(|d| !suppressions.is_file_wide(d.rule_id));
             // MSNU reads what the checks reported before the directives removed it.
             // An analysis that did not complete cannot say what was generated.
             let analysis_complete = !diagnostics.iter().any(|d| d.rule_id == "QUIT");
@@ -277,7 +300,12 @@ impl Linter {
                 Vec::new()
             };
             diagnostics.retain(|d| !suppressions.is_suppressed(d.line, d.rule_id));
-            diagnostics.extend(unused);
+            // A wildcard also removes MSNU (probed: `%#ok<*MSNU>` silences it).
+            diagnostics.extend(
+                unused
+                    .into_iter()
+                    .filter(|d| !suppressions.is_file_wide(d.rule_id)),
+            );
         }
 
         // Step 5: Sort by position for deterministic output
@@ -616,9 +644,44 @@ mod tests {
     }
 
     #[test]
-    fn inline_suppression_star_all_suppresses_everything_on_line() {
+    fn inline_suppression_star_all_suppresses_nothing() {
+        // Probe: `%#ok<*all*>` and `%#ok<*>` silence no message in MATLAB.
         let diags = lint_with("aa = 1; bb = 2; %#ok<*all*>\n");
-        assert!(diags.is_empty(), "got: {diags:?}");
+        assert_eq!(diags.len(), 2, "got: {diags:?}");
+        let diags = lint_with("aa = 1; bb = 2; %#ok<*>\n");
+        assert_eq!(diags.len(), 2, "got: {diags:?}");
+    }
+
+    #[test]
+    fn inline_suppression_wildcard_is_file_wide() {
+        // Probe: `%#ok<*RULEA>` on line 2 silences RULEA on lines 1 and 3 too.
+        let diags = lint_with("aa = 1;\nbb = 2 %#ok<*RULEA>\naa = 3;\n");
+        assert!(diags.iter().all(|d| d.rule_id != "RULEA"), "got: {diags:?}");
+        assert!(diags.iter().any(|d| d.rule_id == "RULEB" && d.line == 2));
+        assert!(!diags.iter().any(|d| d.rule_id == "MSNU"), "got: {diags:?}");
+    }
+
+    #[test]
+    fn wildcard_claims_a_message_before_a_named_directive_on_its_line() {
+        // Probe: `%#ok<*RULEB>` on line 3 claims the RULEB of line 1, so the named
+        // `%#ok<RULEB>` there is unused (MSNU).
+        let diags = lint_with("aa = 1; bb = 2; %#ok<RULEB>\naa = 3;\nbb = 4; %#ok<*RULEB>\n");
+        assert!(diags.iter().all(|d| d.rule_id != "RULEB"), "got: {diags:?}");
+        assert_eq!(
+            diags
+                .iter()
+                .filter(|d| d.rule_id == "MSNU")
+                .map(|d| d.line)
+                .collect::<Vec<_>>(),
+            vec![1]
+        );
+    }
+
+    #[test]
+    fn wildcard_silences_msnu() {
+        // Probe: `%#ok<*MSNU>` silences the MSNU of `x = 1; %#ok<NOPTS>`.
+        let diags = lint_with("cc = 3; %#ok<RULEA>\naa = 1; %#ok<*MSNU>\n");
+        assert!(msnu_of(&diags).is_empty(), "got: {diags:?}");
     }
 
     #[test]
@@ -629,8 +692,10 @@ mod tests {
 
     #[test]
     fn inline_suppression_wildcard_matching() {
-        // `*A` matches RULEA (ends with "A") but not RULEB.
+        // IDs are exact: `*A` names no ID, so nothing is suppressed.
         let diags = lint_with("aa = 1; bb = 2; %#ok<*A>\n");
+        assert_eq!(diags.len(), 2, "got: {diags:?}");
+        let diags = lint_with("aa = 1; bb = 2; %#ok<*RULEA>\n");
         assert_eq!(diags.len(), 1, "got: {diags:?}");
         assert_eq!(diags[0].rule_id, "RULEB");
     }
@@ -748,8 +813,8 @@ mod tests {
     #[test]
     fn msnu_is_not_suppressed_by_a_directive_that_matches_it() {
         // Probe: `disp(x); %#ok<AGROW,MSNU>` reports MSNU for AGROW and for MSNU
-        // itself, so a directive does not hide an MSNU. `*SNU*` matches MSNU here.
-        let diags = lint_with("cc = 3; %#ok<RULEA,*SNU*>\n");
+        // itself, so a directive does not hide an MSNU.
+        let diags = lint_with("cc = 3; %#ok<RULEA,MSNU>\n");
         assert_eq!(msnu_of(&diags), vec![(1, 14)]);
     }
 

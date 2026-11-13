@@ -63,6 +63,17 @@ impl SyntaxErrorsEngine {
         });
     }
 
+    /// The first `~` of a `[~ ~ ...]` row that holds only `~` and blanks (at least two
+    /// `~` with the one at `pos`), or `None`. `pos` is the last `~` of the row.
+    fn ignored_row_start(source: &str, pos: usize) -> Option<usize> {
+        let line_start = source[..pos].rfind('\n').map_or(0, |p| p + 1);
+        let open = source[line_start..pos].rfind('[')? + line_start;
+        let inner = &source[open + 1..pos];
+        let only_ignores = inner.chars().all(|c| matches!(c, '~' | ' ' | '\t'));
+        let first = inner.find('~')? + open + 1;
+        (only_ignores && inner.contains('~')).then_some(first)
+    }
+
     /// True when the `~` at `pos` sits in a `[...]` that is followed by `=`: an output list.
     fn bracket_is_output_list(source: &str, pos: usize) -> bool {
         let line_start = source[..pos].rfind('\n').map_or(0, |p| p + 1);
@@ -135,8 +146,30 @@ impl SyntaxErrorsEngine {
             );
             let in_output_list =
                 matches!(next, Some(',' | ']')) && Self::bracket_is_output_list(source, i);
-            if !(spaced_eq || (no_operand && !in_output_list)) {
+            // `[~ ~] = f()`: a row of only ignored outputs, separated by blanks, is BADNOT
+            // at its last `~` (probed; `[~]`, `[~,~]` and `[~ a]` are not).
+            let ignored_row = if next == Some(']') && Self::bracket_is_output_list(source, i) {
+                Self::ignored_row_start(source, i)
+            } else {
+                None
+            };
+            if !(spaced_eq || (no_operand && !in_output_list) || ignored_row.is_some()) {
                 continue;
+            }
+            // MATLAB also reports BADNOTLHS at the first `~` of such a row.
+            if let Some(first) = ignored_row {
+                if self.is_check_enabled("BADNOTLHS") {
+                    let (line, column) = line_col(source, first);
+                    diagnostics.push(Diagnostic {
+                        rule_id: "BADNOTLHS",
+                        message: "Invalid use of logical not operator (~) on left side of an assignment. To use ~ to ignore function outputs, separate output variables with commas.".to_string(),
+                        severity: Severity::Error,
+                        byte_range: first..first + 1,
+                        line,
+                        column,
+                        fix: None,
+                    });
+                }
             }
             let end = i + 1 + gap + next.map_or(0, char::len_utf8);
             let (line, column) = line_col(source, i);
@@ -283,6 +316,31 @@ mod tests {
     // -- RESWD: `end` as a value inside a literal ----------------------------
 
     // Probe b4-b6, t8, t9: MATLAB reports RESWD at `end` in a matrix or cell.
+    #[test]
+    fn badnot_at_the_last_tilde_of_an_all_ignored_row() {
+        // Probed: `[~ ~] = size(x);` gives BADNOTLHS at the first `~` and BADNOT at the
+        // second. `[~]`, `[~,~]`, `[a, ~, ~]` and `[~ a]` give no BADNOT.
+        let diags = lint_file(&*engine(), "[~ ~] = size(x);\n");
+        assert_eq!(at(&diags, "BADNOT"), (1, 4));
+        assert_eq!(at(&diags, "BADNOTLHS"), (1, 2));
+        assert!(!has_id(
+            &lint_file(&*engine(), "[~] = size(x);\n"),
+            "BADNOT"
+        ));
+        assert!(!has_id(
+            &lint_file(&*engine(), "[~,~] = size(x);\n"),
+            "BADNOT"
+        ));
+        assert!(!has_id(
+            &lint_file(&*engine(), "[a, ~, ~] = size(x);\n"),
+            "BADNOT"
+        ));
+        assert!(!has_id(
+            &lint_file(&*engine(), "[~ a] = size(x);\n"),
+            "BADNOT"
+        ));
+    }
+
     #[test]
     fn reswd_fires_on_end_in_matrix_and_cell() {
         assert_eq!(at(&lint_file(&*engine(), "x = [end];\n"), "RESWD"), (1, 6));

@@ -237,12 +237,12 @@ pub(crate) fn find_function_node_at<'a>(
             return Some(node);
         }
         // Only recurse into nodes that overlap with the target range.
-        let count = node.child_count();
-        for i in (0..count).rev() {
-            if let Some(child) = node.child(i) {
-                if child.start_byte() <= byte_range.end && child.end_byte() >= byte_range.start {
-                    stack.push(child);
-                }
+        // A cursor, not `child(i)`: indexing a child is linear in `i`, so a
+        // file with many top-level statements would be quadratic here.
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            if child.start_byte() <= byte_range.end && child.end_byte() >= byte_range.start {
+                stack.push(child);
             }
         }
     }

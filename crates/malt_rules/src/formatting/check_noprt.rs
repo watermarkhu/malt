@@ -1,7 +1,6 @@
 //! NOPRT check: statement in a function that produces output without a semicolon.
 
 use super::*;
-use crate::analysis::control_flow::is_split_statement_continuation;
 
 impl FormattingEngine {
     /// Flag an assignment or expression statement inside a function that is not
@@ -26,11 +25,7 @@ impl FormattingEngine {
         // An assignment that a line break splits before `-x`/`+x` is reported by
         // NOPRC instead (`y = 3` then `-4`). Probed: an expression statement such
         // as `~x(1)` before `-x(1)` still gets NOPRT on its own line.
-        if node.kind() == "assignment"
-            && node
-                .next_named_sibling()
-                .is_some_and(|s| is_split_statement_continuation(s, source))
-        {
+        if node.kind() == "assignment" && crate::bugs::noprc_follows(node, source) {
             return;
         }
         if has_trailing_semicolon(node, source) {

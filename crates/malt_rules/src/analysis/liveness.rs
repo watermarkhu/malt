@@ -153,6 +153,20 @@ pub fn dead_stores(table: &SymbolTable, index: usize, tree: &Tree, source: &str)
             .collect(),
     };
 
+    let mut def_spans: Vec<(usize, usize, usize)> = scope
+        .defs
+        .iter()
+        .enumerate()
+        .map(|(i, d)| (d.byte_range.start, d.byte_range.end, i))
+        .collect();
+    def_spans.sort_unstable();
+    let mut use_spans: Vec<(usize, usize, usize)> = scope
+        .uses
+        .iter()
+        .enumerate()
+        .map(|(i, u)| (u.byte_range.start, u.byte_range.end, i))
+        .collect();
+    use_spans.sort_unstable();
     let mut analysis = Analysis {
         scope,
         source,
@@ -164,6 +178,8 @@ pub fn dead_stores(table: &SymbolTable, index: usize, tree: &Tree, source: &str)
         reports: Vec::new(),
         partial_reports: Vec::new(),
         bail: false,
+        def_spans,
+        use_spans,
     };
     let before_body = analysis.block(body, exit, true);
     if analysis.bail {
@@ -531,6 +547,24 @@ struct Analysis<'a> {
     partial_reports: Vec<usize>,
     /// Set when control flow is not understood. The scope then reports nothing.
     bail: bool,
+    /// `(start, end, index)` of each def of `scope.defs`, sorted by start, so
+    /// [`within`] finds the defs of a statement without scanning the scope.
+    def_spans: Vec<(usize, usize, usize)>,
+    /// `(start, end, index)` of each use of `scope.uses`, sorted by start.
+    use_spans: Vec<(usize, usize, usize)>,
+}
+
+/// The indices of the spans of `spans` (sorted by start) that lie within `range`.
+fn within(
+    spans: &[(usize, usize, usize)],
+    range: Range<usize>,
+) -> impl Iterator<Item = usize> + '_ {
+    let from = spans.partition_point(|span| span.0 < range.start);
+    spans[from..]
+        .iter()
+        .take_while(move |span| span.0 < range.end)
+        .filter(move |span| span.1 <= range.end)
+        .map(|span| span.2)
 }
 
 impl Analysis<'_> {
@@ -665,11 +699,9 @@ impl Analysis<'_> {
         let object = source[range.clone()]
             .split_once('=')
             .is_some_and(|(_, rhs)| rhs.trim_start().starts_with("onCleanup"));
-        for (index, def) in self.scope.defs.iter().enumerate() {
-            if def.kind != DefKind::Assignment
-                || def.byte_range.start < range.start
-                || def.byte_range.end > range.end
-            {
+        for index in within(&self.def_spans, range.clone()) {
+            let def = &self.scope.defs[index];
+            if def.kind != DefKind::Assignment {
                 continue;
             }
             if object {
@@ -688,10 +720,12 @@ impl Analysis<'_> {
                 self.reports.push(index);
             }
         }
-        let mut live: Live = after
-            .into_iter()
-            .filter(|name| !kills.contains(name))
-            .collect();
+        // `after` is owned, so it is updated in place: a script's exit set holds
+        // every variable, and copying it per statement is quadratic.
+        let mut live = after;
+        for name in &kills {
+            live.remove(name);
+        }
         live.extend(reads);
         self.finish(live)
     }
@@ -955,11 +989,8 @@ impl Analysis<'_> {
 
     /// Variables read by the identifiers inside `range`.
     fn uses_in(&self, range: Range<usize>) -> Live {
-        self.scope
-            .uses
-            .iter()
-            .filter(|u| range.start <= u.byte_range.start && u.byte_range.end <= range.end)
-            .map(|u| u.name.clone())
+        within(&self.use_spans, range)
+            .map(|i| self.scope.uses[i].name.clone())
             .collect()
     }
 

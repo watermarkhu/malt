@@ -222,10 +222,20 @@ Open: malt reads its own TOML keys, not MATLAB's JSON file (a loader would also 
 
 NOPTS/NOPRT: echoed expressions of every kind are reported (strings, matrices, cells, handles, lambdas, `~x`, ranges); a bare name assigned later in its scope is a variable, `ans` only when assigned somewhere; silent in `parfor` bodies and when indexing an input argument, a copy of one, or a variable started as `[]`. The column is the operator for binary, comparison and range expressions, the quote for postfix, the bracket for indexing. ALIGN covers `if`, `for`, `while`, `switch` and `try` (not `spmd`, `function`, `else`/`elseif`); a column difference of 1 is silent and a tab counts as one column. NCOMMA is silent after an ignored output (`[~ a]`).
 
-Open: `%#ok<*ID>` (wildcard) is file-wide in MATLAB and line-scoped in malt; NOPRC fires for any statement-level `+`/`-` line (MATLAB: only after an assignment without a semicolon); ALIGN after an unclosed `if` before a `while`; the `--preset all` side of formatting was not compared.
+Open: ALIGN after an unclosed `if` before a `while`; MSNU for formatting directives; the `--preset all` side of formatting was not compared.
 
 ## Incomplete analysis (Phase 2.7)
 
 MATLAB's real limits (probed by bisection): MDEEP 33 nested brackets/calls, DEEPN 18 nested functions (reported at the deepest header), DEEPC the 8th nested `%{`, NOSPC weighted nesting (if 4, switch 8, for/while 3, try 2 quarter-levels) at >= 994, MXASET 998 nested binary operators, TMSMS above 1000 parse errors, TMMSG a budget of 10,000 messages. MATLAB never reports MBIG (1 to 16 MB files), TEXTL (5,000,000 character lines), DEEPS or an EOFER from this category: those malt checks were deleted. `MALT_TOO_DEEP` is malt's own parse-tree safety limit (1,000 levels native, 200 wasm), not a MATLAB message.
 
 Open: loop nests of 500+ and operator chains of 999+ hit the safety limit first (MATLAB: NOSPC/MXASET); TMMSG weights messages in MATLAB (about 3 units for NOPTS); a single statement with 1,500 errors gives TMSMS in MATLAB only; performance: a 320-deep `for` nest takes about 23 s and a 50,000-statement file more than five minutes (suspect NASGU liveness); the docs still list the removed `max_*` keys of the incomplete-analysis engine (old keys parse without error).
+
+## Suppression wildcards, NOPRC and syntax follow-ups
+
+`%#ok<*ID>` suppresses exactly that ID (exact, case-sensitive; no globs, `*all`, or trimming) in the whole file, wherever it sits, including `*MSNU`; wildcards are removed before line directives, a named directive whose message a wildcard removed gets MSNU, and an unused wildcard gets none. NOPRC is reported at the `=` of a one-line assignment without a semicolon that ends on the line above a statement starting with a unary `+`/`-` (not after a call, command, comment or blank line). FNSWA is not emitted (MATLAB never reports it): a leading `_` in a function name is BADCH. `case 1 y = 1;` is SEPEXR, not NOSEMI; FVAMI/FVACS survive a dropped error statement; `[~ ~] = f()` is BADNOTLHS then BADNOT.
+
+Open: MSNE (needs MATLAB's full ID list); a bare `%#ok` claimed by a wildcard gets MSNU in MATLAB; `x = 1 %c` then `-x` and `x = 1` then `-x + 2` (NOPRC); `[a;b;c] = size(x)` (LHROW only) and NOPAR2 false positives on quoted name-value calls; `s('a' = 1, 2)` is FVACS; BADCH for leading underscores outside function names.
+
+## Performance (Phase 2 follow-up)
+
+Release timings after the first optimisation pass: 5,000 straight-line statements 0.67 s (was 23 s), 20,000 about 5 s, 50,000 about 20 s (target 5 s); a 320-deep `for` nest about 30 s (target 2 s: `loop_head` runs O(depth^2) times and clones live sets of size O(depth); NASGU and STRNU each run the dead-store analysis); 2,000 functions in one file 20 s (not profiled). Inputs and the generator are in /tmp/probe/perf_B*, not in the repo.
