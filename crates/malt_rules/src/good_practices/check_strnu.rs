@@ -1,5 +1,5 @@
 use super::*;
-use crate::analysis::liveness::{dead_stores, is_field_store};
+use crate::analysis::liveness::{is_field_store, shared_dead_stores};
 use crate::analysis::symbols::{DefKind, SymbolTable};
 
 impl GoodPracticesEngine {
@@ -21,11 +21,11 @@ impl GoodPracticesEngine {
             return Vec::new();
         }
 
-        let table = SymbolTable::build(tree, source);
+        let table = SymbolTable::shared(|| tree.root_node(), source);
         let mut diagnostics = Vec::new();
 
         for index in 0..table.scopes.len() {
-            let Some(dead) = dead_stores(&table, index, tree, source) else {
+            let Some(dead) = shared_dead_stores(&table, index, tree, source) else {
                 continue;
             };
             let scope = &table.scopes[index];

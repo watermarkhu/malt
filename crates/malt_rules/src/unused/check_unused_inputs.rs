@@ -5,7 +5,7 @@
 //! An input that the block does not declare is INUSD's.
 
 use super::*;
-use crate::analysis::liveness::dead_stores;
+use crate::analysis::liveness::shared_dead_stores;
 use malt_core::Fix;
 use std::collections::HashMap;
 use std::ops::Range;
@@ -63,7 +63,7 @@ impl UnusedEngine {
             // entry value is overwritten before any read, or read only after
             // `error(...)`, as unused. Where the analysis cannot follow the scope,
             // only a name with no use at all is unused.
-            let entry_reads = dead_stores(table, index, tree, source).map(|d| d.entry);
+            let entry_reads = shared_dead_stores(table, index, tree, source).map(|d| d.entry);
 
             for def in &scope.defs {
                 if def.kind != DefKind::InputArg {

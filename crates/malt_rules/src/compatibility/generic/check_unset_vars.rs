@@ -92,7 +92,7 @@ pub(crate) fn collect_file_checks(
     source: &str,
     diagnostics: &mut Vec<Diagnostic>,
 ) {
-    let symbol_table = SymbolTable::build(tree, source);
+    let symbol_table = SymbolTable::shared(|| tree.root_node(), source);
     let use_classes = classify_identifier_uses(tree.root_node());
     let known_functions = collect_known_functions(tree.root_node(), source);
 
@@ -121,6 +121,7 @@ impl CompatibilityEngine {
                 if !has_variable_def(scope, name) {
                     continue;
                 }
+                let first_def = first_def_start(scope, name);
                 for use_ in uses_in_order(scope, name) {
                     if !matches!(
                         use_classes.get(&use_.byte_range.start),
@@ -128,7 +129,7 @@ impl CompatibilityEngine {
                     ) {
                         continue;
                     }
-                    if !has_def_before_or_at(scope, name, use_.byte_range.start) {
+                    if first_def.is_none_or(|start| start > use_.byte_range.start) {
                         push_use_diag(
                             "IDISVARLOW",
                             IDISVARLOW_MSG,
@@ -156,6 +157,15 @@ impl CompatibilityEngine {
                 if is_builtin(name) || known_functions.contains(name) {
                     continue;
                 }
+                // A name defined nowhere is a function (`p = inputParser;`), and a
+                // name defined in an enclosing scope is shared, not unset: neither
+                // gets a use reported. Both are decided once per name.
+                let defined_somewhere = has_variable_def(scope, name)
+                    || has_def_in_ancestors(symbol_table, scope_idx, name);
+                if !defined_somewhere || has_def_in_ancestors(symbol_table, scope_idx, name) {
+                    continue;
+                }
+                let first_def = first_def_start(scope, name);
                 for use_ in uses_in_order(scope, name) {
                     // Indexing/call positions are IDISVARLOW's domain.
                     if !matches!(
@@ -164,13 +174,7 @@ impl CompatibilityEngine {
                     ) {
                         continue;
                     }
-                    // A name defined nowhere is a function (`p = inputParser;`).
-                    let defined_somewhere = has_variable_def(scope, name)
-                        || has_def_in_ancestors(symbol_table, scope_idx, name);
-                    if defined_somewhere
-                        && !has_def_before_or_at(scope, name, use_.byte_range.start)
-                        && !has_def_in_ancestors(symbol_table, scope_idx, name)
-                    {
+                    if first_def.is_none_or(|start| start > use_.byte_range.start) {
                         push_use_diag(
                             "IDISVARHIGH",
                             IDISVARHIGH_MSG,
@@ -263,12 +267,10 @@ fn has_variable_def(scope: &Scope, name: &str) -> bool {
         .any(|d| d.kind != DefKind::NestedFunction)
 }
 
-/// True when `scope` defines `name` at or before the given use offset.
-fn has_def_before_or_at(scope: &Scope, name: &str, use_start: usize) -> bool {
-    scope
-        .defs_of(name)
-        .iter()
-        .any(|d| d.byte_range.start <= use_start)
+/// Where the earliest definition of `name` in `scope` starts, whatever its kind.
+/// A use at or after it has a definition at or before it.
+fn first_def_start(scope: &Scope, name: &str) -> Option<usize> {
+    scope.defs_of(name).iter().map(|d| d.byte_range.start).min()
 }
 
 /// True when any ancestor scope (shared-workspace scopes such as nested

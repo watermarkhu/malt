@@ -20,6 +20,12 @@ impl LanguageSpecEngine {
         let root_scope = symbol_table.root_scope();
         let skipped = Self::collect_function_name_starts(ctx.tree.root_node());
         let mut reported: HashSet<String> = HashSet::new();
+        // Where the earliest definition of each name starts.
+        let mut earliest: HashMap<&str, usize> = HashMap::new();
+        for def in &root_scope.defs {
+            let start = earliest.entry(def.name.as_str()).or_insert(usize::MAX);
+            *start = (*start).min(def.byte_range.start);
+        }
         for use_ in &root_scope.uses {
             if skipped.contains(&use_.byte_range.start) {
                 continue;
@@ -27,13 +33,8 @@ impl LanguageSpecEngine {
             if reported.contains(&use_.name) {
                 continue;
             }
-            let earliest_def = root_scope
-                .defs
-                .iter()
-                .filter(|d| d.name == use_.name)
-                .min_by_key(|d| d.byte_range.start);
-            if let Some(def) = earliest_def {
-                if use_.byte_range.start < def.byte_range.start {
+            if let Some(&def_start) = earliest.get(use_.name.as_str()) {
+                if use_.byte_range.start < def_start {
                     reported.insert(use_.name.clone());
                     diagnostics.push(Diagnostic {
                         rule_id: "USESWNS",

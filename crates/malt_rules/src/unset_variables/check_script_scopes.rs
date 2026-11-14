@@ -1,6 +1,8 @@
 use super::*;
 
-use crate::analysis::symbols::ScopeKind;
+use std::collections::HashMap;
+
+use crate::analysis::symbols::{ScopeKind, VarDef};
 
 impl UnsetVariablesEngine {
     /// Check script scopes for variables used before being set.
@@ -15,6 +17,20 @@ impl UnsetVariablesEngine {
             // In scripts, variables must be defined before use within the file.
             // We check for uses that appear before any definition.
             let mut reported: HashSet<String> = HashSet::new();
+            // The earliest definition of each name (the first of equal effect starts).
+            let mut earliest: HashMap<&str, &VarDef> = HashMap::new();
+            for def in &scope.defs {
+                match earliest.entry(def.name.as_str()) {
+                    std::collections::hash_map::Entry::Occupied(mut entry) => {
+                        if def.effect_start < entry.get().effect_start {
+                            entry.insert(def);
+                        }
+                    }
+                    std::collections::hash_map::Entry::Vacant(entry) => {
+                        entry.insert(def);
+                    }
+                }
+            }
 
             for var_use in &scope.uses {
                 if self.is_ignored(&var_use.name) {
@@ -31,16 +47,12 @@ impl UnsetVariablesEngine {
                 // A name defined nowhere in the file (`t = tic;`,
                 // `containers.Map`) is a function or package, and a script may
                 // use variables of the base workspace.
-                if !scope.defs.iter().any(|d| d.name == var_use.name) {
+                if !scope.is_defined(&var_use.name) {
                     continue;
                 }
 
                 // Find the earliest definition of this variable in the scope.
-                let earliest_def = scope
-                    .defs
-                    .iter()
-                    .filter(|d| d.name == var_use.name)
-                    .min_by_key(|d| d.effect_start);
+                let earliest_def = earliest.get(var_use.name.as_str()).copied();
 
                 match earliest_def {
                     // Used but defined nowhere: a function, a package or a variable

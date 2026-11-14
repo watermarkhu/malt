@@ -420,7 +420,7 @@ impl Rule for LanguageSpecEngine {
 
         // Build metadata and symbol table
         let meta = FileMeta::build(ctx.tree, ctx.source);
-        let symbol_table = SymbolTable::build(ctx.tree, ctx.source);
+        let symbol_table = SymbolTable::shared(|| ctx.tree.root_node(), ctx.source);
 
         // 1. DFS traversal for parfor/spmd/loop context violations
         let root = ctx.tree.root_node();

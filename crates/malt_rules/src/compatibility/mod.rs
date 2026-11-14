@@ -349,7 +349,7 @@ impl Rule for CompatibilityEngine {
         let mut diagnostics = Vec::with_capacity(entries.len());
 
         // A variable or a local function of the same name shadows the removed one.
-        let table = SymbolTable::build_from_root(root_of(ctx.node), ctx.source);
+        let table = SymbolTable::shared(|| root_of(ctx.node), ctx.source);
         if is_shadowed(&table, ctx.node, func_name) {
             return Vec::new();
         }

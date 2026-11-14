@@ -239,7 +239,7 @@ impl ReadabilityEngine {
         if !self.is_check_enabled("MFAMB") {
             return;
         }
-        let table = SymbolTable::build(tree, source);
+        let table = SymbolTable::shared(|| tree.root_node(), source);
         walk_for_mfamb(tree.root_node(), source, &table, results);
     }
 

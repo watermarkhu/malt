@@ -36,7 +36,9 @@
 //! assert!(table.root_scope().is_defined("y"));
 //! ```
 
+use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
+use std::rc::Rc;
 use tree_sitter::Tree;
 
 /// Whether a `function_call` is the trailing call of a dotted expression:
@@ -260,12 +262,12 @@ impl Scope {
 
     /// Check if a variable is defined in this scope.
     pub fn is_defined(&self, name: &str) -> bool {
-        self.defs.iter().any(|d| d.name == name)
+        self.def_index.contains_key(name)
     }
 
     /// Check if a variable is used in this scope.
     pub fn is_used(&self, name: &str) -> bool {
-        self.uses.iter().any(|u| u.name == name)
+        self.use_index.contains_key(name)
     }
 }
 
@@ -329,6 +331,30 @@ impl SymbolTable {
         Self::build_from_root(tree.root_node(), source)
     }
 
+    /// The table of the file being linted, built once and shared by every
+    /// check of that file.
+    ///
+    /// Valid for one parse epoch and one source text (see [`FileKey`]). `root` is
+    /// only called on a miss, because finding a root climbs from a node.
+    pub(crate) fn shared<'a>(
+        root: impl FnOnce() -> tree_sitter::Node<'a>,
+        source: &'a str,
+    ) -> Rc<SymbolTable> {
+        let key = FileKey::of(source);
+        SHARED.with(|slot| {
+            let mut slot = slot.borrow_mut();
+            if let Some(entry) = slot.as_ref().filter(|entry| entry.key == key) {
+                return entry.table.clone();
+            }
+            let table = Rc::new(Self::build_from_root(root(), source));
+            *slot = Some(SharedTable {
+                key,
+                table: table.clone(),
+            });
+            table
+        })
+    }
+
     /// Build a symbol table from the root node of a parse tree.
     ///
     /// For callers that hold a node rather than the whole tree.
@@ -339,6 +365,8 @@ impl SymbolTable {
             scope_stack: Vec::new(),
             first_file_function_seen: false,
             arguments_unclosed: false,
+            ancestors: vec![root],
+            def_names: HashSet::new(),
         };
         builder.run(root);
         for scope in &mut builder.scopes {
@@ -349,6 +377,38 @@ impl SymbolTable {
             arguments_unclosed: builder.arguments_unclosed,
         }
     }
+}
+
+/// Identity of the file being checked: the parse epoch and the address and
+/// length of its source text. Within one epoch the source is one string, so this
+/// names the file. Memos keyed by it are only read inside `Linter::lint`, which
+/// starts a new epoch.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) struct FileKey {
+    epoch: u64,
+    address: usize,
+    len: usize,
+}
+
+impl FileKey {
+    /// The key of `source` in the current parse epoch.
+    pub(crate) fn of(source: &str) -> Self {
+        Self {
+            epoch: malt_core::parse_epoch(),
+            address: source.as_ptr() as usize,
+            len: source.len(),
+        }
+    }
+}
+
+/// The table of the current file, see [`SymbolTable::shared`].
+struct SharedTable {
+    key: FileKey,
+    table: Rc<SymbolTable>,
+}
+
+thread_local! {
+    static SHARED: RefCell<Option<SharedTable>> = const { RefCell::new(None) };
 }
 
 // ---------------------------------------------------------------------------
@@ -365,6 +425,14 @@ struct Builder<'a> {
     first_file_function_seen: bool,
     /// Set when the primary function's `arguments` block is left open (see `SymbolTable`).
     arguments_unclosed: bool,
+    /// The nodes being visited, outermost first: the last one is the node whose
+    /// handler runs, so the one below it is its parent. Tree-sitter's
+    /// `Node::parent` costs as much as the children of every ancestor, which is
+    /// quadratic on a file with many top-level statements.
+    ancestors: Vec<tree_sitter::Node<'a>>,
+    /// The (scope index, name) of every definition so far, for `defined_before`
+    /// checks that would otherwise scan a scope's definitions.
+    def_names: HashSet<(usize, String)>,
 }
 
 impl<'a> Builder<'a> {
@@ -398,6 +466,7 @@ impl<'a> Builder<'a> {
     /// Add a definition to the current scope.
     fn add_def(&mut self, def: VarDef) {
         if let Some(idx) = self.current_scope() {
+            self.def_names.insert((idx, def.name.clone()));
             self.scopes[idx].defs.push(def);
         }
     }
@@ -493,9 +562,7 @@ impl<'a> Builder<'a> {
     /// leaves it open; MATLAB then checks the primary function like a local
     /// function. Without the `ERROR` (probe a4) the primary stays the file's function.
     fn has_unclosed_arguments_block(root: tree_sitter::Node) -> bool {
-        let children: Vec<tree_sitter::Node> = (0..root.child_count())
-            .filter_map(|i| root.child(i))
-            .collect();
+        let children = children_of(root);
         let has_error = children.iter().any(|c| c.kind() == "ERROR");
         let first_function = children.iter().find(|c| c.kind() == "function_definition");
         has_error
@@ -504,9 +571,7 @@ impl<'a> Builder<'a> {
                     .into_iter()
                     .any(|c| {
                         c.kind() == "arguments_statement"
-                            && (0..c.child_count())
-                                .filter_map(|i| c.child(i))
-                                .any(|m| m.is_missing())
+                            && children_of(c).into_iter().any(|m| m.is_missing())
                     })
             })
     }
@@ -519,9 +584,7 @@ impl<'a> Builder<'a> {
         if root.kind() != "ERROR" || root.child(0).map(|c| c.kind()) != Some("function") {
             return false;
         }
-        let kinds: Vec<&str> = (0..root.child_count())
-            .filter_map(|i| root.child(i).map(|c| c.kind()))
-            .collect();
+        let kinds: Vec<&str> = children_of(root).iter().map(|c| c.kind()).collect();
         !kinds.contains(&"function_output") && kinds.contains(&"block")
     }
 
@@ -530,8 +593,9 @@ impl<'a> Builder<'a> {
     /// The statements are visited as in any function body.
     fn visit_broken_function(&mut self, root: tree_sitter::Node<'a>) {
         let pos = root.start_position();
-        let name = (1..root.child_count())
-            .filter_map(|i| root.child(i))
+        let name = children_of(root)
+            .into_iter()
+            .skip(1)
             .find(|c| c.kind() == "identifier")
             .map(|c| self.node_text(c).to_string())
             .unwrap_or_default();
@@ -569,8 +633,28 @@ impl<'a> Builder<'a> {
         }
     }
 
-    /// Dispatch a single node.
+    /// Dispatch a single node, with the node pushed on `ancestors` while its
+    /// handler runs.
     fn visit_node(&mut self, node: tree_sitter::Node<'a>) {
+        self.ancestors.push(node);
+        self.dispatch(node);
+        self.ancestors.pop();
+    }
+
+    /// The parent of the node being visited.
+    fn parent_of_current(&self) -> Option<tree_sitter::Node<'a>> {
+        let len = self.ancestors.len();
+        len.checked_sub(2).map(|i| self.ancestors[i])
+    }
+
+    /// The grandparent of the node being visited.
+    fn grandparent_of_current(&self) -> Option<tree_sitter::Node<'a>> {
+        let len = self.ancestors.len();
+        len.checked_sub(3).map(|i| self.ancestors[i])
+    }
+
+    /// Run the handler of `node`, the node on top of `ancestors`.
+    fn dispatch(&mut self, node: tree_sitter::Node<'a>) {
         match node.kind() {
             "function_definition" => self.visit_function_definition(node),
             "lambda" => self.visit_lambda(node),
@@ -580,7 +664,9 @@ impl<'a> Builder<'a> {
             "persistent_operator" => self.visit_global_persistent(node, DefKind::Persistent),
             "identifier" => self.visit_identifier(node),
             // `load('a.mat', 'x')` as a statement stores each variable it names.
-            "function_call" | "command" if Self::is_load_statement(node, self.source) => {
+            "function_call" | "command"
+                if Self::is_load_statement(node, self.parent_of_current(), self.source) =>
+            {
                 self.record_load_stores(node);
                 self.visit_children(node);
             }
@@ -618,10 +704,11 @@ impl<'a> Builder<'a> {
             // `catch err` defines the exception variable.
             "catch_clause" => {
                 let mut cursor = node.walk();
+                let mut after_catch = false;
                 for child in node.children(&mut cursor) {
-                    if child.kind() == "identifier"
-                        && child.prev_sibling().is_some_and(|p| p.kind() == "catch")
-                    {
+                    let prev_is_catch =
+                        std::mem::replace(&mut after_catch, child.kind() == "catch");
+                    if child.kind() == "identifier" && prev_is_catch {
                         let pos = child.start_position();
                         let def = VarDef {
                             name: self.node_text(child).to_string(),
@@ -645,7 +732,7 @@ impl<'a> Builder<'a> {
                 let mut cursor = node.walk();
                 for child in node.children(&mut cursor) {
                     if child.kind() == "default_value" {
-                        self.visit_children(child);
+                        self.visit_node(child);
                     } else if child.kind() == "validation_functions" {
                         self.record_validator_callees(child);
                     }
@@ -750,7 +837,7 @@ impl<'a> Builder<'a> {
     /// Classify a `function_definition` based on its position in the tree.
     fn classify_function_scope(&mut self, node: tree_sitter::Node) -> ScopeKind {
         // Check if we're inside a `methods` block.
-        if Self::is_inside_methods_block(node) {
+        if self.is_inside_methods_block() {
             return ScopeKind::Method;
         }
 
@@ -774,8 +861,12 @@ impl<'a> Builder<'a> {
         // File-level function. A classdef file's main entity is the class, so a
         // function after the classdef `end` is local (probed: `function helper()`
         // after a classdef is DEFNU when unused).
-        let after_class = std::iter::successors(node.prev_sibling(), |s| s.prev_sibling())
-            .any(|s| s.kind() == "class_definition");
+        let after_class = self.parent_of_current().is_some_and(|parent| {
+            children_of(parent)
+                .iter()
+                .take_while(|sibling| sibling.id() != node.id())
+                .any(|sibling| sibling.kind() == "class_definition")
+        });
         let first = !self.first_file_function_seen && !after_class;
         self.first_file_function_seen = true;
         if first {
@@ -786,9 +877,9 @@ impl<'a> Builder<'a> {
     }
 
     /// Check if a node is inside a `methods` block (by walking parents).
-    fn is_inside_methods_block(node: tree_sitter::Node) -> bool {
-        let mut current = node.parent();
-        while let Some(p) = current {
+    fn is_inside_methods_block(&self) -> bool {
+        // The ancestors of the function being visited, nearest first.
+        for p in self.ancestors.iter().rev().skip(1) {
             if p.kind() == "methods" {
                 return true;
             }
@@ -796,7 +887,6 @@ impl<'a> Builder<'a> {
             if p.kind() == "class_definition" || p.kind() == "source_file" {
                 break;
             }
-            current = p.parent();
         }
         false
     }
@@ -988,7 +1078,7 @@ impl<'a> Builder<'a> {
             let prealloc = node
                 .child_by_field_name("right")
                 .is_some_and(|r| self.is_prealloc_call(r));
-            let block_start = node.parent().map_or(0, |p| p.start_byte());
+            let block_start = self.parent_of_current().map_or(0, |p| p.start_byte());
             if let Some(idx) = self.current_scope() {
                 for def in self.scopes[idx].defs.iter_mut().skip(before) {
                     def.block_start = block_start;
@@ -1083,16 +1173,20 @@ impl<'a> Builder<'a> {
         let name = self.node_text(root).to_string();
         let defined_before = self
             .current_scope()
-            .is_some_and(|idx| self.scopes[idx].defs.iter().any(|d| d.name == name));
+            .is_some_and(|idx| self.def_names.contains(&(idx, name.clone())));
 
         // Index expressions and the like are plain uses.
+        let uses_before = self
+            .current_scope()
+            .map_or(0, |idx| self.scopes[idx].uses.len());
         self.visit_node(lhs);
         if !defined_before {
             if let Some(idx) = self.current_scope() {
+                // Only the uses this visit recorded can be the root's own use.
+                let mut recorded = self.scopes[idx].uses.split_off(uses_before);
                 let at = root.start_byte();
-                self.scopes[idx]
-                    .uses
-                    .retain(|u| !(u.name == name && u.byte_range.start == at));
+                recorded.retain(|u| !(u.name == name && u.byte_range.start == at));
+                self.scopes[idx].uses.append(&mut recorded);
             }
         }
         let pos = root.start_position();
@@ -1209,7 +1303,7 @@ impl<'a> Builder<'a> {
     /// (already captured elsewhere), a function/field name (skip), or a
     /// genuine variable usage.
     fn visit_identifier(&mut self, node: tree_sitter::Node<'a>) {
-        let Some(parent) = node.parent() else {
+        let Some(parent) = self.parent_of_current() else {
             // Orphan identifier — treat as usage to be safe.
             self.record_use(node);
             return;
@@ -1217,7 +1311,9 @@ impl<'a> Builder<'a> {
         // The name of a `Name = value` call argument is not a read: `struct(Counts = [])`
         // does not use `Counts` (probed: MATLAB reports no NODEF for it). The value is.
         if parent.kind() == "arguments"
-            && node.next_sibling().is_some_and(|next| next.kind() == "=")
+            && children_of(parent)
+                .windows(2)
+                .any(|pair| pair[0].id() == node.id() && pair[1].kind() == "=")
         {
             return;
         }
@@ -1240,7 +1336,7 @@ impl<'a> Builder<'a> {
             // Already handled by extract_assignment_lhs.
             "multioutput_variable" => {
                 // Check if the multioutput_variable is the LHS of an assignment.
-                if let Some(grandparent) = parent.parent() {
+                if let Some(grandparent) = self.grandparent_of_current() {
                     if grandparent.kind() == "assignment"
                         && grandparent
                             .child_by_field_name("left")
@@ -1300,7 +1396,7 @@ impl<'a> Builder<'a> {
             // Lambda arguments — already handled.
             "arguments" | "lambda_arguments" => {
                 // Only skip if the parent's parent is a lambda.
-                if let Some(grandparent) = parent.parent() {
+                if let Some(grandparent) = self.grandparent_of_current() {
                     if grandparent.kind() == "lambda" {
                         return;
                     }
@@ -1387,10 +1483,12 @@ impl<'a> Builder<'a> {
     /// Record a variable usage at the given identifier node.
     /// Whether `node` is a `load` call or command that is a whole statement.
     /// With an output (`y = load(...)`) it stores nothing by name.
-    fn is_load_statement(node: tree_sitter::Node, source: &str) -> bool {
-        let statement = node
-            .parent()
-            .is_some_and(|p| matches!(p.kind(), "block" | "source_file"));
+    fn is_load_statement(
+        node: tree_sitter::Node,
+        parent: Option<tree_sitter::Node>,
+        source: &str,
+    ) -> bool {
+        let statement = parent.is_some_and(|p| matches!(p.kind(), "block" | "source_file"));
         let callee = match node.kind() {
             "function_call" => node
                 .child_by_field_name("name")
@@ -1463,7 +1561,7 @@ impl<'a> Builder<'a> {
                 partial: false,
                 multi_output: false,
                 prealloc: false,
-                block_start: node.parent().map_or(0, |p| p.start_byte()),
+                block_start: self.parent_of_current().map_or(0, |p| p.start_byte()),
                 line: pos.row + 1,
                 column: pos.column + 1,
             });

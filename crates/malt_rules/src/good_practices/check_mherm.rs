@@ -72,11 +72,16 @@ fn star_operands<'a>(node: Node<'a>, source: &str) -> Option<(Node<'a>, Node<'a>
 
 /// Whether `name` is defined (a parameter or an assignment) in the scope of `node`.
 fn is_defined_at(node: Node, name: &str, source: &str) -> bool {
-    let mut root = node;
-    while let Some(parent) = root.parent() {
-        root = parent;
-    }
-    let table = SymbolTable::build_from_root(root, source);
+    let table = SymbolTable::shared(
+        || {
+            let mut root = node;
+            while let Some(parent) = root.parent() {
+                root = parent;
+            }
+            root
+        },
+        source,
+    );
     table
         .scope_at(node.start_byte())
         .is_some_and(|scope| scope.is_defined(name))

@@ -202,7 +202,7 @@ impl Rule for UnsetVariablesEngine {
         let source = ctx.source;
 
         // Build the symbol table for the file.
-        let symbol_table = SymbolTable::build(tree, source);
+        let symbol_table = SymbolTable::shared(|| tree.root_node(), source);
 
         let mut diagnostics = Vec::new();
 

@@ -61,9 +61,9 @@ pub(crate) fn is_overwritten_preallocation(scope: &Scope, def: &VarDef) -> bool 
     }
     // The next definition of the variable, in source order.
     let next = scope
-        .defs
-        .iter()
-        .filter(|d| d.name == def.name && d.byte_range.start > def.byte_range.start)
+        .defs_of(&def.name)
+        .into_iter()
+        .filter(|d| d.byte_range.start > def.byte_range.start)
         .min_by_key(|d| d.byte_range.start);
     let Some(next) = next else {
         return false;

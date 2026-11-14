@@ -697,7 +697,7 @@ fn is_shadowed(node: tree_sitter::Node, name: &str, source: &str) -> bool {
     if name.contains('.') {
         return false;
     }
-    let table = SymbolTable::build_from_root(root_of(node), source);
+    let table = SymbolTable::shared(|| root_of(node), source);
     // A script variable also shadows the function inside an anonymous function
     // (`f = @() isdir(p)`), which has a scope of its own.
     table.root_scope().is_defined(name)

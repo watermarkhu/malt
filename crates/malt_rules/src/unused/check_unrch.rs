@@ -32,7 +32,7 @@ impl UnusedEngine {
         collect_unreachable_after_error(ctx.tree.root_node(), ctx.source, &mut seen, diagnostics);
 
         // Dead branches of constant conditions (`if true ... else`, `k = 0; if k`).
-        let table = SymbolTable::build(ctx.tree, ctx.source);
+        let table = SymbolTable::shared(|| ctx.tree.root_node(), ctx.source);
         let truths = constant_truths(&table, ctx.tree, ctx.source);
         collect_constant_branches(
             ctx.tree.root_node(),

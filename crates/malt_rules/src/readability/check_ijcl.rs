@@ -41,7 +41,7 @@ impl ReadabilityEngine {
         if !self.is_check_enabled("IJCL") {
             return;
         }
-        let table = SymbolTable::build(tree, source);
+        let table = SymbolTable::shared(|| tree.root_node(), source);
         let mut stack = vec![tree.root_node()];
         while let Some(node) = stack.pop() {
             let mut cursor = node.walk();

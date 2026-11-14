@@ -231,7 +231,7 @@ impl Rule for UnusedEngine {
         let mut diagnostics = Vec::new();
 
         // 1. Build symbol table.
-        let table = SymbolTable::build(ctx.tree, ctx.source);
+        let table = SymbolTable::shared(|| ctx.tree.root_node(), ctx.source);
 
         // 2. Run symbol-based checks.
         self.check_nasgu(&table, ctx.tree, ctx.source, &mut diagnostics);

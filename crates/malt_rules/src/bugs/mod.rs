@@ -498,7 +498,7 @@ impl BugsEngine {
         tree: &tree_sitter::Tree,
         source: &str,
     ) -> Vec<Diagnostic> {
-        let table = SymbolTable::build(tree, source);
+        let table = SymbolTable::shared(|| tree.root_node(), source);
         let mut diagnostics = Vec::new();
         Self::walk_multioutput_assignment(tree.root_node(), source, &table, &mut diagnostics);
         diagnostics

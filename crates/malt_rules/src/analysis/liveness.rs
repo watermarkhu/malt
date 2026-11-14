@@ -41,12 +41,13 @@
 //! A `try` body can be left at any statement, so the variables live in the
 //! catch body are live after every statement of the try body.
 
+use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::ops::Range;
 
 use tree_sitter::{Node, Tree};
 
-use super::symbols::{is_qualified_call, DefKind, Scope, ScopeKind, SymbolTable};
+use super::symbols::{is_qualified_call, DefKind, FileKey, Scope, ScopeKind, SymbolTable};
 
 /// Interned variable names of one analysis: a name has a dense id, its position in `list`.
 #[derive(Default)]
@@ -214,7 +215,7 @@ const CLEAR_KEYWORDS: &[&str] = &[
 ];
 
 /// The dead assignments of one scope, as indices into `scope.defs`.
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct Dead {
     /// Full assignments (`x = v`, `[a, b] = f()`) whose value is never read.
     pub full: Vec<usize>,
@@ -226,6 +227,38 @@ pub struct Dead {
     /// body, plus the excluded names (conservatively read). An input outside this
     /// set is never read with its entry value (INUSD).
     pub entry: HashSet<String>,
+}
+
+/// The dead-store results of one file, by scope index, with the file they belong to.
+type DeadMemo = Option<(FileKey, HashMap<usize, Option<Dead>>)>;
+
+thread_local! {
+    /// The dead-store results of the current file. See [`shared_dead_stores`].
+    static DEAD_MEMO: RefCell<DeadMemo> = const { RefCell::new(None) };
+}
+
+/// [`dead_stores`] for the table of the current file ([`SymbolTable::shared`]),
+/// memoised per scope. NASGU, STRNU and the unused-input check all read the
+/// same analysis, so the file pays for it once.
+pub fn shared_dead_stores(
+    table: &SymbolTable,
+    index: usize,
+    tree: &Tree,
+    source: &str,
+) -> Option<Dead> {
+    let key = FileKey::of(source);
+    DEAD_MEMO.with(|memo| {
+        let mut memo = memo.borrow_mut();
+        let (memo_key, results) = memo.get_or_insert_with(|| (key, HashMap::new()));
+        if *memo_key != key {
+            *memo_key = key;
+            results.clear();
+        }
+        results
+            .entry(index)
+            .or_insert_with(|| dead_stores(table, index, tree, source))
+            .clone()
+    })
 }
 
 /// The dead assignments of scope `index`.

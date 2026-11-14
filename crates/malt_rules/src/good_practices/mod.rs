@@ -498,7 +498,7 @@ impl GoodPracticesEngine {
             return Vec::new();
         }
 
-        let sym = SymbolTable::build(tree, source);
+        let sym = SymbolTable::shared(|| tree.root_node(), source);
         let mut diagnostics = Vec::new();
         let parfors = collect_parfor_nodes(tree.root_node(), source);
         let script = crate::analysis::control_flow::is_script_body(tree.root_node());
@@ -521,10 +521,7 @@ impl GoodPracticesEngine {
                         // Probed: only names that are variables of the function count (not
                         // builtins, unknown calls or names from `load`), and a loop in the body
                         // that iterates over the name assigns it.
-                        if !sym
-                            .scopes
-                            .iter()
-                            .any(|s| s.defs.iter().any(|d| d.name == name))
+                        if !sym.scopes.iter().any(|s| s.is_defined(&name))
                             || is_for_iterator_in(body_node, &name, source)
                             || collect_indexed_lhs_assignments(body_node, source)
                                 .iter()

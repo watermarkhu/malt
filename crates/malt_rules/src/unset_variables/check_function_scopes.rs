@@ -35,8 +35,7 @@ impl UnsetVariablesEngine {
 
             // A name that is never defined in the function is a function call
             // (`p = inputParser;`), not an unset variable.
-            da.possibly_unset
-                .retain(|u| scope.defs.iter().any(|d| d.name == u.name));
+            da.possibly_unset.retain(|u| scope.is_defined(&u.name));
 
             // A nested function shares the workspace of the functions around it.
             if scope.kind == ScopeKind::NestedFunction {

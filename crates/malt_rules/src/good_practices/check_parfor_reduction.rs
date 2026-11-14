@@ -22,7 +22,7 @@ impl GoodPracticesEngine {
             return Vec::new();
         }
 
-        let sym = SymbolTable::build(tree, source);
+        let sym = SymbolTable::shared(|| tree.root_node(), source);
         let mut diagnostics = Vec::new();
         let parfors = collect_parfor_nodes(tree.root_node(), source);
         let script = is_script_body(tree.root_node());
