@@ -5,9 +5,10 @@ use std::path::{Path, PathBuf};
 use std::process;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{mpsc, Arc};
+use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
-use clap::Parser;
+use clap::{ArgAction, Parser};
 
 use malt_core::{fix_source, Config, Diagnostic, FixMode, Linter, RuleRegistry, Severity};
 
@@ -35,6 +36,12 @@ struct Cli {
     /// Overrides the `[lint] preset` value in the config file.
     #[arg(long, value_name = "PRESET")]
     preset: Option<String>,
+
+    /// Report on stderr which files are linted (`-v`), with the time and the
+    /// number of findings of each file (`-vv`). The diagnostics on stdout do
+    /// not change.
+    #[arg(short, long, action = ArgAction::Count)]
+    verbose: u8,
 }
 
 /// Stack size of the thread that lints. Many rules walk the syntax tree
@@ -91,6 +98,7 @@ fn run(cli: Cli) -> Result<()> {
         linter
     };
 
+    let started = Instant::now();
     let mut summary = Summary::default();
     let threads = cores.min(cli.files.len());
     if cli.fix || threads <= 1 {
@@ -98,14 +106,22 @@ fn run(cli: Cli) -> Result<()> {
         // through them one by one, in order.
         let mut linter = new_linter();
         for file_path in &cli.files {
-            let outcome = check_file(&mut linter, file_path, &cli)?;
-            summary.report(file_path, outcome);
+            let checked = check_file(&mut linter, file_path, &cli)?;
+            summary.report(file_path, checked, cli.verbose);
         }
     } else {
-        lint_in_parallel(&cli, threads, new_linter, |file_path, outcome| {
-            summary.report(file_path, outcome?);
+        lint_in_parallel(&cli, threads, new_linter, |file_path, checked| {
+            summary.report(file_path, checked?, cli.verbose);
             Ok(())
         })?;
+    }
+    if cli.verbose > 0 {
+        eprintln!(
+            "malt: {} file{} in {}",
+            cli.files.len(),
+            if cli.files.len() == 1 { "" } else { "s" },
+            format_duration(started.elapsed())
+        );
     }
 
     if summary.total_diagnostics > 0 {
@@ -147,7 +163,7 @@ fn lint_in_parallel(
     cli: &Cli,
     threads: usize,
     new_linter: impl Fn() -> Linter + Sync,
-    mut report: impl FnMut(&Path, Result<FileOutcome>) -> Result<()>,
+    mut report: impl FnMut(&Path, Result<Checked>) -> Result<()>,
 ) -> Result<()> {
     let files = &cli.files;
     let next = AtomicUsize::new(0);
@@ -204,8 +220,23 @@ enum FileOutcome {
     Linted(Vec<Diagnostic>),
 }
 
-/// Read, lint and, with `--fix`, fix one file.
-fn check_file(linter: &mut Linter, file_path: &Path, cli: &Cli) -> Result<FileOutcome> {
+/// A file's outcome with the time it took to read, lint and fix it.
+struct Checked {
+    outcome: FileOutcome,
+    elapsed: Duration,
+}
+
+/// Read, lint and, with `--fix`, fix one file, and time it.
+fn check_file(linter: &mut Linter, file_path: &Path, cli: &Cli) -> Result<Checked> {
+    let started = Instant::now();
+    let outcome = check_file_untimed(linter, file_path, cli)?;
+    Ok(Checked {
+        outcome,
+        elapsed: started.elapsed(),
+    })
+}
+
+fn check_file_untimed(linter: &mut Linter, file_path: &Path, cli: &Cli) -> Result<FileOutcome> {
     let source = match fs::read_to_string(file_path) {
         Ok(s) => s,
         Err(e) if e.kind() == io::ErrorKind::NotFound => {
@@ -279,9 +310,13 @@ struct Summary {
 
 impl Summary {
     /// Print the diagnostics of one file and count them.
-    fn report(&mut self, file_path: &Path, outcome: FileOutcome) {
+    fn report(&mut self, file_path: &Path, checked: Checked, verbose: u8) {
+        let Checked { outcome, elapsed } = checked;
         let diagnostics = match outcome {
             FileOutcome::Unreadable(diag) => {
+                if verbose > 0 {
+                    eprintln!("malt: skipped {} ({})", file_path.display(), diag.rule_id);
+                }
                 print_diagnostic(file_path, &diag);
                 self.total_diagnostics += 1;
                 self.files_with_issues += 1;
@@ -289,6 +324,17 @@ impl Summary {
             }
             FileOutcome::Linted(diagnostics) => diagnostics,
         };
+        match verbose {
+            0 => {}
+            1 => eprintln!("malt: linted {}", file_path.display()),
+            _ => eprintln!(
+                "malt: linted {} in {} ({} finding{})",
+                file_path.display(),
+                format_duration(elapsed),
+                diagnostics.len(),
+                if diagnostics.len() == 1 { "" } else { "s" }
+            ),
+        }
         if diagnostics.is_empty() {
             return;
         }
@@ -302,6 +348,19 @@ impl Summary {
         }
         self.total_diagnostics += diagnostics.len();
         self.files_with_issues += 1;
+    }
+}
+
+/// A duration for humans: microseconds below a millisecond, milliseconds
+/// below a second, seconds above.
+fn format_duration(duration: Duration) -> String {
+    let micros = duration.as_micros();
+    if micros < 1_000 {
+        format!("{micros} µs")
+    } else if micros < 1_000_000 {
+        format!("{:.2} ms", micros as f64 / 1_000.0)
+    } else {
+        format!("{:.2} s", micros as f64 / 1_000_000.0)
     }
 }
 

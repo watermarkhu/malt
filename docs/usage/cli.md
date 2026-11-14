@@ -24,6 +24,7 @@ malt [OPTIONS] <FILES>...
 | `--unsafe-fixes`      | With `--fix`: also apply fixes that may change behaviour |
 | `--config <PATH>`     | Path to config file (default: `.malt.toml` in CWD) |
 | `--preset <PRESET>`   | Preset to use (`all`, `mathworks`, `recommended`); overrides `[lint] preset` |
+| `-v`, `--verbose`     | Report on stderr which files are linted and the total time; `-vv` adds the time and the number of findings of each file |
 | `-h`, `--help`        | Print help information                           |
 | `-V`, `--version`     | Print version information                        |
 
@@ -87,6 +88,17 @@ malt --config configs/strict.toml src/**/*.m
 ```
 
 If `--config` is specified and the file does not exist, malt exits with an error. If no `--config` is given and `.malt.toml` is not found, malt uses the `mathworks` preset (see [Configuration](../configuration.md#presets)).
+
+### Verbose output
+
+`-v` prints one line per file on stderr, in command-line order, and a closing line with the number of files and the total time. `-vv` adds the time spent on each file (reading, linting and, with `--fix`, fixing) and its number of findings. Stdout, with the diagnostics and the summary, does not change, so `-v` is safe in scripts.
+
+```bash
+malt -vv src/*.m
+# malt: linted src/compute.m in 4.33 ms (3 findings)
+# malt: skipped src/missing.m (NOFIL)
+# malt: 2 files in 4.56 ms
+```
 
 ## Exit Codes
 
