@@ -34,7 +34,7 @@ impl LanguageSpecEngine {
             let is_static = mb
                 .attributes
                 .iter()
-                .any(|a| a.name == "Static" && !a.negated);
+                .any(|a| a.name == "Static" && a.is_literal_set());
             if is_static {
                 continue;
             }

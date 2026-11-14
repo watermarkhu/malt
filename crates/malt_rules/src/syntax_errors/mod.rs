@@ -721,6 +721,14 @@ impl SyntaxErrorsEngine {
         }
         // A quoted name with identifier text is FVACS (`'a'=1`); other text is FVAMI
         // (`'Bad Name'=1`, probed).
+        // In an ERROR node (`'a' = 1` after a broken call) the quoted name is its string child.
+        let name = if name.kind() == "string" {
+            name
+        } else {
+            let mut cursor = name.walk();
+            let quoted = name.children(&mut cursor).find(|c| c.kind() == "string");
+            quoted.unwrap_or(name)
+        };
         let text = &source[name.start_byte()..name.end_byte()];
         let inner = text.trim_matches(['\'', '"']);
         let is_identifier = inner.starts_with(|c: char| c.is_ascii_alphabetic())
@@ -946,6 +954,9 @@ impl Rule for SyntaxErrorsEngine {
         diagnostics
     }
 }
+
+#[cfg(test)]
+mod probe_tests;
 
 /// Checks that report a specific lexical error. A SYNER on the same token is a duplicate.
 const LEXICAL_CHECKS: &[&str] = &[

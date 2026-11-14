@@ -57,6 +57,74 @@ const STATEMENT_ERROR_KEPT_IDS: &[&str] = &[
     "DEEPC",
 ];
 
+/// The parse-level checks that MATLAB keeps when a file has EOFER, taken from the syntax
+/// engine's check IDs (SEPEX is kept only by [`is_loop_header_sepex`]).
+const EOFER_KEPT_IDS: &[&str] = &[
+    "BADCH",
+    "BADNE",
+    "BADNOT",
+    "BADNOTLHS",
+    "BADSP",
+    "BDFIL",
+    "DOUQT",
+    "ENDCT",
+    "ENDCT2",
+    "ENDCT3",
+    "ENDPAR",
+    "EOFER",
+    "EOLPAR",
+    "FNDOT",
+    "FVACI",
+    "FVAPN",
+    "FVSYN",
+    "INBLK",
+    "LHROW",
+    "MCPLD",
+    "NOCOMMA",
+    "NOLHS",
+    "NOPAR",
+    "NOPAR2",
+    "REDEF",
+    "RESWD",
+    "SBTMP",
+    "SEPEXC",
+    "SEPEXR",
+    "STRIN",
+    "SYNER",
+    "TWOCM",
+    "UNSET",
+];
+
+/// SEPEX on a `for` or `while` line with no separator after it (`while x x=0 end`) is
+/// kept with the parse messages: MATLAB reports it beside the SYNER there. Other SEPEX on
+/// a broken statement (`if x, y end`, `while k = 3, end`) is silent in MATLAB and is
+/// dropped with the statement.
+fn is_loop_header_sepex(d: &Diagnostic, source: &str) -> bool {
+    if d.rule_id != "SEPEX" {
+        return false;
+    }
+    let line_start = source[..d.byte_range.start]
+        .rfind('\n')
+        .map_or(0, |i| i + 1);
+    let line_end = source[d.byte_range.start..]
+        .find('\n')
+        .map_or(source.len(), |i| d.byte_range.start + i);
+    let head = source[line_start..d.byte_range.start].trim_start();
+    let unseparated = !source[d.byte_range.start..line_end].contains([',', ';']);
+    unseparated && matches!(head.split_whitespace().next(), Some("for" | "while"))
+}
+
+/// Drops every check but the parse messages from a file that has EOFER.
+fn drop_checks_after_eofer(diagnostics: &mut Vec<Diagnostic>, source: &str) {
+    if diagnostics.iter().any(|d| d.rule_id == "EOFER") {
+        diagnostics.retain(|d| {
+            EOFER_KEPT_IDS.contains(&d.rule_id)
+                || STATEMENT_ERROR_KEPT_IDS.contains(&d.rule_id)
+                || is_loop_header_sepex(d, source)
+        });
+    }
+}
+
 /// Removes the diagnostics of the statements that hold a token MATLAB cannot
 /// parse. MATLAB reports the token and still analyses the statements that follow
 /// it on the same line: statements are separated by `;`, `,` or a newline. So
@@ -69,11 +137,12 @@ fn drop_statements_with_errors(diagnostics: &mut Vec<Diagnostic>, source: &str) 
         .filter(|d| NUMBER_LITERAL_IDS.contains(&d.rule_id))
         .map(|d| statement_span(source, d.byte_range.start))
         .collect();
+    // A SYNER on the `;` that ends the literal's statement belongs to it too (`x = 1e+;`).
     diagnostics.retain(|d| {
         d.rule_id != "SYNER"
             || !literal_spans
                 .iter()
-                .any(|s| s.contains(&d.byte_range.start))
+                .any(|s| s.contains(&d.byte_range.start) || s.end == d.byte_range.start)
     });
     let spans: Vec<Range<usize>> = diagnostics
         .iter()
@@ -86,6 +155,7 @@ fn drop_statements_with_errors(diagnostics: &mut Vec<Diagnostic>, source: &str) 
     diagnostics.retain(|d| {
         STATEMENT_ERROR_IDS.contains(&d.rule_id)
             || STATEMENT_ERROR_KEPT_IDS.contains(&d.rule_id)
+            || is_loop_header_sepex(d, source)
             || !spans.iter().any(|s| s.contains(&d.byte_range.start))
     });
 }
@@ -323,6 +393,9 @@ impl Linter {
 
         // Step 3b: MATLAB does not analyse the statement holding a token it cannot parse.
         drop_statements_with_errors(&mut diagnostics, source);
+        // Step 3b': with EOFER ("Code analysis did not complete") MATLAB reports only the
+        // parse messages for the file (probed: NOPTS and NASGU vanish, SEPEX and SYNER stay).
+        drop_checks_after_eofer(&mut diagnostics, source);
 
         // Step 3c: MATLAB stops at 10,000 messages (TMMSG), counting every rule's
         // messages before the %#ok directives remove any.
@@ -339,14 +412,19 @@ impl Linter {
             // An analysis that did not complete cannot say what was generated.
             let analysis_complete = !diagnostics.iter().any(|d| d.rule_id == "QUIT");
             let unused = if analysis_complete {
-                unused_suppressions(
+                let mut unused = unused_suppressions(
                     &diagnostics,
                     &suppressions,
                     &self.registry.active_check_ids(),
-                )
+                );
+                unused.extend(unused_bare_suppressions(&diagnostics, &suppressions));
+                unused
             } else {
                 Vec::new()
             };
+            // MSNE needs no messages from the checks, so it is not tied to the
+            // analysis completing.
+            let unknown = unknown_suppressions(&suppressions);
             diagnostics.retain(|d| !suppressions.is_suppressed(d.line, d.rule_id));
             // A wildcard also removes MSNU (probed: `%#ok<*MSNU>` silences it).
             diagnostics.extend(
@@ -354,6 +432,7 @@ impl Linter {
                     .into_iter()
                     .filter(|d| !suppressions.is_file_wide(d.rule_id)),
             );
+            diagnostics.extend(unknown);
         }
 
         // Step 5: Sort by position for deterministic output
@@ -565,6 +644,53 @@ fn unused_suppressions(
         .collect()
 }
 
+/// Message of MATLAB's MSNE: a `%#ok<ID>` directive naming an ID MATLAB does not know.
+const MSNE_MESSAGE: &str = "No Code Analyzer check is found for this check ID.";
+
+/// MSNE diagnostics for the IDs named by `suppressions` that are not check IDs.
+fn unknown_suppressions(suppressions: &suppression::Suppressions) -> Vec<Diagnostic> {
+    suppressions
+        .named_ids()
+        .iter()
+        .filter(|named| !crate::known_ids::is_known_check_id(&named.id))
+        .map(|named| Diagnostic {
+            rule_id: "MSNE",
+            message: MSNE_MESSAGE.to_string(),
+            severity: Severity::Info,
+            byte_range: named.byte_range.clone(),
+            line: named.line,
+            column: named.column,
+            fix: None,
+        })
+        .collect()
+}
+
+/// MSNU diagnostics for the bare `%#ok` directives that suppressed nothing: no
+/// message of `diagnostics` falls on the lines the directive covers.
+fn unused_bare_suppressions(
+    diagnostics: &[Diagnostic],
+    suppressions: &suppression::Suppressions,
+) -> Vec<Diagnostic> {
+    suppressions
+        .bare_directives()
+        .iter()
+        .filter(|bare| {
+            !diagnostics
+                .iter()
+                .any(|d| suppressions.covers(bare.line, d.line))
+        })
+        .map(|bare| Diagnostic {
+            rule_id: "MSNU",
+            message: MSNU_MESSAGE.to_string(),
+            severity: Severity::Info,
+            byte_range: bare.byte_range.clone(),
+            line: bare.line,
+            column: bare.column,
+            fix: None,
+        })
+        .collect()
+}
+
 /// Keep the first `MATLAB_MAX_MESSAGES` messages in source order and add TMMSG
 /// when there are more, as MATLAB does (the messages past the limit are deleted).
 fn limit_messages(diagnostics: &mut Vec<Diagnostic>, source: &str) {
@@ -736,7 +862,17 @@ mod tests {
         (line, byte - line_start + 1)
     }
 
+    /// Lint with the test rule, without MSNE: the test rule's IDs (`RULEA`,
+    /// `RULEB`) are not MATLAB's, so a directive naming them is an MSNE. MSNE is
+    /// tested through [`lint_unfiltered`].
     fn lint_with(source: &str) -> Vec<Diagnostic> {
+        lint_unfiltered(source)
+            .into_iter()
+            .filter(|d| d.rule_id != "MSNE")
+            .collect()
+    }
+
+    fn lint_unfiltered(source: &str) -> Vec<Diagnostic> {
         let registry = RuleRegistry::new(vec![Box::new(MultiRule)], &Config::default());
         let mut linter = Linter::new(registry);
         linter
@@ -912,11 +1048,62 @@ mod tests {
     }
 
     #[test]
-    fn bare_directives_are_never_reported() {
-        // MATLAB reports an unused bare `%#ok`; malt does not, because a bare
-        // directive would answer for every check on its line.
-        let diags = lint_with("cc = 3; %#ok\n");
+    fn bare_directive_with_nothing_to_suppress_is_msnu() {
+        // Probed: a bare `%#ok` on a line with no message gets MSNU at the `%`
+        // (`if x, end %#ok` gives column 11 in MATLAB), also on its own line.
+        let diags = lint_unfiltered("cc = 3; %#ok\n");
+        assert_eq!(msnu_of(&diags), vec![(1, 9)], "got: {diags:?}");
+        let diags = lint_unfiltered("aa = 1;\n%#ok\n");
+        assert_eq!(msnu_of(&diags), vec![(2, 1)], "got: {diags:?}");
+    }
+
+    #[test]
+    fn bare_directive_that_suppresses_a_message_is_not_msnu() {
+        // `aa` fires RULEA on line 1, which the bare directive covers.
+        let diags = lint_unfiltered("aa = 1; %#ok\n");
         assert!(msnu_of(&diags).is_empty(), "got: {diags:?}");
+        assert!(diags.iter().all(|d| d.rule_id != "RULEA"), "got: {diags:?}");
+    }
+
+    #[test]
+    fn msne_for_an_id_that_is_not_a_check() {
+        // Probed: `%#ok<NOSUCHID>` gives MSNE, not MSNU; the column is the `%`.
+        let diags = lint_unfiltered("x = 1; %#ok<NOSUCHID>\n");
+        let msne: Vec<_> = diags.iter().filter(|d| d.rule_id == "MSNE").collect();
+        assert_eq!(msne.len(), 1, "got: {diags:?}");
+        assert_eq!((msne[0].line, msne[0].column), (1, 8));
+        assert_eq!(msne[0].severity, Severity::Info);
+        assert!(msnu_of(&diags).is_empty(), "got: {diags:?}");
+    }
+
+    #[test]
+    fn msne_follows_exact_ids_and_lists() {
+        // Probed: lowercase IDs and IDs with spaces are unknown (the directive
+        // suppresses nothing); an unknown element of a list gets MSNE alone.
+        for source in [
+            "x = 1; %#ok<nasgu>\n",
+            "x = 1; %#ok< NASGU >\n",
+            "x = 1; %#ok<NASGU,NOSUCHID>\n",
+        ] {
+            let diags = lint_unfiltered(source);
+            assert_eq!(
+                diags.iter().filter(|d| d.rule_id == "MSNE").count(),
+                1,
+                "{source}: got {diags:?}"
+            );
+        }
+        // A known ID, an empty list and a wildcard give no MSNE.
+        for source in [
+            "x = 1; %#ok<NASGU>\n",
+            "x = 1; %#ok<>\n",
+            "x = 1; %#ok<*NASGU>\n",
+        ] {
+            let diags = lint_unfiltered(source);
+            assert!(
+                diags.iter().all(|d| d.rule_id != "MSNE"),
+                "{source}: got {diags:?}"
+            );
+        }
     }
 
     #[test]

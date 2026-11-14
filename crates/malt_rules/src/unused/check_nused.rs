@@ -15,13 +15,19 @@ impl UnusedEngine {
         }
 
         for scope in &table.scopes {
-            for def in &scope.defs {
+            for (index, def) in scope.defs.iter().enumerate() {
                 if !matches!(def.kind, DefKind::Global | DefKind::Persistent) {
                     continue;
                 }
                 let name = &def.name;
 
                 if self.should_ignore_name(name) {
+                    continue;
+                }
+                // One report per name: a second `global n` is REDEFGG only (probed).
+                if scope.defs[..index].iter().any(|d| {
+                    d.name == *name && matches!(d.kind, DefKind::Global | DefKind::Persistent)
+                }) {
                     continue;
                 }
 

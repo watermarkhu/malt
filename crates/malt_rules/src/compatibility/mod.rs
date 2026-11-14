@@ -140,6 +140,18 @@ struct CompatEntry {
     unless_sole_arg: &'static [&'static str],
     /// The call does not have every one of these strings: the entry does not apply.
     unless_all_args: &'static [&'static str],
+    /// The `@name` handle form is reported (`@nanmean`); other entries are silent on it.
+    handle: bool,
+    /// The argument at this 1-based position is a number literal (`qammod(x, 4, 0)`,
+    /// not `pi/4`); 0 means no such condition.
+    number_arg_at: usize,
+    /// From this 1-based position on the arguments are name-value pairs (an even
+    /// count; the names at odd offsets). `args_any` then names one of those names.
+    /// 0 means no pairs.
+    pairs_from: usize,
+    /// Matches every function whose dotted name starts with `function_name` followed
+    /// by a dot (`com.mathworks.util.X`). Not looked up by the exact name.
+    function_prefix: bool,
 }
 
 // ---------------------------------------------------------------------------
@@ -159,12 +171,27 @@ static COMPAT_TABLE: LazyLock<HashMap<&'static str, Vec<&'static CompatEntry>>> 
         let mut map: HashMap<&'static str, Vec<&'static CompatEntry>> =
             HashMap::with_capacity(COMPAT_ENTRIES.len());
         for entry in COMPAT_ENTRIES {
-            if !entry.function_name.is_empty() && entry.pattern.is_empty() {
+            if !entry.function_name.is_empty() && entry.pattern.is_empty() && !entry.function_prefix
+            {
                 map.entry(entry.function_name).or_default().push(entry);
             }
         }
         map
     });
+
+/// The entries with `function_prefix`, matched by the start of a dotted name.
+static COMPAT_PREFIXES: LazyLock<Vec<&'static CompatEntry>> = LazyLock::new(|| {
+    COMPAT_ENTRIES
+        .iter()
+        .filter(|entry| entry.function_prefix && entry.pattern.is_empty())
+        .collect()
+});
+
+/// Whether `name` is a member of the package `prefix` (`com.mathworks.x` in
+/// `com.mathworks`), not the package itself.
+fn in_package(prefix: &str, name: &str) -> bool {
+    name.len() > prefix.len() && name.starts_with(prefix) && name.as_bytes()[prefix.len()] == b'.'
+}
 
 // ---------------------------------------------------------------------------
 // Rule implementation
@@ -324,11 +351,25 @@ impl Rule for CompatibilityEngine {
             None => return Vec::new(),
         };
 
-        // Lookup in the compatibility table.
-        let entries = match COMPAT_TABLE.get(func_name) {
-            Some(e) => e,
-            None => return Vec::new(),
-        };
+        // Lookup in the compatibility table, then the package prefixes.
+        let mut entries: Vec<&CompatEntry> = COMPAT_TABLE
+            .get(func_name)
+            .map(|found| found.to_vec())
+            .unwrap_or_default();
+        entries.extend(
+            COMPAT_PREFIXES
+                .iter()
+                .copied()
+                .filter(|entry| in_package(entry.function_name, func_name)),
+        );
+        if entries.is_empty() {
+            return Vec::new();
+        }
+        let is_handle = ctx.node.kind() == "handle_operator"
+            || ctx
+                .node
+                .parent()
+                .is_some_and(|parent| parent.kind() == "handle_operator");
 
         // A dotted call is reported at the start of its package path (`comm` in
         // `comm.HelicalInterleaver(...)`), as MATLAB does.
@@ -355,6 +396,9 @@ impl Rule for CompatibilityEngine {
 
         for entry in entries {
             if entry.low_reliability && !self.low_reliability {
+                continue;
+            }
+            if is_handle && !entry.handle {
                 continue;
             }
             if !applies(entry, &args, outputs, ctx.source, script) {
@@ -597,7 +641,35 @@ fn applies(
         .filter_map(|arg| literal(*arg, source))
         .collect();
     let given = |value: &&str| words.iter().any(|word| word.eq_ignore_ascii_case(value));
-    if !entry.args_any.is_empty() && !entry.args_any.iter().any(given) {
+    if entry.pairs_from > 0 {
+        // Name-value pairs from `pairs_from` on: the names must be one of `args_any`.
+        let Some(rest) = args.get(entry.pairs_from - 1..) else {
+            return false;
+        };
+        if rest.len() % 2 != 0 {
+            return false;
+        }
+        let names: Vec<&str> = rest
+            .iter()
+            .step_by(2)
+            .filter_map(|arg| literal(*arg, source))
+            .collect();
+        if !entry.args_any.is_empty()
+            && !entry
+                .args_any
+                .iter()
+                .any(|value| names.iter().any(|name| name.eq_ignore_ascii_case(value)))
+        {
+            return false;
+        }
+    } else if !entry.args_any.is_empty() && !entry.args_any.iter().any(given) {
+        return false;
+    }
+    if entry.number_arg_at > 0
+        && !args.get(entry.number_arg_at - 1).is_some_and(|arg| {
+            crate::suggested_improvements::argument_kinds(*arg, source).contains(&"number")
+        })
+    {
         return false;
     }
     if !entry.args_all.iter().all(given) || entry.unless_args.iter().any(given) {
@@ -1295,12 +1367,79 @@ mod tests {
         }
     }
 
+    /// Probed in MATLAB R2026b: `@psd` gives no message, `@dsp.DCT` does.
+    #[test]
+    fn handle_form_follows_the_entry_flag() {
+        assert!(!has_id(&lint_nodes(&*engine(), "h = @psd;\n"), "DPSD"));
+        assert!(has_id(&lint_nodes(&*engine(), "k = @dsp.DCT;\n"), "DSPDCT"));
+    }
+
+    /// Probed: `cnncodegen('net')` is silent, `cnncodegen(net)` is reported.
+    #[test]
+    fn cnncodegen_text_first_argument_is_silent() {
+        assert!(!has_id(
+            &lint_nodes(&*engine(), "cnncodegen('net');\n"),
+            "CNNCGD"
+        ));
+        assert!(has_id(
+            &lint_nodes(&*engine(), "cnncodegen(net);\n"),
+            "CNNCGD"
+        ));
+    }
+
+    /// Probed: the phase `pi/4` is silent, a number literal (`0`, `0.7854`) is reported.
+    #[test]
+    fn qammod_phase_must_be_a_number_literal() {
+        let qammod = "y = qammod(x, 4, 0, 'gray');\n";
+        assert!(has_id(&lint_nodes(&*engine(), qammod), "QAMDEPM"));
+        let pi_phase = "y = qammod(x, 4, pi/4, 'gray');\n";
+        assert!(!has_id(&lint_nodes(&*engine(), pi_phase), "QAMDEPM"));
+        let demod = "y = qamdemod(x, 4, 0, 'gray');\n";
+        assert!(has_id(&lint_nodes(&*engine(), demod), "QAMDEPD"));
+        assert!(!has_id(
+            &lint_nodes(&*engine(), "y = qamdemod(x, 4, pi/4);\n"),
+            "QAMDEPD"
+        ));
+    }
+
+    /// Probed: `Bufsize` is reported as an option name in a complete pair list only.
+    #[test]
+    fn textscan_bufsize_must_be_a_name_in_a_complete_pair_list() {
+        let fires = |source: &str| has_id(&lint_nodes(&*engine(), source), "BUFSIZE");
+        assert!(fires("c = textscan(fid, '%f', 'Bufsize', 100);\n"));
+        assert!(fires(
+            "c = textscan(fid, '%f', 'bufsize', 100, 'Delimiter', ',');\n"
+        ));
+        assert!(!fires("c = textscan(fid, '%f', 'Bufsize');\n"));
+        assert!(!fires("c = textscan(fid, '%f', 'Delimiter', 'Bufsize');\n"));
+        assert!(!fires(
+            "c = textscan(fid, '%f', 'Bufsize', 100, 'Delimiter');\n"
+        ));
+    }
+
+    /// Probed: any member of `com.mathworks` is reported; the package itself and other
+    /// packages are not.
+    #[test]
+    fn com_mathworks_members_fire_the_namespace_check() {
+        assert!(has_id(
+            &lint_nodes(&*engine(), "x = com.mathworks.util.X;\n"),
+            "JAPIMATHWORKS"
+        ));
+        assert!(!has_id(
+            &lint_nodes(&*engine(), "x = com.mathworks;\n"),
+            "JAPIMATHWORKS"
+        ));
+        assert!(!has_id(
+            &lint_nodes(&*engine(), "x = com.example.b(1);\n"),
+            "JAPIMATHWORKS"
+        ));
+    }
+
     #[test]
     fn handles_and_bare_dotted_names_are_references() {
         // MATLAB R2026b reports a removed function used as a handle or as a bare
         // dotted statement (probed).
         for (source, id) in [
-            ("h = @psd;\n", "DPSD"),
             ("k = @dsp.DCT;\n", "DSPDCT"),
             ("dsp.DCT;\n", "DSPDCT"),
             ("h = @comm.gpu.AWGNChannel;\n", "COMMGPUAWGN"),

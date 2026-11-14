@@ -711,26 +711,28 @@ impl SyntaxErrorsEngine {
         source: &str,
         diagnostics: &mut Vec<Diagnostic>,
     ) {
-        // Scripts only: MATLAB is silent on `k += 1;` inside a function (probed in fixtures).
-        if !Self::has_descendant_kind(root, "function_definition") {
-            self.walk_op_assign_commands(root, source, diagnostics);
-        }
+        self.walk_op_assign_commands(root, source, diagnostics);
         self.walk_function_output_tilde(root, source, diagnostics);
         self.check_unseparated_ends(root, source, diagnostics);
         self.check_arguments_unclosed(source, diagnostics);
     }
 
     /// `i += 1` and `i -= 1` parse as a command whose first argument is the operator.
-    /// MATLAB reports SYNER at the `=`.
+    /// MATLAB reports SYNER at the `=` for the imaginary unit `i` or `j`, in scripts and
+    /// functions alike (probed). Other names give REDEF when already assigned, else nothing.
     fn walk_op_assign_commands(&self, node: Node, source: &str, diagnostics: &mut Vec<Diagnostic>) {
         if node.kind() == "command" && self.is_check_enabled("SYNER") {
             let mut cursor = node.walk();
             let first = node
                 .children(&mut cursor)
                 .find(|c| c.kind() == "command_argument");
+            let word = source[node.start_byte()..node.end_byte()]
+                .split_whitespace()
+                .next()
+                .unwrap_or("");
             if let Some(arg) = first {
                 let text = &source[arg.start_byte()..arg.end_byte()];
-                if matches!(text, "+=" | "-=" | "*=" | "/=" | "^=") {
+                if matches!(text, "+=" | "-=" | "*=" | "/=" | "^=") && matches!(word, "i" | "j") {
                     diagnostics.push(Self::syner_at(source, arg.end_byte() - 1));
                 }
             }

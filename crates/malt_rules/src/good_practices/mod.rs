@@ -387,9 +387,8 @@ impl GoodPracticesEngine {
                     // VTFIN: silent in three validator probes and c4__m1.
                     "ADAPPREF", "MIPC1", "VTFIN",
                     // MCCPE: never reported by MATLAB in 8 probes (a call of a property is CPROP there,
-                    // and `%#ok<MCCPE>` gives MSNU, so it is not generated). MCCSPS: silent in 8
-                    // probes (`K.K = 3` and `y = K.a` give PROP, CPROP or STRNU instead).
-                    "MCCPE", "MCCSPS",
+                    // and `%#ok<MCCPE>` gives MSNU, so it is not generated).
+                    "MCCPE",
                 ],
             ));
         Box::new(Self {

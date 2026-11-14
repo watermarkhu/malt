@@ -24,30 +24,29 @@
 #   literal_has_value (a name followed by a value), min_outputs, function_only (no
 #   command syntax), not_assigned (not `y = f;`), statement_only (`f(x);` alone).
 
+#   handle        - true (default): `@name` is reported. false: MATLAB is silent on the
+#                   handle form of that entry (`@now`, `@hour`); the 58 false entries
+#                   were probed one `h = @name;` each.
+#   shadowed_command - true: command syntax with arguments (`corner abc`) is reported
+#                   although a variable of that name shadows the function (`corner = 5`).
+#                   The other entries are silent then (`hour abc` with `hour = 5`).
+#   not_all_arg_kinds - not when every argument is one of these kinds (IMPORTDYN: MATLAB
+#                   is silent on `import('a', 'b')` and reports `import('a', 1)`, `import(x)`).
+
 # =============================================================================
 # Suggested Improvements (243 checks)
 # =============================================================================
 
+# MATLAB reports function syntax with any argument that is not a single-quoted
+# literal (`import(1)`, `import(x)`, `import('abc', 1)`); `import('abc')` and
+# `import('a', 'b')` are silent. Command syntax never matches.
 [[checks]]
 id = "IMPORTDYN"
 function_name = "import"
 function_only = true
 statement_only = true
-# MATLAB reports two or more arguments in function syntax, unless the first is a single-quoted literal (`import('abc', 'def')` is silent; `import('abc', 1)` is reported, not matched).
-min_args = 2
-not_arg_kinds = ["char"]
-message = "Using function syntax to call 'import' is not recommended. With appropriate code changes, use command syntax instead."
-replacement = ""
-
-[[checks]]
-id = "IMPORTDYN"
-function_name = "import"
-function_only = true
-statement_only = true
-max_args = 1
 min_args = 1
-# A single-quoted literal (`import('a.b')`) is not reported.
-not_arg_kinds = ["char"]
+not_all_arg_kinds = ["char"]
 message = "Using function syntax to call 'import' is not recommended. With appropriate code changes, use command syntax instead."
 replacement = ""
 
@@ -59,6 +58,7 @@ replacement = ""
 
 [[checks]]
 id = "EVLC"
+handle = false
 function_name = "evalc"
 # MATLAB reports evalc with two arguments only.
 max_args = 2
@@ -68,6 +68,7 @@ replacement = ""
 
 [[checks]]
 id = "RAND"
+handle = false
 function_name = "rand"
 literal_exact = true
 literal_at = 1
@@ -78,6 +79,7 @@ literal_args = ["seed", "state", "twister"]
 
 [[checks]]
 id = "RAND"
+handle = false
 function_name = "randn"
 literal_exact = true
 literal_at = 1
@@ -87,6 +89,7 @@ literal_args = ["seed", "state", "twister"]
 
 [[checks]]
 id = "HOUGH"
+handle = false
 function_name = "hough"
 min_args = 3
 literal_at = 2
@@ -97,6 +100,7 @@ replacement = ""
 
 [[checks]]
 id = "THOUR"
+handle = false
 function_name = "hour"
 arg_kinds = ["number", "text", "cell"]
 arg_through_variables = true
@@ -105,6 +109,7 @@ replacement = "datetime"
 
 [[checks]]
 id = "TMNTH"
+handle = false
 function_name = "month"
 arg_kinds = ["number", "text", "cell"]
 arg_through_variables = true
@@ -113,6 +118,7 @@ replacement = "datetime"
 
 [[checks]]
 id = "TMNUT"
+handle = false
 function_name = "minute"
 arg_kinds = ["number", "text", "cell"]
 arg_through_variables = true
@@ -121,6 +127,7 @@ replacement = "datetime"
 
 [[checks]]
 id = "TNDAY"
+handle = false
 function_name = "day"
 arg_kinds = ["number", "text", "cell"]
 arg_through_variables = true
@@ -129,6 +136,7 @@ replacement = "datetime"
 
 [[checks]]
 id = "TSCND"
+handle = false
 function_name = "second"
 arg_kinds = ["number", "text", "cell"]
 arg_through_variables = true
@@ -137,6 +145,7 @@ replacement = "datetime"
 
 [[checks]]
 id = "TQURT"
+handle = false
 function_name = "quarter"
 arg_kinds = ["number", "text", "cell"]
 arg_through_variables = true
@@ -145,6 +154,7 @@ replacement = "datetime"
 
 [[checks]]
 id = "TYEAR"
+handle = false
 function_name = "year"
 arg_kinds = ["number", "text", "cell"]
 arg_through_variables = true
@@ -153,6 +163,7 @@ replacement = "datetime"
 
 [[checks]]
 id = "TDTVEC"
+handle = false
 function_name = "datevec"
 arg_kinds = ["number", "text", "cell"]
 arg_through_variables = true
@@ -161,6 +172,7 @@ replacement = "datetime"
 
 [[checks]]
 id = "TNOW1"
+handle = false
 function_name = "now"
 not_in_call = "datetime"
 not_in_call_literal = "datenum"
@@ -169,6 +181,7 @@ replacement = "datetime"
 
 [[checks]]
 id = "TNOW2"
+handle = false
 function_name = "datetime"
 max_args = 3
 # MATLAB reports the three-argument form only (`datetime(now, 'ConvertFrom', 'datenum')`).
@@ -180,6 +193,7 @@ replacement = "datetime"
 
 [[checks]]
 id = "TTDAY1"
+handle = false
 function_name = "today"
 not_in_call = "datetime"
 not_in_call_literal = "datenum"
@@ -188,6 +202,7 @@ replacement = "datetime"
 
 [[checks]]
 id = "TTDAY2"
+handle = false
 function_name = "datetime"
 literal_args = ["datenum"]
 arg_text = "today"
@@ -196,6 +211,7 @@ replacement = "datetime"
 
 [[checks]]
 id = "MATCH2"
+handle = false
 function_name = "strmatch"
 # MATLAB reports strmatch with one or two arguments, and with four or more (not three: MATCH3).
 max_args = 2
@@ -204,6 +220,7 @@ replacement = "strncmp"
 
 [[checks]]
 id = "MATCH2"
+handle = false
 function_name = "strmatch"
 min_args = 4
 message = "STRMATCH is not recommended. Use STRNCMP or VALIDATESTRING instead."
@@ -211,6 +228,7 @@ replacement = "strncmp"
 
 [[checks]]
 id = "IMGDT"
+handle = false
 function_name = "imageInputLayer"
 literal_has_value = true
 # MATLAB reports the name only when a value follows it (`imageInputLayer(sz, 'DataAugmentation', 'none')`).
@@ -220,6 +238,7 @@ replacement = "augmentedImageDatastore"
 
 [[checks]]
 id = "MATCH3"
+handle = false
 function_name = "strmatch"
 max_args = 3
 # MATLAB reports strmatch with exactly three arguments (STRCMP with 'exact').
@@ -229,6 +248,7 @@ replacement = "strcmp"
 
 [[checks]]
 id = "MTFA1"
+handle = false
 function_name = "maketform"
 max_args = 2
 literal_at = 1
@@ -239,6 +259,7 @@ replacement = "affine2d"
 
 [[checks]]
 id = "MTFA2"
+handle = false
 function_name = "maketform"
 min_args = 3
 literal_at = 1
@@ -249,6 +270,7 @@ replacement = "fitgeotrans"
 
 [[checks]]
 id = "MTFP1"
+handle = false
 function_name = "maketform"
 max_args = 2
 literal_at = 1
@@ -259,6 +281,7 @@ replacement = "projective2d"
 
 [[checks]]
 id = "MTFP2"
+handle = false
 function_name = "maketform"
 min_args = 3
 literal_at = 1
@@ -269,6 +292,7 @@ replacement = "fitgeotrans"
 
 [[checks]]
 id = "MTFB"
+handle = false
 function_name = "maketform"
 literal_at = 1
 # MATLAB reports maketform with the box type.
@@ -286,6 +310,7 @@ replacement = "classdef"
 
 [[checks]]
 id = "PMTMCONF"
+handle = false
 function_name = "pmtm"
 # MATLAB reports pmtm with three output arguments only.
 min_outputs = 3
@@ -294,6 +319,8 @@ replacement = ""
 
 [[checks]]
 id = "NCHKI"
+handle = false
+shadowed_command = true
 function_name = "nargchk"
 # MATLAB is silent on a call with no argument (`nargchk;`, `y = nargchk;`).
 min_args = 1
@@ -323,6 +350,7 @@ replacement = "nargoutchk"
 
 [[checks]]
 id = "ISCLSTR"
+handle = false
 function_name = "iscellstr"
 max_args = 1
 message = "To support string in addition to cellstr, include a call to 'isstring'."
@@ -366,6 +394,7 @@ replacement = "MidPercentReferenceLevel"
 
 [[checks]]
 id = "NVREPLP"
+handle = false
 function_name = "risetime"
 # MATLAB reports the PctRefLevels option (any case) in any position.
 literal_args = ["PctRefLevels"]
@@ -383,18 +412,25 @@ replacement = "NumFrames"
 
 [[checks]]
 id = "CRNR"
+handle = false
+shadowed_command = true
 function_name = "corner"
 message = "CORNER is not recommended. Use detectHarrisFeatures or detectMinEigenFeatures in Computer Vision Toolbox instead."
 replacement = "detectHarrisFeatures"
 
 [[checks]]
 id = "CRNRM"
+handle = false
+shadowed_command = true
 function_name = "cornermetric"
 message = "CORNERMETRIC is not recommended. Use detectHarrisFeatures or detectMinEigenFeatures and the cornerPoints class in Computer Vision Toolbox instead."
 replacement = "detectHarrisFeatures"
 
 [[checks]]
 id = "MDFLT1"
+handle = false
+arg_at = 3
+arg_kinds = ["number"]
 function_name = "medfilt1"
 # MATLAB reports medfilt1 only with three or more arguments.
 min_args = 3
@@ -412,6 +448,8 @@ replacement = "griddedInterpolant"
 
 [[checks]]
 id = "DISPLAYPROG"
+handle = false
+shadowed_command = true
 function_name = "display"
 # MATLAB reports a known value (a number, text, cell or struct, a variable of one too), not a handle or an unknown argument.
 arg_kinds = ["number", "text", "cell", "struct"]
@@ -479,30 +517,40 @@ replacement = ""
 
 [[checks]]
 id = "EZPLT"
+handle = false
+shadowed_command = true
 function_name = "ezplot"
 message = "EZPLOT is not recommended. Use FPLOT or FIMPLICIT instead."
 replacement = "fplot"
 
 [[checks]]
 id = "EZGRPH3"
+handle = false
+shadowed_command = true
 function_name = "ezgraph3"
 message = "EZGRAPH3 is not recommended. Use FCONTOUR, FMESH, FPLOT, FPLOT3 or FSURF instead."
 replacement = "fsurf"
 
 [[checks]]
 id = "EZCNTRF"
+handle = false
+shadowed_command = true
 function_name = "ezcontourf"
 message = "EZCONTOURF is not recommended. Use FCONTOUR instead, and set the 'Fill' value to 'on'."
 replacement = "fcontour"
 
 [[checks]]
 id = "EZMSHC"
+handle = false
+shadowed_command = true
 function_name = "ezmeshc"
 message = "EZMESHC is not recommended. Use FMESH instead, and set the 'ShowContours' value to 'on'."
 replacement = "fmesh"
 
 [[checks]]
 id = "EZSRFC"
+handle = false
+shadowed_command = true
 function_name = "ezsurfc"
 message = "EZSURFC is not recommended. Use FSURF instead, and set the 'ShowContours' value to 'on'."
 replacement = "fsurf"
@@ -517,6 +565,7 @@ replacement = "addRule"
 
 [[checks]]
 id = "STRQUOT"
+handle = false
 function_name = "string"
 function_only = true
 # MATLAB reports string with one argument only, and not as a command.
@@ -527,6 +576,7 @@ replacement = ""
 
 [[checks]]
 id = "STRCLQT"
+handle = false
 function_name = "string"
 arg_kinds = ["char_cell"]
 max_args = 1
@@ -535,6 +585,7 @@ replacement = ""
 
 [[checks]]
 id = "SIM"
+handle = false
 function_name = "sim"
 within_parfor = true
 message = "'sim' in parfor loop is not recommended. Replace the parfor loop with 'parsim'."
@@ -551,6 +602,7 @@ replacement = "NumChannels"
 
 [[checks]]
 id = "GTRED"
+handle = false
 function_name = "geotiffread"
 max_args = 1
 # MATLAB reports geotiffread with one argument only.
@@ -596,6 +648,7 @@ replacement = "settings"
 
 [[checks]]
 id = "EV2IN"
+handle = false
 function_name = "eval"
 # MATLAB reports eval with two arguments only.
 max_args = 2
@@ -605,6 +658,7 @@ replacement = ""
 
 [[checks]]
 id = "EV3IN"
+handle = false
 function_name = "evalin"
 # MATLAB reports evalin with three arguments only.
 max_args = 3
@@ -614,6 +668,7 @@ replacement = ""
 
 [[checks]]
 id = "PRTOG"
+handle = false
 function_name = "print"
 literal_args = ["-opengl"]
 message = "'-opengl' is not recommended. Use '-image' instead, which is a direct replacement."
@@ -621,6 +676,7 @@ replacement = ""
 
 [[checks]]
 id = "PRTPT"
+handle = false
 function_name = "print"
 literal_args = ["-painters"]
 message = "'-painters' is not recommended. Use '-vector' instead, which is a direct replacement."
@@ -628,6 +684,7 @@ replacement = ""
 
 [[checks]]
 id = "FORMATNOI"
+handle = false
 function_name = "format"
 # MATLAB reports the call used as a statement or an anonymous body, not `y = format;` (and not a handle).
 not_assigned = true
@@ -637,6 +694,7 @@ replacement = ""
 
 [[checks]]
 id = "XFRWSB"
+handle = false
 function_name = "batchsim"
 literal_has_value = true
 # MATLAB reports the option only when a value follows it.
@@ -646,6 +704,7 @@ replacement = ""
 
 [[checks]]
 id = "XFRWSP"
+handle = false
 function_name = "parsim"
 literal_has_value = true
 # MATLAB reports the option only when a value follows it.
@@ -655,6 +714,7 @@ replacement = ""
 
 [[checks]]
 id = "OLDSIM"
+handle = false
 function_name = "sim"
 min_outputs = 2
 arg_kinds = ["char"]
@@ -663,6 +723,7 @@ replacement = ""
 
 [[checks]]
 id = "INSTHWI"
+handle = false
 function_name = "instrhwinfo"
 literal_args = ["ivi"]
 message = "'instrhwinfo('ivi')' is not recommended. With appropriate code changes, use 'ividriverlist' or 'ividevlist' instead."
@@ -670,6 +731,7 @@ replacement = "ividriverlist"
 
 [[checks]]
 id = "INWVX"
+handle = false
 function_name = "instrhwinfo"
 literal_args = ["vxipnp"]
 message = "'instrhwinfo('vxipnp')' is not recommended. With appropriate code changes, use 'ividriverlist' or 'ividevlist' instead."
@@ -677,6 +739,7 @@ replacement = "ividriverlist"
 
 [[checks]]
 id = "VERMATLAB"
+handle = false
 function_name = "ver"
 literal_args = ["matlab"]
 message = "ver('matlab') is not recommended. With appropriate code changes, use 'matlabRelease' instead."
@@ -684,6 +747,7 @@ replacement = "matlabRelease"
 
 [[checks]]
 id = "VERLESSMATLAB"
+handle = false
 function_name = "verLessThan"
 literal_args = ["matlab"]
 arg_at = 2
@@ -735,6 +799,7 @@ replacement = "modelCalibrationPlot"
 
 [[checks]]
 id = "HOLDALL"
+handle = false
 function_name = "hold"
 literal_args = ["all"]
 message = "'hold('all')' is not recommended. Use 'hold('on')' instead, which is a direct replacement."
@@ -754,6 +819,7 @@ replacement = "IntMainSolverOptions"
 
 [[checks]]
 id = "CDFEPOCH2DATE"
+handle = false
 function_name = "cdfread"
 literal_args = ["ConvertEpochToDatenum"]
 literal_has_value = true
@@ -762,6 +828,7 @@ replacement = ""
 
 [[checks]]
 id = "FEATGPID"
+handle = false
 function_name = "feature"
 literal_args = ["getpid"]
 message = "'feature('getpid')' is unsupported and not recommended. With appropriate code changes, use the function 'matlabProcessID' instead."
@@ -1060,24 +1127,6 @@ id = "IM2BW"
 function_name = "im2bw"
 message = "'im2bw' is not recommended. With appropriate code changes, use 'imbinarize' instead."
 replacement = "imbinarize"
-
-[[checks]]
-id = "ISPIX"
-function_name = "pixelLabelImageSource"
-message = "'pixelLabelImageSource' is not recommended. Use 'pixelLabelImageDatastore' instead, which is a direct replacement."
-replacement = "pixelLabelImageDatastore"
-
-[[checks]]
-id = "ISAUG"
-function_name = "augmentedImageSource"
-message = "'augmentedImageSource' is not recommended. Use 'augmentedImageDatastore' instead, which is a direct replacement."
-replacement = "augmentedImageDatastore"
-
-[[checks]]
-id = "ISDNS"
-function_name = "denoisingImageSource"
-message = "'denoisingImageSource' is not recommended. Use 'denoisingImageDatastore' instead, which is a direct replacement."
-replacement = "denoisingImageDatastore"
 
 [[checks]]
 id = "IMFREEH"
@@ -1699,6 +1748,7 @@ replacement = "MaskElevationAngle"
 
 [[checks]]
 id = "BLCHID"
+handle = false
 function_name = "blfread"
 arg_at = 2
 arg_kinds = ["number"]

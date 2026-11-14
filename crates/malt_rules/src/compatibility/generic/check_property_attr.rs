@@ -39,7 +39,6 @@ const REMOVED_NAMES: &[(&str, &str, &str)] = &[
     ("CustomFirstFilterCoefficientsDataType", "COEFFC1", "The property 'CustomFirstFilterCoefficientsDataType' has been removed."),
     ("CustomSecondFilterCoefficientsDataType", "COEFFC2", "The property 'CustomSecondFilterCoefficientsDataType' has been removed."),
     ("CustomThirdFilterCoefficientsDataType", "COEFFC3", "The property 'CustomThirdFilterCoefficientsDataType' has been removed."),
-    ("KeyValueLimit", "READSZK", "The property 'KeyValueLimit' has been removed."),
     ("RowsPerRead", "READSZR", "The property 'RowsPerRead' has been removed."),
 ];
 
@@ -376,10 +375,12 @@ mod tests {
         assert!(has_id(&d, "DFEATUREPARAM1"), "got: {d:?}");
     }
 
+    /// MATLAB is silent on READSZK in every probed form (`readstruct`, `set`, `get`,
+    /// property assignment), so the check is not emitted.
     #[test]
-    fn readszk_keyvaluelimit_fires() {
+    fn readszk_keyvaluelimit_is_silent() {
         let d = lint_file(&*engine(), "readtable('f.txt', 'KeyValueLimit', 10);\n");
-        assert!(has_id(&d, "READSZK"), "got: {d:?}");
+        assert!(!has_id(&d, "READSZK"), "got: {d:?}");
     }
 
     #[test]

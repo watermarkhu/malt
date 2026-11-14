@@ -16,13 +16,21 @@ impl LanguageSpecEngine {
         // MATLAB reports the assignment in the constructor and in any other method alike.
         let functions = self.collect_c2_function_definitions(ctx.tree.root_node(), ctx.source);
         for (node, name) in functions {
-            Self::walk_constant_assignments(
-                node,
-                class,
-                ctx.source,
-                name == class.name,
-                diagnostics,
-            );
+            // The object is the first input of a method, the output of a constructor.
+            let is_constructor = name == class.name;
+            let method = class
+                .methods_blocks
+                .iter()
+                .flat_map(|mb| mb.methods.iter())
+                .find(|m| m.byte_range.start == node.start_byte());
+            let object = method.and_then(|m| {
+                if is_constructor {
+                    m.outputs.iter().find(|o| *o != "~").map(String::as_str)
+                } else {
+                    m.inputs.iter().find(|i| *i != "~").map(String::as_str)
+                }
+            });
+            Self::walk_constant_assignments(node, class, ctx.source, object, diagnostics);
         }
     }
 
@@ -31,10 +39,10 @@ impl LanguageSpecEngine {
         node: tree_sitter::Node,
         class: &ClassMeta,
         source: &str,
-        is_constructor: bool,
+        object: Option<&str>,
         diagnostics: &mut Vec<Diagnostic>,
     ) {
-        Self::walk_constant_assignments_dfs(node, class, source, is_constructor, diagnostics);
+        Self::walk_constant_assignments_dfs(node, class, source, object, diagnostics);
     }
 
     /// DFS helper for [`Self::walk_constant_assignments`].
@@ -42,7 +50,7 @@ impl LanguageSpecEngine {
         node: tree_sitter::Node,
         class: &ClassMeta,
         source: &str,
-        is_constructor: bool,
+        object: Option<&str>,
         diagnostics: &mut Vec<Diagnostic>,
     ) {
         if node.kind() == "assignment" {
@@ -53,11 +61,13 @@ impl LanguageSpecEngine {
                         .any(|a| a.name == "Constant" && !a.negated)
                         && pb.properties.iter().any(|p| p.name == prop_name)
                 });
-                // `ClassName.K = v` in a method builds a struct; MATLAB reports that as MCCSPS.
-                let class_qualified = node.child(0).is_some_and(|lhs| {
-                    node_text(lhs, source).starts_with(&format!("{}.", class.name))
-                });
-                if is_constant && (!class_qualified || is_constructor) {
+                // Only an assignment through the object is MCCSOP. `ClassName.K = v`
+                // builds a struct instead: MATLAB reports that as MCCSPS (good_practices).
+                let through = node
+                    .child(0)
+                    .and_then(|lhs| lhs.child_by_field_name("object"))
+                    .map(|o| node_text(o, source));
+                if is_constant && object.is_some() && through == object {
                     let pos = node.start_position();
                     let (rule_id, message) = (
                         "MCCSOP",
@@ -77,7 +87,7 @@ impl LanguageSpecEngine {
         }
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
-            Self::walk_constant_assignments_dfs(child, class, source, is_constructor, diagnostics);
+            Self::walk_constant_assignments_dfs(child, class, source, object, diagnostics);
         }
     }
 }
@@ -185,5 +195,21 @@ end
         let diags = crate::language_spec::tests::check_source(source, "Foo.m");
         assert!(crate::language_spec::tests::filter_by_id(&diags, "MCCSOP").is_empty());
         assert!(crate::language_spec::tests::filter_by_id(&diags, "MCSCN").is_empty());
+    }
+
+    #[test]
+    fn mccsop_only_through_the_object_and_not_in_constructors_with_class_name() {
+        // Probed: `obj.K = 5` in a method is MCCSOP; `other.K = 5` (a new struct)
+        // is silent; `Foo.K = 5` in a constructor is MCCSPS, not MCCSOP.
+        let head = "classdef Foo\n    properties (Constant)\n        K = 1\n    end\n";
+        let method = format!("{head}    methods\n        function m(obj)\n            obj.K = 5;\n        end\n    end\nend\n");
+        assert_eq!(
+            filter_by_id(&check_source(&method, "Foo.m"), "MCCSOP").len(),
+            1
+        );
+        let other = format!("{head}    methods\n        function m(obj)\n            other.K = 5;\n            disp(other)\n        end\n    end\nend\n");
+        assert!(filter_by_id(&check_source(&other, "Foo.m"), "MCCSOP").is_empty());
+        let constructor = format!("{head}    methods\n        function obj = Foo()\n            Foo.K = 5;\n        end\n    end\nend\n");
+        assert!(filter_by_id(&check_source(&constructor, "Foo.m"), "MCCSOP").is_empty());
     }
 }

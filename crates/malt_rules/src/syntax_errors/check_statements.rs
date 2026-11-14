@@ -175,13 +175,17 @@ impl SyntaxErrorsEngine {
                     && text[w.len()..].starts_with([' ', '\t'])
             });
             if let Some(name) = command_word {
-                if let Some(&def_line) = variable_names.get(name) {
+                // `i += 1` and `j -= 1` are SYNER (walk_op_assign_commands), not REDEF.
+                if let Some(&def_line) = variable_names
+                    .get(name)
+                    .filter(|_| !matches!(name, "i" | "j"))
+                {
                     if !redef_reported.contains(name) {
                         let pos = node.start_position();
                         diagnostics.push(Diagnostic {
                             rule_id: "REDEF",
                             message: format!(
-                                "The current use of {name} is inconsistent with its previous use or definition (line {def_line})."
+                                "The current use of '{name}' is inconsistent with its previous use or definition (line {def_line})."
                             ),
                             severity: Severity::Error,
                             byte_range: node.byte_range(),
@@ -208,7 +212,7 @@ impl SyntaxErrorsEngine {
                         diagnostics.push(Diagnostic {
                             rule_id: "REDEF",
                             message: format!(
-                                "The current use of {} is inconsistent with its previous use or definition (line {}).",
+                                "The current use of '{}' is inconsistent with its previous use or definition (line {}).",
                                 name,
                                 pos.row + 1
                             ),

@@ -55,6 +55,9 @@ pub struct Suppressions {
     file_wide: HashSet<String>,
     /// Exact IDs named by the directives, in source order.
     named: Vec<NamedId>,
+    /// Bare `%#ok` directives, in source order. Their `id` is empty and their
+    /// column is the `%`.
+    bare: Vec<NamedId>,
     /// For each directive line, the first line of the statement it ends (see
     /// [`Suppressions::covers`]). A line missing from the map starts its own.
     group_start: HashMap<usize, usize>,
@@ -69,6 +72,11 @@ impl Suppressions {
     /// The exact check IDs named by the directives (wildcards excluded).
     pub fn named_ids(&self) -> &[NamedId] {
         &self.named
+    }
+
+    /// The bare `%#ok` directives (no ID named), in source order of discovery.
+    pub fn bare_directives(&self) -> &[NamedId] {
+        &self.bare
     }
 
     /// Whether a diagnostic at `line` with `rule_id` is suppressed by any directive.
@@ -229,6 +237,13 @@ fn read_directive(source: &str, comment: Node, out: &mut Suppressions) {
         // A bare `%#ok` is followed by nothing, or by white space.
         if rest.is_empty() || rest.starts_with(char::is_whitespace) {
             out.all_lines.insert(line);
+            let start = comment.start_byte();
+            out.bare.push(NamedId {
+                id: String::new(),
+                line,
+                column: column_of(source, start),
+                byte_range: start..start + 1,
+            });
         }
         return;
     };

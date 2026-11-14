@@ -50,6 +50,37 @@ impl SyntaxErrorsEngine {
                 continue;
             }
 
+            // BADCH: a name that starts with `_` (`_x = 1`, `y = x + _a`, `f(_a)`, `_y` as an
+            // output): MATLAB has no token for it. A function name (`function _f()`) is BADCH
+            // from check_function_names instead.
+            let name_of_function = source[..i].trim_end().ends_with("function") && {
+                let rest = &source[i..];
+                let token = rest
+                    .find(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
+                    .unwrap_or(rest.len());
+                let after = rest[token..].trim_start_matches([' ', '\t']);
+                after.is_empty() || after.starts_with(['(', '\n', '\r', '%'])
+            };
+            if self.is_check_enabled("BADCH")
+                && b == b'_'
+                && (i == 0 || !(bytes[i - 1].is_ascii_alphanumeric() || bytes[i - 1] == b'_'))
+                && bytes.get(i + 1).is_some_and(|c| c.is_ascii_alphabetic())
+                && !Self::in_skip_range(i, skip_ranges)
+                && !name_of_function
+            {
+                diagnostics.push(Diagnostic {
+                    rule_id: "BADCH",
+                    message: "Invalid text character(s).".to_string(),
+                    severity: Severity::Error,
+                    byte_range: i..i + 1,
+                    line,
+                    column: i - line_start + 1,
+                    fix: None,
+                });
+                i += 1;
+                continue;
+            }
+
             // BADSP: Non-ASCII whitespace detection.
             // Check for multi-byte UTF-8 sequences that are whitespace.
             if self.is_check_enabled("BADSP") && b > 0x7F && !Self::in_skip_range(i, skip_ranges) {

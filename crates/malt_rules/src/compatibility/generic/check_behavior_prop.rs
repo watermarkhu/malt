@@ -65,6 +65,10 @@ pub(crate) fn collect_checks(
     source: &str,
     diagnostics: &mut Vec<Diagnostic>,
 ) {
+    if node.kind() == "assignment" {
+        engine.check_smthg_assignment(node, source, diagnostics);
+        return;
+    }
     if node.kind() != "function_call" {
         return;
     }
@@ -82,6 +86,13 @@ pub(crate) fn collect_checks(
 impl CompatibilityEngine {
     /// SMTHG: `'GraphicsSmoothing'` figure property used as a name-value pair.
     pub(crate) fn check_smthg(&self, node: Node, source: &str, diagnostics: &mut Vec<Diagnostic>) {
+        // `set` and `get` are reported on a figure only: `set(ax, ...)` with an axes
+        // or an unknown handle is silent in MATLAB.
+        if matches!(call_name(node, source), Some("set") | Some("get"))
+            && !first_arg_is_figure(node, source)
+        {
+            return;
+        }
         scan_name_args(
             node,
             source,
@@ -92,8 +103,38 @@ impl CompatibilityEngine {
         );
     }
 
+    /// SMTHG on a property assignment (`g.GraphicsSmoothing = 'off'`). MATLAB reports
+    /// it for any object except one known to be axes (`ax = gca; ax.GraphicsSmoothing`
+    /// is silent).
+    pub(crate) fn check_smthg_assignment(
+        &self,
+        node: Node,
+        source: &str,
+        diagnostics: &mut Vec<Diagnostic>,
+    ) {
+        let Some(left) = node.child_by_field_name("left") else {
+            return;
+        };
+        if left.kind() != "field_expression" || left.named_child_count() != 2 {
+            return;
+        }
+        let (Some(base), Some(field)) = (left.named_child(0), left.named_child(1)) else {
+            return;
+        };
+        if base.kind() != "identifier" || &source[field.byte_range()] != "GraphicsSmoothing" {
+            return;
+        }
+        if is_axes_variable(node, &source[base.byte_range()], source) {
+            return;
+        }
+        fire(left, "SMTHG", MSG_SMTHG, diagnostics);
+    }
+
     /// SMTHGF: `'DefaultFigureGraphicsSmoothing'` groot setting.
     pub(crate) fn check_smthgf(&self, node: Node, source: &str, diagnostics: &mut Vec<Diagnostic>) {
+        if !first_arg_is_groot(node, source) {
+            return;
+        }
         scan_name_args(
             node,
             source,
@@ -118,6 +159,9 @@ impl CompatibilityEngine {
 
     /// SMTHFA: `'DefaultAxesFontSmoothing'` groot setting.
     pub(crate) fn check_smthfa(&self, node: Node, source: &str, diagnostics: &mut Vec<Diagnostic>) {
+        if !first_arg_is_groot(node, source) {
+            return;
+        }
         scan_name_args(
             node,
             source,
@@ -130,6 +174,9 @@ impl CompatibilityEngine {
 
     /// SMTHFT: `'DefaultTextFontSmoothing'` groot setting.
     pub(crate) fn check_smthft(&self, node: Node, source: &str, diagnostics: &mut Vec<Diagnostic>) {
+        if !first_arg_is_groot(node, source) {
+            return;
+        }
         scan_name_args(
             node,
             source,
@@ -266,6 +313,68 @@ fn unquoted<'a>(node: Node<'a>, source: &'a str) -> &'a str {
     } else {
         text
     }
+}
+
+/// Whether `name` is assigned `gca` in the file, and every plain assignment to it is.
+/// The file-wide scan ignores property assignments (`ax.GraphicsSmoothing = 'off'`),
+/// which the scope-based `variable_values` treats as a change of `ax`.
+fn is_axes_variable(node: Node, name: &str, source: &str) -> bool {
+    let mut root = node;
+    while let Some(parent) = root.parent() {
+        root = parent;
+    }
+    let is_axes = |value: Node| match value.kind() {
+        "identifier" => &source[value.byte_range()] == "gca",
+        "function_call" => call_name(value, source) == Some("gca"),
+        _ => false,
+    };
+    let mut found = false;
+    let mut all_axes = true;
+    let mut stack = vec![root];
+    while let Some(current) = stack.pop() {
+        if current.kind() == "assignment" {
+            let target = current.child_by_field_name("left");
+            if target.is_some_and(|left| {
+                left.kind() == "identifier" && &source[left.byte_range()] == name
+            }) {
+                found = true;
+                all_axes &= current
+                    .child_by_field_name("right")
+                    .is_some_and(|right| is_axes(right));
+            }
+        }
+        let mut cursor = current.walk();
+        stack.extend(current.children(&mut cursor));
+    }
+    found && all_axes
+}
+
+/// True when the first argument is a figure: `gcf`, `figure(...)`, or a variable every
+/// assignment of which gives one of those.
+fn first_arg_is_figure(call: Node, source: &str) -> bool {
+    let Some(&(arg, _)) = named_args(call).first() else {
+        return false;
+    };
+    let is_figure = |value: Node| match value.kind() {
+        "identifier" => &source[value.byte_range()] == "gcf",
+        "function_call" => matches!(call_name(value, source), Some("gcf") | Some("figure")),
+        _ => false,
+    };
+    if arg.kind() == "identifier" && &source[arg.byte_range()] != "gcf" {
+        return crate::suggested_improvements::variable_values(arg, source)
+            .is_some_and(|values| !values.is_empty() && values.into_iter().all(is_figure));
+    }
+    is_figure(arg)
+}
+
+/// True when the first argument is `groot`. MATLAB reports the removed groot settings
+/// only through `groot` (`set(groot, ...)`); `set(0, ...)` and `feature(...)` are silent.
+fn first_arg_is_groot(call: Node, source: &str) -> bool {
+    named_args(call)
+        .first()
+        .is_some_and(|(arg, is_positional)| {
+            *is_positional && arg_text(*arg, source) == Some("groot")
+        })
 }
 
 /// True when the callee is `set`, `get`, or `feature`.
@@ -501,8 +610,32 @@ mod tests {
     // -- SMTHFT: 'DefaultTextFontSmoothing' setting -------------------------
 
     #[test]
-    fn smthft_feature_fires() {
-        fires("feature('DefaultTextFontSmoothing', 'off');", "SMTHFT");
+    fn smthft_set_on_groot_fires() {
+        fires("set(groot, 'DefaultTextFontSmoothing', 'off');", "SMTHFT");
+        // Probed: `feature(...)` and `set(0, ...)` are silent in MATLAB R2026b.
+        not_fires("feature('DefaultTextFontSmoothing', 'off');", "SMTHFT");
+        not_fires("set(0, 'DefaultTextFontSmoothing', 'off');", "SMTHFT");
+    }
+
+    /// Probed: `g = gcf` objects and `set(gcf, ...)` report; `ax = gca` and `set(ax, ...)`
+    /// with an unknown handle do not.
+    #[test]
+    fn smthg_on_figures_and_property_assignments() {
+        fires("g = gcf;\ng.GraphicsSmoothing = 'off';\n", "SMTHG");
+        fires("g = gcf;\nset(g, 'GraphicsSmoothing', 'off');\n", "SMTHG");
+        fires("set(gcf, 'GraphicsSmoothing', 'off');\n", "SMTHG");
+        not_fires("ax = gca;\nax.GraphicsSmoothing = 'off';\n", "SMTHG");
+        not_fires("set(ax, 'GraphicsSmoothing', 'off');\n", "SMTHG");
+    }
+
+    /// Probed: only `set(groot, ...)` reports SMTHGF; `set(0, ...)` does not.
+    #[test]
+    fn smthgf_only_through_groot() {
+        fires(
+            "set(groot, 'DefaultFigureGraphicsSmoothing', 'off');",
+            "SMTHGF",
+        );
+        not_fires("set(0, 'DefaultFigureGraphicsSmoothing', 'off');", "SMTHGF");
     }
 
     #[test]

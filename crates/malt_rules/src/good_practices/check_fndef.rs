@@ -1,5 +1,17 @@
 use super::*;
 
+/// True when the header line (up to a comment) has a `_` name or a `~` in the output
+/// list, which MATLAB cannot parse. A `~` among the inputs (`f(~, x)`) is valid.
+fn header_has_invalid_token(text: &str) -> bool {
+    let header = text.lines().next().unwrap_or("");
+    let header = header.split('%').next().unwrap_or("");
+    let outputs = header.split('=').next().filter(|_| header.contains('='));
+    outputs.is_some_and(|out| out.contains('~'))
+        || header
+            .split(|c: char| !(c.is_alphanumeric() || c == '_'))
+            .any(|token| token.starts_with('_'))
+}
+
 impl GoodPracticesEngine {
     /// FNDEF: the main function of a function file has a name other than the
     /// file name. MATLAB calls the function by its file name, so the name in the
@@ -37,6 +49,10 @@ impl GoodPracticesEngine {
             },
         };
         if name.is_empty() || name == stem {
+            return Vec::new();
+        }
+        // A header MATLAB cannot parse (`_y` or a `~` output) is not the main function (probed).
+        if header_has_invalid_token(&source[byte_range.start..]) {
             return Vec::new();
         }
         let column = name_column(source, byte_range.start, &name);

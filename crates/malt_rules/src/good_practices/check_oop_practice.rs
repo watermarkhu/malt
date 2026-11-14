@@ -6,6 +6,9 @@ struct MethodInfo {
     base_name: String,
     /// First non-ignored input argument (the object).
     first_input: Option<String>,
+    /// The object variable: the first non-ignored input, or the output of a
+    /// constructor (which creates the object and returns it).
+    object: Option<String>,
     /// Whether the method declares a non-`~` output.
     has_output: bool,
     /// Whether the method returns its object (an output has the object's name).
@@ -110,6 +113,11 @@ impl GoodPracticesEngine {
                     MethodInfo {
                         base_name: strip_set_get(&m.name),
                         first_input: m.inputs.iter().find(|i| *i != "~").cloned(),
+                        object: if m.is_constructor {
+                            m.outputs.iter().find(|o| *o != "~").cloned()
+                        } else {
+                            m.inputs.iter().find(|i| *i != "~").cloned()
+                        },
                         has_output: m.outputs.iter().any(|o| o != "~"),
                         output_is_object: m
                             .inputs
@@ -120,7 +128,7 @@ impl GoodPracticesEngine {
                         is_static: m
                             .method_attributes
                             .iter()
-                            .any(|a| a.name == "Static" && !a.negated),
+                            .any(|a| a.name == "Static" && a.is_literal_set()),
                     },
                 )
             })
@@ -128,9 +136,15 @@ impl GoodPracticesEngine {
 
         let mut diagnostics = Vec::new();
 
-        // MCCSPS: constant property name used as the object of a dot-access.
+        // MCCSPS: `ClassName.K = v` on a Constant property K (see collect_mccsps).
         if self.is_check_enabled("MCCSPS") {
-            collect_mccsps(class_node, source, &ctx.constant_props, &mut diagnostics);
+            collect_mccsps(
+                class_node,
+                source,
+                &class.name,
+                &ctx.constant_props,
+                &mut diagnostics,
+            );
         }
 
         // Per-method checks.
@@ -287,42 +301,83 @@ fn collect_constant_properties(
     result
 }
 
-/// Collect MCCSPS diagnostics: a constant property name used as the object of
-/// a dot-access chain, which creates a struct instead of accessing the class
-/// member.
+/// Collect MCCSPS diagnostics: `ClassName.K = v` (or `ClassName.K(i) = v`) where K
+/// is a Constant property. MATLAB reads the class name as a new struct variable,
+/// so it reports the first such assignment of each function; later ones use
+/// that variable. Constructors are included (probed).
 fn collect_mccsps(
     node: Node,
     source: &str,
+    class_name: &str,
     constant_props: &std::collections::HashSet<String>,
     diagnostics: &mut Vec<Diagnostic>,
 ) {
-    if node.kind() == "field_expression" {
-        if let Some(obj) = node.child_by_field_name("object") {
-            if obj.kind() == "identifier" {
-                let name = node_text(obj, source);
-                if constant_props.contains(name) {
-                    let pos = obj.start_position();
-                    diagnostics.push(Diagnostic {
-                        rule_id: "MCCSPS",
-                        message: format!(
-                            "Constant property {name} is not modified. '{name}.{name}' creates a struct named {name} with a field named {name}."
-                        ),
-                        severity: Severity::Warning,
-                        byte_range: obj.start_byte()..obj.end_byte(),
-                        line: pos.row + 1,
-                        column: pos.column + 1,
-                        fix: None,
-                    });
+    if node.kind() == "function_definition" {
+        if let Some(field) =
+            first_class_constant_assignment(node, source, class_name, constant_props)
+        {
+            let pos = field.start_position();
+            let name = node_text(field, source);
+            diagnostics.push(Diagnostic {
+                rule_id: "MCCSPS",
+                message: format!(
+                    "Constant property '{name}' is not modified. '{class_name}.{name}' creates a struct named '{class_name}' with a field named '{name}'."
+                ),
+                severity: Severity::Warning,
+                byte_range: field.start_byte()..field.end_byte(),
+                line: pos.row + 1,
+                column: pos.column + 1,
+                fix: None,
+            });
+        }
+        return;
+    }
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        if child.is_named() {
+            collect_mccsps(child, source, class_name, constant_props, diagnostics);
+        }
+    }
+}
+
+/// The field name of the first `ClassName.K = v` assignment under `node` whose K
+/// is a Constant property (see [`collect_mccsps`]).
+fn first_class_constant_assignment<'a>(
+    node: Node<'a>,
+    source: &str,
+    class_name: &str,
+    constant_props: &std::collections::HashSet<String>,
+) -> Option<Node<'a>> {
+    if node.kind() == "assignment" {
+        let target = node.child_by_field_name("left").and_then(|left| {
+            if left.kind() == "function_call" {
+                left.child_by_field_name("name")
+            } else {
+                Some(left)
+            }
+        });
+        if let Some(fe) = target.filter(|t| t.kind() == "field_expression") {
+            let object = fe.child_by_field_name("object");
+            let field = fe.child_by_field_name("field").and_then(member_name_node);
+            if let (Some(object), Some(field)) = (object, field) {
+                if object.kind() == "identifier"
+                    && node_text(object, source) == class_name
+                    && constant_props.contains(node_text(field, source))
+                {
+                    return Some(field);
                 }
             }
         }
     }
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
-        if child.is_named() {
-            collect_mccsps(child, source, constant_props, diagnostics);
+        if let Some(found) =
+            first_class_constant_assignment(child, source, class_name, constant_props)
+        {
+            return Some(found);
         }
     }
+    None
 }
 
 /// The assignment `obj.F = ...` that MATLAB reports for MCVM: the first one after
@@ -360,7 +415,7 @@ fn collect_object_assignments<'a>(
             let indexed = node_text(left, source).contains(['(', '{']);
             if left.kind() == "field_expression"
                 && !indexed
-                && is_object_field_access(left, source, info)
+                && is_first_input_field_access(left, source, info)
             {
                 out.push(node);
             }
@@ -444,6 +499,24 @@ fn is_object_field_access(fe: Node, source: &str, info: &MethodInfo) -> bool {
     if obj.kind() != "identifier" {
         return false;
     }
+    info.object
+        .as_deref()
+        .map(|object| node_text(obj, source) == object)
+        .unwrap_or(false)
+}
+
+/// Whether `fe` is a field access on the first non-ignored input (the object of a
+/// method, but not the output a constructor creates). MCVM reads its object so.
+fn is_first_input_field_access(fe: Node, source: &str, info: &MethodInfo) -> bool {
+    if info.is_static {
+        return false;
+    }
+    let Some(obj) = fe.child_by_field_name("object") else {
+        return false;
+    };
+    if obj.kind() != "identifier" {
+        return false;
+    }
     info.first_input
         .as_deref()
         .map(|first| node_text(obj, source) == first)
@@ -485,7 +558,8 @@ fn check_method_body(
         && !is_assignment_target(node)
         && is_object_field_access(node, source, info)
     {
-        if let Some(field) = node.child_by_field_name("field") {
+        // `obj.X(i)` and `obj.X{i}` parse as a call on the field: the name is in it.
+        if let Some(field) = node.child_by_field_name("field").and_then(member_name_node) {
             if field.kind() == "identifier" {
                 let name = node_text(field, source);
                 if !ctx.declared.contains(name) {
@@ -711,10 +785,37 @@ mod tests {
     }
 
     #[test]
-    fn test_mccsps_fires_on_constant_property_dot_access() {
-        let source = "classdef Foo\n    properties (Constant)\n        C = 1\n    end\n    methods\n        function r = f(obj)\n            r = C.value;\n        end\n    end\nend\n";
+    fn test_mccsps_fires_on_class_qualified_assignment() {
+        // Probed: `ClassName.K = 5;` in a method gives MCCSPS at K (not MCCSOP).
+        let source = "classdef Foo\n    properties (Constant)\n        K = 1\n    end\n    methods\n        function m(obj)\n            Foo.K = 5;\n        end\n    end\nend\n";
         let ids = oop_ids_for(source, "MCCSPS");
         assert_eq!(ids.len(), 1, "got: {:?}", oop_ids(source));
+        assert!(oop_ids_for(source, "MCCSOP").is_empty());
+    }
+
+    #[test]
+    fn test_mccsps_fires_once_per_function_and_in_constructors() {
+        // Probed: the first `Foo.K = ...` of a function is reported; the next one
+        // uses the struct that the first created. The constructor is no exception.
+        let source = "classdef Foo\n    properties (Constant)\n        K = 1\n    end\n    methods\n        function obj = Foo()\n            Foo.K = 5;\n            Foo.K = 6;\n        end\n        function m(obj)\n            Foo.K(2) = 5;\n        end\n    end\nend\n";
+        assert_eq!(
+            oop_ids_for(source, "MCCSPS").len(),
+            2,
+            "got: {:?}",
+            oop_ids(source)
+        );
+    }
+
+    #[test]
+    fn test_mccsps_silent_on_other_object_and_non_constant() {
+        // `other.K` is a new struct, not the class (probed: silent); `Foo.Y` is not
+        // a constant property.
+        let source = "classdef Foo\n    properties (Constant)\n        K = 1\n    end\n    properties\n        Y = 1\n    end\n    methods\n        function m(obj)\n            other.K = 5;\n            Foo.Y = 5;\n        end\n    end\nend\n";
+        assert!(
+            oop_ids_for(source, "MCCSPS").is_empty(),
+            "got: {:?}",
+            oop_ids(source)
+        );
     }
 
     #[test]
@@ -986,6 +1087,43 @@ mod tests {
         let source = "classdef Foo < handle\n    properties (Constant)\n        C = 1\n    end\n    methods\n        function r = f(obj)\n            r = obj.Z + C.value;\n        end\n        function obj = set.C(obj, val)\n            obj.C = val;\n        end\n    end\nend\n";
         let tree = parse(source);
         assert!(eng.check_oop_practice(&tree, source).is_empty());
+    }
+
+    #[test]
+    fn test_mcnpn_fires_on_brace_and_paren_reads_of_undeclared_members() {
+        // Probed: `obj.Undecl{1}` and `obj.Undecl(1)` both give MCNPN at the name.
+        let source = "classdef Foo\n    properties\n        X\n    end\n    methods\n        function r = f(obj)\n            r = obj.Undecl{1};\n            r = obj.Undecl(1);\n        end\n    end\nend\n";
+        assert_eq!(
+            oop_ids_for(source, "MCNPN").len(),
+            2,
+            "got: {:?}",
+            oop_ids(source)
+        );
+    }
+
+    #[test]
+    fn test_mcnpr_fires_in_constructor_on_the_created_object() {
+        // Probed: a constructor's object is its output (`obj`), so `obj.Z = a` is
+        // MCNPR there too; `obj.X = a` for a property is silent.
+        let source = "classdef Foo\n    properties\n        X\n    end\n    methods\n        function obj = Foo(a)\n            obj.Z = a;\n            obj.X = a;\n        end\n    end\nend\n";
+        assert_eq!(
+            oop_ids_for(source, "MCNPR").len(),
+            1,
+            "got: {:?}",
+            oop_ids(source)
+        );
+    }
+
+    #[test]
+    fn test_mcnpn_fires_in_constructor_on_undeclared_read() {
+        // Probed: MCNPN on `z = obj.Foo2` in a constructor.
+        let source = "classdef Foo\n    properties\n        X\n    end\n    methods\n        function obj = Foo(a)\n            obj.X = a;\n            z = obj.Foo2;\n            disp(z)\n        end\n    end\nend\n";
+        assert_eq!(
+            oop_ids_for(source, "MCNPN").len(),
+            1,
+            "got: {:?}",
+            oop_ids(source)
+        );
     }
 }
 

@@ -182,6 +182,11 @@ pub struct EventsBlockMeta {
 pub struct EnumerationBlockMeta {
     /// Enumeration member names.
     pub members: Vec<String>,
+    /// Attributes of the block, as written: `enumeration (Foo)` has `Foo`. MATLAB
+    /// knows none for an enumeration block, so each one is ATUNK.
+    pub attributes: Vec<AttributeMeta>,
+    /// 1-indexed line of the `enumeration` keyword.
+    pub line: usize,
 }
 
 /// Metadata about a class definition.
@@ -811,7 +816,14 @@ fn extract_enumeration_block(enum_node: Node, source: &str) -> EnumerationBlockM
         }
     }
 
-    EnumerationBlockMeta { members }
+    let attributes = find_first_child_of_kind(enum_node, "attributes")
+        .map(|a| extract_attributes(a, source))
+        .unwrap_or_default();
+    EnumerationBlockMeta {
+        members,
+        attributes,
+        line: enum_node.start_position().row + 1,
+    }
 }
 
 // ---------------------------------------------------------------------------

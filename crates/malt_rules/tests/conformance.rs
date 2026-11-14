@@ -181,3 +181,58 @@ fn messages_have_no_unfilled_placeholders() {
         found.join("\n")
     );
 }
+
+/// Every ID a rule module or a data table declares is in `malt_core`'s list of
+/// known check IDs, so that a directive naming it is never an MSNE. The list is
+/// generated: add a new ID to it when a check is added.
+#[test]
+fn every_declared_id_is_a_known_check_id() {
+    let mut missing = Vec::new();
+    let mut stack = vec![std::path::PathBuf::from(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/src"
+    ))];
+    while let Some(dir) = stack.pop() {
+        for entry in std::fs::read_dir(&dir).expect("readable source directory") {
+            let path = entry.expect("readable entry").path();
+            if path.is_dir() {
+                stack.push(path);
+                continue;
+            }
+            let text = std::fs::read_to_string(&path).unwrap_or_default();
+            let ids = match path.extension().and_then(|e| e.to_str()) {
+                Some("rs") => {
+                    let mut ids = docstring_ids(&text);
+                    // A module whose docstring has a ```malt``` block declares `id = "..."`.
+                    ids.extend(
+                        text.lines()
+                            .filter_map(|line| line.strip_prefix("//! id = \""))
+                            .filter_map(|rest| rest.strip_suffix('"'))
+                            .map(str::to_string),
+                    );
+                    ids
+                }
+                Some("toml") => data_ids(&text),
+                _ => continue,
+            };
+            for id in ids {
+                if is_engine_row(&id) {
+                    continue;
+                }
+                if !malt_core::known_ids::is_known_check_id(&id) {
+                    missing.push(format!("{id} ({})", path.display()));
+                }
+            }
+        }
+    }
+    assert!(missing.is_empty(), "declared but not known: {missing:?}");
+}
+
+/// Rows of the module tables that name an engine or a category, not a check.
+fn is_engine_row(id: &str) -> bool {
+    id.ends_with("_ENGINE")
+        || matches!(
+            id,
+            "COMPAT" | "CUSTOM_CHECKS" | "INCOMPLETE_ANALYSIS" | "SUGGESTED_IMPROVEMENTS"
+        )
+}

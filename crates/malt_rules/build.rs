@@ -24,8 +24,10 @@ enum Kind {
     OptUsize,
     /// `&'static [&'static str]`
     StrList,
-    /// `bool`
+    /// `bool`, `false` when absent
     Bool,
+    /// `bool`, `true` when absent
+    BoolDefaultTrue,
 }
 
 use Kind::*;
@@ -55,6 +57,10 @@ const COMPAT_FIELDS: &[Field] = &[
     ("first_arg_any", StrList, false),
     ("unless_sole_arg", StrList, false),
     ("unless_all_args", StrList, false),
+    ("handle", Bool, false),
+    ("number_arg_at", Usize, false),
+    ("pairs_from", Usize, false),
+    ("function_prefix", Bool, false),
 ];
 
 const SUGGESTED_FIELDS: &[Field] = &[
@@ -83,6 +89,9 @@ const SUGGESTED_FIELDS: &[Field] = &[
     ("within_parfor", Bool, false),
     ("not_in_call", Str, false),
     ("not_in_call_literal", Str, false),
+    ("handle", BoolDefaultTrue, false),
+    ("shadowed_command", Bool, false),
+    ("not_all_arg_kinds", StrList, false),
 ];
 
 fn main() {
@@ -143,6 +152,8 @@ fn generate(input: &str, output: &str, name: &str, ty: &str, fields: &[Field]) {
                         .collect();
                     format!("&{items:?}")
                 }
+                (BoolDefaultTrue, None) => "true".to_string(),
+                (BoolDefaultTrue, Some(v)) => v.as_bool().expect(&bad).to_string(),
                 (Bool, None) => "false".to_string(),
                 (Bool, Some(v)) => v.as_bool().expect(&bad).to_string(),
             };

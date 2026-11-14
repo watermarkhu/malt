@@ -132,6 +132,16 @@ impl LanguageSpecEngine {
     ) {
         let range = class.byte_range.clone();
         let line = class.line;
+        // matlab.unittest test classes take `TestParameterDefinition` on a methods
+        // block (MCMTP checks it); other classes report it as unknown.
+        let mut method_attrs: Vec<&str> = METHOD_ATTRS.to_vec();
+        if class
+            .superclasses
+            .iter()
+            .any(|s| s == "matlab.unittest.TestCase")
+        {
+            method_attrs.push("TestParameterDefinition");
+        }
 
         for attr in &class.attributes {
             self.check_one_attribute(
@@ -155,13 +165,29 @@ impl LanguageSpecEngine {
                 );
             }
         }
+        // An enumeration block takes no attributes in MATLAB: each one is unknown.
+        for block in &class.enumeration_blocks {
+            for _attr in &block.attributes {
+                if self.is_check_enabled("ATUNK") {
+                    diagnostics.push(Diagnostic {
+                        rule_id: "ATUNK",
+                        message: "Unknown attribute name.".to_string(),
+                        severity: Severity::Error,
+                        byte_range: range.clone(),
+                        line: block.line,
+                        column: 1,
+                        fix: None,
+                    });
+                }
+            }
+        }
         for block in &class.methods_blocks {
             for attr in &block.attributes {
                 self.check_one_attribute(
                     &range,
                     block.line,
                     attr,
-                    METHOD_ATTRS,
+                    &method_attrs,
                     AttrLevel::Method,
                     diagnostics,
                 );
@@ -959,5 +985,41 @@ mod declaration_value_tests {
                 "{attrs}: got: {diags:?}"
             );
         }
+    }
+
+    #[test]
+    fn enumeration_block_attributes_are_unknown() {
+        // Probed: `enumeration (Foo)` and `enumeration (Sealed)` give ATUNK; a plain
+        // `enumeration` block gives nothing.
+        let diags = check_source(
+            "classdef Foo\n    enumeration (Foo)\n        Red (1)\n    end\nend\n",
+            "Foo.m",
+        );
+        let hits = filter_by_id(&diags, "ATUNK");
+        assert_eq!(hits.len(), 1, "got: {diags:?}");
+        assert_eq!(hits[0].line, 2);
+        let diags = check_source(
+            "classdef Foo\n    enumeration (Sealed)\n        Red (1)\n    end\nend\n",
+            "Foo.m",
+        );
+        assert_eq!(filter_by_id(&diags, "ATUNK").len(), 1, "got: {diags:?}");
+        let diags = check_source(
+            "classdef Foo\n    enumeration\n        Red (1)\n    end\nend\n",
+            "Foo.m",
+        );
+        assert!(filter_by_id(&diags, "ATUNK").is_empty(), "got: {diags:?}");
+    }
+
+    #[test]
+    fn test_parameter_definition_is_known_in_test_case_only() {
+        // Probed: the block attribute is valid in a matlab.unittest.TestCase
+        // (MCMTP checks the static form) and unknown elsewhere (ATUNK).
+        let in_test = "classdef Foo < matlab.unittest.TestCase\n    methods (TestParameterDefinition, Static)\n        function p = pdef()\n            p = {1, 2};\n        end\n    end\nend\n";
+        assert!(filter_by_id(&check_source(in_test, "Foo.m"), "ATUNK").is_empty());
+        let plain = "classdef Foo\n    methods (TestParameterDefinition)\n        function p = pdef()\n            p = {1, 2};\n        end\n    end\nend\n";
+        assert_eq!(
+            filter_by_id(&check_source(plain, "Foo.m"), "ATUNK").len(),
+            1
+        );
     }
 }

@@ -45,6 +45,14 @@ impl GoodPracticesEngine {
                     break;
                 }
                 if !cursor.goto_parent() {
+                    // The text form replaces the tree form at the same token (see the linter).
+                    let loop_bodies = unseparated_loop_bodies(source);
+                    diagnostics.retain(|d| {
+                        !loop_bodies.iter().any(|b| {
+                            b.rule_id == d.rule_id && b.line == d.line && b.column == d.column
+                        })
+                    });
+                    diagnostics.extend(loop_bodies);
                     return diagnostics;
                 }
             }
@@ -96,6 +104,70 @@ fn missing_separator(block: Node, source: &str) -> Option<Diagnostic> {
         column: pos.column + 1,
         fix: Some(Fix::insert(condition.end_byte(), ",")),
     })
+}
+
+/// SEPEX for a `for` or `while` header with its body on the same line and no separator
+/// (`for k=1:2 disp(k) end`, `while x x=0 end`: the body is flagged at its first token).
+/// The grammar gives these lines ERROR nodes, so the tree walk does not see them. The
+/// header is one word (`while x`, `for k = 1:2`); a header with spaces is left alone.
+fn unseparated_loop_bodies(source: &str) -> Vec<Diagnostic> {
+    let mut out = Vec::new();
+    let mut line_start = 0;
+    for line in source.split_inclusive('\n') {
+        let at = line_start;
+        line_start += line.len();
+        let code = line.trim_start();
+        let indent = line.len() - code.len();
+        let header_end = if let Some(rest) = code.strip_prefix("for") {
+            if !rest.starts_with([' ', '\t']) {
+                continue;
+            }
+            let rest = rest.trim_start_matches([' ', '\t']);
+            let name_len = rest
+                .find(|c: char| !(c.is_alphanumeric() || c == '_'))
+                .unwrap_or(0);
+            let after_name = rest[name_len..].trim_start_matches([' ', '\t']);
+            if name_len == 0 || !after_name.starts_with('=') {
+                continue;
+            }
+            let value = after_name[1..].trim_start_matches([' ', '\t']);
+            let value_len = value.find([' ', '\t', ',', ';']).unwrap_or(value.len());
+            code.len() - value[value_len..].len()
+        } else if let Some(rest) = code.strip_prefix("while") {
+            if !rest.starts_with([' ', '\t']) {
+                continue;
+            }
+            let rest = rest.trim_start_matches([' ', '\t']);
+            let value_len = rest.find([' ', '\t', ',', ';']).unwrap_or(rest.len());
+            code.len() - rest[value_len..].len()
+        } else {
+            continue;
+        };
+        let after_header = &code[header_end..];
+        let body = after_header.trim_start_matches([' ', '\t']);
+        if body.len() == after_header.len() {
+            continue;
+        }
+        let starts_body =
+            body.starts_with(|c: char| c.is_ascii_alphabetic() || c == '_' || c == '(' || c == '[');
+        if !starts_body {
+            continue;
+        }
+        let flagged = at + indent + (code.len() - body.len());
+        let (line_no, column) = line_and_column(source, flagged);
+        out.push(Diagnostic {
+            rule_id: "SEPEX",
+            message:
+                "Consider using newline, semicolon, or comma before this statement for readability."
+                    .to_string(),
+            severity: Severity::Warning,
+            byte_range: flagged..flagged + 1,
+            line: line_no,
+            column,
+            fix: Some(Fix::insert(at + indent + header_end, ",")),
+        });
+    }
+    out
 }
 
 /// SEPEX for a header followed on the same line, with only blanks between, by a

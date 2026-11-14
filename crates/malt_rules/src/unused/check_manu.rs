@@ -21,6 +21,33 @@ pub(crate) fn sole_input(scope: &Scope, source: &str) -> bool {
         && !header.contains('~')
 }
 
+/// Whether a methods block's attributes make it `Static`: a bare `Static`,
+/// `Static = true` or `Static = 1`. MATLAB reads other values (`0`, `FALSE`,
+/// `TRUE`) as not static, and reports their inputs as MANU (probed).
+fn methods_block_is_static(block: tree_sitter::Node, source: &str) -> bool {
+    let mut cursor = block.walk();
+    let Some(attributes) = block
+        .children(&mut cursor)
+        .find(|child| child.kind() == "attributes")
+    else {
+        return false;
+    };
+    let mut cursor = attributes.walk();
+    let attrs: Vec<tree_sitter::Node> = attributes.children(&mut cursor).collect();
+    attrs
+        .into_iter()
+        .filter(|attr| attr.kind() == "attribute")
+        .any(|attr| {
+            let text = source[attr.byte_range()].trim();
+            match text.split_once('=') {
+                None => text == "Static",
+                Some((name, value)) => {
+                    name.trim() == "Static" && matches!(value.trim(), "true" | "1")
+                }
+            }
+        })
+}
+
 /// Whether MANU, rather than INUSD, reports the sole input of a method. A `Static`
 /// method and a constructor (named after its class) are not MANU: MATLAB reports
 /// their unused input as INUSD (probed).
@@ -46,8 +73,7 @@ pub(crate) fn manu_method(scope: &Scope, root: Node, source: &str) -> bool {
     while let Some(node) = current {
         match node.kind() {
             "methods" => {
-                let header = source[node.start_byte()..].lines().next().unwrap_or("");
-                if header.to_ascii_lowercase().contains("static") {
+                if methods_block_is_static(node, source) {
                     return false;
                 }
             }
@@ -236,5 +262,22 @@ mod tests {
         );
         assert!(!has_id(&diags, "MANU"), "got: {diags:?}");
         assert!(has_id(&diags, "INUSD"), "got: {diags:?}");
+    }
+
+    #[test]
+    fn static_zero_is_not_static_so_the_input_is_manu() {
+        // Probed: `Static = 0` is not evaluated as static: MANU, not INUSD.
+        let diags = lint_file(
+            &*engine(),
+            "classdef S_z\n    methods (Static = 0)\n        function r = m(a)\n            r = 1;\n        end\n    end\nend\n",
+        );
+        assert!(has_id(&diags, "MANU"), "got: {diags:?}");
+        assert!(!has_id(&diags, "INUSD"), "got: {diags:?}");
+        let diags = lint_file(
+            &*engine(),
+            "classdef S_t\n    methods (Static = true)\n        function r = m(a)\n            r = 1;\n        end\n    end\nend\n",
+        );
+        assert!(has_id(&diags, "INUSD"), "got: {diags:?}");
+        assert!(!has_id(&diags, "MANU"), "got: {diags:?}");
     }
 }

@@ -1,3 +1,14 @@
+# Compatibility checks. Fields beyond the Rust struct's own docs (see compatibility/mod.rs):
+#   handle         - true: MATLAB reports the `@name` handle form (554 entries, probed one
+#                    `h = @name;` each). False (default): silent on `@name`.
+#   number_arg_at  - N: argument N must be a number literal (QAMDEPM: `qammod(x, 4, 0)`
+#                    reports, `qammod(x, 4, pi/4)` does not).
+#   pairs_from     - N: from argument N on the arguments are name-value pairs (an even
+#                    count); `args_any` names one of those names (BUFSIZE).
+#   function_prefix - matches every member of the package `function_name` (JAPIMATHWORKS:
+#                    `com.mathworks.util.X`, not `com.mathworks`).
+#   Entries whose MATLAB severity is "Error" in the reference list are `severity = "error"`.
+
 [[checks]]
 id = "DPSD"
 function_name = "psd"
@@ -7,6 +18,7 @@ category = "compatibility"
 
 [[checks]]
 id = "DSPDF"
+handle = true
 function_name = "dsp.DigitalFilter"
 severity = "error"
 message = "'dsp.DigitalFilter' has been removed. Use 'dsp.FIRFilter', 'dsp.IIRFilter', or 'dsp.AllpoleFilter' instead."
@@ -14,6 +26,7 @@ category = "compatibility"
 
 [[checks]]
 id = "DMSSPEC"
+handle = true
 function_name = "dspdata.msspectrum"
 severity = "warning"
 message = "'dspdata.msspectrum' will be removed in a future release. Use 'periodogram' or 'pwelch' instead."
@@ -21,6 +34,7 @@ category = "compatibility"
 
 [[checks]]
 id = "DPSPEC"
+handle = true
 function_name = "dspdata.pseudospectrum"
 severity = "warning"
 message = "'dspdata.pseudospectrum' will be removed in a future release. Use 'pmusic' or 'peig' instead."
@@ -28,6 +42,7 @@ category = "compatibility"
 
 [[checks]]
 id = "DPPSD"
+handle = true
 function_name = "dspdata.psd"
 severity = "warning"
 message = "'dspdata.psd' will be removed in a future release. Use 'pburg', 'pcov', 'peig', 'pmcov', 'pmtm', 'periodogram', or 'pwelch' instead."
@@ -35,6 +50,7 @@ category = "compatibility"
 
 [[checks]]
 id = "DINLN"
+handle = true
 function_name = "inline"
 severity = "warning"
 message = "INLINE will be removed in a future release. Use anonymous functions instead."
@@ -74,6 +90,7 @@ pattern = "unverified"
 
 [[checks]]
 id = "TREEDISP"
+handle = true
 function_name = "treedisp"
 severity = "error"
 message = "TREEDISP has been removed. Use ClassificationTree or RegressionTree VIEW methods instead."
@@ -81,6 +98,7 @@ category = "compatibility"
 
 [[checks]]
 id = "TREEPRUNE"
+handle = true
 function_name = "treeprune"
 severity = "error"
 message = "TREEPRUNE has been removed. Use ClassificationTree or RegressionTree PRUNE methods instead."
@@ -88,6 +106,7 @@ category = "compatibility"
 
 [[checks]]
 id = "TREETEST"
+handle = true
 function_name = "treetest"
 severity = "error"
 message = "'treetest' has been removed. Use ClassificationTree or RegressionTree methods instead."
@@ -95,6 +114,7 @@ category = "compatibility"
 
 [[checks]]
 id = "TREEVAL"
+handle = true
 function_name = "treeval"
 severity = "error"
 message = "TREEVAL has been removed. Use ClassificationTree or RegressionTree PREDICT methods instead."
@@ -102,6 +122,7 @@ category = "compatibility"
 
 [[checks]]
 id = "TREEFIT"
+handle = true
 function_name = "treefit"
 severity = "error"
 message = "TREEFIT has been removed. Use fitctree or fitrtree instead."
@@ -109,6 +130,7 @@ category = "compatibility"
 
 [[checks]]
 id = "FISGET"
+handle = true
 function_name = "getfis"
 severity = "error"
 message = "'getfis' has been removed. Access FIS properties using dot notation instead."
@@ -116,6 +138,7 @@ category = "compatibility"
 
 [[checks]]
 id = "FISM2M"
+handle = true
 function_name = "mf2mf"
 severity = "error"
 message = "'mf2mf' has been removed. Convert membership functions using dot notation on 'fismf' objects instead."
@@ -123,6 +146,7 @@ category = "compatibility"
 
 [[checks]]
 id = "FISSET"
+handle = true
 function_name = "setfis"
 severity = "error"
 message = "'setfis' has been removed. Set FIS properties using dot notation instead."
@@ -130,6 +154,7 @@ category = "compatibility"
 
 [[checks]]
 id = "FISSHW"
+handle = true
 function_name = "showfis"
 severity = "error"
 message = "'showfis' has been removed. View FIS properties using dot notation instead."
@@ -151,6 +176,7 @@ category = "compatibility"
 
 [[checks]]
 id = "WLRC"
+handle = true
 function_name = "wlanRecoveryConfig"
 severity = "error"
 message = "'wlanRecoveryConfig' has been removed. Instead, parameterize the function that accepts the 'wlanRecoveryConfig' object by using the name-value pair syntax."
@@ -174,6 +200,7 @@ pattern = "unverified"
 
 [[checks]]
 id = "JAVCM"
+handle = true
 function_name = "javacomponent"
 severity = "warning"
 message = "'javacomponent' is undocumented and will be removed in a future release. There is no simple replacement for this."
@@ -181,6 +208,7 @@ category = "compatibility"
 
 [[checks]]
 id = "COMMERRATE"
+handle = true
 function_name = "commtest.ErrorRate"
 severity = "error"
 message = "'commtest.ErrorRate' has been removed. Use 'comm.ErrorRate' or BERTool instead."
@@ -188,6 +216,7 @@ category = "compatibility"
 
 [[checks]]
 id = "TCRESULT"
+handle = true
 function_name = "testconsole.Results"
 severity = "error"
 message = "'testconsole.Results' has been removed. Use 'comm.ErrorRate' or BERTool instead."
@@ -204,6 +233,7 @@ max_args = 1
 
 [[checks]]
 id = "CNNCGD"
+first_arg_not_text = true
 function_name = "cnncodegen"
 severity = "error"
 message = "'cnncodegen' with default 'targetlib' as 'cudnn' has been removed. With appropriate code changes, use 'codegen' instead."
@@ -213,6 +243,7 @@ min_args = 1
 
 [[checks]]
 id = "COMMSCOPEED"
+handle = true
 function_name = "commscope.eyediagram"
 severity = "error"
 message = "'commscope.eyediagram' has been removed. For line plotting, use the eyediagram function. There is no simple replacement for histogram plotting and measurement analysis."
@@ -220,6 +251,7 @@ category = "compatibility"
 
 [[checks]]
 id = "COMMED"
+handle = true
 function_name = "comm.EyeDiagram"
 severity = "error"
 message = "'comm.EyeDiagram' has been removed. For line plotting, use the eyediagram function. There is no simple replacement for histogram plotting and measurement analysis."
@@ -227,6 +259,7 @@ category = "compatibility"
 
 [[checks]]
 id = "MKRMT"
+handle = true
 function_name = "makerefmat"
 severity = "error"
 message = "'makerefmat' has been removed. With appropriate code changes, construct a raster reference object using 'georefcells', 'georefpostings', 'georasterref', 'maprefcells', 'maprefpostings' or 'maprasterref' instead."
@@ -234,6 +267,7 @@ category = "compatibility"
 
 [[checks]]
 id = "WFMRM"
+handle = true
 function_name = "worldFileMatrixToRefmat"
 severity = "error"
 message = "'worldFileMatrixToRefmat' has been removed. With appropriate code changes, construct a raster reference object using 'georasterref' or 'maprasterref' instead."
@@ -241,6 +275,7 @@ category = "compatibility"
 
 [[checks]]
 id = "RV2MAT"
+handle = true
 function_name = "refvec2mat"
 severity = "error"
 message = "'refvec2mat' has been removed. With appropriate code changes, construct a geographic raster reference object using 'refvecToGeoRasterReference' instead."
@@ -248,6 +283,7 @@ category = "compatibility"
 
 [[checks]]
 id = "RM2VEC"
+handle = true
 function_name = "refmat2vec"
 severity = "error"
 message = "'refmat2vec' has been removed. With appropriate code changes, construct a geographic raster reference object using 'refvecToGeoRasterReference' instead."
@@ -255,6 +291,7 @@ category = "compatibility"
 
 [[checks]]
 id = "SIZEM"
+handle = true
 function_name = "sizem"
 severity = "error"
 message = "'sizem' has been removed. With appropriate code changes, use 'rastersize' property of a map raster reference object instead."
@@ -262,6 +299,7 @@ category = "compatibility"
 
 [[checks]]
 id = "LIMIM"
+handle = true
 function_name = "limitm"
 severity = "error"
 message = "'limitm' has been removed. With appropriate code changes, use 'LatitudeLimits' and 'LongitudeLimits' properties of a geographic raster reference object instead."
@@ -269,6 +307,7 @@ category = "compatibility"
 
 [[checks]]
 id = "MAPBX"
+handle = true
 function_name = "mapbbox"
 severity = "error"
 message = "'mapbbox' has been removed. With appropriate code changes, use 'XWorldLimits' and 'YWorldLimits' properties of a map raster reference object instead."
@@ -276,6 +315,7 @@ category = "compatibility"
 
 [[checks]]
 id = "DBITMAX"
+handle = true
 function_name = "bitmax"
 severity = "error"
 message = "'bitmax' has been removed. With appropriate code changes, use 'flintmax' instead."
@@ -283,48 +323,55 @@ category = "compatibility"
 
 [[checks]]
 id = "COLORDEF"
+handle = true
 function_name = "colordef"
-severity = "warning"
+severity = "error"
 message = "'colordef' has been removed. There is no simple replacement for this."
 category = "compatibility"
 
 [[checks]]
 id = "GRAYMON"
+handle = true
 function_name = "graymon"
-severity = "warning"
+severity = "error"
 message = "'graymon' has been removed. There is no simple replacement for this."
 category = "compatibility"
 
 [[checks]]
 id = "WHITEBG"
+handle = true
 function_name = "whitebg"
-severity = "warning"
+severity = "error"
 message = "'whitebg' has been removed. There is no simple replacement for this."
 category = "compatibility"
 
 [[checks]]
 id = "PRINTOPT"
+handle = true
 function_name = "printopt"
-severity = "warning"
+severity = "error"
 message = "'printopt' has been removed. There is no simple replacement for this."
 category = "compatibility"
 
 [[checks]]
 id = "HGEXPORT"
+handle = true
 function_name = "hgexport"
-severity = "warning"
+severity = "error"
 message = "'hgexport' has been removed. With appropriate code changes, use 'print' instead."
 category = "compatibility"
 
 [[checks]]
 id = "HANK2SYS"
+handle = true
 function_name = "hank2sys"
-severity = "warning"
+severity = "error"
 message = "'hank2sys' has been removed. There is no simple replacement for this."
 category = "compatibility"
 
 [[checks]]
 id = "HGSAVE"
+handle = true
 function_name = "hgsave"
 severity = "warning"
 message = "'hgsave' will be removed in a future release. Use 'savefig' instead, which is a direct replacement."
@@ -332,6 +379,7 @@ category = "compatibility"
 
 [[checks]]
 id = "HAND2STCT"
+handle = true
 function_name = "handle2struct"
 severity = "warning"
 message = "'handle2struct' will be removed in a future release. There is no simple replacement for this."
@@ -339,55 +387,63 @@ category = "compatibility"
 
 [[checks]]
 id = "HILBIIR"
+handle = true
 function_name = "hilbiir"
-severity = "warning"
+severity = "error"
 message = "'hilbiir' has been removed. With appropriate code changes, use 'fdesign.hilbert' or 'hilbert' instead."
 category = "compatibility"
 
 [[checks]]
 id = "MOVIE2"
+handle = true
 function_name = "movie2avi"
-severity = "warning"
+severity = "error"
 message = "'movie2avi' has been removed. With appropriate code changes, use 'VideoWriter' instead."
 category = "compatibility"
 
 [[checks]]
 id = "SERIAL"
+handle = true
 function_name = "serial"
-severity = "warning"
-message = "'serial' will be removed in a future release. With appropriate code changes, use 'serialport' instead."
+severity = "error"
+message = "'serial' has been removed. With appropriate code changes, use 'serialport' instead."
 category = "compatibility"
 
 [[checks]]
 id = "GPIB"
+handle = true
 function_name = "gpib"
-severity = "warning"
-message = "'gpib' will be removed in a future release. With appropriate code changes, use 'visadev' instead."
+severity = "error"
+message = "'gpib' has been removed. With appropriate code changes, use 'visadev' instead."
 category = "compatibility"
 
 [[checks]]
 id = "VISA"
+handle = true
 function_name = "visa"
-severity = "warning"
-message = "'visa' will be removed in a future release. With appropriate code changes, use 'visadev' instead."
+severity = "error"
+message = "'visa' has been removed. With appropriate code changes, use 'visadev' instead."
 category = "compatibility"
 
 [[checks]]
 id = "UDPP"
+handle = true
 function_name = "udp"
-severity = "warning"
-message = "'udp' will be removed in a future release. With appropriate code changes, use 'udpport' instead."
+severity = "error"
+message = "'udp' has been removed. With appropriate code changes, use 'udpport' instead."
 category = "compatibility"
 
 [[checks]]
 id = "BLUTH"
+handle = true
 function_name = "Bluetooth"
-severity = "warning"
-message = "'Bluetooth' will be removed in a future release. With appropriate code changes, use 'bluetooth' instead."
+severity = "error"
+message = "'Bluetooth' has been removed. With appropriate code changes, use 'bluetooth' instead."
 category = "compatibility"
 
 [[checks]]
 id = "IMTOOL"
+handle = true
 function_name = "imtool"
 severity = "warning"
 message = "'imtool' will be removed in a future release. With appropriate code changes, use 'imageViewer' instead."
@@ -395,27 +451,31 @@ category = "compatibility"
 
 [[checks]]
 id = "IMJAV"
+handle = true
 function_name = "im2java2d"
-severity = "warning"
+severity = "error"
 message = "'im2java2d' has been removed. There is no simple replacement for this."
 category = "compatibility"
 
 [[checks]]
 id = "DPOOL"
+handle = true
 function_name = "matlabpool"
-severity = "warning"
+severity = "error"
 message = "'matlabpool' has been removed. With appropriate code changes, use 'parpool' instead."
 category = "compatibility"
 
 [[checks]]
 id = "MUPAD"
+handle = true
 function_name = "mupad"
-severity = "warning"
+severity = "error"
 message = "'mupad' has been removed. With appropriate code changes, use 'Live Editor' instead."
 category = "compatibility"
 
 [[checks]]
 id = "FBUILDER"
+handle = true
 function_name = "filterbuilder"
 severity = "warning"
 message = "'filterbuilder' will be removed in a future release. Use 'filterBuilder' instead, which is a direct replacement."
@@ -423,6 +483,7 @@ category = "compatibility"
 
 [[checks]]
 id = "FDATOOL"
+handle = true
 function_name = "fdatool"
 severity = "warning"
 message = "'fdatool' will be removed in a future release. Use 'filterDesigner' instead, which is a direct replacement."
@@ -430,6 +491,7 @@ category = "compatibility"
 
 [[checks]]
 id = "WINTOOL"
+handle = true
 function_name = "wintool"
 severity = "warning"
 message = "'wintool' will be removed in a future release. Use 'windowDesigner' instead, which is a direct replacement."
@@ -437,6 +499,7 @@ category = "compatibility"
 
 [[checks]]
 id = "FVTOOL"
+handle = true
 function_name = "fvtool"
 severity = "warning"
 message = "'fvtool' will be removed in a future release. With appropriate code changes, use 'filterAnalyzer' instead."
@@ -444,237 +507,271 @@ category = "compatibility"
 
 [[checks]]
 id = "FISNEW"
+handle = true
 function_name = "newfis"
-severity = "warning"
+severity = "error"
 message = "'newfis' has been removed. With appropriate code changes, use 'mamfis' or 'sugfis' instead."
 category = "compatibility"
 
 [[checks]]
 id = "FISADV"
+handle = true
 function_name = "addvar"
-severity = "warning"
+severity = "error"
 message = "'addvar' has been removed. With appropriate code changes, use 'addInput' or 'addOutput' instead."
 category = "compatibility"
 
 [[checks]]
 id = "FISRMV"
+handle = true
 function_name = "rmvar"
-severity = "warning"
+severity = "error"
 message = "'rmvar' has been removed. With appropriate code changes, use 'removeInput' or 'removeOutput' instead."
 category = "compatibility"
 
 [[checks]]
 id = "FISRMF"
+handle = true
 function_name = "rmmf"
-severity = "warning"
+severity = "error"
 message = "'rmmf' has been removed. With appropriate code changes, use 'removeMF' instead."
 category = "compatibility"
 
 [[checks]]
 id = "FISM2S"
+handle = true
 function_name = "mam2sug"
-severity = "warning"
+severity = "error"
 message = "'mam2sug' has been removed. Use 'convertToSugeno' instead, which is a direct replacement."
 category = "compatibility"
 
 [[checks]]
 id = "FISPSR"
+handle = true
 function_name = "parsrule"
-severity = "warning"
+severity = "error"
 message = "'parsrule' has been removed. With appropriate code changes, use 'addRule' or 'fisrule' instead."
 category = "compatibility"
 
 [[checks]]
 id = "NPI2PI"
+handle = true
 function_name = "npi2pi"
-severity = "warning"
+severity = "error"
 message = "'npi2pi' has been removed. With appropriate code changes, use 'wrapTo180' or 'wrapToPi' instead."
 category = "compatibility"
 
 [[checks]]
 id = "NPI22PI"
+handle = true
 function_name = "zero22pi"
-severity = "warning"
+severity = "error"
 message = "'zero22pi' has been removed. With appropriate code changes, use 'wrapTo360' or 'wrapTo2Pi' instead."
 category = "compatibility"
 
 [[checks]]
 id = "CLASSREGTREE"
+handle = true
 function_name = "classregtree"
-severity = "warning"
+severity = "error"
 message = "'classregtree' has been removed. With appropriate code changes, use 'fitctree' or 'fitrtree' instead."
 category = "compatibility"
 
 [[checks]]
 id = "SVMCLASSIFY"
+handle = true
 function_name = "svmclassify"
-severity = "warning"
+severity = "error"
 message = "'svmclassify' has been removed. With appropriate code changes, use 'ClassificationSVM' instead."
 category = "compatibility"
 
 [[checks]]
 id = "SVMTRAIN"
+handle = true
 function_name = "svmtrain"
-severity = "warning"
+severity = "error"
 message = "'svmtrain' has been removed. With appropriate code changes, use 'fitcsvm' instead."
 category = "compatibility"
 
 [[checks]]
 id = "PRINCOMP"
+handle = true
 function_name = "princomp"
-severity = "warning"
+severity = "error"
 message = "'princomp' has been removed. With appropriate code changes, use 'pca' instead."
 category = "compatibility"
 
 [[checks]]
 id = "PROBDIST"
+handle = true
 function_name = "ProbDist"
-severity = "warning"
+severity = "error"
 message = "'ProbDist' has been removed. With appropriate code changes, use 'prob.ProbabilityDistribution' instead."
 category = "compatibility"
 
 [[checks]]
 id = "PROBDISTPARAMETRIC"
+handle = true
 function_name = "ProbDistParametric"
-severity = "warning"
+severity = "error"
 message = "'ProbDistParametric' has been removed. With appropriate code changes, use 'prob.ProbabilityDistribution' instead."
 category = "compatibility"
 
 [[checks]]
 id = "PROBDISTKERNEL"
+handle = true
 function_name = "ProbDistKernel"
-severity = "warning"
+severity = "error"
 message = "'ProbDistKernel' has been removed. With appropriate code changes, use 'prob.ProbabilityDistribution' instead."
 category = "compatibility"
 
 [[checks]]
 id = "PROBDISTUNIVKERNEL"
+handle = true
 function_name = "ProbDistUnivKernel"
-severity = "warning"
+severity = "error"
 message = "'ProbDistUnivKernel' has been removed. With appropriate code changes, use 'makedist' instead."
 category = "compatibility"
 
 [[checks]]
 id = "PROBDISTUNIVPARAM"
+handle = true
 function_name = "ProbDistUnivParam"
-severity = "warning"
+severity = "error"
 message = "'ProbDistUnivParam' has been removed. With appropriate code changes, use 'makedist' instead."
 category = "compatibility"
 
 [[checks]]
 id = "FITNAIVEBAYES"
+handle = true
 function_name = "fitNaiveBayes"
-severity = "warning"
+severity = "error"
 message = "'fitNaiveBayes' has been removed. With appropriate code changes, use 'fitcnb' instead."
 category = "compatibility"
 
 [[checks]]
 id = "CAPABLE"
+handle = true
 function_name = "capable"
-severity = "warning"
+severity = "error"
 message = "'capable' has been removed. With appropriate code changes, use 'capability' instead."
 category = "compatibility"
 
 [[checks]]
 id = "EWMAPLOT"
+handle = true
 function_name = "ewmaplot"
-severity = "warning"
+severity = "error"
 message = "'ewmaplot' has been removed. With appropriate code changes, use 'controlchart' instead."
 category = "compatibility"
 
 [[checks]]
 id = "SCHART"
+handle = true
 function_name = "schart"
-severity = "warning"
+severity = "error"
 message = "'schart' has been removed. With appropriate code changes, use 'controlchart' instead."
 category = "compatibility"
 
 [[checks]]
 id = "XBARPLOT"
+handle = true
 function_name = "xbarplot"
-severity = "warning"
+severity = "error"
 message = "'xbarplot' has been removed. With appropriate code changes, use 'controlchart' instead."
 category = "compatibility"
 
 [[checks]]
 id = "RANDSD"
+handle = true
 function_name = "randseed"
-severity = "warning"
+severity = "error"
 message = "'randseed' has been removed. With appropriate code changes, use 'rng' instead."
 category = "compatibility"
 
 [[checks]]
 id = "DRNDINT"
+handle = true
 function_name = "randint"
-severity = "warning"
+severity = "error"
 message = "'randint' has been removed. With appropriate code changes, use 'randi' instead."
 category = "compatibility"
 
 [[checks]]
 id = "ISGLOB"
+handle = true
 function_name = "isglobal"
-severity = "warning"
+severity = "error"
 message = "'isglobal' has been removed. There is no simple replacement for this."
 category = "compatibility"
 
 [[checks]]
 id = "DGRAPHICSVER"
+handle = true
 function_name = "graphicsversion"
-severity = "warning"
+severity = "error"
 message = "'graphicsversion' has been removed. With appropriate code changes, use 'verLessThan('matlab','8.4.0')' instead."
 category = "compatibility"
 
 [[checks]]
 id = "DNOANI"
+handle = true
 function_name = "noanimate"
-severity = "warning"
+severity = "error"
 message = "'noanimate' has been removed. There is no simple replacement for this."
 category = "compatibility"
 
 [[checks]]
 id = "EPSM"
+handle = true
 function_name = "epsm"
-severity = "warning"
+severity = "error"
 message = "'epsm' has been removed. With appropriate code changes, use '1.0E-6' or 'deg2rad(1.0E-6)' instead."
 category = "compatibility"
 
 [[checks]]
 id = "DEXIFRD"
+handle = true
 function_name = "exifread"
-severity = "warning"
+severity = "error"
 message = "'exifread' has been removed. With appropriate code changes, use 'imfinfo' instead."
 category = "compatibility"
 
 [[checks]]
 id = "HDFGD"
+handle = true
 function_name = "hdfgd"
-severity = "warning"
+severity = "error"
 message = "'hdfgd' has been removed. With appropriate code changes, use 'matlab.io.hdfeos.gd' instead."
 category = "compatibility"
 
 [[checks]]
 id = "HDFSD"
+handle = true
 function_name = "hdfsd"
-severity = "warning"
+severity = "error"
 message = "'hdfsd' has been removed. With appropriate code changes, use 'matlab.io.hdfeos.sd' instead."
 category = "compatibility"
 
 [[checks]]
 id = "HDFSW"
+handle = true
 function_name = "hdfsw"
-severity = "warning"
+severity = "error"
 message = "'hdfsw' has been removed. With appropriate code changes, use 'matlab.io.hdfeos.sw' instead."
 category = "compatibility"
 
 [[checks]]
 id = "HDFTL"
+handle = true
 function_name = "hdftool"
-severity = "warning"
+severity = "error"
 message = "'hdftool' has been removed. There is no simple replacement for this."
 category = "compatibility"
 
 [[checks]]
 id = "HYPERCUBE"
+handle = true
 function_name = "hypercube"
 severity = "warning"
 message = "'hypercube' will be removed in a future release. With appropriate code changes, use 'imhypercube', 'geohypercube', 'immulticube' or 'geomulticube' instead."
@@ -682,97 +779,111 @@ category = "compatibility"
 
 [[checks]]
 id = "BIGIMAGE"
+handle = true
 function_name = "bigimage"
-severity = "warning"
+severity = "error"
 message = "'bigimage' has been removed. With appropriate code changes, use 'blockedImage' instead."
 category = "compatibility"
 
 [[checks]]
 id = "BIGIMAGEDS"
+handle = true
 function_name = "bigimageDatastore"
-severity = "warning"
+severity = "error"
 message = "'bigimageDatastore' has been removed. With appropriate code changes, use 'blockedImageDatastore' instead."
 category = "compatibility"
 
 [[checks]]
 id = "LABELVOL"
+handle = true
 function_name = "labelvolshow"
-severity = "warning"
+severity = "error"
 message = "'labelvolshow' has been removed. With appropriate code changes, use 'volshow' instead."
 category = "compatibility"
 
 [[checks]]
 id = "COMPATVOL"
+handle = true
 function_name = "images.compatibility.volshow.R2022a.volshow"
-severity = "warning"
+severity = "error"
 message = "'images.compatibility.volshow.R2022a.volshow' has been removed. With appropriate code changes, use 'volshow' instead."
 category = "compatibility"
 
 [[checks]]
 id = "DEMLC"
+handle = true
 function_name = "emlc"
-severity = "warning"
+severity = "error"
 message = "'emlc' has been removed. With appropriate code changes, use 'codegen' instead."
 category = "compatibility"
 
 [[checks]]
 id = "DEMLMEX"
+handle = true
 function_name = "emlmex"
-severity = "warning"
+severity = "error"
 message = "'emlmex' has been removed. With appropriate code changes, use 'codegen' instead."
 category = "compatibility"
 
 [[checks]]
 id = "COMMBI"
+handle = true
 function_name = "comm.BitToInteger"
-severity = "warning"
+severity = "error"
 message = "'comm.BitToInteger' has been removed. With appropriate code changes, use 'bit2int' instead."
 category = "compatibility"
 
 [[checks]]
 id = "PNZOM"
+handle = true
 function_name = "panzoom"
-severity = "warning"
+severity = "error"
 message = "'panzoom' has been removed. With appropriate code changes, use 'zoom' instead."
 category = "compatibility"
 
 [[checks]]
 id = "SPTL"
+handle = true
 function_name = "sptool"
-severity = "warning"
+severity = "error"
 message = "'sptool' has been removed. Use 'signalAnalyzer' or 'filterDesigner' instead."
 category = "compatibility"
 
 [[checks]]
 id = "NDWT"
+handle = true
 function_name = "ndwt"
-severity = "warning"
+severity = "error"
 message = "'ndwt' has been removed. With appropriate code changes, use 'modwt' instead."
 category = "compatibility"
 
 [[checks]]
 id = "INDWT"
+handle = true
 function_name = "indwt"
-severity = "warning"
+severity = "error"
 message = "'indwt' has been removed. With appropriate code changes, use 'imodwt' instead."
 category = "compatibility"
 
 [[checks]]
 id = "NDWT2"
+handle = true
 function_name = "ndwt2"
-severity = "warning"
+severity = "error"
 message = "'ndwt2' has been removed. With appropriate code changes, use 'swt2' instead."
 category = "compatibility"
 
 [[checks]]
 id = "INDWT2"
+handle = true
 function_name = "indwt2"
-severity = "warning"
+severity = "error"
 message = "'indwt2' has been removed. With appropriate code changes, use 'iswt2' instead."
 category = "compatibility"
 
 [[checks]]
 id = "WEBMP"
+handle = true
 function_name = "webmap"
 severity = "warning"
 message = "'webmap' will be removed in a future release. With appropriate code changes, use a geographic axes object instead."
@@ -780,6 +891,7 @@ category = "compatibility"
 
 [[checks]]
 id = "SERLL"
+handle = true
 function_name = "seriallist"
 severity = "warning"
 message = "'seriallist' will be removed in a future release. Use 'serialportlist' instead, which is a direct replacement."
@@ -787,6 +899,7 @@ category = "compatibility"
 
 [[checks]]
 id = "RNG2BW"
+handle = true
 function_name = "range2bw"
 severity = "warning"
 message = "'range2bw' will be removed in a future release. Use 'rangeres2bw' instead, which is a direct replacement."
@@ -794,6 +907,7 @@ category = "compatibility"
 
 [[checks]]
 id = "BW2RNG"
+handle = true
 function_name = "bw2range"
 severity = "warning"
 message = "'bw2range' will be removed in a future release. Use 'bw2rangeres' instead, which is a direct replacement."
@@ -801,6 +915,7 @@ category = "compatibility"
 
 [[checks]]
 id = "DCSHELP"
+handle = true
 function_name = "cshelp"
 severity = "warning"
 message = "'cshelp' will be removed in a future release. There is no simple replacement for this."
@@ -808,6 +923,7 @@ category = "compatibility"
 
 [[checks]]
 id = "DFIGFLAG"
+handle = true
 function_name = "figflag"
 severity = "warning"
 message = "'figflag' will be removed in a future release. There is no simple replacement for this."
@@ -815,6 +931,7 @@ category = "compatibility"
 
 [[checks]]
 id = "DPOPUP"
+handle = true
 function_name = "popupstr"
 severity = "warning"
 message = "'popupstr' will be removed in a future release. There is no simple replacement for this."
@@ -822,265 +939,303 @@ category = "compatibility"
 
 [[checks]]
 id = "ACTXC"
+handle = true
 function_name = "actxcontrol"
-severity = "warning"
+severity = "error"
 message = "'actxcontrol' has been removed. There is no simple replacement for this."
 category = "compatibility"
 
 [[checks]]
 id = "ACTXL"
+handle = true
 function_name = "actxcontrollist"
-severity = "warning"
+severity = "error"
 message = "'actxcontrollist' has been removed. There is no simple replacement for this."
 category = "compatibility"
 
 [[checks]]
 id = "ACTXS"
+handle = true
 function_name = "actxcontrolselect"
-severity = "warning"
+severity = "error"
 message = "'actxcontrolselect' has been removed. There is no simple replacement for this."
 category = "compatibility"
 
 [[checks]]
 id = "SOAPM"
+handle = true
 function_name = "createSoapMessage"
-severity = "warning"
-message = "'createSoapMessage' has been removed. With appropriate code changes, use 'matlab.wsdl.createWSDLClient' instead."
+severity = "error"
+message = "'createSoapMessage' has been removed. Use MATLAB RESTful functions ('webread' and 'webwrite') or MATLAB HTTP interface instead."
 category = "compatibility"
 
 [[checks]]
 id = "SOAPS"
+handle = true
 function_name = "callSoapService"
-severity = "warning"
-message = "'callSoapService' has been removed. With appropriate code changes, use 'matlab.wsdl.createWSDLClient' instead."
+severity = "error"
+message = "'callSoapService' has been removed. Use MATLAB RESTful functions ('webread' and 'webwrite') or MATLAB HTTP interface instead."
 category = "compatibility"
 
 [[checks]]
 id = "SOAPR"
+handle = true
 function_name = "parseSoapResponse"
-severity = "warning"
-message = "'parseSoapResponse' has been removed. With appropriate code changes, use 'matlab.wsdl.createWSDLClient' instead."
+severity = "error"
+message = "'parseSoapResponse' has been removed. Use MATLAB RESTful functions ('webread' and 'webwrite') or MATLAB HTTP interface instead."
 category = "compatibility"
 
 [[checks]]
 id = "SOAPC"
+handle = true
 function_name = "createClassFromWsdl"
-severity = "warning"
-message = "'createClassFromWsdl' has been removed. Use 'matlab.wsdl.createWSDLClient' instead, which is a direct replacement."
+severity = "error"
+message = "'createClassFromWsdl' has been removed. Use MATLAB RESTful functions ('webread' and 'webwrite') or MATLAB HTTP interface instead."
 category = "compatibility"
 
 [[checks]]
 id = "VREDT"
+handle = true
 function_name = "vredit"
-severity = "warning"
-message = "3D World Editor has been removed, so 'vredit' does not open the virtual world. With appropriate code changes, use sim3d classes to create and view a 3D environment instead."
+severity = "error"
+message = "'vredit' and the 3D World Editor have been removed. With appropriate code changes, use sim3d classes to create and view a 3D environment instead."
 category = "compatibility"
 
 [[checks]]
 id = "VRPLY"
+handle = true
 function_name = "vrplay"
-severity = "warning"
-message = "Simulink 3D Animation Player has been removed, so 'vrplay' does not open and play virtual world animation files. With appropriate code changes, use sim3d classes to create and view a 3D environment instead."
+severity = "error"
+message = "'vrplay' and the Simulink 3D Animation Player have been removed. With appropriate code changes, use sim3d classes to create and view a 3D environment instead."
 category = "compatibility"
 
 [[checks]]
 id = "VRCNVS"
+handle = true
 function_name = "vr.canvas"
-severity = "warning"
-message = "Simulink 3D Animation Viewer has been removed, so 'vr.canvas' does not open the virtual world. With appropriate code changes, use sim3d classes to create and view a 3D environment instead."
+severity = "error"
+message = "'vr.canvas' and the Simulink 3D Animation Viewer have been removed. With appropriate code changes, use sim3d classes to create and view a 3D environment instead."
 category = "compatibility"
 
 [[checks]]
 id = "VRFIG"
+handle = true
 function_name = "vrfigure"
-severity = "warning"
-message = "Simulink 3D Animation Viewer has been removed, so 'vrfigure' does not open the virtual world. With appropriate code changes, use sim3d classes to create and view a 3D environment instead."
+severity = "error"
+message = "'vrfigure' and the Simulink 3D Animation Viewer have been removed. With appropriate code changes, use sim3d classes to create and view a 3D environment instead."
 category = "compatibility"
 
 [[checks]]
 id = "VRVIEW"
+handle = true
 function_name = "vrview"
-severity = "warning"
-message = "Simulink 3D Animation Viewer has been removed, so 'vrview' does not open the virtual world. With appropriate code changes, use sim3d classes to create and view a 3D environment instead."
+severity = "error"
+message = "'vrview' and the Simulink 3D Animation Viewer have been removed. With appropriate code changes, use sim3d classes to create and view a 3D environment instead."
 category = "compatibility"
 
 [[checks]]
 id = "VRWRLD"
+handle = true
 function_name = "vrworld"
-severity = "warning"
-message = "'vrworld' will be removed in a future release. With appropriate code changes, use sim3d classes to create and view a 3D environment instead."
+severity = "error"
+message = "'vrworld' has been removed. With appropriate code changes, use sim3d classes to create and view a 3D environment instead."
 category = "compatibility"
 
 [[checks]]
 id = "VRNDE"
+handle = true
 function_name = "vrnode"
-severity = "warning"
-message = "'vrnode' will be removed in a future release. With appropriate code changes, use sim3d classes to create and view a 3D environment instead."
+severity = "error"
+message = "'vrnode' has been removed. With appropriate code changes, use sim3d classes to create and view a 3D environment instead."
 category = "compatibility"
 
 [[checks]]
 id = "VRJOYSTK"
+handle = true
 function_name = "vrjoystick"
-severity = "warning"
-message = "'vrjoystick' will be removed in a future release. Use 'sim3d.io.Joystick' instead, which is a direct replacement."
+severity = "error"
+message = "'vrjoystick' has been removed. Use 'sim3d.io.Joystick' instead, which is a direct replacement."
 category = "compatibility"
 
 [[checks]]
 id = "VRSPCMOUSE"
+handle = true
 function_name = "vrspacemouse"
-severity = "warning"
-message = "'vrspacemouse' will be removed in a future release. Use 'sim3d.io.SpaceMouse' instead, which is a direct replacement."
+severity = "error"
+message = "'vrspacemouse' has been removed. Use 'sim3d.io.SpaceMouse' instead, which is a direct replacement."
 category = "compatibility"
 
 [[checks]]
 id = "SLRTBNCH"
+handle = true
 function_name = "slrtbench"
-severity = "warning"
+severity = "error"
 message = "'slrtbench' has been removed. With appropriate code changes, use 'SimulinkRealTime.utils.minimumSampleTime' instead."
 category = "compatibility"
 
 [[checks]]
 id = "RCSIIR"
+handle = true
 function_name = "rcosiir"
-severity = "warning"
+severity = "error"
 message = "'rcosiir' is unsupported and has been removed. There is no simple replacement for this."
 category = "compatibility"
 
 [[checks]]
 id = "RCSFIR"
+handle = true
 function_name = "rcosfir"
-severity = "warning"
+severity = "error"
 message = "'rcosfir' is unsupported and has been removed. With appropriate code changes, use 'rcosdesign' instead."
 category = "compatibility"
 
 [[checks]]
 id = "G2B"
+handle = true
 function_name = "gray2bin"
-severity = "warning"
+severity = "error"
 message = "'gray2bin' has been removed. Use the appropriate modulation object or function to remap constellation points instead."
 category = "compatibility"
 
 [[checks]]
 id = "B2G"
+handle = true
 function_name = "bin2gray"
-severity = "warning"
+severity = "error"
 message = "'bin2gray' has been removed. Use the appropriate modulation object or function to remap constellation points instead."
 category = "compatibility"
 
 [[checks]]
 id = "EYESCOPE"
+handle = true
 function_name = "eyescope"
-severity = "warning"
+severity = "error"
 message = "'eyescope' has been removed. There is no simple replacement for this."
 category = "compatibility"
 
 [[checks]]
 id = "DLDPCENC"
+handle = true
 function_name = "fec.ldpcenc"
-severity = "warning"
+severity = "error"
 message = "'fec.ldpcenc' has been removed. With appropriate code changes, use 'comm.LDPCEncoder' instead."
 category = "compatibility"
 
 [[checks]]
 id = "DLDPCDEC"
+handle = true
 function_name = "fec.ldpcdec"
-severity = "warning"
+severity = "error"
 message = "'fec.ldpcdec' has been removed. With appropriate code changes, use 'comm.LDPCDecoder' instead."
 category = "compatibility"
 
 [[checks]]
 id = "WEIBCDF"
+handle = true
 function_name = "weibcdf"
-severity = "warning"
+severity = "error"
 message = "'weibcdf' has been removed. With appropriate code changes, use 'wblcdf' instead."
 category = "compatibility"
 
 [[checks]]
 id = "WEIBFIT"
+handle = true
 function_name = "weibfit"
-severity = "warning"
+severity = "error"
 message = "'weibfit' has been removed. With appropriate code changes, use 'wblfit' instead."
 category = "compatibility"
 
 [[checks]]
 id = "WEIBINV"
+handle = true
 function_name = "weibinv"
-severity = "warning"
+severity = "error"
 message = "'weibinv' has been removed. With appropriate code changes, use 'wblinv' instead."
 category = "compatibility"
 
 [[checks]]
 id = "WEIBLIKE"
+handle = true
 function_name = "weiblike"
-severity = "warning"
+severity = "error"
 message = "'weiblike' has been removed. With appropriate code changes, use 'wbllike' instead."
 category = "compatibility"
 
 [[checks]]
 id = "WEIBPDF"
+handle = true
 function_name = "weibpdf"
-severity = "warning"
+severity = "error"
 message = "'weibpdf' has been removed. With appropriate code changes, use 'wblpdf' instead."
 category = "compatibility"
 
 [[checks]]
 id = "WEIBPLOT"
+handle = true
 function_name = "weibplot"
-severity = "warning"
+severity = "error"
 message = "'weibplot' has been removed. With appropriate code changes, use 'wblplot' instead."
 category = "compatibility"
 
 [[checks]]
 id = "WEIBRND"
+handle = true
 function_name = "weibrnd"
-severity = "warning"
+severity = "error"
 message = "'weibrnd' has been removed. With appropriate code changes, use 'wblrnd' instead."
 category = "compatibility"
 
 [[checks]]
 id = "WEIBSTAT"
+handle = true
 function_name = "weibstat"
-severity = "warning"
+severity = "error"
 message = "'weibstat' has been removed. With appropriate code changes, use 'wblstat' instead."
 category = "compatibility"
 
 [[checks]]
 id = "OPCSERVER"
+handle = true
 function_name = "opcserverinfo"
-severity = "warning"
+severity = "error"
 message = "'opcserverinfo' has been removed along with the support for OPC DA. To access live OPC data, use the OPC UA standard instead."
 category = "compatibility"
 
 [[checks]]
 id = "OPCDA"
+handle = true
 function_name = "opcda"
-severity = "warning"
+severity = "error"
 message = "'opcda' has been removed along with the support for OPC DA. To access live OPC data, use the OPC UA standard instead."
 category = "compatibility"
 
 [[checks]]
 id = "OPCFIND"
+handle = true
 function_name = "opcfind"
-severity = "warning"
+severity = "error"
 message = "'opcfind' has been removed along with the support for OPC DA. To access live OPC data, use the OPC UA standard instead."
 category = "compatibility"
 
 [[checks]]
 id = "OPCRESET"
+handle = true
 function_name = "opcreset"
-severity = "warning"
+severity = "error"
 message = "'opcreset' has been removed along with the support for OPC DA. To access live OPC data, use the OPC UA standard instead."
 category = "compatibility"
 
 [[checks]]
 id = "OPCHELP"
+handle = true
 function_name = "opchelp"
-severity = "warning"
+severity = "error"
 message = "'opchelp' has been removed along with the support for OPC DA. To access live OPC data, use the OPC UA standard instead."
 category = "compatibility"
 
 [[checks]]
 id = "DSPBQF"
+handle = true
 function_name = "dsp.BiquadFilter"
 severity = "warning"
 message = "'dsp.BiquadFilter' will be removed in a future release. With appropriate code changes, use 'dsp.SOSFilter' instead."
@@ -1088,216 +1243,247 @@ category = "compatibility"
 
 [[checks]]
 id = "DSPLPC"
+handle = true
 function_name = "dsp.LPCToLSP"
-severity = "warning"
+severity = "error"
 message = "'dsp.LPCToLSP' has been removed. With appropriate code changes, use 'cos(poly2lsf)' instead."
 category = "compatibility"
 
 [[checks]]
 id = "DSPAVA"
+handle = true
 function_name = "dsp.ArrayVectorAdder"
-severity = "warning"
+severity = "error"
 message = "'dsp.ArrayVectorAdder' has been removed. With appropriate code changes, use '+' operator instead."
 category = "compatibility"
 
 [[checks]]
 id = "DSPAVS"
+handle = true
 function_name = "dsp.ArrayVectorSubtractor"
-severity = "warning"
+severity = "error"
 message = "'dsp.ArrayVectorSubtractor' has been removed. With appropriate code changes, use '-' operator instead."
 category = "compatibility"
 
 [[checks]]
 id = "DSPAVM"
+handle = true
 function_name = "dsp.ArrayVectorMultiplier"
-severity = "warning"
+severity = "error"
 message = "'dsp.ArrayVectorMultiplier' has been removed. With appropriate code changes, use '.*' operator instead."
 category = "compatibility"
 
 [[checks]]
 id = "DSPAVD"
+handle = true
 function_name = "dsp.ArrayVectorDivider"
-severity = "warning"
+severity = "error"
 message = "'dsp.ArrayVectorDivider' has been removed. With appropriate code changes, use './' operator instead."
 category = "compatibility"
 
 [[checks]]
 id = "DSPCTR"
+handle = true
 function_name = "dsp.Counter"
-severity = "warning"
+severity = "error"
 message = "'dsp.Counter' has been removed. Create a variable and increment by one instead."
 category = "compatibility"
 
 [[checks]]
 id = "DSPKFT"
+handle = true
 function_name = "dsp.KalmanFilter"
-severity = "warning"
+severity = "error"
 message = "'dsp.KalmanFilter' has been removed. With appropriate code changes, use the Kalman filter functionality in Sensor Fusion and Tracking Toolbox instead."
 category = "compatibility"
 
 [[checks]]
 id = "DSPNORM"
+handle = true
 function_name = "dsp.Normalizer"
-severity = "warning"
+severity = "error"
 message = "'dsp.Normalizer' has been removed. With appropriate code changes, use 'normalize' or 'vecnorm' instead."
 category = "compatibility"
 
 [[checks]]
 id = "DSPAUDIOREC"
+handle = true
 function_name = "dsp.AudioRecorder"
-severity = "warning"
+severity = "error"
 message = "'dsp.AudioRecorder' has been removed. With appropriate code changes, use 'audioDeviceReader' instead."
 category = "compatibility"
 
 [[checks]]
 id = "DSPAUDIOPLAY"
+handle = true
 function_name = "dsp.AudioPlayer"
-severity = "warning"
+severity = "error"
 message = "'dsp.AudioPlayer' has been removed. With appropriate code changes, use 'audioDeviceWriter' instead."
 category = "compatibility"
 
 [[checks]]
 id = "DSPBUFFER"
+handle = true
 function_name = "dsp.Buffer"
-severity = "warning"
+severity = "error"
 message = "'dsp.Buffer' has been removed. With appropriate code changes, use 'dsp.AsyncBuffer' instead."
 category = "compatibility"
 
 [[checks]]
 id = "DSPHIST"
+handle = true
 function_name = "dsp.Histogram"
-severity = "warning"
+severity = "error"
 message = "'dsp.Histogram' has been removed. With appropriate code changes, use 'histogram' or 'histcounts' instead."
 category = "compatibility"
 
 [[checks]]
 id = "DSPMAX"
+handle = true
 function_name = "dsp.Maximum"
-severity = "warning"
+severity = "error"
 message = "'dsp.Maximum' has been removed. With appropriate code changes, use 'max' instead."
 category = "compatibility"
 
 [[checks]]
 id = "DSPMIN"
+handle = true
 function_name = "dsp.Minimum"
-severity = "warning"
+severity = "error"
 message = "'dsp.Minimum' has been removed. With appropriate code changes, use 'min' instead."
 category = "compatibility"
 
 [[checks]]
 id = "DSPMEAN"
+handle = true
 function_name = "dsp.Mean"
-severity = "warning"
+severity = "error"
 message = "'dsp.Mean' has been removed. With appropriate code changes, use 'mean' instead."
 category = "compatibility"
 
 [[checks]]
 id = "DSPMEDIAN"
+handle = true
 function_name = "dsp.Median"
-severity = "warning"
+severity = "error"
 message = "'dsp.Median' has been removed. With appropriate code changes, use 'median' instead."
 category = "compatibility"
 
 [[checks]]
 id = "DSPRMS"
+handle = true
 function_name = "dsp.RMS"
-severity = "warning"
+severity = "error"
 message = "'dsp.RMS' has been removed. With appropriate code changes, use 'rms' instead."
 category = "compatibility"
 
 [[checks]]
 id = "DSPSTD"
+handle = true
 function_name = "dsp.StandardDeviation"
-severity = "warning"
+severity = "error"
 message = "'dsp.StandardDeviation' has been removed. With appropriate code changes, use 'std' instead."
 category = "compatibility"
 
 [[checks]]
 id = "DSPVAR"
+handle = true
 function_name = "dsp.Variance"
-severity = "warning"
+severity = "error"
 message = "'dsp.Variance' has been removed. With appropriate code changes, use 'var' instead."
 category = "compatibility"
 
 [[checks]]
 id = "DSPCUMPROD"
+handle = true
 function_name = "dsp.CumulativeProduct"
-severity = "warning"
+severity = "error"
 message = "'dsp.CumulativeProduct' has been removed. With appropriate code changes, use 'cumprod' instead."
 category = "compatibility"
 
 [[checks]]
 id = "DSPCUMSUM"
+handle = true
 function_name = "dsp.CumulativeSum"
-severity = "warning"
+severity = "error"
 message = "'dsp.CumulativeSum' has been removed. With appropriate code changes, use 'cumsum' instead."
 category = "compatibility"
 
 [[checks]]
 id = "DSPINTERP"
+handle = true
 function_name = "dsp.Interpolator"
-severity = "warning"
+severity = "error"
 message = "'dsp.Interpolator' has been removed. With appropriate code changes, use 'dsp.FIRInterpolator' instead."
 category = "compatibility"
 
 [[checks]]
 id = "DSPCONV"
+handle = true
 function_name = "dsp.Convolver"
-severity = "warning"
+severity = "error"
 message = "'dsp.Convolver' has been removed. With appropriate code changes, use 'conv' instead."
 category = "compatibility"
 
 [[checks]]
 id = "DSPAUTOCORR"
+handle = true
 function_name = "dsp.Autocorrelator"
-severity = "warning"
+severity = "error"
 message = "'dsp.Autocorrelator' has been removed. With appropriate code changes, use 'xcorr' instead."
 category = "compatibility"
 
 [[checks]]
 id = "DSPXCORR"
+handle = true
 function_name = "dsp.Crosscorrelator"
-severity = "warning"
+severity = "error"
 message = "'dsp.Crosscorrelator' has been removed. With appropriate code changes, use 'xcorr' instead."
 category = "compatibility"
 
 [[checks]]
 id = "DSPLDL"
+handle = true
 function_name = "dsp.LDLFactor"
-severity = "warning"
+severity = "error"
 message = "'dsp.LDLFactor' has been removed. With appropriate code changes, use 'ldl' instead."
 category = "compatibility"
 
 [[checks]]
 id = "DSPLU"
+handle = true
 function_name = "dsp.LUFactor"
-severity = "warning"
+severity = "error"
 message = "'dsp.LUFactor' has been removed. With appropriate code changes, use 'lu' instead."
 category = "compatibility"
 
 [[checks]]
 id = "DSPLEVINSON"
+handle = true
 function_name = "dsp.LevinsonSolver"
-severity = "warning"
+severity = "error"
 message = "'dsp.LevinsonSolver' has been removed. With appropriate code changes, use 'levinson' instead."
 category = "compatibility"
 
 [[checks]]
 id = "DSPDELAYLINE"
+handle = true
 function_name = "dsp.DelayLine"
-severity = "warning"
+severity = "error"
 message = "'dsp.DelayLine' has been removed. There is no simple replacement for this."
 category = "compatibility"
 
 [[checks]]
 id = "DSPWIN"
+handle = true
 function_name = "dsp.Window"
-severity = "warning"
+severity = "error"
 message = "'dsp.Window' has been removed. With appropriate code changes, use 'window' instead."
 category = "compatibility"
 
 [[checks]]
 id = "DSPSA"
+handle = true
 function_name = "dsp.SpectrumAnalyzer"
 severity = "warning"
 message = "'dsp.SpectrumAnalyzer' will be removed in a future release. Use 'spectrumAnalyzer' instead, which is a direct replacement."
@@ -1305,20 +1491,23 @@ category = "compatibility"
 
 [[checks]]
 id = "CMLLD"
+handle = true
 function_name = "loadCompactModel"
-severity = "warning"
+severity = "error"
 message = "'loadCompactModel' has been removed. Use 'loadLearnerForCoder' instead, which is a direct replacement."
 category = "compatibility"
 
 [[checks]]
 id = "CMLSV"
+handle = true
 function_name = "saveCompactModel"
-severity = "warning"
+severity = "error"
 message = "'saveCompactModel' has been removed. Use 'saveLearnerForCoder' instead, which is a direct replacement."
 category = "compatibility"
 
 [[checks]]
 id = "SESSION"
+handle = true
 function_name = "daq.createSession"
 severity = "warning"
 message = "'Session' class will be removed in a future release. Use 'daq' instead, which is a direct replacement."
@@ -1342,13 +1531,15 @@ pattern = "unverified"
 
 [[checks]]
 id = "YOLOV"
+handle = true
 function_name = "yolov2ReorgLayer"
-severity = "warning"
+severity = "error"
 message = "'yolov2ReorgLayer' has been removed. With appropriate code changes, use 'spaceToDepthLayer' instead."
 category = "compatibility"
 
 [[checks]]
 id = "DDTRD"
+handle = true
 function_name = "dataread"
 severity = "warning"
 message = "'dataread' will be removed in a future release. With appropriate code changes, use 'textscan' instead."
@@ -1517,6 +1708,7 @@ pattern = "generic"
 
 [[checks]]
 id = "BUFSIZE"
+pairs_from = 3
 function_name = "textscan"
 severity = "error"
 message = "Option 'Bufsize' has been removed. Manual buffering in 'textscan' is no longer needed."
@@ -1583,6 +1775,7 @@ max_args = 0
 
 [[checks]]
 id = "DISGVER"
+handle = true
 function_name = "matlab.graphics.internal.isGraphicsVersion1"
 severity = "error"
 message = "'matlab.graphics.internal.isGraphicsVersion1' has been removed. Use 'verLessThan('matlab','8.4.0')' instead."
@@ -1614,6 +1807,7 @@ pattern = "generic"
 
 [[checks]]
 id = "RTWHWDR"
+handle = true
 function_name = "RTW.HWDeviceRegistry"
 severity = "error"
 message = "'RTW.HWDeviceRegistry' is unsupported and has been removed. The replacement strategy can be found in MATLAB documentation."
@@ -1670,11 +1864,11 @@ pattern = "generic"
 
 [[checks]]
 id = "JAPIMATHWORKS"
+function_prefix = true
 function_name = "com.mathworks"
 severity = "warning"
 message = "'com.mathworks' namespace and sub namespaces will be removed in a future release. There is no simple replacement for this."
 category = "compatibility"
-pattern = "unverified"
 
 [[checks]]
 id = "IMCLASS"
@@ -1695,21 +1889,22 @@ min_outputs = 2
 [[checks]]
 id = "TCPC"
 function_name = "tcpip"
-severity = "warning"
-message = "'tcpip' with 'client' as a 'NetworkRole' will be removed in a future release. With appropriate code changes, use 'tcpclient' instead."
+severity = "error"
+message = "'tcpip' with 'client' as a 'NetworkRole' has been removed. With appropriate code changes, use 'tcpclient' instead."
 category = "compatibility"
 unless_all_args = ["NetworkRole", "server"]
 
 [[checks]]
 id = "TCPS"
 function_name = "tcpip"
-severity = "warning"
-message = "'tcpip' with 'server' as a 'NetworkRole' will be removed in a future release. With appropriate code changes, use 'tcpserver' instead."
+severity = "error"
+message = "'tcpip' with 'server' as a 'NetworkRole' has been removed. With appropriate code changes, use 'tcpserver' instead."
 category = "compatibility"
 args_all = ["NetworkRole", "server"]
 
 [[checks]]
 id = "QAMDEPM"
+number_arg_at = 3
 function_name = "qammod"
 severity = "error"
 message = "'qammod' no longer accepts the initial phase of a signal."
@@ -1718,6 +1913,7 @@ min_args = 3
 
 [[checks]]
 id = "QAMDEPD"
+number_arg_at = 3
 function_name = "qamdemod"
 severity = "error"
 message = "'qamdemod' no longer accepts the initial phase of a signal."
@@ -1742,15 +1938,17 @@ pattern = "generic"
 
 [[checks]]
 id = "MAPVW"
+handle = true
 function_name = "mapview"
-severity = "warning"
+severity = "error"
 message = "'mapview' has been removed. With appropriate code changes, use 'mapshow' instead."
 category = "compatibility"
 
 [[checks]]
 id = "MAPTOOL"
+handle = true
 function_name = "maptool"
-severity = "warning"
+severity = "error"
 message = "'maptool' has been removed. There is no simple replacement for this."
 category = "compatibility"
 
@@ -1772,6 +1970,7 @@ pattern = "generic"
 
 [[checks]]
 id = "DILEVAL"
+handle = true
 function_name = "inlineeval"
 severity = "warning"
 message = "'inlineeval' will be removed in a future release. There is no simple replacement for this."
@@ -1781,20 +1980,23 @@ category = "compatibility"
 
 [[checks]]
 id = "DSPPEAKS"
+handle = true
 function_name = "dsp.PeakFinder"
-severity = "warning"
+severity = "error"
 message = "'dsp.PeakFinder' has been removed. With appropriate code changes, use 'findpeaks' instead."
 category = "compatibility"
 
 [[checks]]
 id = "DSPPEAK2PEAK"
+handle = true
 function_name = "dsp.PeakToPeak"
-severity = "warning"
+severity = "error"
 message = "'dsp.PeakToPeak' has been removed. With appropriate code changes, use 'peak2peak' instead."
 category = "compatibility"
 
 [[checks]]
 id = "DSP_LINKS"
+handle = true
 function_name = "dsp_links"
 severity = "warning"
 message = "'dsp_links' will be removed in a future release. There is no simple replacement for this."
@@ -1802,6 +2004,7 @@ category = "compatibility"
 
 [[checks]]
 id = "MCASCADE"
+handle = true
 function_name = "mfilt.cascade"
 severity = "warning"
 message = "'mfilt.cascade' will be removed in a future release. With appropriate code changes, use 'dsp.FilterCascade' instead."
@@ -1811,22 +2014,25 @@ category = "compatibility"
 
 [[checks]]
 id = "FDESPARAMEQ"
+handle = true
 function_name = "fdesign.parameq"
-severity = "warning"
+severity = "error"
 message = "'fdesign.parameq' has been removed. With appropriate code changes, use 'designParamEQ' instead."
 category = "compatibility"
 
 [[checks]]
 id = "FDESOCTAVE"
+handle = true
 function_name = "fdesign.octave"
-severity = "warning"
+severity = "error"
 message = "'fdesign.octave' has been removed. With appropriate code changes, use 'octaveFilter' instead."
 category = "compatibility"
 
 [[checks]]
 id = "FDESWEIGHT"
+handle = true
 function_name = "fdesign.audioweighting"
-severity = "warning"
+severity = "error"
 message = "'fdesign.audioweighting' has been removed. With appropriate code changes, use 'weightingFilter' instead."
 category = "compatibility"
 
@@ -1834,29 +2040,33 @@ category = "compatibility"
 
 [[checks]]
 id = "AFLMS"
+handle = true
 function_name = "adaptfilt.lms"
-severity = "warning"
+severity = "error"
 message = "'adaptfilt.lms' has been removed. With appropriate code changes, use 'dsp.LMSFilter' instead."
 category = "compatibility"
 
 [[checks]]
 id = "AFNLMS"
+handle = true
 function_name = "adaptfilt.nlms"
-severity = "warning"
+severity = "error"
 message = "'adaptfilt.nlms' has been removed. With appropriate code changes, use 'dsp.LMSFilter' instead."
 category = "compatibility"
 
 [[checks]]
 id = "AFRLS"
+handle = true
 function_name = "adaptfilt.rls"
-severity = "warning"
+severity = "error"
 message = "'adaptfilt.rls' has been removed. With appropriate code changes, use 'dsp.RLSFilter' instead."
 category = "compatibility"
 
 [[checks]]
 id = "AFBLMS"
+handle = true
 function_name = "adaptfilt.blms"
-severity = "warning"
+severity = "error"
 message = "'adaptfilt.blms' has been removed. With appropriate code changes, use 'dsp.BlockLMSFilter' instead."
 category = "compatibility"
 
@@ -4265,7 +4475,7 @@ low_reliability = true
 id = "JAPIEXT46"
 function_name = "org.antlr.misc"
 severity = "warning"
-message = "'org.antlr.misc' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB."
+message = "'org.antlr.misc' Java package and subpackages are not available in MATLAB. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB."
 category = "behavior-changes"
 low_reliability = true
 
@@ -4345,7 +4555,7 @@ low_reliability = true
 id = "JAPIEXT61"
 function_name = "org.jaxen.expr"
 severity = "warning"
-message = "'org.jaxen.expr' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB."
+message = "'org.jaxen.expr' Java package and subpackages are not available in MATLAB. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB."
 category = "behavior-changes"
 low_reliability = true
 
@@ -4353,7 +4563,7 @@ low_reliability = true
 id = "JAPIEXT68"
 function_name = "org.antlr.codegen"
 severity = "warning"
-message = "'org.antlr.codegen' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB."
+message = "'org.antlr.codegen' Java package and subpackages are not available in MATLAB. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB."
 category = "behavior-changes"
 low_reliability = true
 
@@ -4545,7 +4755,7 @@ low_reliability = true
 id = "JAPIEXT106"
 function_name = "org.w3c.css"
 severity = "warning"
-message = "'org.w3c.css' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB."
+message = "'org.w3c.css' Java package and subpackages are not available in MATLAB. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB."
 category = "behavior-changes"
 low_reliability = true
 
@@ -4585,7 +4795,7 @@ low_reliability = true
 id = "JAPIEXT117"
 function_name = "org.apache.batik"
 severity = "warning"
-message = "'org.apache.batik' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB."
+message = "'org.apache.batik' Java package and subpackages are not available in MATLAB. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB."
 category = "behavior-changes"
 low_reliability = true
 
@@ -4593,7 +4803,7 @@ low_reliability = true
 id = "JAPIEXT119"
 function_name = "net.jpountz.xxhash"
 severity = "warning"
-message = "'net.jpountz.xxhash' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB."
+message = "'net.jpountz.xxhash' Java package and subpackages are not available in MATLAB. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB."
 category = "behavior-changes"
 low_reliability = true
 
@@ -4625,7 +4835,7 @@ low_reliability = true
 id = "JAPIEXT127"
 function_name = "org.jaxen.dom"
 severity = "warning"
-message = "'org.jaxen.dom' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB."
+message = "'org.jaxen.dom' Java package and subpackages are not available in MATLAB. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB."
 category = "behavior-changes"
 low_reliability = true
 
@@ -4641,7 +4851,7 @@ low_reliability = true
 id = "JAPIEXT129"
 function_name = "org.jaxen.util"
 severity = "warning"
-message = "'org.jaxen.util' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB."
+message = "'org.jaxen.util' Java package and subpackages are not available in MATLAB. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB."
 category = "behavior-changes"
 low_reliability = true
 
@@ -4705,7 +4915,7 @@ low_reliability = true
 id = "JAPIEXT141"
 function_name = "edu.uci.ics"
 severity = "warning"
-message = "'edu.uci.ics' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB."
+message = "'edu.uci.ics' Java package and subpackages are not available in MATLAB. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB."
 category = "behavior-changes"
 low_reliability = true
 
@@ -4721,7 +4931,7 @@ low_reliability = true
 id = "JAPIEXT143"
 function_name = "com.googlecode.javaewah32"
 severity = "warning"
-message = "'com.googlecode.javaewah32' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB."
+message = "'com.googlecode.javaewah32' Java package and subpackages are not available in MATLAB. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB."
 category = "behavior-changes"
 low_reliability = true
 
@@ -4729,7 +4939,7 @@ low_reliability = true
 id = "JAPIEXT144"
 function_name = "org.jaxen.function"
 severity = "warning"
-message = "'org.jaxen.function' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB."
+message = "'org.jaxen.function' Java package and subpackages are not available in MATLAB. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB."
 category = "behavior-changes"
 low_reliability = true
 
@@ -4777,7 +4987,7 @@ low_reliability = true
 id = "JAPIEXT151"
 function_name = "antlr.debug.misc"
 severity = "warning"
-message = "'antlr.debug.misc' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB."
+message = "'antlr.debug.misc' Java package and subpackages are not available in MATLAB. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB."
 category = "behavior-changes"
 low_reliability = true
 
@@ -4817,7 +5027,7 @@ low_reliability = true
 id = "JAPIEXT156"
 function_name = "org.antlr.stringtemplate"
 severity = "warning"
-message = "'org.antlr.stringtemplate' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB."
+message = "'org.antlr.stringtemplate' Java package and subpackages are not available in MATLAB. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB."
 category = "behavior-changes"
 low_reliability = true
 
@@ -4833,7 +5043,7 @@ low_reliability = true
 id = "JAPIEXT158"
 function_name = "antlr.actions.python"
 severity = "warning"
-message = "'antlr.actions.python' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB."
+message = "'antlr.actions.python' Java package and subpackages are not available in MATLAB. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB."
 category = "behavior-changes"
 low_reliability = true
 
@@ -4929,7 +5139,7 @@ low_reliability = true
 id = "JAPIEXT174"
 function_name = "org.jaxen.xom"
 severity = "warning"
-message = "'org.jaxen.xom' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB."
+message = "'org.jaxen.xom' Java package and subpackages are not available in MATLAB. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB."
 category = "behavior-changes"
 low_reliability = true
 
@@ -5009,7 +5219,7 @@ low_reliability = true
 id = "JAPIEXT186"
 function_name = "org.tanukisoftware.wrapper"
 severity = "warning"
-message = "'org.tanukisoftware.wrapper' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB."
+message = "'org.tanukisoftware.wrapper' Java package and subpackages are not available in MATLAB. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB."
 category = "behavior-changes"
 low_reliability = true
 
@@ -5145,7 +5355,7 @@ low_reliability = true
 id = "JAPIEXT214"
 function_name = "antlr.actions.csharp"
 severity = "warning"
-message = "'antlr.actions.csharp' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB."
+message = "'antlr.actions.csharp' Java package and subpackages are not available in MATLAB. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB."
 category = "behavior-changes"
 low_reliability = true
 
@@ -5209,7 +5419,7 @@ low_reliability = true
 id = "JAPIEXT224"
 function_name = "org.jaxen.javabean"
 severity = "warning"
-message = "'org.jaxen.javabean' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB."
+message = "'org.jaxen.javabean' Java package and subpackages are not available in MATLAB. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB."
 category = "behavior-changes"
 low_reliability = true
 
@@ -5297,7 +5507,7 @@ low_reliability = true
 id = "JAPIEXT239"
 function_name = "org.eclipse.jgit"
 severity = "warning"
-message = "'org.eclipse.jgit' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB."
+message = "'org.eclipse.jgit' Java package and subpackages are not available in MATLAB. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB."
 category = "behavior-changes"
 low_reliability = true
 
@@ -5329,7 +5539,7 @@ low_reliability = true
 id = "JAPIEXT245"
 function_name = "org.tmatesoft.svn"
 severity = "warning"
-message = "'org.tmatesoft.svn' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB."
+message = "'org.tmatesoft.svn' Java package and subpackages are not available in MATLAB. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB."
 category = "behavior-changes"
 low_reliability = true
 
@@ -5345,7 +5555,7 @@ low_reliability = true
 id = "JAPIEXT247"
 function_name = "org.antlr.grammar"
 severity = "warning"
-message = "'org.antlr.grammar' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB."
+message = "'org.antlr.grammar' Java package and subpackages are not available in MATLAB. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB."
 category = "behavior-changes"
 low_reliability = true
 
@@ -5569,7 +5779,7 @@ low_reliability = true
 id = "JAPIEXT284"
 function_name = "com.intel.bluetooth"
 severity = "warning"
-message = "'com.intel.bluetooth' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB."
+message = "'com.intel.bluetooth' Java package and subpackages are not available in MATLAB. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB."
 category = "behavior-changes"
 low_reliability = true
 
@@ -5593,7 +5803,7 @@ low_reliability = true
 id = "JAPIEXT287"
 function_name = "org.antlr.gunit"
 severity = "warning"
-message = "'org.antlr.gunit' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB."
+message = "'org.antlr.gunit' Java package and subpackages are not available in MATLAB. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB."
 category = "behavior-changes"
 low_reliability = true
 
@@ -5753,7 +5963,7 @@ low_reliability = true
 id = "JAPIEXT313"
 function_name = "com.sun.midp"
 severity = "warning"
-message = "'com.sun.midp' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB."
+message = "'com.sun.midp' Java package and subpackages are not available in MATLAB. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB."
 category = "behavior-changes"
 low_reliability = true
 
@@ -5921,7 +6131,7 @@ low_reliability = true
 id = "JAPIEXT347"
 function_name = "org.apache.xmlgraphics"
 severity = "warning"
-message = "'org.apache.xmlgraphics' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB."
+message = "'org.apache.xmlgraphics' Java package and subpackages are not available in MATLAB. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB."
 category = "behavior-changes"
 low_reliability = true
 
@@ -5961,7 +6171,7 @@ low_reliability = true
 id = "JAPIEXT355"
 function_name = "org.antlr.tool"
 severity = "warning"
-message = "'org.antlr.tool' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB."
+message = "'org.antlr.tool' Java package and subpackages are not available in MATLAB. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB."
 category = "behavior-changes"
 low_reliability = true
 
@@ -6001,7 +6211,7 @@ low_reliability = true
 id = "JAPIEXT362"
 function_name = "org.tmatesoft.sqljet"
 severity = "warning"
-message = "'org.tmatesoft.sqljet' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB."
+message = "'org.tmatesoft.sqljet' Java package and subpackages are not available in MATLAB. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB."
 category = "behavior-changes"
 low_reliability = true
 
@@ -6025,7 +6235,7 @@ low_reliability = true
 id = "JAPIEXT366"
 function_name = "antlr.actions.cpp"
 severity = "warning"
-message = "'antlr.actions.cpp' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB."
+message = "'antlr.actions.cpp' Java package and subpackages are not available in MATLAB. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB."
 category = "behavior-changes"
 low_reliability = true
 
@@ -6073,7 +6283,7 @@ low_reliability = true
 id = "JAPIEXT373"
 function_name = "org.antlr.analysis"
 severity = "warning"
-message = "'org.antlr.analysis' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB."
+message = "'org.antlr.analysis' Java package and subpackages are not available in MATLAB. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB."
 category = "behavior-changes"
 low_reliability = true
 
@@ -6177,7 +6387,7 @@ low_reliability = true
 id = "JAPIEXT389"
 function_name = "javax.microedition.io"
 severity = "warning"
-message = "'javax.microedition.io' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB."
+message = "'javax.microedition.io' Java package and subpackages are not available in MATLAB. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB."
 category = "behavior-changes"
 low_reliability = true
 
@@ -6361,7 +6571,7 @@ low_reliability = true
 id = "JAPIEXT424"
 function_name = "com.ibm.oti"
 severity = "warning"
-message = "'com.ibm.oti' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB."
+message = "'com.ibm.oti' Java package and subpackages are not available in MATLAB. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB."
 category = "behavior-changes"
 low_reliability = true
 
@@ -6369,7 +6579,7 @@ low_reliability = true
 id = "JAPIEXT425"
 function_name = "antlr.collections.impl"
 severity = "warning"
-message = "'antlr.collections.impl' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB."
+message = "'antlr.collections.impl' Java package and subpackages are not available in MATLAB. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB."
 category = "behavior-changes"
 low_reliability = true
 
@@ -6433,7 +6643,7 @@ low_reliability = true
 id = "JAPIEXT436"
 function_name = "com.trilead.ssh2"
 severity = "warning"
-message = "'com.trilead.ssh2' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB."
+message = "'com.trilead.ssh2' Java package and subpackages are not available in MATLAB. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB."
 category = "behavior-changes"
 low_reliability = true
 
@@ -6449,7 +6659,7 @@ low_reliability = true
 id = "JAPIEXT438"
 function_name = "de.regnis.q"
 severity = "warning"
-message = "'de.regnis.q' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB."
+message = "'de.regnis.q' Java package and subpackages are not available in MATLAB. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB."
 category = "behavior-changes"
 low_reliability = true
 
@@ -6569,7 +6779,7 @@ low_reliability = true
 id = "JAPIEXT460"
 function_name = "org.jaxen.saxpath"
 severity = "warning"
-message = "'org.jaxen.saxpath' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB."
+message = "'org.jaxen.saxpath' Java package and subpackages are not available in MATLAB. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB."
 category = "behavior-changes"
 low_reliability = true
 
@@ -6713,7 +6923,7 @@ low_reliability = true
 id = "JAPIEXT483"
 function_name = "com.googlecode.javaewah"
 severity = "warning"
-message = "'com.googlecode.javaewah' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB."
+message = "'com.googlecode.javaewah' Java package and subpackages are not available in MATLAB. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB."
 category = "behavior-changes"
 low_reliability = true
 
@@ -6793,7 +7003,7 @@ low_reliability = true
 id = "JAPIEXT498"
 function_name = "org.eclipse.elk"
 severity = "warning"
-message = "'org.eclipse.elk' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB."
+message = "'org.eclipse.elk' Java package and subpackages are not available in MATLAB. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB."
 category = "behavior-changes"
 low_reliability = true
 
@@ -7033,7 +7243,7 @@ low_reliability = true
 id = "JAPIEXT545"
 function_name = "org.jaxen.jdom"
 severity = "warning"
-message = "'org.jaxen.jdom' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB."
+message = "'org.jaxen.jdom' Java package and subpackages are not available in MATLAB. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB."
 category = "behavior-changes"
 low_reliability = true
 
@@ -7297,7 +7507,7 @@ low_reliability = true
 id = "JAPIEXT585"
 function_name = "com.silveregg.wrapper"
 severity = "warning"
-message = "'com.silveregg.wrapper' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB."
+message = "'com.silveregg.wrapper' Java package and subpackages are not available in MATLAB. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB."
 category = "behavior-changes"
 low_reliability = true
 
@@ -7345,7 +7555,7 @@ low_reliability = true
 id = "JAPIEXT594"
 function_name = "org.jaxen.pattern"
 severity = "warning"
-message = "'org.jaxen.pattern' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB."
+message = "'org.jaxen.pattern' Java package and subpackages are not available in MATLAB. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB."
 category = "behavior-changes"
 low_reliability = true
 
@@ -7353,7 +7563,7 @@ low_reliability = true
 id = "JAPIEXT599"
 function_name = "org.jaxen.dom4j"
 severity = "warning"
-message = "'org.jaxen.dom4j' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB."
+message = "'org.jaxen.dom4j' Java package and subpackages are not available in MATLAB. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB."
 category = "behavior-changes"
 low_reliability = true
 
@@ -7361,7 +7571,7 @@ low_reliability = true
 id = "JAPIEXT600"
 function_name = "net.jpountz.lz4"
 severity = "warning"
-message = "'net.jpountz.lz4' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB."
+message = "'net.jpountz.lz4' Java package and subpackages are not available in MATLAB. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB."
 category = "behavior-changes"
 low_reliability = true
 
@@ -7393,7 +7603,7 @@ low_reliability = true
 id = "JAPIEXT608"
 function_name = "com.jcraft.jsch"
 severity = "warning"
-message = "'com.jcraft.jsch' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB."
+message = "'com.jcraft.jsch' Java package and subpackages are not available in MATLAB. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB."
 category = "behavior-changes"
 low_reliability = true
 
@@ -7433,7 +7643,7 @@ low_reliability = true
 id = "JAPIEXT617"
 function_name = "net.jpountz.util"
 severity = "warning"
-message = "'net.jpountz.util' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB."
+message = "'net.jpountz.util' Java package and subpackages are not available in MATLAB. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB."
 category = "behavior-changes"
 low_reliability = true
 
@@ -7737,7 +7947,7 @@ low_reliability = true
 id = "JAPIEXT669"
 function_name = "antlr.actions.java"
 severity = "warning"
-message = "'antlr.actions.java' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB."
+message = "'antlr.actions.java' Java package and subpackages are not available in MATLAB. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB."
 category = "behavior-changes"
 low_reliability = true
 
@@ -7753,7 +7963,7 @@ low_reliability = true
 id = "JAPIEXT674"
 function_name = "org.apache.fop"
 severity = "warning"
-message = "'org.apache.fop' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB."
+message = "'org.apache.fop' Java package and subpackages are not available in MATLAB. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB."
 category = "behavior-changes"
 low_reliability = true
 
@@ -7873,7 +8083,7 @@ low_reliability = true
 id = "JAPIEXT695"
 function_name = "com.sun.cdc"
 severity = "warning"
-message = "'com.sun.cdc' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB."
+message = "'com.sun.cdc' Java package and subpackages are not available in MATLAB. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB."
 category = "behavior-changes"
 low_reliability = true
 
@@ -9189,64 +9399,6 @@ category = "behavior-changes"
 low_reliability = true
 
 [[checks]]
-id = "DLABINDEX"
-function_name = "labindex"
-severity = "warning"
-message = "'labindex' is not recommended. Use 'spmdIndex' instead, which is a direct replacement."
-category = "compatibility"
-
-[[checks]]
-id = "DNUMLABS"
-function_name = "numlabs"
-severity = "warning"
-message = "'numlabs' is not recommended. Use 'spmdSize' instead, which is a direct replacement."
-category = "compatibility"
-
-[[checks]]
-id = "DLABBARRIER"
-function_name = "labBarrier"
-severity = "warning"
-message = "'labBarrier' is not recommended. Use 'spmdBarrier' instead, which is a direct replacement."
-category = "compatibility"
-
-[[checks]]
-id = "DLABSEND"
-function_name = "labSend"
-severity = "warning"
-message = "'labSend' is not recommended. Use 'spmdSend' instead, which is a direct replacement."
-category = "compatibility"
-
-[[checks]]
-id = "DLABRECEIVE"
-function_name = "labReceive"
-severity = "warning"
-message = "'labReceive' is not recommended. Use 'spmdReceive' instead, which is a direct replacement."
-category = "compatibility"
-
-[[checks]]
-id = "DLABBROADCAST"
-function_name = "labBroadcast"
-severity = "warning"
-message = "'labBroadcast' is not recommended. Use 'spmdBroadcast' instead, which is a direct replacement."
-category = "compatibility"
-
-[[checks]]
-id = "DLABSENDRECEIVE"
-function_name = "labSendReceive"
-severity = "warning"
-message = "'labSendReceive' is not recommended. Use 'spmdSendReceive' instead, which is a direct replacement."
-category = "compatibility"
-
-[[checks]]
-id = "DLABPROBE"
-function_name = "labProbe"
-severity = "warning"
-message = "'labProbe' is not recommended. Use 'spmdProbe' instead, which is a direct replacement."
-category = "compatibility"
-
-# --- Signal Processing windows ---
-
-[[checks]]
 id = "AXSTATE"
 function_name = "axis"
 severity = "error"
@@ -9288,6 +9440,7 @@ pattern = "object"
 
 [[checks]]
 id = "WAVMENU"
+handle = true
 function_name = "wavemenu"
 severity = "error"
 message = "'wavemenu' has been removed. With appropriate code changes, use Signal Multiresolution Analyzer, Wavelet Image Analyzer, Wavelet Signal Analyzer, Wavelet Signal Denoiser, or Wavelet Time-Frequency Analyzer instead."
@@ -9295,6 +9448,7 @@ category = "compatibility"
 
 [[checks]]
 id = "WAVLAZ"
+handle = true
 function_name = "waveletAnalyzer"
 severity = "error"
 message = "'waveletAnalyzer' has been removed. With appropriate code changes, use Signal Multiresolution Analyzer, Wavelet Image Analyzer, Wavelet Signal Analyzer, Wavelet Signal Denoiser, or Wavelet Time-Frequency Analyzer instead."
@@ -9365,6 +9519,7 @@ max_args = 2
 
 [[checks]]
 id = "H5PGET"
+handle = true
 function_name = "H5P.get_dxpl_multi"
 severity = "error"
 message = "'H5P.get_dxpl_multi' has been removed. There is no simple replacement for this."
@@ -9372,6 +9527,7 @@ category = "compatibility"
 
 [[checks]]
 id = "H5PSET"
+handle = true
 function_name = "H5P.set_dxpl_multi"
 severity = "error"
 message = "'H5P.set_dxpl_multi' has been removed. There is no simple replacement for this."
@@ -9379,6 +9535,7 @@ category = "compatibility"
 
 [[checks]]
 id = "DGETST"
+handle = true
 function_name = "getstatus"
 severity = "warning"
 message = "'getstatus' will be removed in a future release. There is no simple replacement for this."
@@ -9386,6 +9543,7 @@ category = "compatibility"
 
 [[checks]]
 id = "DMENUL"
+handle = true
 function_name = "menulabel"
 severity = "warning"
 message = "'menulabel' will be removed in a future release. There is no simple replacement for this."
@@ -9393,6 +9551,7 @@ category = "compatibility"
 
 [[checks]]
 id = "DUIGET"
+handle = true
 function_name = "uigettoolbar"
 severity = "warning"
 message = "'uigettoolbar' will be removed in a future release. There is no simple replacement for this."
@@ -9400,13 +9559,15 @@ category = "compatibility"
 
 [[checks]]
 id = "AVRREM"
+handle = true
 function_name = "Aero.VirtualRealityAnimation"
-severity = "warning"
-message = "The 'Aero.VirtualRealityAnimation' class no longer creates visualizations and will be removed in a future release. With appropriate code changes, use sim3d classes to create and view a 3D environment instead."
+severity = "error"
+message = "The 'Aero.VirtualRealityAnimation' class has been removed. With appropriate code changes, use sim3d classes to create and view a 3D environment instead."
 category = "compatibility"
 
 [[checks]]
 id = "DAVIINF"
+handle = true
 function_name = "aviinfo"
 severity = "warning"
 message = "'aviinfo' will be removed in a future release. With appropriate code changes, use 'VideoReader' instead."
@@ -9414,6 +9575,7 @@ category = "compatibility"
 
 [[checks]]
 id = "DAFINF"
+handle = true
 function_name = "avifinfo"
 severity = "warning"
 message = "'avifinfo' will be removed in a future release. With appropriate code changes, use 'VideoReader' instead."
@@ -9421,6 +9583,7 @@ category = "compatibility"
 
 [[checks]]
 id = "COMMCCDF"
+handle = true
 function_name = "comm.CCDF"
 severity = "error"
 message = "'comm.CCDF' has been removed. With appropriate code changes, use 'powermeter' instead."
@@ -9428,6 +9591,7 @@ category = "compatibility"
 
 [[checks]]
 id = "COMMIB"
+handle = true
 function_name = "comm.IntegerToBit"
 severity = "error"
 message = "'comm.IntegerToBit' has been removed. With appropriate code changes, use 'int2bit' instead."
@@ -9435,6 +9599,7 @@ category = "compatibility"
 
 [[checks]]
 id = "COMMSCOPESP"
+handle = true
 function_name = "commscope.ScatterPlot"
 severity = "error"
 message = "'commscope.ScatterPlot' has been removed. With appropriate code changes, use 'comm.ConstellationDiagram' instead."
@@ -9442,6 +9607,7 @@ category = "compatibility"
 
 [[checks]]
 id = "COMMBSC"
+handle = true
 function_name = "comm.BinarySymmetricChannel"
 severity = "error"
 message = "'comm.BinarySymmetricChannel' has been removed. With appropriate code changes, use 'BSC' instead."
@@ -9449,6 +9615,7 @@ category = "compatibility"
 
 [[checks]]
 id = "RLCHN"
+handle = true
 function_name = "rayleighchan"
 severity = "error"
 message = "'rayleighchan' has been removed. With appropriate code changes, use 'comm.RayleighChannel' instead."
@@ -9456,6 +9623,7 @@ category = "compatibility"
 
 [[checks]]
 id = "RICHN"
+handle = true
 function_name = "ricianchan"
 severity = "error"
 message = "'ricianchan' has been removed. With appropriate code changes, use 'comm.RicianChannel' instead."
@@ -9463,6 +9631,7 @@ category = "compatibility"
 
 [[checks]]
 id = "LEGCHN"
+handle = true
 function_name = "legacychannelsim"
 severity = "error"
 message = "'legacychannelsim' has been removed. There is no simple replacement for this."
@@ -9470,6 +9639,7 @@ category = "compatibility"
 
 [[checks]]
 id = "DOPJKS"
+handle = true
 function_name = "doppler.jakes"
 severity = "error"
 message = "'doppler.jakes' has been removed. With appropriate code changes, use 'doppler' instead."
@@ -9477,6 +9647,7 @@ category = "compatibility"
 
 [[checks]]
 id = "DOPRJKS"
+handle = true
 function_name = "doppler.rjakes"
 severity = "error"
 message = "'doppler.rjakes' has been removed. With appropriate code changes, use 'doppler' instead."
@@ -9484,6 +9655,7 @@ category = "compatibility"
 
 [[checks]]
 id = "DOPAJKS"
+handle = true
 function_name = "doppler.ajakes"
 severity = "error"
 message = "'doppler.ajakes' has been removed. With appropriate code changes, use 'doppler' instead."
@@ -9491,6 +9663,7 @@ category = "compatibility"
 
 [[checks]]
 id = "DOPFLT"
+handle = true
 function_name = "doppler.flat"
 severity = "error"
 message = "'doppler.flat' has been removed. With appropriate code changes, use 'doppler' instead."
@@ -9498,6 +9671,7 @@ category = "compatibility"
 
 [[checks]]
 id = "DOPBLL"
+handle = true
 function_name = "doppler.bell"
 severity = "error"
 message = "'doppler.bell' has been removed. With appropriate code changes, use 'doppler' instead."
@@ -9505,6 +9679,7 @@ category = "compatibility"
 
 [[checks]]
 id = "DOPRNDD"
+handle = true
 function_name = "doppler.rounded"
 severity = "error"
 message = "'doppler.rounded' has been removed. With appropriate code changes, use 'doppler' instead."
@@ -9512,6 +9687,7 @@ category = "compatibility"
 
 [[checks]]
 id = "DOPGSS"
+handle = true
 function_name = "doppler.gaussian"
 severity = "error"
 message = "'doppler.gaussian' has been removed. With appropriate code changes, use 'doppler' instead."
@@ -9519,6 +9695,7 @@ category = "compatibility"
 
 [[checks]]
 id = "DOPBGSS"
+handle = true
 function_name = "doppler.bigaussian"
 severity = "error"
 message = "'doppler.bigaussian' has been removed. With appropriate code changes, use 'doppler' instead."
@@ -9526,6 +9703,7 @@ category = "compatibility"
 
 [[checks]]
 id = "COMMPSKC"
+handle = true
 function_name = "comm.PSKCoarseFrequencyEstimator"
 severity = "error"
 message = "'comm.PSKCoarseFrequencyEstimator' has been removed. With appropriate code changes, use 'comm.CoarseFrequencyCompensator' instead."
@@ -9533,6 +9711,7 @@ category = "compatibility"
 
 [[checks]]
 id = "COMMQAMC"
+handle = true
 function_name = "comm.QAMCoarseFrequencyEstimator"
 severity = "error"
 message = "'comm.QAMCoarseFrequencyEstimator' has been removed. With appropriate code changes, use 'comm.CoarseFrequencyCompensator' instead."
@@ -9540,6 +9719,7 @@ category = "compatibility"
 
 [[checks]]
 id = "DEVM"
+handle = true
 function_name = "commmeasure.EVM"
 severity = "error"
 message = "'commmeasure.EVM' has been removed. With appropriate code changes, use 'comm.EVM' instead."
@@ -9547,6 +9727,7 @@ category = "compatibility"
 
 [[checks]]
 id = "DMER"
+handle = true
 function_name = "commmeasure.MER"
 severity = "error"
 message = "'commmeasure.MER' has been removed. With appropriate code changes, use 'comm.MER' instead."
@@ -9554,6 +9735,7 @@ category = "compatibility"
 
 [[checks]]
 id = "DACPR"
+handle = true
 function_name = "commmeasure.ACPR"
 severity = "error"
 message = "'commmeasure.ACPR' has been removed. With appropriate code changes, use 'comm.ACPR' instead."
@@ -9561,20 +9743,23 @@ category = "compatibility"
 
 [[checks]]
 id = "CRCGE"
+handle = true
 function_name = "crc.generator"
 severity = "error"
-message = "'crc.generator' has been removed. With appropriate code changes, use 'comm.CRCGenerator' instead."
+message = "'crc.generator' has been removed. With appropriate code changes, use 'crcGenerate' instead."
 category = "compatibility"
 
 [[checks]]
 id = "CRCDE"
+handle = true
 function_name = "crc.detector"
 severity = "error"
-message = "'crc.detector' has been removed. With appropriate code changes, use 'comm.CRCDetector' instead."
+message = "'crc.detector' has been removed. With appropriate code changes, use 'crcDetect' instead."
 category = "compatibility"
 
 [[checks]]
 id = "COMMCRCGEN"
+handle = true
 function_name = "comm.CRCGenerator"
 severity = "warning"
 message = "'comm.CRCGenerator' will be removed in a future release. With appropriate code changes, use 'crcGenerate' instead."
@@ -9582,6 +9767,7 @@ category = "compatibility"
 
 [[checks]]
 id = "COMMCRCDET"
+handle = true
 function_name = "comm.CRCDetector"
 severity = "warning"
 message = "'comm.CRCDetector' will be removed in a future release. With appropriate code changes, use 'crcDetect' instead."
@@ -9589,6 +9775,7 @@ category = "compatibility"
 
 [[checks]]
 id = "COMMDVBS2LDPC"
+handle = true
 function_name = "dvbs2ldpc"
 severity = "warning"
 message = "'dvbs2ldpc' will be removed in a future release. With appropriate code changes, use 'dvbsLDPCPCM' instead."
@@ -9596,6 +9783,7 @@ category = "compatibility"
 
 [[checks]]
 id = "CMDFE"
+handle = true
 function_name = "dfe"
 severity = "error"
 message = "'dfe' has been removed. With appropriate code changes, use 'comm.DecisionFeedbackEqualizer' instead."
@@ -9603,6 +9791,7 @@ category = "compatibility"
 
 [[checks]]
 id = "CMDFEEQ"
+handle = true
 function_name = "equalizer.dfe"
 severity = "error"
 message = "'equalizer.dfe' has been removed. With appropriate code changes, use 'comm.DecisionFeedbackEqualizer' instead."
@@ -9610,6 +9799,7 @@ category = "compatibility"
 
 [[checks]]
 id = "CMLRQ"
+handle = true
 function_name = "lineareq"
 severity = "error"
 message = "'lineareq' has been removed. With appropriate code changes, use 'comm.LinearEqualizer' instead."
@@ -9617,6 +9807,7 @@ category = "compatibility"
 
 [[checks]]
 id = "CMLRQEQ"
+handle = true
 function_name = "equalizer.lineareq"
 severity = "error"
 message = "'equalizer.lineareq' has been removed. With appropriate code changes, use 'comm.LinearEqualizer' instead."
@@ -9624,6 +9815,7 @@ category = "compatibility"
 
 [[checks]]
 id = "CMLMSAD"
+handle = true
 function_name = "adaptalg.lms"
 severity = "error"
 message = "'adaptalg.lms' has been removed. With appropriate code changes, use 'comm.LinearEqualizer' or 'comm.DecisionFeedbackEqualizer' instead."
@@ -9631,6 +9823,7 @@ category = "compatibility"
 
 [[checks]]
 id = "CMRLSAD"
+handle = true
 function_name = "adaptalg.rls"
 severity = "error"
 message = "'adaptalg.rls' has been removed. With appropriate code changes, use 'comm.LinearEqualizer' or 'comm.DecisionFeedbackEqualizer' instead."
@@ -9638,6 +9831,7 @@ category = "compatibility"
 
 [[checks]]
 id = "CMCMAAD"
+handle = true
 function_name = "adaptalg.cma"
 severity = "error"
 message = "'adaptalg.cma' has been removed. With appropriate code changes, use 'comm.LinearEqualizer' or 'comm.DecisionFeedbackEqualizer' instead."
@@ -9645,6 +9839,7 @@ category = "compatibility"
 
 [[checks]]
 id = "CMSLMSAD"
+handle = true
 function_name = "adaptalg.signlms"
 severity = "error"
 message = "'adaptalg.signlms' has been removed. With appropriate code changes, use 'comm.LinearEqualizer' or 'comm.DecisionFeedbackEqualizer' instead."
@@ -9652,6 +9847,7 @@ category = "compatibility"
 
 [[checks]]
 id = "CMVLMSAD"
+handle = true
 function_name = "adaptalg.varlms"
 severity = "error"
 message = "'adaptalg.varlms' has been removed. With appropriate code changes, use 'comm.LinearEqualizer' or 'comm.DecisionFeedbackEqualizer' instead."
@@ -9659,6 +9855,7 @@ category = "compatibility"
 
 [[checks]]
 id = "CMNLMSAD"
+handle = true
 function_name = "adaptalg.normlms"
 severity = "error"
 message = "'adaptalg.normlms' has been removed. With appropriate code changes, use 'comm.LinearEqualizer' or 'comm.DecisionFeedbackEqualizer' instead."
@@ -9666,6 +9863,7 @@ category = "compatibility"
 
 [[checks]]
 id = "CMLMS"
+handle = true
 function_name = "lms"
 severity = "error"
 message = "'lms' has been removed. With appropriate code changes, use 'comm.LinearEqualizer' or 'comm.DecisionFeedbackEqualizer' instead."
@@ -9673,6 +9871,7 @@ category = "compatibility"
 
 [[checks]]
 id = "CMRLS"
+handle = true
 function_name = "rls"
 severity = "error"
 message = "'rls' has been removed. With appropriate code changes, use 'comm.LinearEqualizer' or 'comm.DecisionFeedbackEqualizer' instead."
@@ -9680,6 +9879,7 @@ category = "compatibility"
 
 [[checks]]
 id = "CMCMA"
+handle = true
 function_name = "cma"
 severity = "error"
 message = "'cma' has been removed. With appropriate code changes, use 'comm.LinearEqualizer' or 'comm.DecisionFeedbackEqualizer' instead."
@@ -9687,6 +9887,7 @@ category = "compatibility"
 
 [[checks]]
 id = "CMSLMS"
+handle = true
 function_name = "signlms"
 severity = "error"
 message = "'signlms' has been removed. With appropriate code changes, use 'comm.LinearEqualizer' or 'comm.DecisionFeedbackEqualizer' instead."
@@ -9694,6 +9895,7 @@ category = "compatibility"
 
 [[checks]]
 id = "CMVLMS"
+handle = true
 function_name = "varlms"
 severity = "error"
 message = "'varlms' has been removed. With appropriate code changes, use 'comm.LinearEqualizer' or 'comm.DecisionFeedbackEqualizer' instead."
@@ -9701,6 +9903,7 @@ category = "compatibility"
 
 [[checks]]
 id = "CMNLMS"
+handle = true
 function_name = "normlms"
 severity = "error"
 message = "'normlms' has been removed. With appropriate code changes, use 'comm.LinearEqualizer' or 'comm.DecisionFeedbackEqualizer' instead."
@@ -9708,6 +9911,7 @@ category = "compatibility"
 
 [[checks]]
 id = "CMEQU"
+handle = true
 function_name = "equalize"
 severity = "error"
 message = "'equalize' has been removed. With appropriate code changes, use 'comm.LinearEqualizer' or 'comm.DecisionFeedbackEqualizer' instead."
@@ -9715,6 +9919,7 @@ category = "compatibility"
 
 [[checks]]
 id = "DBHENC"
+handle = true
 function_name = "fec.bchenc"
 severity = "error"
 message = "'fec.bchenc' has been removed. With appropriate code changes, use 'comm.BCHEncoder' instead."
@@ -9722,6 +9927,7 @@ category = "compatibility"
 
 [[checks]]
 id = "DBCHDEC"
+handle = true
 function_name = "fec.bchdec"
 severity = "error"
 message = "'fec.bchdec' has been removed. With appropriate code changes, use 'comm.BCHDecoder' instead."
@@ -9729,6 +9935,7 @@ category = "compatibility"
 
 [[checks]]
 id = "DRSENC"
+handle = true
 function_name = "fec.rsenc"
 severity = "error"
 message = "'fec.rsenc' has been removed. With appropriate code changes, use 'comm.RSEncoder' instead."
@@ -9736,6 +9943,7 @@ category = "compatibility"
 
 [[checks]]
 id = "DRSDEC"
+handle = true
 function_name = "fec.rsdec"
 severity = "error"
 message = "'fec.rsdec' has been removed. With appropriate code changes, use 'comm.RSDecoder' instead."
@@ -9743,20 +9951,23 @@ category = "compatibility"
 
 [[checks]]
 id = "COMMGPUAWGN"
+handle = true
 function_name = "comm.gpu.AWGNChannel"
-severity = "warning"
-message = "'comm.gpu.AWGNChannel' will be removed in a future release. With appropriate code changes, use 'awgn' instead."
+severity = "error"
+message = "'comm.gpu.AWGNChannel' has been removed. With appropriate code changes, use 'awgn' instead."
 category = "compatibility"
 
 [[checks]]
 id = "COMMGPULDPCDEC"
+handle = true
 function_name = "comm.gpu.LDPCDecoder"
-severity = "warning"
-message = "'comm.gpu.LDPCDecoder' will be removed in a future release. With appropriate code changes, use 'ldpcDecode' instead."
+severity = "error"
+message = "'comm.gpu.LDPCDecoder' has been removed. With appropriate code changes, use 'ldpcDecode' instead."
 category = "compatibility"
 
 [[checks]]
 id = "COMMGPUBLKINTRLV"
+handle = true
 function_name = "comm.gpu.BlockInterleaver"
 severity = "warning"
 message = "'comm.gpu.BlockInterleaver' will be removed in a future release. With appropriate code changes, use 'intrlv' instead."
@@ -9764,6 +9975,7 @@ category = "compatibility"
 
 [[checks]]
 id = "COMMGPUBLKDEINTRLV"
+handle = true
 function_name = "comm.gpu.BlockDeinterleaver"
 severity = "warning"
 message = "'comm.gpu.BlockDeinterleaver' will be removed in a future release. With appropriate code changes, use 'deintrlv' instead."
@@ -9771,6 +9983,7 @@ category = "compatibility"
 
 [[checks]]
 id = "COMMGPUCONVINTRLV"
+handle = true
 function_name = "comm.gpu.ConvolutionalInterleaver"
 severity = "warning"
 message = "'comm.gpu.ConvolutionalInterleaver' will be removed in a future release. With appropriate code changes, use 'convintrlv' instead."
@@ -9778,6 +9991,7 @@ category = "compatibility"
 
 [[checks]]
 id = "COMMGPUCONVDEINTRLV"
+handle = true
 function_name = "comm.gpu.ConvolutionalDeinterleaver"
 severity = "warning"
 message = "'comm.gpu.ConvolutionalDeinterleaver' will be removed in a future release. With appropriate code changes, use 'convdeintrlv' instead."
@@ -9785,6 +9999,7 @@ category = "compatibility"
 
 [[checks]]
 id = "COMMGPUPSKMODULATOR"
+handle = true
 function_name = "comm.gpu.PSKModulator"
 severity = "warning"
 message = "'comm.gpu.PSKModulator' will be removed in a future release. With appropriate code changes, use 'pskmod' instead."
@@ -9792,6 +10007,7 @@ category = "compatibility"
 
 [[checks]]
 id = "COMMGPUPSKDEMODULATOR"
+handle = true
 function_name = "comm.gpu.PSKDemodulator"
 severity = "warning"
 message = "'comm.gpu.PSKDemodulator' will be removed in a future release. With appropriate code changes, use 'pskdemod' instead."
@@ -9799,6 +10015,7 @@ category = "compatibility"
 
 [[checks]]
 id = "LDPCE"
+handle = true
 function_name = "comm.LDPCEncoder"
 severity = "error"
 message = "'comm.LDPCEncoder' has been removed. With appropriate code changes, use 'ldpcEncode' instead."
@@ -9806,6 +10023,7 @@ category = "compatibility"
 
 [[checks]]
 id = "LDPCD"
+handle = true
 function_name = "comm.LDPCDecoder"
 severity = "error"
 message = "'comm.LDPCDecoder' has been removed. With appropriate code changes, use 'ldpcDecode' instead."
@@ -9813,6 +10031,7 @@ category = "compatibility"
 
 [[checks]]
 id = "COMMLMC"
+handle = true
 function_name = "comm.LTEMIMOChannel"
 severity = "error"
 message = "'comm.LTEMIMOChannel' has been removed. With appropriate code changes, use 'comm.MIMOChannel' instead."
@@ -9820,6 +10039,7 @@ category = "compatibility"
 
 [[checks]]
 id = "QMOD"
+handle = true
 function_name = "modem.qammod"
 severity = "error"
 message = "'modem.qammod' has been removed. With appropriate code changes, use 'qammod' instead."
@@ -9827,6 +10047,7 @@ category = "compatibility"
 
 [[checks]]
 id = "QDEMOD"
+handle = true
 function_name = "modem.qamdemod"
 severity = "error"
 message = "'modem.qamdemod' has been removed. With appropriate code changes, use 'qamdemod' instead."
@@ -9834,6 +10055,7 @@ category = "compatibility"
 
 [[checks]]
 id = "DMOD"
+handle = true
 function_name = "modem.dpskmod"
 severity = "error"
 message = "'modem.dpskmod' has been removed. With appropriate code changes, use 'comm.DPSKModulator' instead."
@@ -9841,6 +10063,7 @@ category = "compatibility"
 
 [[checks]]
 id = "DDEMOD"
+handle = true
 function_name = "modem.dpskdemod"
 severity = "error"
 message = "'modem.dpskdemod' has been removed. With appropriate code changes, use 'comm.DPSKDemodulator' instead."
@@ -9848,6 +10071,7 @@ category = "compatibility"
 
 [[checks]]
 id = "OMOD"
+handle = true
 function_name = "modem.oqpskmod"
 severity = "error"
 message = "'modem.oqpskmod' has been removed. With appropriate code changes, use 'comm.OQPSKModulator' instead."
@@ -9855,6 +10079,7 @@ category = "compatibility"
 
 [[checks]]
 id = "ODEMOD"
+handle = true
 function_name = "modem.oqpskdemod"
 severity = "error"
 message = "'modem.oqpskdemod' has been removed. With appropriate code changes, use 'comm.OQPSKDemodulator' instead."
@@ -9862,6 +10087,7 @@ category = "compatibility"
 
 [[checks]]
 id = "PAMOD"
+handle = true
 function_name = "modem.pammod"
 severity = "error"
 message = "'modem.pammod' has been removed. With appropriate code changes, use 'pammod' instead."
@@ -9869,6 +10095,7 @@ category = "compatibility"
 
 [[checks]]
 id = "PADEMOD"
+handle = true
 function_name = "modem.pamdemod"
 severity = "error"
 message = "'modem.pamdemod' has been removed. With appropriate code changes, use 'pamdemod' instead."
@@ -9876,6 +10103,7 @@ category = "compatibility"
 
 [[checks]]
 id = "MMOD"
+handle = true
 function_name = "modem.mskmod"
 severity = "error"
 message = "'modem.mskmod' has been removed. With appropriate code changes, use 'comm.MSKModulator' or 'mskmod' instead."
@@ -9883,6 +10111,7 @@ category = "compatibility"
 
 [[checks]]
 id = "MDEMOD"
+handle = true
 function_name = "modem.mskdemod"
 severity = "error"
 message = "'modem.mskdemod' has been removed. With appropriate code changes, use 'comm.MSKDemodulator' or 'mskdemod' instead."
@@ -9890,6 +10119,7 @@ category = "compatibility"
 
 [[checks]]
 id = "GMOD"
+handle = true
 function_name = "modem.genqammod"
 severity = "error"
 message = "'modem.genqammod' has been removed. With appropriate code changes, use 'genqammod' or 'comm.GeneralQAMModulator' instead."
@@ -9897,6 +10127,7 @@ category = "compatibility"
 
 [[checks]]
 id = "GDEMOD"
+handle = true
 function_name = "modem.genqamdemod"
 severity = "error"
 message = "'modem.genqamdemod' has been removed. With appropriate code changes, use 'genqamdemod' or 'comm.GeneralQAMDemodulator' instead."
@@ -9904,6 +10135,7 @@ category = "compatibility"
 
 [[checks]]
 id = "PSMOD"
+handle = true
 function_name = "modem.pskmod"
 severity = "error"
 message = "'modem.pskmod' has been removed. With appropriate code changes, use 'pskmod' instead."
@@ -9911,6 +10143,7 @@ category = "compatibility"
 
 [[checks]]
 id = "PSDEMOD"
+handle = true
 function_name = "modem.pskdemod"
 severity = "error"
 message = "'modem.pskdemod' has been removed. With appropriate code changes, use 'pskdemod' instead."
@@ -9918,6 +10151,7 @@ category = "compatibility"
 
 [[checks]]
 id = "OQPMOD"
+handle = true
 function_name = "oqpskmod"
 severity = "error"
 message = "'oqpskmod' has been removed. With appropriate code changes, use 'comm.OQPSKModulator' instead."
@@ -9925,6 +10159,7 @@ category = "compatibility"
 
 [[checks]]
 id = "OQPDEM"
+handle = true
 function_name = "oqpskdemod"
 severity = "error"
 message = "'oqpskdemod' has been removed. With appropriate code changes, use 'comm.OQPSKDemodulator' instead."
@@ -9932,6 +10167,7 @@ category = "compatibility"
 
 [[checks]]
 id = "COMMPSKMSO"
+handle = true
 function_name = "comm.PSKModulator"
 severity = "warning"
 message = "'comm.PSKModulator' will be removed in a future release. With appropriate code changes, use 'pskmod' instead."
@@ -9939,6 +10175,7 @@ category = "compatibility"
 
 [[checks]]
 id = "COMMPSKDSO"
+handle = true
 function_name = "comm.PSKDemodulator"
 severity = "warning"
 message = "'comm.PSKDemodulator' will be removed in a future release. With appropriate code changes, use 'pskdemod' instead."
@@ -9946,6 +10183,7 @@ category = "compatibility"
 
 [[checks]]
 id = "COMMBPSKMSO"
+handle = true
 function_name = "comm.BPSKModulator"
 severity = "warning"
 message = "'comm.BPSKModulator' will be removed in a future release. With appropriate code changes, use 'pskmod' instead."
@@ -9953,6 +10191,7 @@ category = "compatibility"
 
 [[checks]]
 id = "COMMBPSKDSO"
+handle = true
 function_name = "comm.BPSKDemodulator"
 severity = "warning"
 message = "'comm.BPSKDemodulator' will be removed in a future release. With appropriate code changes, use 'pskdemod' instead."
@@ -9960,6 +10199,7 @@ category = "compatibility"
 
 [[checks]]
 id = "COMMQPSKMSO"
+handle = true
 function_name = "comm.QPSKModulator"
 severity = "warning"
 message = "'comm.QPSKModulator' will be removed in a future release. With appropriate code changes, use 'pskmod' instead."
@@ -9967,6 +10207,7 @@ category = "compatibility"
 
 [[checks]]
 id = "COMMQPSKDSO"
+handle = true
 function_name = "comm.QPSKDemodulator"
 severity = "warning"
 message = "'comm.QPSKDemodulator' will be removed in a future release. With appropriate code changes, use 'pskdemod' instead."
@@ -9974,6 +10215,7 @@ category = "compatibility"
 
 [[checks]]
 id = "CMPSKCPS"
+handle = true
 function_name = "comm.PSKCarrierPhaseSynchronizer"
 severity = "error"
 message = "'comm.PSKCarrierPhaseSynchronizer' has been removed. With appropriate code changes, use 'comm.CarrierSynchronizer' instead."
@@ -9981,6 +10223,7 @@ category = "compatibility"
 
 [[checks]]
 id = "COMMQAMM"
+handle = true
 function_name = "comm.RectangularQAMModulator"
 severity = "error"
 message = "'comm.RectangularQAMModulator' has been removed. With appropriate code changes, use 'qammod' instead."
@@ -9988,6 +10231,7 @@ category = "compatibility"
 
 [[checks]]
 id = "COMMQAMD"
+handle = true
 function_name = "comm.RectangularQAMDemodulator"
 severity = "error"
 message = "'comm.RectangularQAMDemodulator' has been removed. With appropriate code changes, use 'qamdemod' instead."
@@ -9995,6 +10239,7 @@ category = "compatibility"
 
 [[checks]]
 id = "CMELGTS"
+handle = true
 function_name = "comm.EarlyLateGateTimingSynchronizer"
 severity = "error"
 message = "'comm.EarlyLateGateTimingSynchronizer' has been removed. With appropriate code changes, use 'comm.SymbolSynchronizer' instead."
@@ -10002,6 +10247,7 @@ category = "compatibility"
 
 [[checks]]
 id = "CMGTS"
+handle = true
 function_name = "comm.GardnerTimingSynchronizer"
 severity = "error"
 message = "'comm.GardnerTimingSynchronizer' has been removed. With appropriate code changes, use 'comm.SymbolSynchronizer' instead."
@@ -10009,6 +10255,7 @@ category = "compatibility"
 
 [[checks]]
 id = "CMMMTS"
+handle = true
 function_name = "comm.MuellerMullerTimingSynchronizer"
 severity = "error"
 message = "'comm.MuellerMullerTimingSynchronizer' has been removed. With appropriate code changes, use 'comm.SymbolSynchronizer' instead."
@@ -10016,6 +10263,7 @@ category = "compatibility"
 
 [[checks]]
 id = "ALDEINT"
+handle = true
 function_name = "comm.AlgebraicDeinterleaver"
 severity = "error"
 message = "'comm.AlgebraicDeinterleaver' has been removed. With appropriate code changes, use 'algdeintrlv' instead."
@@ -10023,6 +10271,7 @@ category = "compatibility"
 
 [[checks]]
 id = "ALINT"
+handle = true
 function_name = "comm.AlgebraicInterleaver"
 severity = "error"
 message = "'comm.AlgebraicInterleaver' has been removed. With appropriate code changes, use 'algintrlv' instead."
@@ -10030,6 +10279,7 @@ category = "compatibility"
 
 [[checks]]
 id = "BLKDEINT"
+handle = true
 function_name = "comm.BlockDeinterleaver"
 severity = "error"
 message = "'comm.BlockDeinterleaver' has been removed. With appropriate code changes, use 'deintrlv' instead."
@@ -10037,6 +10287,7 @@ category = "compatibility"
 
 [[checks]]
 id = "BLKINT"
+handle = true
 function_name = "comm.BlockInterleaver"
 severity = "error"
 message = "'comm.BlockInterleaver' has been removed. With appropriate code changes, use 'intrlv' instead."
@@ -10044,6 +10295,7 @@ category = "compatibility"
 
 [[checks]]
 id = "MATDEINT"
+handle = true
 function_name = "comm.MatrixDeinterleaver"
 severity = "error"
 message = "'comm.MatrixDeinterleaver' has been removed. With appropriate code changes, use 'matdeintrlv' instead."
@@ -10051,6 +10303,7 @@ category = "compatibility"
 
 [[checks]]
 id = "MATINT"
+handle = true
 function_name = "comm.MatrixInterleaver"
 severity = "error"
 message = "'comm.MatrixInterleaver' has been removed. With appropriate code changes, use 'matintrlv' instead."
@@ -10058,6 +10311,7 @@ category = "compatibility"
 
 [[checks]]
 id = "MATHSDEINT"
+handle = true
 function_name = "comm.MatrixHelicalScanDeinterleaver"
 severity = "error"
 message = "'comm.MatrixHelicalScanDeinterleaver' has been removed. With appropriate code changes, use 'helscandeintrlv' instead."
@@ -10065,6 +10319,7 @@ category = "compatibility"
 
 [[checks]]
 id = "MATHSINT"
+handle = true
 function_name = "comm.MatrixHelicalScanInterleaver"
 severity = "error"
 message = "'comm.MatrixHelicalScanInterleaver' has been removed. With appropriate code changes, use 'helscanintrlv' instead."
@@ -10072,6 +10327,7 @@ category = "compatibility"
 
 [[checks]]
 id = "ZADOF"
+handle = true
 function_name = "lteZadoffChuSeq"
 severity = "error"
 message = "'lteZadoffChuSeq' has been removed. Use 'zadoffChuSeq' instead, which is a direct replacement."
@@ -10079,6 +10335,7 @@ category = "compatibility"
 
 [[checks]]
 id = "CMCPMCPS"
+handle = true
 function_name = "comm.CPMCarrierPhaseSynchronizer"
 severity = "error"
 message = "'comm.CPMCarrierPhaseSynchronizer' has been removed. With appropriate code changes, use 'comm.CarrierSynchronizer' instead."
@@ -10086,6 +10343,7 @@ category = "compatibility"
 
 [[checks]]
 id = "SESSIONR"
+handle = true
 function_name = "daq.reset"
 severity = "warning"
 message = "'daq.reset' will be removed in a future release. Use 'daqreset' instead, which is a direct replacement."
@@ -10093,6 +10351,7 @@ category = "compatibility"
 
 [[checks]]
 id = "SESSIONGD"
+handle = true
 function_name = "daq.getDevices"
 severity = "warning"
 message = "'daq.getDevices' will be removed in a future release. With appropriate code changes, use 'daqlist' instead."
@@ -10100,6 +10359,7 @@ category = "compatibility"
 
 [[checks]]
 id = "SESSIONGV"
+handle = true
 function_name = "daq.getVendors"
 severity = "warning"
 message = "'daq.getVendors' will be removed in a future release. Use 'daqvendorlist' instead, which is a direct replacement."
@@ -10107,6 +10367,7 @@ category = "compatibility"
 
 [[checks]]
 id = "AFBLMSFFT"
+handle = true
 function_name = "adaptfilt.blmsfft"
 severity = "error"
 message = "'adaptfilt.blmsfft' has been removed. There is no simple replacement for this."
@@ -10114,6 +10375,7 @@ category = "compatibility"
 
 [[checks]]
 id = "AFADJLMS"
+handle = true
 function_name = "adaptfilt.adjlms"
 severity = "error"
 message = "'adaptfilt.adjlms' has been removed. There is no simple replacement for this."
@@ -10121,6 +10383,7 @@ category = "compatibility"
 
 [[checks]]
 id = "AFDLMS"
+handle = true
 function_name = "adaptfilt.dlms"
 severity = "error"
 message = "'adaptfilt.dlms' has been removed. There is no simple replacement for this."
@@ -10128,6 +10391,7 @@ category = "compatibility"
 
 [[checks]]
 id = "AFPBFDAF"
+handle = true
 function_name = "adaptfilt.pbfdaf"
 severity = "error"
 message = "'adaptfilt.pbfdaf' has been removed. There is no simple replacement for this."
@@ -10135,6 +10399,7 @@ category = "compatibility"
 
 [[checks]]
 id = "AFPBUFDAF"
+handle = true
 function_name = "adaptfilt.pbufdaf"
 severity = "error"
 message = "'adaptfilt.pbufdaf' has been removed. There is no simple replacement for this."
@@ -10142,6 +10407,7 @@ category = "compatibility"
 
 [[checks]]
 id = "AFTDAFDCT"
+handle = true
 function_name = "adaptfilt.tdafdct"
 severity = "error"
 message = "'adaptfilt.tdafdct' has been removed. There is no simple replacement for this."
@@ -10149,6 +10415,7 @@ category = "compatibility"
 
 [[checks]]
 id = "AFTFAFDFT"
+handle = true
 function_name = "adaptfilt.tfafdft"
 severity = "error"
 message = "'adaptfilt.tfafdft' has been removed. There is no simple replacement for this."
@@ -10156,6 +10423,7 @@ category = "compatibility"
 
 [[checks]]
 id = "AFSE"
+handle = true
 function_name = "adaptfilt.se"
 severity = "error"
 message = "'adaptfilt.se' has been removed. With appropriate code changes, use 'dsp.LMSFilter' instead."
@@ -10163,6 +10431,7 @@ category = "compatibility"
 
 [[checks]]
 id = "AFSD"
+handle = true
 function_name = "adaptfilt.sd"
 severity = "error"
 message = "'adaptfilt.sd' has been removed. With appropriate code changes, use 'dsp.LMSFilter' instead."
@@ -10170,6 +10439,7 @@ category = "compatibility"
 
 [[checks]]
 id = "AFSS"
+handle = true
 function_name = "adaptfilt.ss"
 severity = "error"
 message = "'adaptfilt.ss' has been removed. With appropriate code changes, use 'dsp.LMSFilter' instead."
@@ -10177,6 +10447,7 @@ category = "compatibility"
 
 [[checks]]
 id = "AFQRDRLS"
+handle = true
 function_name = "adaptfilt.qrdrls"
 severity = "error"
 message = "'adaptfilt.qrdrls' has been removed. With appropriate code changes, use 'dsp.RLSFilter' instead."
@@ -10184,6 +10455,7 @@ category = "compatibility"
 
 [[checks]]
 id = "AFSWRLS"
+handle = true
 function_name = "adaptfilt.swrls"
 severity = "error"
 message = "'adaptfilt.swrls' has been removed. With appropriate code changes, use 'dsp.RLSFilter' instead."
@@ -10191,6 +10463,7 @@ category = "compatibility"
 
 [[checks]]
 id = "AFHRLS"
+handle = true
 function_name = "adaptfilt.hrls"
 severity = "error"
 message = "'adaptfilt.hrls' has been removed. With appropriate code changes, use 'dsp.RLSFilter' instead."
@@ -10198,6 +10471,7 @@ category = "compatibility"
 
 [[checks]]
 id = "AFHSWRLS"
+handle = true
 function_name = "adaptfilt.hswrls"
 severity = "error"
 message = "'adaptfilt.hswrls' has been removed. With appropriate code changes, use 'dsp.RLSFilter' instead."
@@ -10205,6 +10479,7 @@ category = "compatibility"
 
 [[checks]]
 id = "AFSWFTF"
+handle = true
 function_name = "adaptfilt.swftf"
 severity = "error"
 message = "'adaptfilt.swftf' has been removed. With appropriate code changes, use 'dsp.FastTransversalFilter' instead."
@@ -10212,6 +10487,7 @@ category = "compatibility"
 
 [[checks]]
 id = "AFFTF"
+handle = true
 function_name = "adaptfilt.ftf"
 severity = "error"
 message = "'adaptfilt.ftf' has been removed. With appropriate code changes, use 'dsp.FastTransversalFilter' instead."
@@ -10219,6 +10495,7 @@ category = "compatibility"
 
 [[checks]]
 id = "AFAP"
+handle = true
 function_name = "adaptfilt.ap"
 severity = "error"
 message = "'adaptfilt.ap' has been removed. With appropriate code changes, use 'dsp.AffineProjectionFilter' instead."
@@ -10226,6 +10503,7 @@ category = "compatibility"
 
 [[checks]]
 id = "AFAPRU"
+handle = true
 function_name = "adaptfilt.apru"
 severity = "error"
 message = "'adaptfilt.apru' has been removed. With appropriate code changes, use 'dsp.AffineProjectionFilter' instead."
@@ -10233,6 +10511,7 @@ category = "compatibility"
 
 [[checks]]
 id = "AFBAP"
+handle = true
 function_name = "adaptfilt.bap"
 severity = "error"
 message = "'adaptfilt.bap' has been removed. With appropriate code changes, use 'dsp.AffineProjectionFilter' instead."
@@ -10240,6 +10519,7 @@ category = "compatibility"
 
 [[checks]]
 id = "AFGAL"
+handle = true
 function_name = "adaptfilt.gal"
 severity = "error"
 message = "'adaptfilt.gal' has been removed. With appropriate code changes, use 'dsp.AdaptiveLatticeFilter' instead."
@@ -10247,6 +10527,7 @@ category = "compatibility"
 
 [[checks]]
 id = "AFLSL"
+handle = true
 function_name = "adaptfilt.lsl"
 severity = "error"
 message = "'adaptfilt.lsl' has been removed. With appropriate code changes, use 'dsp.AdaptiveLatticeFilter' instead."
@@ -10254,6 +10535,7 @@ category = "compatibility"
 
 [[checks]]
 id = "AFQRDLSL"
+handle = true
 function_name = "adaptfilt.qrdlsl"
 severity = "error"
 message = "'adaptfilt.qrdlsl' has been removed. With appropriate code changes, use 'dsp.AdaptiveLatticeFilter' instead."
@@ -10261,6 +10543,7 @@ category = "compatibility"
 
 [[checks]]
 id = "AFFILTXLMS"
+handle = true
 function_name = "adaptfilt.filtxlms"
 severity = "error"
 message = "'adaptfilt.filtxlms' has been removed. With appropriate code changes, use 'dsp.FilteredXLMSFilter' instead."
@@ -10268,6 +10551,7 @@ category = "compatibility"
 
 [[checks]]
 id = "AFFDAF"
+handle = true
 function_name = "adaptfilt.fdaf"
 severity = "error"
 message = "'adaptfilt.fdaf' has been removed. With appropriate code changes, use 'dsp.FrequencyDomainAdaptiveFilter' instead."
@@ -10275,6 +10559,7 @@ category = "compatibility"
 
 [[checks]]
 id = "AFUFDAF"
+handle = true
 function_name = "adaptfilt.ufdaf"
 severity = "error"
 message = "'adaptfilt.ufdaf' has been removed. With appropriate code changes, use 'dsp.FrequencyDomainAdaptiveFilter' instead."
@@ -10282,6 +10567,7 @@ category = "compatibility"
 
 [[checks]]
 id = "DSPLTS"
+handle = true
 function_name = "dsp.LowerTriangularSolver"
 severity = "error"
 message = "'dsp.LowerTriangularSolver' has been removed. With appropriate code changes, use 'mldivide' function or '\\' operator instead."
@@ -10289,6 +10575,7 @@ category = "compatibility"
 
 [[checks]]
 id = "DSPUTS"
+handle = true
 function_name = "dsp.UpperTriangularSolver"
 severity = "error"
 message = "'dsp.UpperTriangularSolver' has been removed. With appropriate code changes, use 'mldivide' function or '\\' operator instead."
@@ -10296,6 +10583,7 @@ category = "compatibility"
 
 [[checks]]
 id = "DSPPMS"
+handle = true
 function_name = "dsp.PulseMetrics"
 severity = "error"
 message = "'dsp.PulseMetrics' has been removed. With appropriate code changes, use 'dutycycle', 'midcross', 'pulseperiod', 'pulsesep' or 'pulsewidth' instead."
@@ -10303,6 +10591,7 @@ category = "compatibility"
 
 [[checks]]
 id = "DSPTMS"
+handle = true
 function_name = "dsp.TransitionMetrics"
 severity = "error"
 message = "'dsp.TransitionMetrics' has been removed. With appropriate code changes, use 'falltime', 'overshoot', 'risetime', 'settlingtime', 'slewrate' or 'undershoot' instead."
@@ -10310,6 +10599,7 @@ category = "compatibility"
 
 [[checks]]
 id = "FDESPULSESH"
+handle = true
 function_name = "fdesign.pulseshaping"
 severity = "error"
 message = "'fdesign.pulseshaping' has been removed. With appropriate code changes, use 'rcosdesign' or 'gaussdesign' instead."
@@ -10317,6 +10607,7 @@ category = "compatibility"
 
 [[checks]]
 id = "MCDECIM"
+handle = true
 function_name = "mfilt.cicdecim"
 severity = "warning"
 message = "'mfilt.cicdecim' will be removed in a future release. With appropriate code changes, use 'dsp.CICDecimator' instead."
@@ -10324,6 +10615,7 @@ category = "compatibility"
 
 [[checks]]
 id = "MCINTERP"
+handle = true
 function_name = "mfilt.cicinterp"
 severity = "error"
 message = "'mfilt.cicinterp' has been removed. With appropriate code changes, use 'dsp.CICInterpolator' instead."
@@ -10331,6 +10623,7 @@ category = "compatibility"
 
 [[checks]]
 id = "MFARROW"
+handle = true
 function_name = "mfilt.farrowsrc"
 severity = "error"
 message = "'mfilt.farrowsrc' has been removed. With appropriate code changes, use 'dsp.FarrowRateConverter' instead."
@@ -10338,6 +10631,7 @@ category = "compatibility"
 
 [[checks]]
 id = "MFDECIM"
+handle = true
 function_name = "mfilt.firdecim"
 severity = "warning"
 message = "'mfilt.firdecim' will be removed in a future release. With appropriate code changes, use 'dsp.FIRDecimator' instead."
@@ -10345,6 +10639,7 @@ category = "compatibility"
 
 [[checks]]
 id = "MFTDECIM"
+handle = true
 function_name = "mfilt.firtdecim"
 severity = "warning"
 message = "'mfilt.firtdecim' will be removed in a future release. With appropriate code changes, use 'dsp.FIRDecimator' instead."
@@ -10352,6 +10647,7 @@ category = "compatibility"
 
 [[checks]]
 id = "MFINTERP"
+handle = true
 function_name = "mfilt.firinterp"
 severity = "error"
 message = "'mfilt.firinterp' has been removed. With appropriate code changes, use 'dsp.FIRInterpolator' instead."
@@ -10359,6 +10655,7 @@ category = "compatibility"
 
 [[checks]]
 id = "MFSRC"
+handle = true
 function_name = "mfilt.firsrc"
 severity = "warning"
 message = "'mfilt.firsrc' will be removed in a future release. With appropriate code changes, use 'dsp.FIRRateConverter' instead."
@@ -10366,6 +10663,7 @@ category = "compatibility"
 
 [[checks]]
 id = "MFFTFINTERP"
+handle = true
 function_name = "mfilt.fftfirinterp"
 severity = "error"
 message = "'mfilt.fftfirinterp' has been removed. With appropriate code changes, use 'dsp.FIRInterpolator' instead."
@@ -10373,6 +10671,7 @@ category = "compatibility"
 
 [[checks]]
 id = "MHINTERP"
+handle = true
 function_name = "mfilt.holdinterp"
 severity = "error"
 message = "'mfilt.holdinterp' has been removed. With appropriate code changes, use 'dsp.CICInterpolator' instead."
@@ -10380,6 +10679,7 @@ category = "compatibility"
 
 [[checks]]
 id = "MIDECIM"
+handle = true
 function_name = "mfilt.iirdecim"
 severity = "warning"
 message = "'mfilt.iirdecim' will be removed in a future release. With appropriate code changes, use 'dsp.IIRHalfbandDecimator' instead."
@@ -10387,6 +10687,7 @@ category = "compatibility"
 
 [[checks]]
 id = "MIINTERP"
+handle = true
 function_name = "mfilt.iirinterp"
 severity = "error"
 message = "'mfilt.iirinterp' has been removed. With appropriate code changes, use 'dsp.IIRHalfbandInterpolator' instead."
@@ -10394,6 +10695,7 @@ category = "compatibility"
 
 [[checks]]
 id = "MIWDFDECIM"
+handle = true
 function_name = "mfilt.iirwdfdecim"
 severity = "warning"
 message = "'mfilt.iirwdfdecim' will be removed in a future release. With appropriate code changes, use 'dsp.IIRHalfbandDecimator' instead."
@@ -10401,6 +10703,7 @@ category = "compatibility"
 
 [[checks]]
 id = "MIWDFINTERP"
+handle = true
 function_name = "mfilt.iirwdfinterp"
 severity = "warning"
 message = "'mfilt.iirwdfinterp' will be removed in a future release. With appropriate code changes, use 'dsp.IIRHalfbandInterpolator' instead."
@@ -10408,6 +10711,7 @@ category = "compatibility"
 
 [[checks]]
 id = "MLINTERP"
+handle = true
 function_name = "mfilt.linearinterp"
 severity = "error"
 message = "'mfilt.linearinterp' has been removed. With appropriate code changes, use 'dsp.CICInterpolator' instead."
@@ -10415,6 +10719,7 @@ category = "compatibility"
 
 [[checks]]
 id = "MFFDCM"
+handle = true
 function_name = "mfilt.firfracdecim"
 severity = "error"
 message = "'mfilt.firfracdecim' has been removed. With appropriate code changes, use 'dsp.FIRRateConverter' instead."
@@ -10422,6 +10727,7 @@ category = "compatibility"
 
 [[checks]]
 id = "MFFINTRP"
+handle = true
 function_name = "mfilt.firfracinterp"
 severity = "error"
 message = "'mfilt.firfracinterp' has been removed. With appropriate code changes, use 'dsp.FIRRateConverter' instead."
@@ -10429,13 +10735,15 @@ category = "compatibility"
 
 [[checks]]
 id = "DSPTS"
+handle = true
 function_name = "dsp.TimeScope"
-severity = "warning"
-message = "'dsp.TimeScope' will be removed in a future release. Use 'timescope' instead, which is a direct replacement."
+severity = "error"
+message = "'dsp.TimeScope' has been removed. Use 'timescope' instead, which is a direct replacement."
 category = "compatibility"
 
 [[checks]]
 id = "DSPCEP2LPC"
+handle = true
 function_name = "dsp.CepstralToLPC"
 severity = "error"
 message = "'dsp.CepstralToLPC' has been removed. There is no simple replacement for this."
@@ -10443,6 +10751,7 @@ category = "compatibility"
 
 [[checks]]
 id = "DSPLPC2AUTOCORR"
+handle = true
 function_name = "dsp.LPCToAutocorrelation"
 severity = "error"
 message = "'dsp.LPCToAutocorrelation' has been removed. With appropriate code changes, use 'poly2ac' instead."
@@ -10450,6 +10759,7 @@ category = "compatibility"
 
 [[checks]]
 id = "DSPLPC2CEP"
+handle = true
 function_name = "dsp.LPCToCepstral"
 severity = "error"
 message = "'dsp.LPCToCepstral' has been removed. There is no simple replacement for this."
@@ -10457,6 +10767,7 @@ category = "compatibility"
 
 [[checks]]
 id = "DSPLPC2LSF"
+handle = true
 function_name = "dsp.LPCToLSF"
 severity = "error"
 message = "'dsp.LPCToLSF' has been removed. With appropriate code changes, use 'poly2lsf' instead."
@@ -10464,6 +10775,7 @@ category = "compatibility"
 
 [[checks]]
 id = "DSPLPC2RC"
+handle = true
 function_name = "dsp.LPCToRC"
 severity = "error"
 message = "'dsp.LPCToRC' has been removed. With appropriate code changes, use 'poly2rc' instead."
@@ -10471,6 +10783,7 @@ category = "compatibility"
 
 [[checks]]
 id = "DSPLSF2LPC"
+handle = true
 function_name = "dsp.LSFToLPC"
 severity = "error"
 message = "'dsp.LSFToLPC' has been removed. With appropriate code changes, use 'lsf2poly' instead."
@@ -10478,6 +10791,7 @@ category = "compatibility"
 
 [[checks]]
 id = "DSPLSP2LPC"
+handle = true
 function_name = "dsp.LSPToLPC"
 severity = "error"
 message = "'dsp.LSPToLPC' has been removed. There is no simple replacement for this."
@@ -10485,6 +10799,7 @@ category = "compatibility"
 
 [[checks]]
 id = "DSPRC2AUTOCORR"
+handle = true
 function_name = "dsp.RCToAutocorrelation"
 severity = "error"
 message = "'dsp.RCToAutocorrelation' has been removed. With appropriate code changes, use 'rc2ac' instead."
@@ -10492,6 +10807,7 @@ category = "compatibility"
 
 [[checks]]
 id = "DSPRC2LPC"
+handle = true
 function_name = "dsp.RCToLPC"
 severity = "error"
 message = "'dsp.RCToLPC' has been removed. With appropriate code changes, use 'rc2poly' instead."
@@ -10499,6 +10815,7 @@ category = "compatibility"
 
 [[checks]]
 id = "DSPBURGEST"
+handle = true
 function_name = "dsp.BurgAREstimator"
 severity = "error"
 message = "'dsp.BurgAREstimator' has been removed. With appropriate code changes, use 'arburg' instead."
@@ -10506,6 +10823,7 @@ category = "compatibility"
 
 [[checks]]
 id = "DSPBURGSPECEST"
+handle = true
 function_name = "dsp.BurgSpectrumEstimator"
 severity = "error"
 message = "'dsp.BurgSpectrumEstimator' has been removed. With appropriate code changes, use 'pburg' instead."
@@ -10513,6 +10831,7 @@ category = "compatibility"
 
 [[checks]]
 id = "DSPDCT"
+handle = true
 function_name = "dsp.DCT"
 severity = "error"
 message = "'dsp.DCT' has been removed. With appropriate code changes, use 'dct' instead."
@@ -10520,6 +10839,7 @@ category = "compatibility"
 
 [[checks]]
 id = "DSPIDCT"
+handle = true
 function_name = "dsp.IDCT"
 severity = "error"
 message = "'dsp.IDCT' has been removed. With appropriate code changes, use 'idct' instead."
@@ -10527,6 +10847,7 @@ category = "compatibility"
 
 [[checks]]
 id = "DSPPARAMEQ"
+handle = true
 function_name = "dsp.ParametricEQFilter"
 severity = "error"
 message = "'dsp.ParametricEQFilter' has been removed. With appropriate code changes, use 'designParamEQ' or 'MultibandParametricEQ' instead."
@@ -10534,6 +10855,7 @@ category = "compatibility"
 
 [[checks]]
 id = "DSPSCALARQUANTDEC"
+handle = true
 function_name = "dsp.ScalarQuantizerDecoder"
 severity = "error"
 message = "'dsp.ScalarQuantizerDecoder' has been removed. There is no simple replacement for this."
@@ -10541,6 +10863,7 @@ category = "compatibility"
 
 [[checks]]
 id = "DSPSCALARQUANTENC"
+handle = true
 function_name = "dsp.ScalarQuantizerEncoder"
 severity = "error"
 message = "'dsp.ScalarQuantizerEncoder' has been removed. There is no simple replacement for this."
@@ -10548,6 +10871,7 @@ category = "compatibility"
 
 [[checks]]
 id = "DSPUNIDEC"
+handle = true
 function_name = "dsp.UniformDecoder"
 severity = "error"
 message = "'dsp.UniformDecoder' has been removed. With appropriate code changes, use 'udecode' instead."
@@ -10555,6 +10879,7 @@ category = "compatibility"
 
 [[checks]]
 id = "DSPUNIENC"
+handle = true
 function_name = "dsp.UniformEncoder"
 severity = "error"
 message = "'dsp.UniformEncoder' has been removed. With appropriate code changes, use 'uencode' instead."
@@ -10562,6 +10887,7 @@ category = "compatibility"
 
 [[checks]]
 id = "DSPVECQUANTDEC"
+handle = true
 function_name = "dsp.VectorQuantizerDecoder"
 severity = "error"
 message = "'dsp.VectorQuantizerDecoder' has been removed. There is no simple replacement for this."
@@ -10569,6 +10895,7 @@ category = "compatibility"
 
 [[checks]]
 id = "DSPVECQUANTENC"
+handle = true
 function_name = "dsp.VectorQuantizerEncoder"
 severity = "error"
 message = "'dsp.VectorQuantizerEncoder' has been removed. There is no simple replacement for this."
@@ -10576,6 +10903,7 @@ category = "compatibility"
 
 [[checks]]
 id = "DSPSTATELVLS"
+handle = true
 function_name = "dsp.StateLevels"
 severity = "error"
 message = "'dsp.StateLevels' has been removed. With appropriate code changes, use 'statelevels' instead."
@@ -10583,6 +10911,7 @@ category = "compatibility"
 
 [[checks]]
 id = "FAFD"
+handle = true
 function_name = "farrow.fd"
 severity = "error"
 message = "'farrow.fd' has been removed. With appropriate code changes, use 'dfilt.farrowfd' instead."
@@ -10590,6 +10919,7 @@ category = "compatibility"
 
 [[checks]]
 id = "FALFD"
+handle = true
 function_name = "farrow.linearfd"
 severity = "error"
 message = "'farrow.linearfd' has been removed. With appropriate code changes, use 'dfilt.farrowlinearfd' instead."
@@ -10597,6 +10927,7 @@ category = "compatibility"
 
 [[checks]]
 id = "OPCDASUPP"
+handle = true
 function_name = "opc.daSupport"
 severity = "error"
 message = "'opc.daSupport' has been removed along with the support for OPC DA. To access live OPC data, use the OPC UA standard instead."
@@ -10604,6 +10935,7 @@ category = "compatibility"
 
 [[checks]]
 id = "OPCOPNOSF"
+handle = true
 function_name = "openosf"
 severity = "error"
 message = "'openosf' has been removed along with the support for OPC DA. To access live OPC data, use the OPC UA standard instead."
@@ -10611,6 +10943,7 @@ category = "compatibility"
 
 [[checks]]
 id = "OPCQID"
+handle = true
 function_name = "opcqid"
 severity = "error"
 message = "'opcqid' has been removed along with the support for OPC DA. To access live OPC data, use the OPC UA standard instead."
@@ -10618,6 +10951,7 @@ category = "compatibility"
 
 [[checks]]
 id = "OPCQSTR"
+handle = true
 function_name = "opcqstr"
 severity = "error"
 message = "'opcqstr' has been removed along with the support for OPC DA. To access live OPC data, use the OPC UA standard instead."
@@ -10625,6 +10959,7 @@ category = "compatibility"
 
 [[checks]]
 id = "OPCQPRT"
+handle = true
 function_name = "opcqparts"
 severity = "error"
 message = "'opcqparts' has been removed along with the support for OPC DA. To access live OPC data, use the OPC UA standard instead."
@@ -10632,6 +10967,7 @@ category = "compatibility"
 
 [[checks]]
 id = "OPCDAQS"
+handle = true
 function_name = "opc.daQualityString"
 severity = "error"
 message = "'opc.daQualityString' has been removed along with the support for OPC DA. To access live OPC data, use the OPC UA standard instead."
@@ -10639,6 +10975,7 @@ category = "compatibility"
 
 [[checks]]
 id = "OPCDAEXPL"
+handle = true
 function_name = "opcDataAccessExplorer"
 severity = "error"
 message = "'opcDataAccessExplorer' has been removed along with the support for OPC DA. To access live OPC data, use the OPC UA standard instead."
@@ -10646,13 +10983,15 @@ category = "compatibility"
 
 [[checks]]
 id = "I2CFUN"
+handle = true
 function_name = "i2c"
-severity = "warning"
-message = "'i2c' will be removed in a future release. With appropriate code changes, use 'device' method of 'ni845x' or 'aardvark' instead."
+severity = "error"
+message = "'i2c' has been removed. With appropriate code changes, use 'device' method of 'ni845x' or 'aardvark' instead."
 category = "compatibility"
 
 [[checks]]
 id = "IVIDC"
+handle = true
 function_name = "instrument.ivic.IviDCPwr"
 severity = "warning"
 message = "'instrument.ivic.IviDCPwr' will be removed in a future release. With appropriate code changes, use 'ividev' instead."
@@ -10660,6 +10999,7 @@ category = "compatibility"
 
 [[checks]]
 id = "IVIDM"
+handle = true
 function_name = "instrument.ivic.IviDmm"
 severity = "warning"
 message = "'instrument.ivic.IviDmm' will be removed in a future release. With appropriate code changes, use 'ividev' instead."
@@ -10667,6 +11007,7 @@ category = "compatibility"
 
 [[checks]]
 id = "IVIFG"
+handle = true
 function_name = "instrument.ivic.IviFgen"
 severity = "warning"
 message = "'instrument.ivic.IviFgen' will be removed in a future release. With appropriate code changes, use 'ividev' instead."
@@ -10674,6 +11015,7 @@ category = "compatibility"
 
 [[checks]]
 id = "IVIPW"
+handle = true
 function_name = "instrument.ivic.IviPwrMeter"
 severity = "warning"
 message = "'instrument.ivic.IviPwrMeter' will be removed in a future release. With appropriate code changes, use 'ividev' instead."
@@ -10681,6 +11023,7 @@ category = "compatibility"
 
 [[checks]]
 id = "IVIRF"
+handle = true
 function_name = "instrument.ivic.IviRFSigGen"
 severity = "warning"
 message = "'instrument.ivic.IviRFSigGen' will be removed in a future release. With appropriate code changes, use 'ividev' instead."
@@ -10688,6 +11031,7 @@ category = "compatibility"
 
 [[checks]]
 id = "IVISP"
+handle = true
 function_name = "instrument.ivic.IviSpecAn"
 severity = "warning"
 message = "'instrument.ivic.IviSpecAn' will be removed in a future release. With appropriate code changes, use 'ividev' instead."
@@ -10695,6 +11039,7 @@ category = "compatibility"
 
 [[checks]]
 id = "IVISW"
+handle = true
 function_name = "instrument.ivic.IviSwtch"
 severity = "warning"
 message = "'instrument.ivic.IviSwtch' will be removed in a future release. With appropriate code changes, use 'ividev' instead."
@@ -10702,6 +11047,7 @@ category = "compatibility"
 
 [[checks]]
 id = "IVISC"
+handle = true
 function_name = "instrument.ivic.IviScope"
 severity = "warning"
 message = "'instrument.ivic.IviScope' will be removed in a future release. With appropriate code changes, use 'ividev' instead."
@@ -10709,76 +11055,87 @@ category = "compatibility"
 
 [[checks]]
 id = "INSTRR"
+handle = true
 function_name = "instrreset"
-severity = "warning"
-message = "'instrreset' will be removed in a future release. With appropriate code changes, instead use 'delete(serialportfind)', 'delete(tcpclientfind)', 'delete(tcpserverfind)', 'delete(udpportfind)', 'delete(visadevfind)', 'delete(aardvarkfind)', 'delete(ni845xfind)', or 'delete(icdevicefind)' when 'LegacyMode' for icdevice is false."
+severity = "error"
+message = "'instrreset' has been removed. With appropriate code changes, instead use 'delete(serialportfind)', 'delete(tcpclientfind)', 'delete(tcpserverfind)', 'delete(udpportfind)', 'delete(visadevfind)', 'delete(aardvarkfind)', 'delete(ni845xfind)', or 'delete(icdevicefind)' when 'LegacyMode' for icdevice is false."
 category = "compatibility"
 
 [[checks]]
 id = "INSTRH"
+handle = true
 function_name = "instrhelp"
-severity = "warning"
-message = "'instrhelp' will be removed in a future release. Use 'help' instead, which is a direct replacement."
+severity = "error"
+message = "'instrhelp' has been removed. Use 'help' instead, which is a direct replacement."
 category = "compatibility"
 
 [[checks]]
 id = "INSTRF"
+handle = true
 function_name = "instrfind"
-severity = "warning"
-message = "'instrfind' will be removed in a future release. With appropriate code changes, instead use 'serialportfind', 'tcpclientfind', 'tcpserverfind', 'udpportfind', 'visadevfind', 'aardvarkfind', 'ni845xfind', or 'icdevicefind' when 'LegacyMode' for icdevice is false."
+severity = "error"
+message = "'instrfind' has been removed. With appropriate code changes, instead use 'serialportfind', 'tcpclientfind', 'tcpserverfind', 'udpportfind', 'visadevfind', 'aardvarkfind', 'ni845xfind', or 'icdevicefind' when 'LegacyMode' for icdevice is false."
 category = "compatibility"
 
 [[checks]]
 id = "INSTFA"
+handle = true
 function_name = "instrfindall"
-severity = "warning"
-message = "'instrfindall' will be removed in a future release. With appropriate code changes, instead use 'serialportfind', 'tcpclientfind', 'tcpserverfind', 'udpportfind', 'visadevfind', 'aardvarkfind', 'ni845xfind', or 'icdevicefind' when 'LegacyMode' for icdevice is false."
+severity = "error"
+message = "'instrfindall' has been removed. With appropriate code changes, instead use 'serialportfind', 'tcpclientfind', 'tcpserverfind', 'udpportfind', 'visadevfind', 'aardvarkfind', 'ni845xfind', or 'icdevicefind' when 'LegacyMode' for icdevice is false."
 category = "compatibility"
 
 [[checks]]
 id = "INSTCA"
+handle = true
 function_name = "instrcallback"
-severity = "warning"
-message = "'instrcallback' will be removed in a future release. There is no simple replacement for this."
+severity = "error"
+message = "'instrcallback' has been removed. There is no simple replacement for this."
 category = "compatibility"
 
 [[checks]]
 id = "INSTRN"
+handle = true
 function_name = "instrnotify"
-severity = "warning"
-message = "'instrnotify' will be removed in a future release. There is no simple replacement for this."
+severity = "error"
+message = "'instrnotify' has been removed. There is no simple replacement for this."
 category = "compatibility"
 
 [[checks]]
 id = "MKMID"
+handle = true
 function_name = "makemid"
-severity = "warning"
-message = "'makemid' will be removed in a future release. There is no simple replacement for this."
+severity = "error"
+message = "'makemid' has been removed. There is no simple replacement for this."
 category = "compatibility"
 
 [[checks]]
 id = "MIEIT"
+handle = true
 function_name = "midedit"
-severity = "warning"
-message = "'midedit' will be removed in a future release. There is no simple replacement for this."
+severity = "error"
+message = "'midedit' has been removed. There is no simple replacement for this."
 category = "compatibility"
 
 [[checks]]
 id = "MIDTT"
+handle = true
 function_name = "midtest"
-severity = "warning"
-message = "'midtest' will be removed in a future release. There is no simple replacement for this."
+severity = "error"
+message = "'midtest' has been removed. There is no simple replacement for this."
 category = "compatibility"
 
 [[checks]]
 id = "TMTL"
+handle = true
 function_name = "tmtool"
-severity = "warning"
-message = "'tmtool' will be removed in a future release. Use 'serialExplorer', 'tcpipExplorer', 'udpExplorer', 'visaExplorer', or 'instrumentExplorer' instead."
+severity = "error"
+message = "'tmtool' has been removed. Use 'serialExplorer', 'tcpipExplorer', 'udpExplorer', 'visaExplorer', or 'instrumentExplorer' instead."
 category = "compatibility"
 
 [[checks]]
 id = "IMJAVA"
+handle = true
 function_name = "im2java"
 severity = "error"
 message = "'im2java' has been removed. There is no simple replacement for this."
@@ -10786,6 +11143,7 @@ category = "compatibility"
 
 [[checks]]
 id = "ECF2LV"
+handle = true
 function_name = "ecef2lv"
 severity = "error"
 message = "'ecef2lv' has been removed. With appropriate code changes, use 'ecef2enu' instead."
@@ -10793,6 +11151,7 @@ category = "compatibility"
 
 [[checks]]
 id = "LV2ECF"
+handle = true
 function_name = "lv2ecef"
 severity = "error"
 message = "'lv2ecef' has been removed. With appropriate code changes, use 'enu2ecef' instead."
@@ -10800,6 +11159,7 @@ category = "compatibility"
 
 [[checks]]
 id = "RDFLDS"
+handle = true
 function_name = "readfields"
 severity = "error"
 message = "'readfields' has been removed. With appropriate code changes, use 'readmatrix', 'readtable', or a different file import function instead."
@@ -10807,6 +11167,7 @@ category = "compatibility"
 
 [[checks]]
 id = "RDMTX"
+handle = true
 function_name = "readmtx"
 severity = "error"
 message = "'readmtx' has been removed. With appropriate code changes, use 'readmatrix', 'readtable', or a different file import function instead."
@@ -10814,6 +11175,7 @@ category = "compatibility"
 
 [[checks]]
 id = "RDFK5"
+handle = true
 function_name = "readfk5"
 severity = "error"
 message = "'readfk5' has been removed. There is no simple replacement for this."
@@ -10821,6 +11183,7 @@ category = "compatibility"
 
 [[checks]]
 id = "SPCRD"
+handle = true
 function_name = "spcread"
 severity = "error"
 message = "'spcread' has been removed. With appropriate code changes, use 'readmatrix' instead."
@@ -10828,6 +11191,7 @@ category = "compatibility"
 
 [[checks]]
 id = "COLORM"
+handle = true
 function_name = "colorm"
 severity = "error"
 message = "'colorm' has been removed. There is no simple replacement for this."
@@ -10835,6 +11199,7 @@ category = "compatibility"
 
 [[checks]]
 id = "GTSEED"
+handle = true
 function_name = "getseeds"
 severity = "error"
 message = "'getseeds' has been removed. There is no simple replacement for this."
@@ -10842,6 +11207,7 @@ category = "compatibility"
 
 [[checks]]
 id = "MKMAP"
+handle = true
 function_name = "makemapped"
 severity = "error"
 message = "'makemapped' has been removed. There is no simple replacement for this."
@@ -10849,6 +11215,7 @@ category = "compatibility"
 
 [[checks]]
 id = "MOBJS"
+handle = true
 function_name = "mobjects"
 severity = "error"
 message = "'mobjects' has been removed. There is no simple replacement for this."
@@ -10856,6 +11223,7 @@ category = "compatibility"
 
 [[checks]]
 id = "SEEDM"
+handle = true
 function_name = "seedm"
 severity = "error"
 message = "'seedm' has been removed. There is no simple replacement for this."
@@ -10863,6 +11231,7 @@ category = "compatibility"
 
 [[checks]]
 id = "LKBLNK"
+handle = true
 function_name = "leadblnk"
 severity = "error"
 message = "'leadblnk' has been removed. With appropriate code changes, use 'strtrim' instead."
@@ -10870,6 +11239,7 @@ category = "compatibility"
 
 [[checks]]
 id = "SFTSPC"
+handle = true
 function_name = "shiftspc"
 severity = "error"
 message = "'shiftspc' has been removed. With appropriate code changes, use 'strjust' instead."
@@ -10877,6 +11247,7 @@ category = "compatibility"
 
 [[checks]]
 id = "GTR2GLT"
+handle = true
 function_name = "geocentric2geodeticLat"
 severity = "error"
 message = "'geocentric2geodeticLat' has been removed. With appropriate code changes, use 'geodeticLatitudeFromGeocentric' instead."
@@ -10884,6 +11255,7 @@ category = "compatibility"
 
 [[checks]]
 id = "GLT2GTR"
+handle = true
 function_name = "geodetic2geocentricLat"
 severity = "error"
 message = "'geodetic2geocentricLat' has been removed. With appropriate code changes, use 'geocentricLatitude' instead."
@@ -10891,6 +11263,7 @@ category = "compatibility"
 
 [[checks]]
 id = "MEXTM"
+handle = true
 function_name = "extractm"
 severity = "error"
 message = "'extractm' has been removed. With appropriate code changes, use geospatial tables instead."
@@ -10898,6 +11271,7 @@ category = "compatibility"
 
 [[checks]]
 id = "QRYDT"
+handle = true
 function_name = "qrydata"
 severity = "error"
 message = "'qrydata' has been removed. There is no simple replacement for this."
@@ -10905,6 +11279,7 @@ category = "compatibility"
 
 [[checks]]
 id = "CMBNT"
+handle = true
 function_name = "combntns"
 severity = "error"
 message = "'combntns' has been removed. Use 'nchoosek' instead, which is a direct replacement."
@@ -10912,6 +11287,7 @@ category = "compatibility"
 
 [[checks]]
 id = "FPSNM"
+handle = true
 function_name = "fipsname"
 severity = "error"
 message = "'fipsname' has been removed. With appropriate code changes, use 'readgeotable' instead."
@@ -10919,6 +11295,7 @@ category = "compatibility"
 
 [[checks]]
 id = "GREPF"
+handle = true
 function_name = "grepfields"
 severity = "error"
 message = "'grepfields' has been removed. With appropriate code changes, use 'textscan' instead."
@@ -10926,6 +11303,7 @@ category = "compatibility"
 
 [[checks]]
 id = "TRGLN"
+handle = true
 function_name = "tgrline"
 severity = "error"
 message = "'tgrline' has been removed. With appropriate code changes, use 'readgeotable' instead."
@@ -10933,6 +11311,7 @@ category = "compatibility"
 
 [[checks]]
 id = "CLRUI"
+handle = true
 function_name = "colorui"
 severity = "error"
 message = "'colorui' has been removed. With appropriate code changes, use 'uisetcolor' instead."
@@ -10940,6 +11319,7 @@ category = "compatibility"
 
 [[checks]]
 id = "COMET"
+handle = true
 function_name = "cometm"
 severity = "error"
 message = "'cometm' has been removed. With appropriate code changes, use 'comet' instead."
@@ -10947,6 +11327,7 @@ category = "compatibility"
 
 [[checks]]
 id = "COMET3"
+handle = true
 function_name = "comet3m"
 severity = "error"
 message = "'comet3m' has been removed. With appropriate code changes, use 'comet3' instead."
@@ -10954,6 +11335,7 @@ category = "compatibility"
 
 [[checks]]
 id = "MLYER"
+handle = true
 function_name = "mlayers"
 severity = "error"
 message = "'mlayers' has been removed. There is no simple replacement for this."
@@ -10961,6 +11343,7 @@ category = "compatibility"
 
 [[checks]]
 id = "RSTCK"
+handle = true
 function_name = "restack"
 severity = "error"
 message = "'restack' has been removed. With appropriate code changes, use 'uistack' instead."
@@ -10968,6 +11351,7 @@ category = "compatibility"
 
 [[checks]]
 id = "RTLYR"
+handle = true
 function_name = "rootlayr"
 severity = "error"
 message = "'rootlayr' has been removed. There is no simple replacement for this."
@@ -10975,6 +11359,7 @@ category = "compatibility"
 
 [[checks]]
 id = "EASTF"
+handle = true
 function_name = "eastof"
 severity = "error"
 message = "'eastof' has been removed. With appropriate code changes, use 'mod' instead."
@@ -10982,6 +11367,7 @@ category = "compatibility"
 
 [[checks]]
 id = "WESTF"
+handle = true
 function_name = "westof"
 severity = "error"
 message = "'westof' has been removed. With appropriate code changes, use 'mod' instead."
@@ -10989,6 +11375,7 @@ category = "compatibility"
 
 [[checks]]
 id = "AT2GD"
+handle = true
 function_name = "aut2geod"
 severity = "error"
 message = "'aut2geod' has been removed. With appropriate code changes, use 'map.geodesy.AuthalicLatitudeConverter' instead."
@@ -10996,6 +11383,7 @@ category = "compatibility"
 
 [[checks]]
 id = "CN2GD"
+handle = true
 function_name = "cen2geod"
 severity = "error"
 message = "'cen2geod' has been removed. With appropriate code changes, use 'geodeticLatitudeFromGeocentric' instead."
@@ -11003,6 +11391,7 @@ category = "compatibility"
 
 [[checks]]
 id = "CF2GD"
+handle = true
 function_name = "cnf2geod"
 severity = "error"
 message = "'cnf2geod' has been removed. With appropriate code changes, use 'map.geodesy.ConformalLatitudeConverter' instead."
@@ -11010,6 +11399,7 @@ category = "compatibility"
 
 [[checks]]
 id = "IS2GD"
+handle = true
 function_name = "iso2geod"
 severity = "error"
 message = "'iso2geod' has been removed. With appropriate code changes, use 'map.geodesy.IsometricLatitudeConverter' instead."
@@ -11017,6 +11407,7 @@ category = "compatibility"
 
 [[checks]]
 id = "PR2GD"
+handle = true
 function_name = "par2geod"
 severity = "error"
 message = "'par2geod' has been removed. With appropriate code changes, use 'geodeticLatitudeFromParametric' instead."
@@ -11024,6 +11415,7 @@ category = "compatibility"
 
 [[checks]]
 id = "RC2GD"
+handle = true
 function_name = "rec2geod"
 severity = "error"
 message = "'rec2geod' has been removed. With appropriate code changes, use 'map.geodesy.RectifyingLatitudeConverter' instead."
@@ -11031,6 +11423,7 @@ category = "compatibility"
 
 [[checks]]
 id = "GD2AT"
+handle = true
 function_name = "geod2aut"
 severity = "error"
 message = "'geod2aut' has been removed. With appropriate code changes, use 'map.geodesy.AuthalicLatitudeConverter' instead."
@@ -11038,6 +11431,7 @@ category = "compatibility"
 
 [[checks]]
 id = "GD2CN"
+handle = true
 function_name = "geod2cen"
 severity = "error"
 message = "'geod2cen' has been removed. With appropriate code changes, use 'geocentricLatitude' instead."
@@ -11045,6 +11439,7 @@ category = "compatibility"
 
 [[checks]]
 id = "GD2CF"
+handle = true
 function_name = "geod2cnf"
 severity = "error"
 message = "'geod2cnf' has been removed. With appropriate code changes, use 'map.geodesy.ConformalLatitudeConverter' instead."
@@ -11052,6 +11447,7 @@ category = "compatibility"
 
 [[checks]]
 id = "GD2IS"
+handle = true
 function_name = "geod2iso"
 severity = "error"
 message = "'geod2iso' has been removed. With appropriate code changes, use 'map.geodesy.IsometricLatitudeConverter' instead."
@@ -11059,6 +11455,7 @@ category = "compatibility"
 
 [[checks]]
 id = "GD2PR"
+handle = true
 function_name = "geod2par"
 severity = "error"
 message = "'geod2par' has been removed. With appropriate code changes, use 'parametricLatitude' instead."
@@ -11066,6 +11463,7 @@ category = "compatibility"
 
 [[checks]]
 id = "GD2RC"
+handle = true
 function_name = "geod2rec"
 severity = "error"
 message = "'geod2rec' has been removed. With appropriate code changes, use 'map.geodesy.RectifyingLatitudeConverter' instead."
@@ -11073,6 +11471,7 @@ category = "compatibility"
 
 [[checks]]
 id = "DCWDT"
+handle = true
 function_name = "dcwdata"
 severity = "error"
 message = "'dcwdata' has been removed. With appropriate code changes, use 'vmap0data' instead."
@@ -11080,6 +11479,7 @@ category = "compatibility"
 
 [[checks]]
 id = "DCWGZ"
+handle = true
 function_name = "dcwgaz"
 severity = "error"
 message = "'dcwgaz' has been removed. With appropriate code changes, use 'vmap0ui' instead."
@@ -11087,6 +11487,7 @@ category = "compatibility"
 
 [[checks]]
 id = "DCWRD"
+handle = true
 function_name = "dcwread"
 severity = "error"
 message = "'dcwread' has been removed. With appropriate code changes, use 'vmap0read' instead."
@@ -11094,6 +11495,7 @@ category = "compatibility"
 
 [[checks]]
 id = "DCWHD"
+handle = true
 function_name = "dcwrhead"
 severity = "error"
 message = "'dcwrhead' has been removed. With appropriate code changes, use 'vmap0rhead' instead."
@@ -11101,6 +11503,7 @@ category = "compatibility"
 
 [[checks]]
 id = "SYMBM"
+handle = true
 function_name = "symbolm"
 severity = "error"
 message = "'symbolm' has been removed. With appropriate code changes, use 'scatterm' instead."
@@ -11108,6 +11511,7 @@ category = "compatibility"
 
 [[checks]]
 id = "TRACKUI"
+handle = true
 function_name = "trackui"
 severity = "error"
 message = "'trackui' has been removed. With appropriate code changes, use 'trackg' instead."
@@ -11115,6 +11519,7 @@ category = "compatibility"
 
 [[checks]]
 id = "SCIRCLUI"
+handle = true
 function_name = "scirclui"
 severity = "error"
 message = "'scirclui' has been removed. With appropriate code changes, use 'scircleg' instead."
@@ -11122,6 +11527,7 @@ category = "compatibility"
 
 [[checks]]
 id = "ORIGINUI"
+handle = true
 function_name = "originui"
 severity = "error"
 message = "'originui' has been removed. With appropriate code changes, use 'setm' instead."
@@ -11129,6 +11535,7 @@ category = "compatibility"
 
 [[checks]]
 id = "PARALLELUI"
+handle = true
 function_name = "parallelui"
 severity = "error"
 message = "'parallelui' has been removed. With appropriate code changes, use 'setm' instead."
@@ -11136,6 +11543,7 @@ category = "compatibility"
 
 [[checks]]
 id = "SECTORG"
+handle = true
 function_name = "sectorg"
 severity = "error"
 message = "'sectorg' has been removed. With appropriate code changes, use 'scircle1' instead."
@@ -11143,6 +11551,7 @@ category = "compatibility"
 
 [[checks]]
 id = "CLRMENU"
+handle = true
 function_name = "clrmenu"
 severity = "error"
 message = "'clrmenu' has been removed. With appropriate code changes, use 'colormapeditor' instead."
@@ -11150,6 +11559,7 @@ category = "compatibility"
 
 [[checks]]
 id = "MAPTRIM"
+handle = true
 function_name = "maptrim"
 severity = "error"
 message = "'maptrim' has been removed. With appropriate code changes, use 'geocrop' or 'geoclip' instead."
@@ -11157,6 +11567,7 @@ category = "compatibility"
 
 [[checks]]
 id = "SURFDIST"
+handle = true
 function_name = "surfdist"
 severity = "error"
 message = "'surfdist' has been removed. With appropriate code changes, use 'distance' instead."
@@ -11164,6 +11575,7 @@ category = "compatibility"
 
 [[checks]]
 id = "DEMDATAUI"
+handle = true
 function_name = "demdataui"
 severity = "error"
 message = "'demdataui' has been removed. With appropriate code changes, use 'readgeoraster' instead."
@@ -11171,6 +11583,7 @@ category = "compatibility"
 
 [[checks]]
 id = "VMAP0UI"
+handle = true
 function_name = "vmap0ui"
 severity = "error"
 message = "'vmap0ui' has been removed. With appropriate code changes, use 'vmap0read' instead."
@@ -11178,6 +11591,7 @@ category = "compatibility"
 
 [[checks]]
 id = "MFWDT"
+handle = true
 function_name = "mfwdtran"
 severity = "error"
 message = "'mfwdtran' has been removed. With appropriate code changes, use 'projfwd' instead."
@@ -11185,6 +11599,7 @@ category = "compatibility"
 
 [[checks]]
 id = "MINVT"
+handle = true
 function_name = "minvtran"
 severity = "error"
 message = "'minvtran' has been removed. With appropriate code changes, use 'projinv' instead."
@@ -11192,6 +11607,7 @@ category = "compatibility"
 
 [[checks]]
 id = "SDTSINFO"
+handle = true
 function_name = "sdtsinfo"
 severity = "error"
 message = "'sdtsinfo' has been removed. With appropriate code changes, use 'georasterinfo' instead."
@@ -11199,6 +11615,7 @@ category = "compatibility"
 
 [[checks]]
 id = "LATLON2PIX"
+handle = true
 function_name = "latlon2pix"
 severity = "error"
 message = "'latlon2pix' has been removed. With appropriate code changes, use 'geographicToIntrinsic' instead."
@@ -11206,6 +11623,7 @@ category = "compatibility"
 
 [[checks]]
 id = "LTLNV"
+handle = true
 function_name = "ltln2val"
 severity = "error"
 message = "'ltln2val' has been removed. With appropriate code changes, use 'geointerp' instead."
@@ -11213,6 +11631,7 @@ category = "compatibility"
 
 [[checks]]
 id = "MAP2PIX"
+handle = true
 function_name = "map2pix"
 severity = "error"
 message = "'map2pix' has been removed. With appropriate code changes, use 'worldToIntrinsic' instead."
@@ -11220,6 +11639,7 @@ category = "compatibility"
 
 [[checks]]
 id = "MAPTM"
+handle = true
 function_name = "maptrims"
 severity = "error"
 message = "'maptrims' has been removed. With appropriate code changes, use 'geocrop' instead."
@@ -11227,6 +11647,7 @@ category = "compatibility"
 
 [[checks]]
 id = "MESHGRAT"
+handle = true
 function_name = "meshgrat"
 severity = "error"
 message = "'meshgrat' has been removed. With appropriate code changes, use 'geographicGrid', 'linspace' or 'ndgrid' instead."
@@ -11234,6 +11655,7 @@ category = "compatibility"
 
 [[checks]]
 id = "NANM"
+handle = true
 function_name = "nanm"
 severity = "error"
 message = "'nanm' has been removed. With appropriate code changes, use 'nan' instead."
@@ -11241,6 +11663,7 @@ category = "compatibility"
 
 [[checks]]
 id = "ONEM"
+handle = true
 function_name = "onem"
 severity = "error"
 message = "'onem' has been removed. With appropriate code changes, use 'ones' instead."
@@ -11248,6 +11671,7 @@ category = "compatibility"
 
 [[checks]]
 id = "PIX2LATLON"
+handle = true
 function_name = "pix2latlon"
 severity = "error"
 message = "'pix2latlon' has been removed. With appropriate code changes, use 'intrinsicToGeographic' instead."
@@ -11255,6 +11679,7 @@ category = "compatibility"
 
 [[checks]]
 id = "PIX2MAP"
+handle = true
 function_name = "pix2map"
 severity = "error"
 message = "'pix2map' has been removed. With appropriate code changes, use 'intrinsicToWorld' instead."
@@ -11262,6 +11687,7 @@ category = "compatibility"
 
 [[checks]]
 id = "PIXCENTERS"
+handle = true
 function_name = "pixcenters"
 severity = "error"
 message = "'pixcenters' has been removed. With appropriate code changes, use 'worldGrid' or 'geographicGrid' instead."
@@ -11269,6 +11695,7 @@ category = "compatibility"
 
 [[checks]]
 id = "RESZM"
+handle = true
 function_name = "resizem"
 severity = "error"
 message = "'resizem' has been removed. With appropriate code changes, use 'georesize' or 'imresize' instead."
@@ -11276,6 +11703,7 @@ category = "compatibility"
 
 [[checks]]
 id = "SETLTLN"
+handle = true
 function_name = "setltln"
 severity = "error"
 message = "'setltln' has been removed. With appropriate code changes, use 'intrinsicToGeographic' instead."
@@ -11283,6 +11711,7 @@ category = "compatibility"
 
 [[checks]]
 id = "SETPOSTN"
+handle = true
 function_name = "setpostn"
 severity = "error"
 message = "'setpostn' has been removed. With appropriate code changes, use 'geographicToDiscrete' instead."
@@ -11290,6 +11719,7 @@ category = "compatibility"
 
 [[checks]]
 id = "SPZER"
+handle = true
 function_name = "spzerom"
 severity = "error"
 message = "'spzerom' has been removed. With appropriate code changes, use 'sparse' instead."
@@ -11297,6 +11727,7 @@ category = "compatibility"
 
 [[checks]]
 id = "ZEROM"
+handle = true
 function_name = "zerom"
 severity = "error"
 message = "'zerom' has been removed. With appropriate code changes, use 'zeros' instead."
@@ -11304,13 +11735,15 @@ category = "compatibility"
 
 [[checks]]
 id = "MDTED"
+handle = true
 function_name = "dted"
-severity = "warning"
-message = "'dted' will be removed in a future release. With appropriate code changes, use 'readgeoraster' instead."
+severity = "error"
+message = "'dted' has been removed. With appropriate code changes, use 'readgeoraster' instead."
 category = "compatibility"
 
 [[checks]]
 id = "ETOPO"
+handle = true
 function_name = "etopo"
 severity = "error"
 message = "'etopo' has been removed. With appropriate code changes, use 'readgeoraster' instead."
@@ -11318,6 +11751,7 @@ category = "compatibility"
 
 [[checks]]
 id = "GLDEM"
+handle = true
 function_name = "globedem"
 severity = "error"
 message = "'globedem' has been removed. With appropriate code changes, use 'readgeoraster' instead."
@@ -11325,6 +11759,7 @@ category = "compatibility"
 
 [[checks]]
 id = "GTOPO"
+handle = true
 function_name = "gtopo30"
 severity = "error"
 message = "'gtopo30' has been removed. With appropriate code changes, use 'readgeoraster' instead."
@@ -11332,6 +11767,7 @@ category = "compatibility"
 
 [[checks]]
 id = "SBATH"
+handle = true
 function_name = "satbath"
 severity = "error"
 message = "'satbath' has been removed. With appropriate code changes, use 'readgeoraster' instead."
@@ -11339,6 +11775,7 @@ category = "compatibility"
 
 [[checks]]
 id = "SDTRD"
+handle = true
 function_name = "sdtsdemread"
 severity = "error"
 message = "'sdtsdemread' has been removed. With appropriate code changes, use 'readgeoraster' instead."
@@ -11346,6 +11783,7 @@ category = "compatibility"
 
 [[checks]]
 id = "TBASE"
+handle = true
 function_name = "tbase"
 severity = "error"
 message = "'tbase' has been removed. With appropriate code changes, use 'readgeoraster' instead."
@@ -11353,6 +11791,7 @@ category = "compatibility"
 
 [[checks]]
 id = "USGDM"
+handle = true
 function_name = "usgsdem"
 severity = "error"
 message = "'usgsdem' has been removed. With appropriate code changes, use 'readgeoraster' instead."
@@ -11360,6 +11799,7 @@ category = "compatibility"
 
 [[checks]]
 id = "USGKD"
+handle = true
 function_name = "usgs24kdem"
 severity = "error"
 message = "'usgs24kdem' has been removed. With appropriate code changes, use 'readgeoraster' instead."
@@ -11367,6 +11807,7 @@ category = "compatibility"
 
 [[checks]]
 id = "DMCHN"
+handle = true
 function_name = "mimochan"
 severity = "error"
 message = "'mimochan' has been removed. With appropriate code changes, use 'comm.MIMOChannel' instead."
@@ -11374,6 +11815,7 @@ category = "compatibility"
 
 [[checks]]
 id = "DPGUPDLG"
+handle = true
 function_name = "pagesetupdlg"
 severity = "error"
 message = "'pagesetupdlg' has been removed. With appropriate code changes, use 'uiprintdlg' instead."
@@ -11381,6 +11823,7 @@ category = "compatibility"
 
 [[checks]]
 id = "MTHDPOOL"
+handle = true
 function_name = "parcluster.matlabpool"
 severity = "error"
 message = "'parcluster.matlabpool' has been removed. With appropriate code changes, use 'parpool' instead."
@@ -11388,6 +11831,7 @@ category = "compatibility"
 
 [[checks]]
 id = "PDECT"
+handle = true
 function_name = "pdecont"
 severity = "error"
 message = "'pdecont' has been removed. With appropriate code changes, use 'pdeplot' instead."
@@ -11395,6 +11839,7 @@ category = "compatibility"
 
 [[checks]]
 id = "PDESF"
+handle = true
 function_name = "pdesurf"
 severity = "error"
 message = "'pdesurf' has been removed. With appropriate code changes, use 'pdeplot' instead."
@@ -11402,6 +11847,7 @@ category = "compatibility"
 
 [[checks]]
 id = "POLYCPO"
+handle = true
 function_name = "polyspace.CodeProverOptions"
 severity = "error"
 message = "'polyspace.CodeProverOptions' has been removed. With appropriate code changes, use 'polyspace.Options' instead."
@@ -11409,6 +11855,7 @@ category = "compatibility"
 
 [[checks]]
 id = "POLYBFO"
+handle = true
 function_name = "polyspace.BugFinderOptions"
 severity = "error"
 message = "'polyspace.BugFinderOptions' has been removed. With appropriate code changes, use 'polyspace.Options' instead."
@@ -11416,6 +11863,7 @@ category = "compatibility"
 
 [[checks]]
 id = "PRPRE"
+handle = true
 function_name = "printpreview"
 severity = "warning"
 message = "'printpreview' will be removed in a future release. With appropriate code changes, use 'uiprintdlg' instead."
@@ -11423,6 +11871,7 @@ category = "compatibility"
 
 [[checks]]
 id = "PRDLG"
+handle = true
 function_name = "printdlg"
 severity = "warning"
 message = "'printdlg' will be removed in a future release. With appropriate code changes, use 'uiprintdlg' instead."
@@ -11430,6 +11879,7 @@ category = "compatibility"
 
 [[checks]]
 id = "EXPSE"
+handle = true
 function_name = "exportsetupdlg"
 severity = "warning"
 message = "'exportsetupdlg' will be removed in a future release. With appropriate code changes, use 'uiexportdlg' instead."
@@ -11437,6 +11887,7 @@ category = "compatibility"
 
 [[checks]]
 id = "RWA"
+handle = true
 function_name = "radarWaveformAnalyzer"
 severity = "warning"
 message = "'radarWaveformAnalyzer' will be removed in a future release. Use 'pulseWaveformAnalyzer' instead, which is a direct replacement."
@@ -11444,6 +11895,7 @@ category = "compatibility"
 
 [[checks]]
 id = "RCSFLT"
+handle = true
 function_name = "rcosflt"
 severity = "error"
 message = "'rcosflt' is unsupported and has been removed. With appropriate code changes, use 'rcosdesign' instead."
@@ -11451,6 +11903,7 @@ category = "compatibility"
 
 [[checks]]
 id = "RCSINE"
+handle = true
 function_name = "rcosine"
 severity = "error"
 message = "'rcosine' is unsupported and has been removed. With appropriate code changes, use 'rcosdesign' instead."
@@ -11458,6 +11911,7 @@ category = "compatibility"
 
 [[checks]]
 id = "SVM2SUB"
+handle = true
 function_name = "Simulink.VariantManager.convertToVariant"
 severity = "warning"
 message = "'Simulink.VariantManager.convertToVariant' will be removed in a future release. Use 'Simulink.VariantUtils.convertToVariantSubsystem' instead, which is a direct replacement."
@@ -11465,6 +11919,7 @@ category = "compatibility"
 
 [[checks]]
 id = "SVM2SUBA"
+handle = true
 function_name = "Simulink.VariantManager.convertToVariantAssemblySubsystem"
 severity = "warning"
 message = "'Simulink.VariantManager.convertToVariantAssemblySubsystem' will be removed in a future release. Use 'Simulink.VariantUtils.convertToVariantAssemblySubsystem' instead, which is a direct replacement."
@@ -11472,6 +11927,7 @@ category = "compatibility"
 
 [[checks]]
 id = "SVMVL"
+handle = true
 function_name = "Simulink.VariantManager.variantLegend"
 severity = "warning"
 message = "'Simulink.VariantManager.variantLegend' will be removed in a future release. Use 'Simulink.VariantUtils.variantLegend' instead, which is a direct replacement."
@@ -11479,6 +11935,7 @@ category = "compatibility"
 
 [[checks]]
 id = "SLLWARN"
+handle = true
 function_name = "sllastwarning"
 severity = "warning"
 message = "'sllastwarning' will be removed in a future release. With appropriate code changes, use 'lastwarn' instead."
@@ -11486,6 +11943,7 @@ category = "compatibility"
 
 [[checks]]
 id = "SLLERR1"
+handle = true
 function_name = "sllasterror"
 severity = "warning"
 message = "'sllasterror' will be removed in a future release. Use an identifier on the CATCH block instead."
@@ -11493,6 +11951,7 @@ category = "compatibility"
 
 [[checks]]
 id = "SLLERR2"
+handle = true
 function_name = "sllastdiagnostic"
 severity = "warning"
 message = "'sllastdiagnostic' will be removed in a future release. Use an identifier on the CATCH block instead."
@@ -11500,6 +11959,7 @@ category = "compatibility"
 
 [[checks]]
 id = "MOVIEVW"
+handle = true
 function_name = "movieview"
 severity = "error"
 message = "'movieview' has been removed. Use 'implay' instead, which is a direct replacement."
@@ -11507,6 +11967,7 @@ category = "compatibility"
 
 [[checks]]
 id = "IMAGEVW"
+handle = true
 function_name = "imageview"
 severity = "error"
 message = "'imageview' has been removed. Use 'imshow' instead, which is a direct replacement."
@@ -11514,6 +11975,7 @@ category = "compatibility"
 
 [[checks]]
 id = "SOUNDVW"
+handle = true
 function_name = "soundview"
 severity = "error"
 message = "'soundview' has been removed. With appropriate code changes, use 'audioread' with 'plot' or 'sound' instead."
@@ -11521,6 +11983,7 @@ category = "compatibility"
 
 [[checks]]
 id = "DWVRD"
+handle = true
 function_name = "wavread"
 severity = "error"
 message = "'wavread' has been removed. With appropriate code changes, use 'audioread' instead."
@@ -11528,6 +11991,7 @@ category = "compatibility"
 
 [[checks]]
 id = "DWVWR"
+handle = true
 function_name = "wavwrite"
 severity = "error"
 message = "'wavwrite' has been removed. With appropriate code changes, use 'audiowrite' instead."
@@ -11535,6 +11999,7 @@ category = "compatibility"
 
 [[checks]]
 id = "DWVFINF"
+handle = true
 function_name = "wavfinfo"
 severity = "error"
 message = "'wavfinfo' has been removed. With appropriate code changes, use 'audioinfo' instead."
@@ -11542,6 +12007,7 @@ category = "compatibility"
 
 [[checks]]
 id = "WMCTR"
+handle = true
 function_name = "wmcenter"
 severity = "warning"
 message = "'webmap' and its associated function 'wmcenter' will be removed in a future release. With appropriate code changes, use 'MapCenter' property of geographic axes object instead."
@@ -11549,6 +12015,7 @@ category = "compatibility"
 
 [[checks]]
 id = "WMCLS"
+handle = true
 function_name = "wmclose"
 severity = "warning"
 message = "'webmap' and its associated function 'wmclose' will be removed in a future release. With appropriate code changes, use a geographic axes object and 'close' function instead."
@@ -11556,6 +12023,7 @@ category = "compatibility"
 
 [[checks]]
 id = "WMLMT"
+handle = true
 function_name = "wmlimits"
 severity = "warning"
 message = "'webmap' and its associated function 'wmlimits' will be removed in a future release. With appropriate code changes, use a geographic axes object and 'geolimits' function instead."
@@ -11563,6 +12031,7 @@ category = "compatibility"
 
 [[checks]]
 id = "WMLIN"
+handle = true
 function_name = "wmline"
 severity = "warning"
 message = "'webmap' and its associated function 'wmline' will be removed in a future release. With appropriate code changes, use a geographic axes object and 'geoplot' function instead."
@@ -11570,6 +12039,7 @@ category = "compatibility"
 
 [[checks]]
 id = "WMMKR"
+handle = true
 function_name = "wmmarker"
 severity = "warning"
 message = "'webmap' and its associated function 'wmmarker' will be removed in a future release. With appropriate code changes, use a geographic axes object and 'geoiconchart' function instead."
@@ -11577,6 +12047,7 @@ category = "compatibility"
 
 [[checks]]
 id = "WMPYG"
+handle = true
 function_name = "wmpolygon"
 severity = "warning"
 message = "'webmap' and its associated function 'wmpolygon' will be removed in a future release. With appropriate code changes, use a geographic axes object, a 'geopolyshape' object, and 'geoplot' function instead."
@@ -11584,6 +12055,7 @@ category = "compatibility"
 
 [[checks]]
 id = "WMPNT"
+handle = true
 function_name = "wmprint"
 severity = "warning"
 message = "'webmap' and its associated function 'wmprint' will be removed in a future release. With appropriate code changes, use a geographic axes object and 'exportgraphics' function instead."
@@ -11591,6 +12063,7 @@ category = "compatibility"
 
 [[checks]]
 id = "WMRMV"
+handle = true
 function_name = "wmremove"
 severity = "warning"
 message = "'webmap' and its associated function 'wmremove' will be removed in a future release. With appropriate code changes, use a geographic axes object and 'delete' function instead."
@@ -11598,6 +12071,7 @@ category = "compatibility"
 
 [[checks]]
 id = "WMZOM"
+handle = true
 function_name = "wmzoom"
 severity = "warning"
 message = "'webmap' and its associated function 'wmzoom' will be removed in a future release. With appropriate code changes, use 'ZoomLevel' property of geographic axes object instead."
@@ -11605,6 +12079,7 @@ category = "compatibility"
 
 [[checks]]
 id = "BETALIK1"
+handle = true
 function_name = "betalik1"
 severity = "error"
 message = "'betalik1' has been removed. With appropriate code changes, use 'betalike' instead."
@@ -11612,6 +12087,7 @@ category = "compatibility"
 
 [[checks]]
 id = "SVMSMOSET"
+handle = true
 function_name = "svmsmoset"
 severity = "error"
 message = "'svmsmoset' has been removed. With appropriate code changes, use 'fitcsvm' instead."
@@ -11619,6 +12095,7 @@ category = "compatibility"
 
 [[checks]]
 id = "LTEFS"
+handle = true
 function_name = "ltehdlFramesToSamples"
 severity = "error"
 message = "'ltehdlFramesToSamples' has been removed. Use 'whdlFramesToSamples' instead, which is a direct replacement."
@@ -11626,6 +12103,7 @@ category = "compatibility"
 
 [[checks]]
 id = "LTESF"
+handle = true
 function_name = "ltehdlSamplesToFrames"
 severity = "error"
 message = "'ltehdlSamplesToFrames' has been removed. Use 'whdlSamplesToFrames' instead, which is a direct replacement."
@@ -11633,6 +12111,7 @@ category = "compatibility"
 
 [[checks]]
 id = "VHTLTFDEM"
+handle = true
 function_name = "wlanVHTLTFDemodulate"
 severity = "warning"
 message = "'wlanVHTLTFDemodulate' will be removed in a future release. With appropriate code changes, use 'wlanVHTDemodulate' instead."
@@ -11640,6 +12119,7 @@ category = "compatibility"
 
 [[checks]]
 id = "VHTDATAREC"
+handle = true
 function_name = "wlanVHTDataRecover"
 severity = "warning"
 message = "'wlanVHTDataRecover' will be removed in a future release. With appropriate code changes, use 'wlanVHTDataBitRecover' instead."
@@ -11647,6 +12127,7 @@ category = "compatibility"
 
 [[checks]]
 id = "VHTSIGAREC"
+handle = true
 function_name = "wlanVHTSIGARecover"
 severity = "warning"
 message = "'wlanVHTSIGARecover' will be removed in a future release. With appropriate code changes, use 'wlanVHTSIGABitRecover' instead."
@@ -11654,6 +12135,7 @@ category = "compatibility"
 
 [[checks]]
 id = "VHTSIGBREC"
+handle = true
 function_name = "wlanVHTSIGBRecover"
 severity = "warning"
 message = "'wlanVHTSIGBRecover' will be removed in a future release. With appropriate code changes, use 'wlanVHTSIGBBitRecover' instead."
@@ -12740,24 +13222,24 @@ pattern = "generic"
 [[checks]]
 id = "INSTHWB"
 function_name = "instrhwinfo"
-severity = "warning"
-message = "'instrhwinfo('bluetooth',...)' will be removed in a future release. With appropriate code changes, use 'bluetoothlist' instead."
+severity = "error"
+message = "'instrhwinfo('bluetooth',...)' has been removed. With appropriate code changes, use 'bluetoothlist' instead."
 category = "compatibility"
 args_any = ["bluetooth"]
 
 [[checks]]
 id = "INSTHWT"
 function_name = "instrhwinfo"
-severity = "warning"
-message = "'instrhwinfo('tcpip')' will be removed in a future release. There is no simple replacement for this."
+severity = "error"
+message = "'instrhwinfo('tcpip')' has been removed. There is no simple replacement for this."
 category = "compatibility"
 args_any = ["tcpip"]
 
 [[checks]]
 id = "INSTHWU"
 function_name = "instrhwinfo"
-severity = "warning"
-message = "'instrhwinfo('udp')' will be removed in a future release. There is no simple replacement for this."
+severity = "error"
+message = "'instrhwinfo('udp')' has been removed. There is no simple replacement for this."
 category = "compatibility"
 args_any = ["udp"]
 
@@ -12984,8 +13466,8 @@ min_args = 1
 [[checks]]
 id = "INSTHWS"
 function_name = "instrhwinfo"
-severity = "warning"
-message = "'instrhwinfo('serial')' will be removed in a future release. With appropriate code changes, use 'serialportlist' instead."
+severity = "error"
+message = "'instrhwinfo('serial')' has been removed. With appropriate code changes, use 'serialportlist' instead."
 category = "compatibility"
 args_any = ["serial"]
 
@@ -13000,8 +13482,8 @@ args_any = ["serialport"]
 [[checks]]
 id = "INSTHWV"
 function_name = "instrhwinfo"
-severity = "warning"
-message = "'instrhwinfo('visa')' will be removed in a future release. With appropriate code changes, use 'visadevlist' instead."
+severity = "error"
+message = "'instrhwinfo('visa')' has been removed. With appropriate code changes, use 'visadevlist' instead."
 category = "compatibility"
 args_any = ["visa"]
 
@@ -13057,8 +13539,8 @@ args_any = ["raytracingimagemethod"]
 [[checks]]
 id = "INSTHWG"
 function_name = "instrhwinfo"
-severity = "warning"
-message = "'instrhwinfo('gpib')' will be removed in a future release. With appropriate code changes, use 'visadevlist' instead."
+severity = "error"
+message = "'instrhwinfo('gpib')' has been removed. With appropriate code changes, use 'visadevlist' instead."
 category = "compatibility"
 args_any = ["gpib"]
 
@@ -14049,8 +14531,8 @@ min_args = 6
 [[checks]]
 id = "INSTHWI2C"
 function_name = "instrhwinfo"
-severity = "warning"
-message = "'instrhwinfo('i2c')' will be removed in a future release. With appropriate code changes, use 'ni845xlist' or 'aardvarklist' instead."
+severity = "error"
+message = "'instrhwinfo('i2c')' has been removed. With appropriate code changes, use 'ni845xlist' or 'aardvarklist' instead."
 category = "compatibility"
 
 # =============================================================================
@@ -14060,6 +14542,7 @@ args_any = ["i2c"]
 
 [[checks]]
 id = "EVDOFRC"
+handle = true
 function_name = "evdoForwardReferenceChannels"
 severity = "warning"
 message = "'evdoForwardReferenceChannels' will be removed in a future release. There is no simple replacement for this."
@@ -14067,6 +14550,7 @@ category = "compatibility"
 
 [[checks]]
 id = "EVDOFWG"
+handle = true
 function_name = "evdoForwardWaveformGenerator"
 severity = "warning"
 message = "'evdoForwardWaveformGenerator' will be removed in a future release. There is no simple replacement for this."
@@ -14074,6 +14558,7 @@ category = "compatibility"
 
 [[checks]]
 id = "EVDORRC"
+handle = true
 function_name = "evdoReverseReferenceChannels"
 severity = "warning"
 message = "'evdoReverseReferenceChannels' will be removed in a future release. There is no simple replacement for this."
@@ -14081,6 +14566,7 @@ category = "compatibility"
 
 [[checks]]
 id = "EVDORWG"
+handle = true
 function_name = "evdoReverseWaveformGenerator"
 severity = "warning"
 message = "'evdoReverseWaveformGenerator' will be removed in a future release. There is no simple replacement for this."
@@ -14088,6 +14574,7 @@ category = "compatibility"
 
 [[checks]]
 id = "CDMA2KFRC"
+handle = true
 function_name = "cdma2000ForwardReferenceChannels"
 severity = "warning"
 message = "'cdma2000ForwardReferenceChannels' will be removed in a future release. There is no simple replacement for this."
@@ -14095,6 +14582,7 @@ category = "compatibility"
 
 [[checks]]
 id = "CDMA2KFWG"
+handle = true
 function_name = "cdma2000ForwardWaveformGenerator"
 severity = "warning"
 message = "'cdma2000ForwardWaveformGenerator' will be removed in a future release. There is no simple replacement for this."
@@ -14102,6 +14590,7 @@ category = "compatibility"
 
 [[checks]]
 id = "CDMA2KRRC"
+handle = true
 function_name = "cdma2000ReverseReferenceChannels"
 severity = "warning"
 message = "'cdma2000ReverseReferenceChannels' will be removed in a future release. There is no simple replacement for this."
@@ -14109,6 +14598,7 @@ category = "compatibility"
 
 [[checks]]
 id = "CDMA2KRWG"
+handle = true
 function_name = "cdma2000ReverseWaveformGenerator"
 severity = "warning"
 message = "'cdma2000ReverseWaveformGenerator' will be removed in a future release. There is no simple replacement for this."
@@ -14116,6 +14606,7 @@ category = "compatibility"
 
 [[checks]]
 id = "ALGINTRLV"
+handle = true
 function_name = "algintrlv"
 severity = "warning"
 message = "'algintrlv' will be removed in a future release. With appropriate code changes, use 'intrlv' instead."
@@ -14123,6 +14614,7 @@ category = "compatibility"
 
 [[checks]]
 id = "ALGDEINTRLV"
+handle = true
 function_name = "algdeintrlv"
 severity = "warning"
 message = "'algdeintrlv' will be removed in a future release. With appropriate code changes, use 'deintrlv' instead."
@@ -14130,6 +14622,7 @@ category = "compatibility"
 
 [[checks]]
 id = "HELSCANINTRLV"
+handle = true
 function_name = "helscanintrlv"
 severity = "warning"
 message = "'helscanintrlv' will be removed in a future release. With appropriate code changes, use 'intrlv' instead."
@@ -14137,6 +14630,7 @@ category = "compatibility"
 
 [[checks]]
 id = "HELSCANDEINTRLV"
+handle = true
 function_name = "helscandeintrlv"
 severity = "warning"
 message = "'helscandeintrlv' will be removed in a future release. With appropriate code changes, use 'deintrlv' instead."
@@ -14144,6 +14638,7 @@ category = "compatibility"
 
 [[checks]]
 id = "MUXINTRLV"
+handle = true
 function_name = "muxintrlv"
 severity = "warning"
 message = "'muxintrlv' will be removed in a future release. With appropriate code changes, use 'convintrlv' instead."
@@ -14151,6 +14646,7 @@ category = "compatibility"
 
 [[checks]]
 id = "MUXDEINTRLV"
+handle = true
 function_name = "muxdeintrlv"
 severity = "warning"
 message = "'muxdeintrlv' will be removed in a future release. With appropriate code changes, use 'convdeintrlv' instead."
@@ -14158,6 +14654,7 @@ category = "compatibility"
 
 [[checks]]
 id = "COMMSOHELINTRLV"
+handle = true
 function_name = "comm.HelicalInterleaver"
 severity = "warning"
 message = "'comm.HelicalInterleaver' will be removed in a future release. With appropriate code changes, use 'comm.ConvolutionalInterleaver' instead."
@@ -14165,6 +14662,7 @@ category = "compatibility"
 
 [[checks]]
 id = "COMMSOHELDEINTRLV"
+handle = true
 function_name = "comm.HelicalDeinterleaver"
 severity = "warning"
 message = "'comm.HelicalDeinterleaver' will be removed in a future release. With appropriate code changes, use 'comm.ConvolutionalDeinterleaver' instead."
@@ -14172,6 +14670,7 @@ category = "compatibility"
 
 [[checks]]
 id = "COMMSOMUXINTRLV"
+handle = true
 function_name = "comm.MultiplexedInterleaver"
 severity = "warning"
 message = "'comm.MultiplexedInterleaver' will be removed in a future release. With appropriate code changes, use 'comm.ConvolutionalInterleaver' instead."
@@ -14179,6 +14678,7 @@ category = "compatibility"
 
 [[checks]]
 id = "COMMSOMUXDEINTRLV"
+handle = true
 function_name = "comm.MultiplexedDeinterleaver"
 severity = "warning"
 message = "'comm.MultiplexedDeinterleaver' will be removed in a future release. With appropriate code changes, use 'comm.ConvolutionalDeinterleaver' instead."
@@ -14186,6 +14686,7 @@ category = "compatibility"
 
 [[checks]]
 id = "PDSCHCONFIG"
+handle = true
 function_name = "pre6GPDSCHConfig"
 severity = "error"
 message = "'pre6GPDSCHConfig' has been removed. With appropriate code changes, use 'pre6GPhysicalChannelConfig' instead."
@@ -14193,6 +14694,7 @@ category = "compatibility"
 
 [[checks]]
 id = "WSDLCLIENT"
+handle = true
 function_name = "matlab.wsdl.createWSDLClient"
 severity = "error"
 message = "'matlab.wsdl.createWSDLClient' has been removed. Use MATLAB RESTful functions ('webread' and 'webwrite') or MATLAB HTTP interface instead."
@@ -14200,6 +14702,7 @@ category = "compatibility"
 
 [[checks]]
 id = "WSDLTOOL"
+handle = true
 function_name = "matlab.wsdl.setWSDLToolPath"
 severity = "error"
 message = "'matlab.wsdl.setWSDLToolPath' has been removed. Use MATLAB RESTful functions ('webread' and 'webwrite') or MATLAB HTTP interface instead."
@@ -14244,3 +14747,29 @@ severity = "warning"
 message = "'Ghorbani model' value for the 'Method' property on 'comm.MemorylessNonlinearity' class will be removed in a future release. There is no simple replacement for this."
 category = "compatibility"
 pattern = "generic"
+[[checks]]
+# MATLAB reports these as errors ("has been removed"), not as Suggested Improvements.
+id = "ISPIX"
+handle = true
+function_name = "pixelLabelImageSource"
+severity = "error"
+category = "compatibility"
+message = "'pixelLabelImageSource' has been removed. Use 'pixelLabelImageDatastore' instead, which is a direct replacement."
+
+[[checks]]
+# MATLAB reports these as errors ("has been removed"), not as Suggested Improvements.
+id = "ISAUG"
+handle = true
+function_name = "augmentedImageSource"
+severity = "error"
+category = "compatibility"
+message = "'augmentedImageSource' has been removed. Use 'augmentedImageDatastore' instead, which is a direct replacement."
+
+[[checks]]
+# MATLAB reports these as errors ("has been removed"), not as Suggested Improvements.
+id = "ISDNS"
+handle = true
+function_name = "denoisingImageSource"
+severity = "error"
+category = "compatibility"
+message = "'denoisingImageSource' has been removed. Use 'denoisingImageDatastore' instead, which is a direct replacement."

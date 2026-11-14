@@ -148,6 +148,16 @@ struct SuggestedEntry {
     not_in_call: &'static str,
     /// See `not_in_call`.
     not_in_call_literal: &'static str,
+    /// The `@name` handle form is reported (`@nanmean`). MATLAB is silent on it
+    /// for some entries (`@now`, `@hour`).
+    handle: bool,
+    /// Command syntax with arguments is reported although a variable of the name
+    /// shadows the function (`display abc`, `corner abc`). Other entries are silent
+    /// then (`hour abc` with `hour = 5;`).
+    shadowed_command: bool,
+    /// Not when every argument is of one of these kinds (`import('a', 'b')` is
+    /// silent, `import('a', 1)` and `import(x)` are not). Needs at least one argument.
+    not_all_arg_kinds: &'static [&'static str],
 }
 
 impl SuggestedEntry {
@@ -177,6 +187,16 @@ impl SuggestedEntry {
             return false;
         }
         if self.min_outputs > 0 && crate::compatibility::output_count(node) < self.min_outputs {
+            return false;
+        }
+        if !self.not_all_arg_kinds.is_empty()
+            && !args.is_empty()
+            && args.iter().all(|arg| {
+                argument_kinds(*arg, source)
+                    .iter()
+                    .any(|kind| self.not_all_arg_kinds.contains(kind))
+            })
+        {
             return false;
         }
         if self.within_parfor && !inside_parfor(node, source) {
@@ -718,15 +738,26 @@ impl Rule for SuggestedImprovementsEngine {
         };
 
         let args = call_args(node);
-        let applicable: Vec<&SuggestedEntry> = entries
+        // `@name` is a handle, reported only by the entries that MATLAB reports on it.
+        let is_handle = node.kind() == "handle_operator"
+            || node
+                .parent()
+                .is_some_and(|parent| parent.kind() == "handle_operator");
+        let mut applicable: Vec<&SuggestedEntry> = entries
             .iter()
             .copied()
-            .filter(|entry| entry.applies_to(node, &args, ctx.source))
+            .filter(|entry| {
+                (entry.handle || !is_handle) && entry.applies_to(node, &args, ctx.source)
+            })
             .collect();
-        // Command syntax with arguments is always a call: a variable of that name
-        // does not shadow it. A bare name parses as a command too, so it needs one.
-        let command_call = node.kind() == "command" && !args.is_empty();
-        if applicable.is_empty() || (!command_call && is_shadowed(node, func_name, ctx.source)) {
+        // A variable of the name shadows the function, except in command syntax with
+        // arguments, where only the entries marked `shadowed_command` still report.
+        // A bare name parses as a command too, so it needs an argument.
+        if !applicable.is_empty() && is_shadowed(node, func_name, ctx.source) {
+            let command_call = node.kind() == "command" && !args.is_empty();
+            applicable.retain(|entry| command_call && entry.shadowed_command);
+        }
+        if applicable.is_empty() {
             return Vec::new();
         }
 
@@ -872,6 +903,45 @@ mod tests {
     }
 
     // -- CSV-style file IO ---------------------------------------------------
+
+    /// Probed in MATLAB R2026b (`/tmp/probe/c_A`): `@nanmean` is reported, `@now` is not.
+    #[test]
+    fn handle_form_is_reported_only_for_entries_matlab_reports_on_it() {
+        assert_eq!(rule_ids("h = @nanmean;\n"), vec!["NANMEAN"]);
+        assert!(rule_ids("h = @now;\n").is_empty());
+    }
+
+    /// Probed: `corner abc` and `display abc` are reported with a variable of the same
+    /// name, `hour abc` is not.
+    #[test]
+    fn command_syntax_with_a_shadowing_variable_is_reported_only_for_flagged_entries() {
+        assert_eq!(rule_ids("corner = 5;\ncorner abc;\n"), vec!["CRNR"]);
+        assert_eq!(
+            rule_ids("display = 5;\ndisplay abc;\n"),
+            vec!["DISPLAYPROG"]
+        );
+        assert!(rule_ids("hour = 5;\nhour abc;\n").is_empty());
+    }
+
+    /// Probed: `import('abc', 1)`, `import(x)` are reported; `import('abc', 'def')` and
+    /// `import('abc')` are not.
+    #[test]
+    fn import_fires_unless_every_argument_is_a_single_quoted_literal() {
+        assert_eq!(rule_ids("import('abc', 1);\n"), vec!["IMPORTDYN"]);
+        assert_eq!(rule_ids("import(x);\n"), vec!["IMPORTDYN"]);
+        assert!(rule_ids("import('abc', 'def');\n").is_empty());
+        assert!(rule_ids("import('abc');\n").is_empty());
+        assert!(rule_ids("import abc 1;\n").is_empty());
+    }
+
+    /// Probed: only a numeric third argument is reported (`medfilt1(x, 3, 1)`).
+    #[test]
+    fn medfilt1_fires_only_for_a_numeric_third_argument() {
+        assert_eq!(rule_ids("y = medfilt1(x, 3, 1);\n"), vec!["MDFLT1"]);
+        assert!(rule_ids("y = medfilt1(x, 'a', 'b');\n").is_empty());
+        assert!(rule_ids("y = medfilt1(x, 3, []);\n").is_empty());
+        assert!(rule_ids("y = medfilt1(x, 3, 'omitnan');\n").is_empty());
+    }
 
     #[test]
     fn csvread_fires_csvrd() {

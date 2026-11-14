@@ -46,12 +46,13 @@ impl GoodPracticesEngine {
     }
 }
 
-/// Whether a methods block's attributes make it `Static` (`Static`,
-/// `Static = true`, but not `~Static` or `Static = false`).
+/// Whether a methods block's attributes make it `Static`: a bare `Static`,
+/// `Static = true` or `Static = 1`. MATLAB does not evaluate other values
+/// (`FALSE`, `0`, `TRUE`) and treats the block as not static (probed).
 fn is_static(attributes: &[AttributeMeta]) -> bool {
-    attributes.iter().any(|a| {
-        a.name == "Static" && !a.negated && a.value.as_deref().map(str::trim) != Some("false")
-    })
+    attributes
+        .iter()
+        .any(|a| a.name == "Static" && a.is_literal_set())
 }
 
 #[cfg(test)]
@@ -100,5 +101,15 @@ mod tests {
         assert_eq!(noin_count(source), 0);
         let source = "function r = f()\nr = 1;\nend\n";
         assert_eq!(noin_count(source), 0);
+    }
+
+    #[test]
+    fn static_forms_other_than_true_and_one_are_not_static() {
+        // Probed: `Static = FALSE` and `Static = 0` are not static (NOIN: the
+        // method has no input); `Static = 1` and `Static = true` are.
+        assert_eq!(noin_count("classdef A\n    methods (Static = FALSE)\n        function r = f()\n            r = 1;\n        end\n    end\nend\n"), 1);
+        assert_eq!(noin_count("classdef A\n    methods (Static = 0)\n        function r = f()\n            r = 1;\n        end\n    end\nend\n"), 1);
+        assert_eq!(noin_count("classdef A\n    methods (Static = 1)\n        function r = f()\n            r = 1;\n        end\n    end\nend\n"), 0);
+        assert_eq!(noin_count("classdef A\n    methods (Static = true)\n        function r = f()\n            r = 1;\n        end\n    end\nend\n"), 0);
     }
 }

@@ -31,11 +31,10 @@ lookup-based check.
 
 ## Check IDs
 
-### Suggested Improvements (247 checks)
+### Suggested Improvements (243 checks)
 
 | Check ID | Severity | Description |
 | -------- | -------- | ----------- |
-| <a id="importdyn"></a>`IMPORTDYN` | warning | Using function syntax to call 'import' is not recommended. With appropriate code changes, use command syntax instead. |
 | <a id="importdyn"></a>`IMPORTDYN` | warning | Using function syntax to call 'import' is not recommended. With appropriate code changes, use command syntax instead. |
 | <a id="lerr"></a>`LERR` | warning | LASTERR and LASTERROR are not recommended. Use an identifier on the CATCH block instead. |
 | <a id="evlc"></a>`EVLC` | warning | Using 'evalc' with two arguments is not recommended. Use try/catch statements instead to make code more clear and efficient. |
@@ -176,9 +175,6 @@ lookup-based check.
 | <a id="hdfw"></a>`HDFW` | warning | 'hdf5write' is not recommended. With appropriate code changes, use 'h5write' instead. |
 | <a id="hdfr"></a>`HDFR` | warning | 'hdf5read' is not recommended. With appropriate code changes, use 'h5read' instead. |
 | <a id="im2bw"></a>`IM2BW` | warning | 'im2bw' is not recommended. With appropriate code changes, use 'imbinarize' instead. |
-| <a id="ispix"></a>`ISPIX` | warning | 'pixelLabelImageSource' is not recommended. Use 'pixelLabelImageDatastore' instead, which is a direct replacement. |
-| <a id="isaug"></a>`ISAUG` | warning | 'augmentedImageSource' is not recommended. Use 'augmentedImageDatastore' instead, which is a direct replacement. |
-| <a id="isdns"></a>`ISDNS` | warning | 'denoisingImageSource' is not recommended. Use 'denoisingImageDatastore' instead, which is a direct replacement. |
 | <a id="imfreeh"></a>`IMFREEH` | warning | 'imfreehand' is not recommended. With appropriate code changes, use 'drawfreehand' instead. |
 | <a id="imrect"></a>`IMRECT` | warning | 'imrect' is not recommended. With appropriate code changes, use 'drawrectangle' instead. |
 | <a id="imline"></a>`IMLINE` | warning | 'imline' is not recommended. With appropriate code changes, use 'drawline' instead. |

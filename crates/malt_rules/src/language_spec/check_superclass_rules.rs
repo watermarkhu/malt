@@ -88,6 +88,22 @@ impl LanguageSpecEngine {
                         .and_then(|p| p.child_by_field_name("left"));
                     match lhs {
                         Some(lhs) if lhs.kind() == "multioutput_variable" => {
+                            // The first output must be the constructor's object (MCSCF).
+                            let first = lhs.named_child(0).map(|n| node_text(n, ctx.source));
+                            if self.is_check_enabled("MCSCF") && first != first_output.as_deref() {
+                                let pos = call_node.start_position();
+                                diagnostics.push(Diagnostic {
+                                    rule_id: "MCSCF",
+                                    message:
+                                        "A superclass constructor must be assigned to the first constructor output argument."
+                                            .to_string(),
+                                    severity: Severity::Error,
+                                    byte_range: call_node.start_byte()..call_node.end_byte(),
+                                    line: pos.row + 1,
+                                    column: pos.column + 1,
+                                    fix: None,
+                                });
+                            }
                             if self.is_check_enabled("MCSMO") {
                                 let pos = call_node.start_position();
                                 diagnostics.push(Diagnostic {
@@ -760,5 +776,35 @@ end
         assert!(hits
             .iter()
             .all(|d| d.line == 3 && d.message.contains("'Baz'") || d.message.contains(" Baz ")));
+    }
+
+    #[test]
+    fn mcscf_when_the_first_output_of_a_superclass_call_is_not_the_object() {
+        // Probed: `a = obj@Base();` and `[a, obj] = obj@Base();` and `[~, obj] = ...`
+        // give MCSCF (the latter two also MCSMO); `[obj, a] = ...` and
+        // `obj = obj@Base();` do not.
+        let head = "classdef Foo < Base\n    methods\n        function obj = Foo()\n";
+        let cases = [
+            ("            a = obj@Base();\n            obj.x = a;\n", 1),
+            (
+                "            [a, obj] = obj@Base();\n            obj.x = a;\n",
+                1,
+            ),
+            ("            [~, obj] = obj@Base();\n", 1),
+            (
+                "            [obj, a] = obj@Base();\n            obj.x = a;\n",
+                0,
+            ),
+            ("            obj = obj@Base();\n", 0),
+        ];
+        for (body, expected) in cases {
+            let source = format!("{head}{body}        end\n    end\nend\n");
+            let diags = check_source(&source, "Foo.m");
+            assert_eq!(
+                filter_by_id(&diags, "MCSCF").len(),
+                expected,
+                "{body}: got {diags:?}"
+            );
+        }
     }
 }

@@ -77,7 +77,8 @@ impl LanguageSpecEngine {
                         })
                         .unwrap_or(false);
 
-                if !is_block_end && !in_control_header(node) {
+                // `[end]`, `{end}` and `[end + 1]` are RESWD in MATLAB, not IDXCOLND.
+                if !is_block_end && !in_control_header(node) && !in_brackets(node) {
                     diagnostics.push(Diagnostic {
                         rule_id: "IDXCOLND",
                         message: "The END operator must be used within an array index expression."
@@ -103,6 +104,32 @@ impl LanguageSpecEngine {
 /// Whether an `end` sits in the header of an `if`, `elseif`, `while`, `for` or `switch`
 /// statement, where the parse fails. MATLAB reports that as SYNER, not as IDXCOLND
 /// (probed: `if end > 1`).
+/// True for an `end` inside `[ ]` or `{ }` with no index around it: MATLAB gives RESWD
+/// there, not IDXCOLND (probed: `z = [end]`, `z = {end}`, `y = [end + 1]`). Stops at the
+/// statement, so an index around the brackets does not count.
+fn in_brackets(node: tree_sitter::Node) -> bool {
+    // The grammar leaves the bracket as a sibling of `end` in a broken statement, so the
+    // siblings before it are read too; a literal before `(end)` (`[1 2 3](end)`) counts.
+    let mut current = node;
+    loop {
+        let mut sibling = current.prev_sibling();
+        while let Some(s) = sibling {
+            if matches!(s.kind(), "[" | "{" | "matrix" | "cell") {
+                return true;
+            }
+            sibling = s.prev_sibling();
+        }
+        let Some(parent) = current.parent() else {
+            return false;
+        };
+        match parent.kind() {
+            "matrix" | "cell" => return true,
+            "assignment" | "source_file" | "block" | "function_definition" => return false,
+            _ => current = parent,
+        }
+    }
+}
+
 pub(crate) fn in_control_header(node: tree_sitter::Node) -> bool {
     let mut child = node;
     while let Some(parent) = child.parent() {
