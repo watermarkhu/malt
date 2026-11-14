@@ -12,6 +12,7 @@ impl UnsetVariablesEngine {
         symbol_table: &SymbolTable,
     ) -> Vec<Diagnostic> {
         let mut diagnostics = Vec::new();
+        let mut functions = None;
 
         for scope in &symbol_table.scopes {
             // Only process function-like scopes.
@@ -26,7 +27,9 @@ impl UnsetVariablesEngine {
             }
 
             // Find the corresponding function_definition node.
-            let Some(func_node) = find_function_node_at(tree, &scope.byte_range) else {
+            let functions = functions.get_or_insert_with(|| function_nodes_by_range(tree));
+            let range = (scope.byte_range.start, scope.byte_range.end);
+            let Some(&func_node) = functions.get(&range) else {
                 continue;
             };
 

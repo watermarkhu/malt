@@ -21,6 +21,7 @@ impl UnusedEngine {
         // Walk the tree looking for expression nodes at statement level.
         walk_for_no_effect(
             ctx.tree.root_node(),
+            false,
             ctx.source,
             diagnostics,
             noeff_disabled,
@@ -34,20 +35,17 @@ impl UnusedEngine {
 // ---------------------------------------------------------------------------
 
 /// Recursively walk tree to find statement-level expressions with no effect.
+/// `statement_level` says whether the parent is a `source_file` or `block` (the
+/// walk knows it; `Node::parent` would search from the root).
 pub(crate) fn walk_for_no_effect(
     node: Node,
+    statement_level: bool,
     source: &str,
     diagnostics: &mut Vec<Diagnostic>,
     noeff_disabled: bool,
     eqeff_disabled: bool,
 ) {
-    // Check if this node is at statement level (parent is block or source_file).
-    let is_statement_level = node
-        .parent()
-        .map(|p| STATEMENT_PARENTS.contains(&p.kind()))
-        .unwrap_or(false);
-
-    if is_statement_level {
+    if statement_level {
         let expr = unwrap_parens(node);
 
         // EQEFF: `==` with a reference on its left (likely meant `=`), at the `==`.
@@ -88,8 +86,16 @@ pub(crate) fn walk_for_no_effect(
     }
 
     // Recurse into children.
+    let child_level = STATEMENT_PARENTS.contains(&node.kind());
     for child in crate::analysis::symbols::children_of(node) {
-        walk_for_no_effect(child, source, diagnostics, noeff_disabled, eqeff_disabled);
+        walk_for_no_effect(
+            child,
+            child_level,
+            source,
+            diagnostics,
+            noeff_disabled,
+            eqeff_disabled,
+        );
     }
 }
 

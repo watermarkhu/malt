@@ -14,3 +14,4 @@ pub mod reaching;
 pub mod strcase;
 pub mod symbols;
 pub mod typing;
+pub mod words;

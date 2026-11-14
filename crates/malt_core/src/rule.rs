@@ -140,6 +140,23 @@ pub struct NodeContext<'a> {
     pub node: Node<'a>,
     pub source: &'a str,
     pub file_path: &'a Path,
+    /// The ancestors of `node`, the root first, when the caller walked down to
+    /// it and knows them (the linter does). `None` makes [`NodeContext::ancestors`]
+    /// ask tree-sitter instead.
+    pub ancestors: Option<&'a [Node<'a>]>,
+}
+
+impl<'a> NodeContext<'a> {
+    /// The ancestors of the node, nearest (the parent) first.
+    ///
+    /// Prefer it to climbing with `Node::parent`, which walks down from the root
+    /// for every step: as costly as the siblings of every ancestor.
+    pub fn ancestors(&self) -> Box<dyn Iterator<Item = Node<'a>> + 'a> {
+        match self.ancestors {
+            Some(known) => Box::new(known.iter().rev().copied()),
+            None => Box::new(std::iter::successors(self.node.parent(), |n| n.parent())),
+        }
+    }
 }
 
 /// Context passed to [`Rule::check_file`] after the full traversal completes.

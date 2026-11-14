@@ -34,3 +34,10 @@ anyhow = "1"
 clap = { version = "4", features = ["derive"] }
 inventory = "0.3"
 regex = "1"
+
+[profile.release]
+# Thin LTO: 5-9% faster linting on large files for about a second more build
+# time. Fat LTO with one codegen unit measured no faster and builds 2.5x slower.
+# `panic = "abort"` is not an option: the linter catches a panicking rule and
+# reports QUIT instead.
+lto = "thin"

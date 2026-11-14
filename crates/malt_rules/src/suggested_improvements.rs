@@ -64,7 +64,6 @@ use std::collections::HashMap;
 use std::sync::LazyLock;
 
 use malt_core::{Category, Config, Diagnostic, NodeContext, Rule, Severity};
-use serde::Deserialize;
 
 use crate::analysis::symbols::{is_field_name, ScopeKind, SymbolTable};
 
@@ -73,73 +72,62 @@ use crate::analysis::symbols::{is_field_name, ScopeKind, SymbolTable};
 // ---------------------------------------------------------------------------
 
 /// A single suggested improvement check entry from the data file.
-#[derive(Debug, Clone, Deserialize)]
+///
+/// The entries are generated at build time from `data/suggested_improvements.toml`
+/// (see `build.rs`, which mirrors these fields and their defaults).
+#[derive(Debug, Clone)]
 #[allow(dead_code)]
 struct SuggestedEntry {
     /// Check ID matching MATLAB Code Analyzer (e.g., "CSVRD").
-    id: String,
+    id: &'static str,
     /// The function/class name to match against. Empty string means generic.
-    function_name: String,
+    function_name: &'static str,
     /// Human-readable diagnostic message.
-    message: String,
+    message: &'static str,
     /// Recommended replacement function or syntax.
-    replacement: String,
+    replacement: &'static str,
     /// Non-empty for checks that need class tracking or a toolbox that is not
     /// installed. Such entries are not matched by name.
-    #[serde(default)]
-    pattern: String,
+    pattern: &'static str,
     /// The usage is only discouraged with at least this many arguments
     /// (`eval(s, catch_s)`). 0 means any call.
-    #[serde(default)]
     min_args: usize,
     /// The usage is only discouraged with at most this many arguments
     /// (`format` with none: `max_args = 0`). Unset means no limit.
-    #[serde(default)]
     max_args: Option<usize>,
     /// The usage is only discouraged when one argument is one of these literals
     /// (`rand('seed', 1)`, `hold all`), compared case-insensitively. Empty means
     /// any call.
-    #[serde(default)]
-    literal_args: Vec<String>,
+    literal_args: &'static [&'static str],
     /// 1-based position of the argument that `arg_kinds`, `not_arg_kinds` and
     /// `arg_text` test. 0 means the first argument.
-    #[serde(default)]
     arg_at: usize,
     /// The argument at `arg_at` is of one of these kinds: `number`, `text` (a
     /// quoted string, either quote), `char` (single quotes) or `cell`.
-    #[serde(default)]
-    arg_kinds: Vec<String>,
+    arg_kinds: &'static [&'static str],
     /// The argument at `arg_at` is of none of these kinds (`import('a.b')` is
     /// fine, `import(x)` is not).
-    #[serde(default)]
-    not_arg_kinds: Vec<String>,
+    not_arg_kinds: &'static [&'static str],
     /// The argument at `arg_at` has exactly this source text (`now`).
-    #[serde(default)]
-    arg_text: String,
+    arg_text: &'static str,
     /// Not when the statement or `if` header that holds the call also calls this
     /// function (`if iscellstr(x) || isstring(x)`).
-    #[serde(default)]
-    not_with_call: String,
+    not_with_call: &'static str,
     /// The argument at `arg_at`, when it is a variable, takes the kinds that
     /// every assignment to it in its scope gives (`x = 5; year(x)`). A
     /// parameter or a value that is not a literal leaves the kind unknown.
-    #[serde(default)]
     arg_through_variables: bool,
     /// The argument at `arg_at` is a dotted release number at least this one
     /// (`verLessThan('matlab', '9.10')` with `9.9`). Other text, such as
     /// `'R2021a'`, does not match.
-    #[serde(default)]
-    version_at_least: String,
+    version_at_least: &'static str,
     /// Only inside a `parfor` loop.
-    #[serde(default)]
     within_parfor: bool,
     /// Not when the name is an argument of a call to this function that also has
     /// `not_in_call_literal` among its literal arguments.
-    #[serde(default)]
-    not_in_call: String,
+    not_in_call: &'static str,
     /// See `not_in_call`.
-    #[serde(default)]
-    not_in_call_literal: String,
+    not_in_call_literal: &'static str,
 }
 
 impl SuggestedEntry {
@@ -158,11 +146,11 @@ impl SuggestedEntry {
         if self.within_parfor && !inside_parfor(node, source) {
             return false;
         }
-        if !self.not_with_call.is_empty() && statement_calls(node, source, &self.not_with_call) {
+        if !self.not_with_call.is_empty() && statement_calls(node, source, self.not_with_call) {
             return false;
         }
         if !self.not_in_call.is_empty()
-            && in_call_with_literal(node, source, &self.not_in_call, &self.not_in_call_literal)
+            && in_call_with_literal(node, source, self.not_in_call, self.not_in_call_literal)
         {
             return false;
         }
@@ -183,7 +171,7 @@ impl SuggestedEntry {
                 return false;
             };
             let version = literal_text(*arg, source).unwrap_or_default();
-            if !release_at_least(version, &self.version_at_least) {
+            if !release_at_least(version, self.version_at_least) {
                 return false;
             }
         }
@@ -506,24 +494,11 @@ fn call_args(node: tree_sitter::Node) -> Vec<tree_sitter::Node> {
     }
 }
 
-/// Top-level structure of the suggested_improvements.toml data file.
-#[derive(Debug, Deserialize)]
-struct SuggestedData {
-    checks: Vec<SuggestedEntry>,
-}
-
 // ---------------------------------------------------------------------------
-// Static data — parsed once, lives for 'static
+// Static data — generated at build time
 // ---------------------------------------------------------------------------
 
-/// Raw TOML source embedded at compile time.
-const SUGGESTED_TOML_SOURCE: &str = include_str!("data/suggested_improvements.toml");
-
-/// Parsed suggested improvements data. All strings inside are owned and live
-/// for 'static because this is a `LazyLock` static.
-static SUGGESTED_DATA: LazyLock<SuggestedData> = LazyLock::new(|| {
-    toml::from_str(SUGGESTED_TOML_SOURCE).expect("failed to parse data/suggested_improvements.toml")
-});
+include!(concat!(env!("OUT_DIR"), "/suggested_data.rs"));
 
 /// Lookup table: function_name → the entries for that name.
 ///
@@ -533,13 +508,10 @@ static SUGGESTED_DATA: LazyLock<SuggestedData> = LazyLock::new(|| {
 /// conditions hold is reported.
 static SUGGESTED_TABLE: LazyLock<HashMap<&'static str, Vec<&'static SuggestedEntry>>> =
     LazyLock::new(|| {
-        let data = &*SUGGESTED_DATA;
         let mut map: HashMap<&'static str, Vec<&'static SuggestedEntry>> = HashMap::new();
-        for entry in &data.checks {
+        for entry in SUGGESTED_ENTRIES {
             if !entry.function_name.is_empty() && entry.pattern.is_empty() {
-                map.entry(entry.function_name.as_str())
-                    .or_default()
-                    .push(entry);
+                map.entry(entry.function_name).or_default().push(entry);
             }
         }
         map
@@ -629,10 +601,8 @@ impl Rule for SuggestedImprovementsEngine {
         applicable
             .into_iter()
             .map(|entry| Diagnostic {
-                // The entry's `id` is a &'static str from SUGGESTED_DATA, a
-                // LazyLock static that is never deallocated.
-                rule_id: entry.id.as_str(),
-                message: entry.message.clone(),
+                rule_id: entry.id,
+                message: entry.message.to_string(),
                 severity: Severity::Info,
                 byte_range: node.start_byte()..node.end_byte(),
                 line: start.row + 1,

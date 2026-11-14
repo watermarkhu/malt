@@ -15,7 +15,8 @@ fn loop_variable(node: Node) -> Option<Node> {
 impl GoodPracticesEngine {
     /// FXSETL: the iterator of a `for` loop has the same name as the iterator of
     /// an enclosing `for` loop.
-    pub(crate) fn check_fxsetl(&self, node: Node, source: &str) -> Vec<Diagnostic> {
+    pub(crate) fn check_fxsetl(&self, ctx: &NodeContext, source: &str) -> Vec<Diagnostic> {
+        let node = ctx.node;
         // A parfor nested in a for with the same variable is reported (probed: fx04);
         // an outer parfor is not (fx05 gives PFXST instead).
         if !self.is_check_enabled("FXSETL") || node.kind() != "for_statement" {
@@ -25,7 +26,7 @@ impl GoodPracticesEngine {
             return Vec::new();
         };
         let name = node_text(var, source);
-        let shadows_outer = std::iter::successors(node.parent(), |n| n.parent()).any(|a| {
+        let shadows_outer = ctx.ancestors().any(|a| {
             a.kind() == "for_statement"
                 && !is_parfor_node(a, source)
                 && loop_variable(a).is_some_and(|v| node_text(v, source) == name)
@@ -61,7 +62,13 @@ mod tests {
         let mut out = Vec::new();
         let mut stack = vec![tree.root_node()];
         while let Some(n) = stack.pop() {
-            out.extend(eng.check_fxsetl(n, src));
+            let ctx = NodeContext {
+                node: n,
+                source: src,
+                file_path: std::path::Path::new("test.m"),
+                ancestors: None,
+            };
+            out.extend(eng.check_fxsetl(&ctx, src));
             let mut c = n.walk();
             stack.extend(n.children(&mut c));
         }

@@ -69,7 +69,7 @@
 //! ignore = ["myGlobalWorkspaceVar"]
 //! ```
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use malt_core::{Category, Config, Diagnostic, FileContext, Rule, Severity};
 use serde::Deserialize;
@@ -220,33 +220,24 @@ impl Rule for UnsetVariablesEngine {
 // Helpers
 // ---------------------------------------------------------------------------
 
-/// Find a `function_definition` node in the tree that matches the given byte range.
-///
-/// Performs a DFS from the root, returning the first `function_definition` node
-/// whose byte range matches.
-pub(crate) fn find_function_node_at<'a>(
-    tree: &'a Tree,
-    byte_range: &std::ops::Range<usize>,
-) -> Option<Node<'a>> {
+/// Every `function_definition` of `tree` by its byte range. Where two share a
+/// range, the outer one is kept.
+pub(crate) fn function_nodes_by_range(tree: &Tree) -> HashMap<(usize, usize), Node<'_>> {
+    let mut found = HashMap::new();
+    // Depth first, parents before children; a cursor, not `child(i)`: indexing a
+    // child is linear in `i`, so a file with many top-level statements would be
+    // quadratic.
     let mut stack = vec![tree.root_node()];
     while let Some(node) = stack.pop() {
-        if node.kind() == "function_definition"
-            && node.start_byte() == byte_range.start
-            && node.end_byte() == byte_range.end
-        {
-            return Some(node);
+        if node.kind() == "function_definition" {
+            found
+                .entry((node.start_byte(), node.end_byte()))
+                .or_insert(node);
         }
-        // Only recurse into nodes that overlap with the target range.
-        // A cursor, not `child(i)`: indexing a child is linear in `i`, so a
-        // file with many top-level statements would be quadratic here.
         let mut cursor = node.walk();
-        for child in node.children(&mut cursor) {
-            if child.start_byte() <= byte_range.end && child.end_byte() >= byte_range.start {
-                stack.push(child);
-            }
-        }
+        stack.extend(node.children(&mut cursor));
     }
-    None
+    found
 }
 
 // ---------------------------------------------------------------------------

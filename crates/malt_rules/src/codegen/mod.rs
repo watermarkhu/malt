@@ -519,8 +519,11 @@ pub(crate) fn has_earlier_mention(
     if scope.kind() == "identifier" {
         return scope.end_byte() <= before && node_text(scope, source) == name;
     }
-    (0..scope.child_count())
-        .filter_map(|i| scope.child(i))
+    // Children are in source order: none after the first that starts at or past
+    // `before` can hold a mention.
+    crate::analysis::symbols::children_of(scope)
+        .into_iter()
+        .take_while(|c| c.start_byte() < before)
         .any(|c| has_earlier_mention(c, source, name, before))
 }
 

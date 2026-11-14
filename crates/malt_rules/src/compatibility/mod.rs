@@ -73,7 +73,6 @@ use std::sync::LazyLock;
 use malt_core::{Category, Config, Diagnostic, FileContext, NodeContext, Rule, Severity};
 
 use crate::analysis::symbols::{ScopeKind, SymbolTable};
-use serde::Deserialize;
 
 /// Generic (AST-pattern) compatibility checks that the name-lookup table cannot
 /// match. Each check is implemented in its own `check_*.rs` module and
@@ -85,76 +84,55 @@ mod generic;
 // ---------------------------------------------------------------------------
 
 /// A single compatibility check entry from the data file.
-#[derive(Debug, Clone, Deserialize)]
+///
+/// The entries are generated at build time from `data/compatibility.toml`
+/// (see `build.rs`, which mirrors these fields and their defaults).
+#[derive(Debug, Clone)]
 #[allow(dead_code)]
 struct CompatEntry {
     /// Check ID matching MATLAB Code Analyzer (e.g., "DPSD").
-    id: String,
+    id: &'static str,
     /// The function/class name to match against. Empty string means generic.
-    function_name: String,
+    function_name: &'static str,
     /// Severity level: "error" or "warning".
-    severity: String,
+    severity: &'static str,
     /// Human-readable diagnostic message.
-    message: String,
+    message: &'static str,
     /// Category: "compatibility", "forward-compatibility", or "behavior-changes".
-    category: String,
+    category: &'static str,
     /// Optional pattern marker. "generic" means this check cannot be matched
     /// by function name alone.
-    #[serde(default)]
-    pattern: String,
+    pattern: &'static str,
     /// MATLAB lists the entry under "(Upcoming) Behavior Changes with Low
     /// Reliability Messages" and does not report it by default.
-    #[serde(default)]
     low_reliability: bool,
     /// Fewest arguments the call must have.
-    #[serde(default)]
     min_args: Option<usize>,
     /// Most arguments the call may have.
-    #[serde(default)]
     max_args: Option<usize>,
     /// The call has one of these string arguments (compared without case).
-    #[serde(default)]
-    args_any: Vec<String>,
+    args_any: &'static [&'static str],
     /// The call has every one of these string arguments.
-    #[serde(default)]
-    args_all: Vec<String>,
+    args_all: &'static [&'static str],
     /// The call has none of these string arguments.
-    #[serde(default)]
-    unless_args: Vec<String>,
+    unless_args: &'static [&'static str],
     /// Shape of the second argument: `"string"` or `"optimoptions"`.
-    #[serde(default)]
-    second_arg: String,
+    second_arg: &'static str,
     /// Reported only in a script file.
-    #[serde(default)]
     script_only: bool,
     /// The first argument is text: a quoted literal, or a variable that every
     /// assignment in its scope gives a literal of (`ismethod(mdl, ...)` with an
     /// object `mdl` is not reported).
-    #[serde(default)]
     first_arg_text: bool,
     /// Fewest outputs the call is assigned to: `[a, b] = f(x)` has two.
-    #[serde(default)]
     min_outputs: Option<usize>,
 }
 
-/// Top-level structure of the compatibility.toml data file.
-#[derive(Debug, Deserialize)]
-struct CompatData {
-    checks: Vec<CompatEntry>,
-}
-
 // ---------------------------------------------------------------------------
-// Static data — parsed once, lives for 'static
+// Static data — generated at build time
 // ---------------------------------------------------------------------------
 
-/// Raw TOML source embedded at compile time.
-const COMPAT_TOML_SOURCE: &str = include_str!("../data/compatibility.toml");
-
-/// Parsed compatibility data. All strings inside are owned and live for 'static
-/// because this is a `LazyLock` static.
-static COMPAT_DATA: LazyLock<CompatData> = LazyLock::new(|| {
-    toml::from_str(COMPAT_TOML_SOURCE).expect("failed to parse data/compatibility.toml")
-});
+include!(concat!(env!("OUT_DIR"), "/compat_data.rs"));
 
 /// Lookup table: function_name → matching `CompatEntry` list.
 ///
@@ -164,14 +142,11 @@ static COMPAT_DATA: LazyLock<CompatData> = LazyLock::new(|| {
 /// emits every applicable diagnostic.
 static COMPAT_TABLE: LazyLock<HashMap<&'static str, Vec<&'static CompatEntry>>> =
     LazyLock::new(|| {
-        let data = &*COMPAT_DATA;
         let mut map: HashMap<&'static str, Vec<&'static CompatEntry>> =
-            HashMap::with_capacity(data.checks.len());
-        for entry in &data.checks {
+            HashMap::with_capacity(COMPAT_ENTRIES.len());
+        for entry in COMPAT_ENTRIES {
             if !entry.function_name.is_empty() && entry.pattern.is_empty() {
-                map.entry(entry.function_name.as_str())
-                    .or_default()
-                    .push(entry);
+                map.entry(entry.function_name).or_default().push(entry);
             }
         }
         map
@@ -364,18 +339,11 @@ impl Rule for CompatibilityEngine {
             if !applies(entry, &args, outputs, ctx.source, script) {
                 continue;
             }
-            let severity = parse_severity(&entry.severity);
-
-            // The entry's `id` field is a &str pointing into the static CompatData.
-            // Since COMPAT_DATA is a LazyLock static, the String's backing memory
-            // lives for 'static, so we can safely transmute the &str lifetime.
-            // SAFETY: COMPAT_DATA is a static LazyLock; its contents are never
-            // deallocated, so the &str reference is valid for 'static.
-            let rule_id: &'static str = unsafe { &*(entry.id.as_str() as *const str) };
+            let severity = parse_severity(entry.severity);
 
             diagnostics.push(Diagnostic {
-                rule_id,
-                message: entry.message.clone(),
+                rule_id: entry.id,
+                message: entry.message.to_string(),
                 severity,
                 byte_range: ctx.node.start_byte()..ctx.node.end_byte(),
                 line: start.row + 1,
@@ -428,8 +396,7 @@ fn extract_func_name<'a>(node: tree_sitter::Node<'a>, source: &'a str) -> Option
 /// Whether the data file lists `id` under MATLAB's low-reliability messages,
 /// which are off by default. The generic checks honour the same switch.
 fn is_low_reliability(id: &str) -> bool {
-    COMPAT_DATA
-        .checks
+    COMPAT_ENTRIES
         .iter()
         .any(|entry| entry.low_reliability && entry.id == id)
 }
@@ -550,14 +517,14 @@ fn applies(
         .iter()
         .filter_map(|arg| literal(*arg, source))
         .collect();
-    let given = |value: &String| words.iter().any(|word| word.eq_ignore_ascii_case(value));
+    let given = |value: &&str| words.iter().any(|word| word.eq_ignore_ascii_case(value));
     if !entry.args_any.is_empty() && !entry.args_any.iter().any(given) {
         return false;
     }
     if !entry.args_all.iter().all(given) || entry.unless_args.iter().any(given) {
         return false;
     }
-    match entry.second_arg.as_str() {
+    match entry.second_arg {
         "string" => args.get(1).is_some_and(|arg| arg.kind() == "string"),
         "optimoptions" => args.get(1).is_some_and(|arg| {
             arg.kind() == "function_call"
@@ -913,6 +880,7 @@ mod tests {
                     node: n,
                     source,
                     file_path: std::path::Path::new("t.m"),
+                    ancestors: None,
                 };
                 out.extend(all.check(&ctx));
                 stack.extend(n.children(&mut cursor));

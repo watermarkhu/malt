@@ -80,12 +80,49 @@ impl RuleRegistration {
 
 inventory::collect!(RuleRegistration);
 
+/// The order in which the engines run. Diagnostics at the same position are
+/// printed in this order, so it is fixed here: `inventory` yields registrations
+/// in link order, which changes with unrelated edits. An engine missing from
+/// the list runs after these, ordered by ID.
+const RULE_ORDER: &[&str] = &[
+    "SUGGESTED_IMPROVEMENTS",
+    "DEPLOYMENT_ENGINE",
+    "BUGS_ENGINE",
+    "UNSET_VARIABLES_ENGINE",
+    "SYNTAX_ERRORS_ENGINE",
+    "PERFORMANCE_ENGINE",
+    "FORMATTING_ENGINE",
+    "UNSUPPORTED_ENGINE",
+    "NOSEMI",
+    "READABILITY_ENGINE",
+    "SYSTEM_OBJECTS_ENGINE",
+    "INCOMPLETE_ANALYSIS",
+    "COMPAT",
+    "CUSTOM_CHECKS",
+    "NAMING_ENGINE",
+    "CODEGEN_ENGINE",
+    "UNUSED_ENGINE",
+    "GOOD_PRACTICES_ENGINE",
+    "LANGUAGE_SPEC_ENGINE",
+];
+
+/// Every registered rule, in [`RULE_ORDER`].
+fn registrations() -> Vec<&'static RuleRegistration> {
+    let mut regs: Vec<&'static RuleRegistration> =
+        inventory::iter::<RuleRegistration>.into_iter().collect();
+    regs.sort_by_key(|reg| {
+        let rank = RULE_ORDER.iter().position(|id| *id == reg.id);
+        (rank.unwrap_or(RULE_ORDER.len()), reg.id)
+    });
+    regs
+}
+
 /// Construct all available lint rules from the given configuration.
 ///
 /// Returns all rules regardless of whether they are enabled in config.
 /// Use [`active_rules`] to get only enabled rules.
 pub fn all_rules(config: &Config) -> Vec<Box<dyn Rule>> {
-    inventory::iter::<RuleRegistration>
+    registrations()
         .into_iter()
         .map(|reg| (reg.factory)(config))
         .collect()
@@ -96,7 +133,7 @@ pub fn all_rules(config: &Config) -> Vec<Box<dyn Rule>> {
 /// Filters out rules that are set to "off" in the config (either per-rule
 /// or per-category). This is the primary entry point used by the CLI.
 pub fn active_rules(config: &Config) -> Vec<Box<dyn Rule>> {
-    inventory::iter::<RuleRegistration>
+    registrations()
         .into_iter()
         .filter_map(|reg| {
             // Construct the rule to check its category for category-level filtering.
@@ -123,6 +160,17 @@ mod tests {
             .iter()
             .map(|r| r.id().to_string())
             .collect()
+    }
+
+    #[test]
+    fn every_engine_has_a_fixed_place_in_the_order() {
+        for reg in inventory::iter::<RuleRegistration> {
+            assert!(
+                RULE_ORDER.contains(&reg.id),
+                "{} is missing from RULE_ORDER",
+                reg.id
+            );
+        }
     }
 
     #[test]

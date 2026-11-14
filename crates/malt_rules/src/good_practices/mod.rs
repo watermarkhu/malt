@@ -730,7 +730,7 @@ impl Rule for GoodPracticesEngine {
         // Function-call convention checks.
         diagnostics.extend(self.check_ctpct(node, source));
         diagnostics.extend(self.check_fxset(node, source));
-        diagnostics.extend(self.check_fxsetl(node, source));
+        diagnostics.extend(self.check_fxsetl(ctx, source));
         diagnostics.extend(self.check_simpt(node, source));
         diagnostics.extend(self.check_tlev(node, source));
         diagnostics.extend(self.check_unonc(node, source));
@@ -2162,6 +2162,7 @@ mod tests {
                 node: n,
                 source,
                 file_path: std::path::Path::new("test.m"),
+                ancestors: None,
             };
             ids.extend(eng.check(&ctx).iter().map(|d| d.rule_id));
             let mut cursor = n.walk();
@@ -2758,6 +2759,7 @@ z = f(eval(x + y));\nonCleanup(@f);\n[~] = onCleanup(@f);\nc = computer('arch');
             node,
             source,
             file_path: std::path::Path::new("test.m"),
+            ancestors: None,
         };
         ids.extend(eng.check(&ctx).iter().map(|d| d.rule_id));
         let mut cursor = node.walk();

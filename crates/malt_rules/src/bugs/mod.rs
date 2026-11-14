@@ -153,15 +153,18 @@ pub(crate) fn split_assignment_before<'a>(
 }
 
 /// Whether the statement after `assignment` is a split continuation that NOPRC
-/// reports for this assignment (comments between them are skipped).
-pub(crate) fn noprc_follows(assignment: Node, source: &str) -> bool {
-    let mut next = assignment.next_named_sibling();
-    while let Some(node) = next {
+/// reports for this assignment (comments between them are skipped), given the
+/// named siblings after `assignment` in order.
+pub(crate) fn noprc_follows_among<'t>(
+    assignment: Node<'t>,
+    following: impl IntoIterator<Item = Node<'t>>,
+    source: &str,
+) -> bool {
+    for node in following {
         if node.kind() != "comment" {
             return is_split_statement_continuation(node, source)
                 && split_assignment_before(node, source) == Some(assignment);
         }
-        next = node.next_named_sibling();
     }
     false
 }
@@ -520,36 +523,44 @@ impl BugsEngine {
                 // left-hand targets.
                 // Probed in MATLAB: `[a] = 5` and `[~] = 5` are silent; a target list
                 // needs a comma (`[a,b]`, `[a,~]`) to be reported.
-                let mut cursor = lhs.walk();
-                let has_comma = lhs.children(&mut cursor).any(|c| c.kind() == ",");
+                // The tests are closures, run only for a target list: the binding
+                // and reachability analyses would otherwise run for every assignment.
+                let has_comma = || lhs.children(&mut lhs.walk()).any(|c| c.kind() == ",");
                 // Probed in MATLAB: `[a,b] = x` is reported only when `x` is a
                 // variable at that point (`[a,b] = pi` is silent, `x = 1; [a,b] = x`
                 // is reported) and not in unreachable code.
-                let identifier_variable = rhs.kind() == "identifier"
-                    && is_variable_defined_before(node_text(rhs, source), rhs.start_byte(), table)
-                    && !in_unreachable_code(node, source);
+                let identifier_variable = || {
+                    rhs.kind() == "identifier"
+                        && is_variable_defined_before(
+                            node_text(rhs, source),
+                            rhs.start_byte(),
+                            table,
+                        )
+                        && !in_unreachable_code(node, source)
+                };
                 // Probed: `[~, idx] = v(2)` is reported when `v` holds a numeric
                 // literal (`max = 3; [~, idx] = max(y)` shadows the function).
-                let indexed_variable = rhs.kind() == "function_call"
-                    && call_name(rhs, source)
-                        .is_some_and(|name| variable_holds_numeric_literal(rhs, name, source))
-                    && !in_unreachable_code(node, source);
+                let indexed_variable = || {
+                    rhs.kind() == "function_call"
+                        && call_name(rhs, source)
+                            .is_some_and(|name| variable_holds_numeric_literal(rhs, name, source))
+                        && !in_unreachable_code(node, source)
+                };
                 if lhs.kind() == "multioutput_variable"
-                    && has_comma
-                    && (identifier_variable
-                        || indexed_variable
-                        || matches!(
-                            rhs.kind(),
-                            "number"
-                                | "string"
-                                | "matrix"
-                                | "cell"
-                                | "range"
-                                | "binary_operator"
-                                | "boolean_operator"
-                                | "comparison_operator"
-                                | "unary_operator"
-                        ))
+                    && has_comma()
+                    && (matches!(
+                        rhs.kind(),
+                        "number"
+                            | "string"
+                            | "matrix"
+                            | "cell"
+                            | "range"
+                            | "binary_operator"
+                            | "boolean_operator"
+                            | "comparison_operator"
+                            | "unary_operator"
+                    ) || identifier_variable()
+                        || indexed_variable())
                 {
                     let pos = rhs.start_position();
                     diagnostics.push(Diagnostic {

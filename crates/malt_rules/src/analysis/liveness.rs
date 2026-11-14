@@ -449,18 +449,15 @@ pub fn scope_truths(
 /// (`s.f = v`, `s(2).f = v`, `s.f(3) = v`) rather than only indexing (`x(i) = v`,
 /// `c{i} = v`). The target is the left-hand side of the enclosing `assignment`.
 pub fn is_field_store(tree: &Tree, range: Range<usize>) -> bool {
-    let Some(mut node) = tree
-        .root_node()
-        .descendant_for_byte_range(range.start, range.end)
-    else {
+    let root = tree.root_node();
+    let Some(target) = root.descendant_for_byte_range(range.start, range.end) else {
         return false;
     };
-    while node.kind() != "assignment" {
-        let Some(parent) = node.parent() else {
-            return false;
-        };
-        node = parent;
-    }
+    // The nearest assignment at or above the target.
+    let path = crate::analysis::ancestors::path_from(root, target);
+    let Some(node) = path.iter().rev().find(|n| n.kind() == "assignment") else {
+        return false;
+    };
     let Some(mut current) = node.child_by_field_name("left") else {
         return false;
     };

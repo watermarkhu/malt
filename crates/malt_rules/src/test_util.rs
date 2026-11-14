@@ -50,6 +50,7 @@ pub fn lint_nodes(rule: &dyn Rule, source: &str) -> Vec<Diagnostic> {
                 node,
                 source,
                 file_path: path,
+                ancestors: None,
             };
             diagnostics.extend(rule.check(&ctx));
         }

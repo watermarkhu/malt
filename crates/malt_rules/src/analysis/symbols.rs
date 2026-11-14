@@ -861,13 +861,16 @@ impl<'a> Builder<'a> {
         // File-level function. A classdef file's main entity is the class, so a
         // function after the classdef `end` is local (probed: `function helper()`
         // after a classdef is DEFNU when unused).
-        let after_class = self.parent_of_current().is_some_and(|parent| {
-            children_of(parent)
-                .iter()
-                .take_while(|sibling| sibling.id() != node.id())
-                .any(|sibling| sibling.kind() == "class_definition")
-        });
-        let first = !self.first_file_function_seen && !after_class;
+        // Only the first file-level function needs the answer.
+        let after_class = || {
+            self.parent_of_current().is_some_and(|parent| {
+                parent
+                    .children(&mut parent.walk())
+                    .take_while(|sibling| sibling.id() != node.id())
+                    .any(|sibling| sibling.kind() == "class_definition")
+            })
+        };
+        let first = !self.first_file_function_seen && !after_class();
         self.first_file_function_seen = true;
         if first {
             ScopeKind::Function

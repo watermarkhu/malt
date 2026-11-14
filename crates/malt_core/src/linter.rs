@@ -1,8 +1,10 @@
+use std::cell::Cell;
 use std::collections::HashSet;
 use std::ops::Range;
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::path::Path;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex};
 
 use tree_sitter::Parser;
 
@@ -133,11 +135,20 @@ fn statement_span(source: &str, pos: usize) -> Range<usize> {
 /// suppressed here...`, Info); a directive naming an ID malt does not track is
 /// silent (MATLAB's MSNE is not emitted).
 pub struct Linter {
-    registry: RuleRegistry,
+    registry: Arc<RuleRegistry>,
     parser: Parser,
     inline_suppression: bool,
     max_tree_depth: usize,
+    /// Threads that run the file checks of a large file side by side; 1 (the
+    /// default) runs them on the calling thread. See [`Linter::set_file_check_threads`].
+    file_check_threads: usize,
+    /// Stack size of each of those threads.
+    file_check_stack: usize,
 }
+
+/// Trees with fewer nodes than this run their file checks on one thread even
+/// when more are allowed: starting threads would cost more than it saves.
+const PARALLEL_MIN_NODES: usize = 20_000;
 
 /// The deepest syntax tree the analyzer works on by default.
 ///
@@ -152,20 +163,28 @@ pub const DEFAULT_MAX_TREE_DEPTH: usize = 1_000;
 /// messages past it are deleted. malt keeps the first ones in source order.
 pub const MATLAB_MAX_MESSAGES: usize = 10_000;
 
-/// Number of parses made so far by [`Linter::lint`] and by test helpers. See
-/// [`note_parse`].
-static PARSE_EPOCH: AtomicU64 = AtomicU64::new(0);
+/// Number of parses made so far by [`Linter::lint`] and by test helpers, in
+/// all threads. See [`note_parse`].
+static PARSE_COUNT: AtomicU64 = AtomicU64::new(0);
 
-/// The current parse epoch. Analyses that memoise by node id (an address that
-/// a later parse may reuse) key their memo by it.
-pub fn parse_epoch() -> u64 {
-    PARSE_EPOCH.load(Ordering::Relaxed)
+thread_local! {
+    /// The parse epoch of this thread: the parse it analyses now.
+    static PARSE_EPOCH: Cell<u64> = const { Cell::new(0) };
 }
 
-/// Start a new parse epoch. Call before each parse whose tree rules analyse,
-/// so a memo built for an earlier tree is never read for this one.
+/// The current parse epoch of this thread. Analyses that memoise by node id (an
+/// address that a later parse may reuse) key their memo by it. Each thread has
+/// its own, so threads that lint files side by side keep their memos.
+pub fn parse_epoch() -> u64 {
+    PARSE_EPOCH.with(Cell::get)
+}
+
+/// Start a new parse epoch in this thread. Call before each parse whose tree
+/// rules analyse, so a memo built for an earlier tree is never read for this
+/// one. Epochs are unique across threads.
 pub fn note_parse() {
-    PARSE_EPOCH.fetch_add(1, Ordering::Relaxed);
+    let epoch = PARSE_COUNT.fetch_add(1, Ordering::Relaxed) + 1;
+    PARSE_EPOCH.with(|current| current.set(epoch));
 }
 
 /// Errors that can occur during linting.
@@ -182,6 +201,12 @@ impl Linter {
     /// Inline suppression (`%#ok<...>`) is enabled by default; disable it with
     /// [`Linter::set_inline_suppression`].
     pub fn new(registry: RuleRegistry) -> Self {
+        Self::shared(Arc::new(registry))
+    }
+
+    /// Create a `Linter` on a registry that other linters share, such as one
+    /// linter per thread linting files side by side.
+    pub fn shared(registry: Arc<RuleRegistry>) -> Self {
         let mut parser = Parser::new();
         parser
             .set_language(&tree_sitter_matlab::LANGUAGE.into())
@@ -192,7 +217,18 @@ impl Linter {
             parser,
             inline_suppression: true,
             max_tree_depth: DEFAULT_MAX_TREE_DEPTH,
+            file_check_threads: 1,
+            file_check_stack: 0,
         }
+    }
+
+    /// Run the file-level checks of a large file on up to `threads` threads
+    /// (including the calling one), each with a stack of `stack_bytes`: rules
+    /// recurse over the tree, so a deep file needs as much stack as the calling
+    /// thread has. The diagnostics are the same as with one thread.
+    pub fn set_file_check_threads(&mut self, threads: usize, stack_bytes: usize) {
+        self.file_check_threads = threads.max(1);
+        self.file_check_stack = stack_bytes;
     }
 
     /// Set the deepest syntax tree that is analyzed (default
@@ -260,26 +296,22 @@ impl Linter {
         // internal analyzer error), the analysis is considered incomplete and a
         // single QUIT diagnostic is returned instead of crashing.
         let result = catch_unwind(AssertUnwindSafe(|| {
-            let mut diagnostics = self.traverse(&tree, source, file_path);
-
             // Step 3: File-level checks (only on rules that implement check_file)
             let file_ctx = FileContext {
                 tree: &tree,
                 source,
                 file_path,
             };
-            for &idx in self.registry.file_check_rules() {
-                let rule = self.registry.get_rule(idx);
-                let mut file_diags = rule.check_file(&file_ctx);
-                // Apply the configured severity override, if any.
-                if let Some(severity) = self.registry.severity_override(idx) {
-                    for diag in &mut file_diags {
-                        diag.severity = severity;
-                    }
-                }
-                diagnostics.extend(file_diags);
+            let threads = self
+                .file_check_threads
+                .min(self.registry.file_check_rules().len());
+            if threads > 1 && tree.root_node().descendant_count() >= PARALLEL_MIN_NODES {
+                return self.check_in_parallel(&file_ctx, threads);
             }
-
+            let mut diagnostics = self.traverse(&tree, source, file_path);
+            for &idx in self.registry.file_check_rules() {
+                diagnostics.extend(self.check_file_with(idx, &file_ctx));
+            }
             diagnostics
         }));
 
@@ -328,6 +360,62 @@ impl Linter {
         diagnostics.sort_by(|a, b| a.line.cmp(&b.line).then(a.column.cmp(&b.column)));
 
         Ok(diagnostics)
+    }
+
+    /// The file-level diagnostics of rule `idx`, with the configured severity
+    /// override, if any.
+    fn check_file_with(&self, idx: usize, ctx: &FileContext) -> Vec<Diagnostic> {
+        let mut found = self.registry.get_rule(idx).check_file(ctx);
+        if let Some(severity) = self.registry.severity_override(idx) {
+            for diag in &mut found {
+                diag.severity = severity;
+            }
+        }
+        found
+    }
+
+    /// Steps 2 and 3 with the file checks on `threads` threads: they pull rules
+    /// from a queue while this thread walks the tree for the node checks and
+    /// then helps. The diagnostics come out in the order of the serial run.
+    ///
+    /// Each thread keeps its own memos (symbol table, dead stores...), so some
+    /// analyses run more than once; that costs CPU time, not wall time.
+    fn check_in_parallel(&self, ctx: &FileContext, threads: usize) -> Vec<Diagnostic> {
+        let rules = self.registry.file_check_rules();
+        let next = AtomicUsize::new(0);
+        let results: Mutex<Vec<Option<Vec<Diagnostic>>>> =
+            Mutex::new(rules.iter().map(|_| None).collect());
+        let work = || loop {
+            let i = next.fetch_add(1, Ordering::Relaxed);
+            let Some(&idx) = rules.get(i) else {
+                break;
+            };
+            let found = self.check_file_with(idx, ctx);
+            results.lock().expect("no thread panics holding the lock")[i] = Some(found);
+        };
+        let mut diagnostics = std::thread::scope(|scope| {
+            for _ in 1..threads {
+                // A thread that cannot start leaves its share to the others.
+                let _ = std::thread::Builder::new()
+                    .stack_size(self.file_check_stack)
+                    .spawn_scoped(scope, || {
+                        // Memos of this thread belong to this tree only.
+                        note_parse();
+                        work();
+                    });
+            }
+            let diagnostics = self.traverse(ctx.tree, ctx.source, ctx.file_path);
+            work();
+            diagnostics
+        });
+        // A panicking thread has made `scope` panic: every result is here.
+        let results = results
+            .into_inner()
+            .expect("no thread panics holding the lock");
+        for found in results {
+            diagnostics.extend(found.expect("every rule was checked"));
+        }
+        diagnostics
     }
 
     /// The MALT_TOO_DEEP diagnostic for code nested beyond malt's depth limit.
@@ -381,6 +469,8 @@ impl Linter {
     ) -> Vec<Diagnostic> {
         let mut diagnostics = Vec::new();
         let mut cursor = tree.walk();
+        // The ancestors of the cursor's node, the root first.
+        let mut ancestors: Vec<tree_sitter::Node> = Vec::new();
 
         // Depth-first traversal using TreeCursor's goto_* methods.
         // We visit every node exactly once.
@@ -395,6 +485,7 @@ impl Linter {
                     node,
                     source,
                     file_path,
+                    ancestors: Some(&ancestors),
                 };
 
                 for &idx in rule_indices {
@@ -413,6 +504,7 @@ impl Linter {
 
             // DFS navigation: try child first, then sibling, then backtrack.
             if cursor.goto_first_child() {
+                ancestors.push(node);
                 continue;
             }
             if cursor.goto_next_sibling() {
@@ -421,6 +513,7 @@ impl Linter {
 
             // Backtrack up the tree until we find an ancestor with a next sibling.
             loop {
+                ancestors.pop();
                 if !cursor.goto_parent() {
                     // We've returned to the root — traversal complete.
                     return diagnostics;

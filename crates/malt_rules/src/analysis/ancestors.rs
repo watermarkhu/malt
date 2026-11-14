@@ -22,14 +22,10 @@ struct AncestorMemo {
 }
 
 /// The number of predicates that can be memoised.
-const SLOTS: usize = 3;
+const SLOTS: usize = 1;
 
-/// Slot of [`is_in_function`](crate::formatting::is_in_function).
-pub(crate) const SLOT_FUNCTION: usize = 0;
-/// Slot of [`is_in_parfor`](crate::formatting::is_in_parfor).
-pub(crate) const SLOT_PARFOR: usize = 1;
 /// Slot of `SymbolTable`-free `syntax_errors` `inside_error`: an ERROR ancestor.
-pub(crate) const SLOT_ERROR: usize = 2;
+pub(crate) const SLOT_ERROR: usize = 0;
 
 thread_local! {
     static MEMO: RefCell<AncestorMemo> = RefCell::new(AncestorMemo::default());
@@ -71,4 +67,23 @@ pub(crate) fn has_ancestor(node: Node, slot: usize, matches: fn(Node) -> bool) -
         }
         answer
     })
+}
+
+/// The ancestors of `node` below `root`, the root first and `node` last.
+///
+/// Walks down once, the way `Node::parent` does for every single step, so
+/// climbing a path of length `d` costs one descent instead of `d`.
+pub(crate) fn path_from<'t>(root: Node<'t>, node: Node<'t>) -> Vec<Node<'t>> {
+    let mut path = vec![root];
+    let mut current = root;
+    while current.id() != node.id() {
+        match current.child_with_descendant(node) {
+            Some(next) => {
+                path.push(next);
+                current = next;
+            }
+            None => break,
+        }
+    }
+    path
 }

@@ -95,6 +95,8 @@ mod check_nopts;
 use malt_core::{Category, Config, Diagnostic, FileContext, Fix, Rule, Severity};
 use tree_sitter::Node;
 
+use check_nopts::ScopeCache;
+
 // ---------------------------------------------------------------------------
 // Check IDs
 // ---------------------------------------------------------------------------
@@ -193,7 +195,15 @@ impl Rule for FormattingEngine {
 
         let mut diagnostics = Vec::new();
         let root = ctx.tree.root_node();
-        self.visit_recursive(root, ctx.source, &mut diagnostics);
+        let frame = Frame {
+            statement_level: false,
+            following: &[],
+            scope: root,
+            in_function: false,
+            in_parfor: false,
+        };
+        let mut names = ScopeCache::new();
+        self.visit_recursive(root, frame, ctx.source, &mut names, &mut diagnostics);
         diagnostics
     }
 }
@@ -202,9 +212,35 @@ impl Rule for FormattingEngine {
 // Recursive tree traversal
 // ---------------------------------------------------------------------------
 
+/// What the walk knows about the surroundings of the node it visits, so the
+/// checks need not ask tree-sitter: `Node::parent` and `Node::next_sibling`
+/// walk down from the root, which costs as much as the statements before the
+/// node and makes a file of many statements quadratic.
+#[derive(Clone, Copy)]
+pub(crate) struct Frame<'t, 'a> {
+    /// Whether the parent is a `source_file` or a `block` ([`STATEMENT_PARENTS`]).
+    pub(crate) statement_level: bool,
+    /// The siblings after the node, in order.
+    pub(crate) following: &'a [Node<'t>],
+    /// The nearest enclosing `function_definition`, else the root.
+    pub(crate) scope: Node<'t>,
+    /// Whether an ancestor is a `function_definition`.
+    pub(crate) in_function: bool,
+    /// Whether an ancestor is a `parfor` loop: a `for_statement` whose first
+    /// token is `parfor`. Probed: MATLAB gives no NOPTS or NOPRT for statements there.
+    pub(crate) in_parfor: bool,
+}
+
 impl FormattingEngine {
     /// Walk the tree recursively, applying enabled checks to each node.
-    fn visit_recursive(&self, node: Node, source: &str, diagnostics: &mut Vec<Diagnostic>) {
+    fn visit_recursive<'t>(
+        &self,
+        node: Node<'t>,
+        frame: Frame<'t, '_>,
+        source: &str,
+        names: &mut ScopeCache,
+        diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let kind = node.kind();
         // Note: multiple checks can apply to the same node type, so dispatch
         // each independently rather than using mutually-exclusive match arms.
@@ -232,18 +268,18 @@ impl FormattingEngine {
             self.check_align(node, source, diagnostics);
         }
 
-        // NOPTS: statement in a script that produces output without a semicolon
-        if (kind == "assignment" || check_nopts::is_expression_statement(node, source))
-            && self.enabled.nopts
+        // NOPTS / NOPRT: a statement that produces output without a semicolon,
+        // in a script or in a function.
+        if (self.enabled.nopts || self.enabled.noprt)
+            && (kind == "assignment"
+                || check_nopts::is_expression_statement(node, &frame, names, source))
         {
-            self.check_nopts(node, source, diagnostics);
-        }
-
-        // NOPRT: statement in a function that produces output without a semicolon
-        if (kind == "assignment" || check_nopts::is_expression_statement(node, source))
-            && self.enabled.noprt
-        {
-            self.check_noprt(node, source, diagnostics);
+            if self.enabled.nopts {
+                self.check_nopts(node, &frame, source, diagnostics);
+            }
+            if self.enabled.noprt {
+                self.check_noprt(node, &frame, source, diagnostics);
+            }
         }
 
         // NCOMMA: output variables not separated by commas
@@ -252,8 +288,25 @@ impl FormattingEngine {
         }
 
         // Recurse into children.
-        for child in crate::analysis::symbols::children_of(node) {
-            self.visit_recursive(child, source, diagnostics);
+        let children = crate::analysis::symbols::children_of(node);
+        let statement_level = STATEMENT_PARENTS.contains(&kind);
+        let scope = if kind == "function_definition" {
+            node
+        } else {
+            frame.scope
+        };
+        let in_function = frame.in_function || kind == "function_definition";
+        let in_parfor = frame.in_parfor
+            || (kind == "for_statement" && node.child(0).map(|c| c.kind()) == Some("parfor"));
+        for (i, &child) in children.iter().enumerate() {
+            let child_frame = Frame {
+                statement_level,
+                following: &children[i + 1..],
+                scope,
+                in_function,
+                in_parfor,
+            };
+            self.visit_recursive(child, child_frame, source, names, diagnostics);
         }
     }
 }
@@ -261,23 +314,6 @@ impl FormattingEngine {
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-/// Returns `true` if a node is inside a `function_definition` (i.e., in a
-/// function/method body) as opposed to at script level.
-pub(crate) fn is_in_function(node: Node) -> bool {
-    crate::analysis::ancestors::has_ancestor(node, crate::analysis::ancestors::SLOT_FUNCTION, |p| {
-        p.kind() == "function_definition"
-    })
-}
-
-/// Returns `true` if `node` is inside a `parfor` loop body. Probed: MATLAB gives
-/// no NOPTS or NOPRT for statements there (a `for_statement` whose first token
-/// is `parfor`).
-pub(crate) fn is_in_parfor(node: Node) -> bool {
-    crate::analysis::ancestors::has_ancestor(node, crate::analysis::ancestors::SLOT_PARFOR, |p| {
-        p.kind() == "for_statement" && p.child(0).map(|c| c.kind()) == Some("parfor")
-    })
-}
 
 /// Get the byte offset of the start of the line containing `byte_offset`.
 pub(crate) fn line_start_byte(source: &str, byte_offset: usize) -> usize {
@@ -294,12 +330,20 @@ pub(crate) fn line_start_byte(source: &str, byte_offset: usize) -> usize {
 /// source text immediately following the node for a `;` (skipping whitespace
 /// on the same line).
 pub(crate) fn has_trailing_semicolon(node: Node, source: &str) -> bool {
+    let following = std::iter::successors(node.next_sibling(), |sib| sib.next_sibling());
+    semicolon_follows(node, following, source)
+}
+
+/// [`has_trailing_semicolon`] given the siblings after `node`, in order.
+pub(crate) fn semicolon_follows<'t>(
+    node: Node<'t>,
+    following: impl IntoIterator<Item = Node<'t>>,
+    source: &str,
+) -> bool {
     // Strategy 1: Check next siblings for ";".
-    let mut sibling = node.next_sibling();
-    while let Some(sib) = sibling {
+    for sib in following {
         let kind = sib.kind();
         if kind == "comment" || kind == "line_continuation" {
-            sibling = sib.next_sibling();
             continue;
         }
         if kind == ";" {

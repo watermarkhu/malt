@@ -1,28 +1,32 @@
 //! NOPTS check: statement in a script that produces output without a semicolon.
 
+use std::collections::HashMap;
+
 use super::*;
 
 impl FormattingEngine {
     /// Flag an assignment or expression statement at script level that is not
     /// terminated by a semicolon, so it echoes its result to the console.
-    pub(crate) fn check_nopts(&self, node: Node, source: &str, diagnostics: &mut Vec<Diagnostic>) {
-        // An assignment that a line break splits before `-x`/`+x` is reported by NOPRC
-        // instead (probed: MATLAB gives NOPRC on `x = 1` and NOPTS on `-x` only).
-        if node.kind() == "assignment" && crate::bugs::noprc_follows(node, source) {
-            return;
-        }
-        let is_statement_level = node
-            .parent()
-            .map(|p| STATEMENT_PARENTS.contains(&p.kind()))
-            .unwrap_or(false);
-        if !is_statement_level {
+    pub(crate) fn check_nopts(
+        &self,
+        node: Node,
+        frame: &Frame,
+        source: &str,
+        diagnostics: &mut Vec<Diagnostic>,
+    ) {
+        if !frame.statement_level {
             return;
         }
         // Only scripts (not function bodies), and not parfor bodies (probed: silent).
-        if is_in_function(node) || is_in_parfor(node) {
+        if frame.in_function || frame.in_parfor {
             return;
         }
-        if has_trailing_semicolon(node, source) {
+        if semicolon_follows(node, frame.following.iter().copied(), source) {
+            return;
+        }
+        // An assignment that a line break splits before `-x`/`+x` is reported by NOPRC
+        // instead (probed: MATLAB gives NOPRC on `x = 1` and NOPTS on `-x` only).
+        if node.kind() == "assignment" && noprc_follows_in(node, frame, source) {
             return;
         }
 
@@ -46,13 +50,18 @@ impl FormattingEngine {
 /// string, matrix, cell), a handle or lambda, or a variable or indexing of one.
 /// Plain calls such as `disp(x)`, field reads such as `y.a`, `pi` and `true`
 /// are silent.
-pub(crate) fn is_expression_statement(node: Node, source: &str) -> bool {
-    let at_statement_level = node
-        .parent()
-        .is_some_and(|p| STATEMENT_PARENTS.contains(&p.kind()));
-    if !at_statement_level || is_in_parfor(node) {
+pub(crate) fn is_expression_statement(
+    node: Node,
+    frame: &Frame,
+    names: &mut ScopeCache,
+    source: &str,
+) -> bool {
+    if !frame.statement_level || frame.in_parfor {
         return false;
     }
+    let names = names
+        .entry(frame.scope.id())
+        .or_insert_with(|| ScopeNames::of(frame.scope, source));
     match node.kind() {
         // Probed: `~x` is a `not_operator` in this grammar; `x:2` is a range.
         "comparison_operator"
@@ -67,13 +76,13 @@ pub(crate) fn is_expression_statement(node: Node, source: &str) -> bool {
         | "handle_operator" => true,
         // Probed: a bare name is a variable when it is assigned anywhere in the
         // scope (`y` before `y = 1;` echoes); `ans` only when it is assigned.
-        "identifier" => is_variable_name(node, text_of(node, source), source, true),
+        "identifier" => names.is_variable(node, text_of(node, source), true),
         // A bare word such as `x` parses as a command; it is a variable statement
         // when the word names one (probed: `x` in a function, with `x` an input).
         "command" => {
             let word = text_of(node, source).trim();
             word.chars().all(|c| c.is_alphanumeric() || c == '_')
-                && is_variable_name(node, word, source, true)
+                && names.is_variable(node, word, true)
         }
         // Probed: `f(1)` after `f = @(v) v;` or `f = @sin;` is silent (a call of a
         // function handle); after `f = 3;` it echoes like indexing. Indexing is
@@ -86,11 +95,11 @@ pub(crate) fn is_expression_statement(node: Node, source: &str) -> bool {
                 // Probed: a parenthesised index of an input argument, or of a local
                 // copied from one, is silent; a brace index still echoes.
                 let brace = source[name.end_byte()..].starts_with('{');
-                if !brace && is_parameter_alias(node, name_text, source) {
+                if !brace && names.is_parameter_alias(node, name_text) {
                     return false;
                 }
-                is_variable_name(node, name_text, source, false)
-                    && !is_handle_variable(node, name_text, source)
+                names.is_variable(node, name_text, false)
+                    && !names.is_handle_variable(node, name_text)
             }),
         _ => false,
     }
@@ -115,7 +124,23 @@ pub(crate) fn report_position(node: Node, source: &str) -> tree_sitter::Point {
         "function_call" => node.child_by_field_name("name").map(|n| n.end_byte()),
         _ => None,
     };
-    point_at(source, byte.unwrap_or(node.start_byte()))
+    let byte = byte.unwrap_or(node.start_byte());
+    if byte < node.start_byte() {
+        return point_at(source, byte);
+    }
+    // Count rows from the node, not from the start of the file.
+    let line_start = line_start_byte(source, byte);
+    tree_sitter::Point {
+        row: node.start_position().row + source[node.start_byte()..byte].matches('\n').count(),
+        column: byte - line_start,
+    }
+}
+
+/// Whether NOPRC reports `node` instead ([`crate::bugs::noprc_follows_among`]),
+/// with the siblings the walk already knows.
+pub(crate) fn noprc_follows_in(node: Node, frame: &Frame, source: &str) -> bool {
+    let following = frame.following.iter().copied().filter(|s| s.is_named());
+    crate::bugs::noprc_follows_among(node, following, source)
 }
 
 /// Byte offset of the first non-blank character at or after `from`.
@@ -134,32 +159,117 @@ fn point_at(source: &str, byte: usize) -> tree_sitter::Point {
     }
 }
 
-/// Whether `name` holds a function handle or an anonymous function at `node`:
-/// its last whole assignment before `node` has a handle or lambda right-hand side.
-fn is_handle_variable(node: Node, name: &str, source: &str) -> bool {
-    let scope = scope_of(node);
-    crate::good_practices::collect_simple_lhs_assignments(scope, source)
-        .iter()
-        .filter(|(n, lhs)| n == name && lhs.end_byte() <= node.start_byte())
-        .map(|(_, lhs)| *lhs)
-        .max_by_key(|lhs| lhs.end_byte())
-        .and_then(|lhs| lhs.parent())
-        .and_then(|assignment| assignment.child_by_field_name("right"))
-        .is_some_and(|rhs| matches!(rhs.kind(), "lambda" | "handle_operator" | "function_handle"))
+/// The scope id of each [`ScopeNames`] built so far in one walk.
+pub(crate) type ScopeCache = HashMap<usize, ScopeNames>;
+
+/// The variables of one scope (a function, or the file outside functions),
+/// gathered once for the bare-name statements of NOPTS and NOPRT, which would
+/// otherwise each rescan the scope.
+pub(crate) struct ScopeNames {
+    /// The input parameters, when the scope is a function.
+    params: Vec<String>,
+    /// Name to the earliest end byte of a whole (`v = ...`), indexed
+    /// (`v(i) = ...`) or field (`v.f = ...`) assignment target `v`.
+    first_assigned: HashMap<String, usize>,
+    /// Name to its whole assignments `v = ...`, as (end byte of `v`, the
+    /// right-hand side is a handle or lambda, the right-hand side aliases a
+    /// parameter: an input argument or `[]`).
+    plain: HashMap<String, Vec<(usize, bool, bool)>>,
 }
 
-/// The function or script scope that encloses `node`.
-fn scope_of(node: Node) -> Node {
-    let mut scope = node;
-    let mut current = node.parent();
-    while let Some(parent) = current {
-        scope = parent;
-        if parent.kind() == "function_definition" {
-            break;
+impl ScopeNames {
+    /// Gather the names of `scope`, a `function_definition` or the root.
+    fn of(scope: Node, source: &str) -> Self {
+        let params = scope_parameters(scope, source);
+        let mut first_assigned: HashMap<String, usize> = HashMap::new();
+        let mut plain: HashMap<String, Vec<(usize, bool, bool)>> = HashMap::new();
+        let mut assignments = Vec::new();
+        crate::good_practices::collect_nodes_of_kind(scope, "assignment", &mut assignments);
+        for assignment in assignments {
+            let Some(lhs) = assignment.child_by_field_name("left") else {
+                continue;
+            };
+            let target = match lhs.kind() {
+                "identifier" => Some(lhs),
+                "function_call" | "field_expression" => lhs
+                    .named_child(0)
+                    .filter(|base| base.kind() == "identifier"),
+                _ => None,
+            };
+            let Some(target) = target else {
+                continue;
+            };
+            let name = text_of(target, source);
+            let end = target.end_byte();
+            first_assigned
+                .entry(name.to_string())
+                .and_modify(|first| *first = (*first).min(end))
+                .or_insert(end);
+            if lhs.kind() == "identifier" {
+                let rhs = assignment.child_by_field_name("right");
+                let handle = rhs.is_some_and(|rhs| {
+                    matches!(rhs.kind(), "lambda" | "handle_operator" | "function_handle")
+                });
+                let alias = rhs.is_some_and(|rhs| match rhs.kind() {
+                    "identifier" => params.iter().any(|p| p == text_of(rhs, source)),
+                    "matrix" => rhs.named_child_count() == 0,
+                    _ => false,
+                });
+                plain
+                    .entry(name.to_string())
+                    .or_default()
+                    .push((end, handle, alias));
+            }
         }
-        current = parent.parent();
+        Self {
+            params,
+            first_assigned,
+            plain,
+        }
     }
-    scope
+
+    /// Whether `name` is a variable of the scope at `node`: an input argument,
+    /// or assigned before `node`. With `anywhere`, an assignment after `node`
+    /// counts too (bare names are flow-insensitive in MATLAB: probed `y` before
+    /// `y = 1;` echoes, and `ans` echoes only when it is assigned somewhere).
+    /// Probed: `r(i,j) = v` in a loop makes `r` a variable, so `r` on its own
+    /// echoes (NOPTS).
+    fn is_variable(&self, node: Node, name: &str, anywhere: bool) -> bool {
+        self.params.iter().any(|p| p == name)
+            || self
+                .first_assigned
+                .get(name)
+                .is_some_and(|&end| anywhere || end <= node.start_byte())
+    }
+
+    /// The last whole assignment of `name` that ends before `node`.
+    fn last_plain_before(&self, node: Node, name: &str) -> Option<(usize, bool, bool)> {
+        self.plain
+            .get(name)?
+            .iter()
+            .filter(|(end, _, _)| *end <= node.start_byte())
+            .max_by_key(|(end, _, _)| *end)
+            .copied()
+    }
+
+    /// Whether `name` holds a function handle or an anonymous function at `node`:
+    /// its last whole assignment before `node` has a handle or lambda right-hand side.
+    fn is_handle_variable(&self, node: Node, name: &str) -> bool {
+        self.last_plain_before(node, name)
+            .is_some_and(|(_, handle, _)| handle)
+    }
+
+    /// Whether a parenthesised index of `name` at `node` reads as a call because
+    /// the value is unknown: an input argument, a local copied from one
+    /// (`c = v; c(2)`), or a local started as an empty matrix
+    /// (`y = []; y(1) = 3; y(1)`). Probed: MATLAB is silent on each of these;
+    /// `x = 2; x(1)` and `c{1}` still echo.
+    fn is_parameter_alias(&self, node: Node, name: &str) -> bool {
+        self.params.iter().any(|p| p == name)
+            || self
+                .last_plain_before(node, name)
+                .is_some_and(|(_, _, alias)| alias)
+    }
 }
 
 /// Source text of `node`, empty when it is not valid UTF-8.
@@ -167,66 +277,24 @@ fn text_of<'a>(node: Node, source: &'a str) -> &'a str {
     node.utf8_text(source.as_bytes()).unwrap_or("")
 }
 
-/// Whether `name` is a variable of the scope enclosing `node`: an input argument,
-/// or assigned before `node`. With `anywhere`, an assignment after `node` counts
-/// too (bare names are flow-insensitive in MATLAB: probed `y` before `y = 1;`
-/// echoes, and `ans` echoes only when it is assigned somewhere).
-fn is_variable_name(node: Node, name: &str, source: &str, anywhere: bool) -> bool {
-    let scope = scope_of(node);
-    let assigned_by = |lhs: &Node| anywhere || lhs.end_byte() <= node.start_byte();
-    // Probed: `r(i,j) = v` in a loop makes `r` a variable, so `r` on its own
-    // echoes (NOPTS).
-    scope_declares_parameter(scope, name, source)
-        || crate::good_practices::collect_simple_lhs_assignments(scope, source)
-            .iter()
-            .any(|(n, lhs)| n == name && assigned_by(lhs))
-        || crate::good_practices::collect_indexed_lhs_assignments(scope, source)
-            .iter()
-            .any(|(n, lhs)| n == name && assigned_by(lhs))
-        || crate::good_practices::collect_field_lhs_assignments(scope, source)
-            .iter()
-            .any(|(n, lhs)| n == name && assigned_by(lhs))
-}
-
-/// Whether a parenthesised index of `name` at `node` reads as a call because the
-/// value is unknown: an input argument, a local copied from one (`c = v; c(2)`),
-/// or a local started as an empty matrix (`y = []; y(1) = 3; y(1)`). Probed:
-/// MATLAB is silent on each of these; `x = 2; x(1)` and `c{1}` still echo.
-fn is_parameter_alias(node: Node, name: &str, source: &str) -> bool {
-    let scope = scope_of(node);
-    if scope_declares_parameter(scope, name, source) {
-        return true;
-    }
-    crate::good_practices::collect_simple_lhs_assignments(scope, source)
-        .iter()
-        .filter(|(n, lhs)| n == name && lhs.end_byte() <= node.start_byte())
-        .map(|(_, lhs)| *lhs)
-        .max_by_key(|lhs| lhs.end_byte())
-        .and_then(|lhs| lhs.parent())
-        .and_then(|assignment| assignment.child_by_field_name("right"))
-        .is_some_and(|rhs| match rhs.kind() {
-            "identifier" => scope_declares_parameter(scope, text_of(rhs, source), source),
-            "matrix" => rhs.named_child_count() == 0,
-            _ => false,
-        })
-}
-
-/// Whether `name` is an input argument of the function `scope`. Probed: a bare
-/// `x` statement is an expression statement when `x` is an input argument.
-fn scope_declares_parameter(scope: Node, name: &str, source: &str) -> bool {
+/// The input arguments of `scope` when it is a function definition. Probed: a
+/// bare `x` statement is an expression statement when `x` is an input argument.
+fn scope_parameters(scope: Node, source: &str) -> Vec<String> {
     if scope.kind() != "function_definition" {
-        return false;
+        return Vec::new();
     }
-    let blocks: Vec<Node> = scope.children(&mut scope.walk()).collect();
-    blocks
-        .into_iter()
-        .filter(|c| c.kind() == "function_arguments")
-        .any(|args| {
-            let params: Vec<Node> = args.children(&mut args.walk()).collect();
-            params
-                .into_iter()
-                .any(|c| c.kind() == "identifier" && &source[c.start_byte()..c.end_byte()] == name)
-        })
+    let mut params = Vec::new();
+    for args in crate::analysis::symbols::children_of(scope) {
+        if args.kind() != "function_arguments" {
+            continue;
+        }
+        for c in crate::analysis::symbols::children_of(args) {
+            if c.kind() == "identifier" {
+                params.push(source[c.start_byte()..c.end_byte()].to_string());
+            }
+        }
+    }
+    params
 }
 
 #[cfg(test)]

@@ -1,7 +1,10 @@
+use std::collections::BTreeMap;
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::process;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{mpsc, Arc};
 
 use anyhow::{Context, Result};
 use clap::Parser;
@@ -78,120 +81,228 @@ fn run(cli: Cli) -> Result<()> {
 
     // Build rule registry from configuration (only enabled rules).
     let rules = malt_rules::active_rules(&config);
-    let registry = RuleRegistry::new(rules, &config);
-    let mut linter = Linter::new(registry);
-    linter.set_inline_suppression(config.inline_suppression);
+    let registry = Arc::new(RuleRegistry::new(rules, &config));
+    let cores = std::thread::available_parallelism().map_or(1, |n| n.get());
+    let new_linter = || {
+        let mut linter = Linter::shared(registry.clone());
+        linter.set_inline_suppression(config.inline_suppression);
+        // A large file also spreads its own checks over the cores.
+        linter.set_file_check_threads(cores, LINT_STACK_BYTES);
+        linter
+    };
 
-    let mut total_diagnostics = 0;
-    let mut files_with_issues = 0;
-    let mut fixable = 0;
-    let mut unsafe_fixable = 0;
-
-    for file_path in &cli.files {
-        let source = match fs::read_to_string(file_path) {
-            Ok(s) => s,
-            Err(e) if e.kind() == io::ErrorKind::NotFound => {
-                // NOFIL — file not found.
-                let diag = Diagnostic {
-                    rule_id: "NOFIL",
-                    message: format!(
-                        "Unable to open file {}. File is not found.",
-                        file_path.display()
-                    ),
-                    severity: Severity::Error,
-                    byte_range: 0..1,
-                    line: 1,
-                    column: 1,
-                    fix: None,
-                };
-                print_diagnostic(file_path, &diag);
-                total_diagnostics += 1;
-                files_with_issues += 1;
-                continue; // skip lint + fix; never write an empty file to a missing path
-            }
-            Err(_) => {
-                // RDERR — non-NotFound I/O error (permission denied, directory, etc.).
-                // Catch-all Err(_) is intentional: std::io::ErrorKind has no stable
-                // IsADirectory variant.
-                let diag = Diagnostic {
-                    rule_id: "RDERR",
-                    message: format!("Unable to read file {}.", file_path.display()),
-                    severity: Severity::Error,
-                    byte_range: 0..1,
-                    line: 1,
-                    column: 1,
-                    fix: None,
-                };
-                print_diagnostic(file_path, &diag);
-                total_diagnostics += 1;
-                files_with_issues += 1;
-                continue;
-            }
-        };
-
-        let diagnostics = if cli.fix {
-            let mode = if cli.unsafe_fixes {
-                FixMode::All
-            } else {
-                FixMode::Safe
-            };
-            let outcome = fix_source(&mut linter, &source, file_path, mode)
-                .with_context(|| format!("failed to parse {}", file_path.display()))?;
-            // Only touch the file when something was actually fixed.
-            if outcome.source != source {
-                fs::write(file_path, &outcome.source)
-                    .with_context(|| format!("failed to write {}", file_path.display()))?;
-                println!(
-                    "Fixed {} issue{} in {}",
-                    outcome.applied,
-                    if outcome.applied == 1 { "" } else { "s" },
-                    file_path.display()
-                );
-            }
-            outcome.remaining
-        } else {
-            linter
-                .lint(&source, file_path)
-                .with_context(|| format!("failed to parse {}", file_path.display()))?
-        };
-
-        if diagnostics.is_empty() {
-            continue;
+    let mut summary = Summary::default();
+    let threads = cores.min(cli.files.len());
+    if cli.fix || threads <= 1 {
+        // `--fix` writes files and reports each fix as it goes, so it works
+        // through them one by one, in order.
+        let mut linter = new_linter();
+        for file_path in &cli.files {
+            let outcome = check_file(&mut linter, file_path, &cli)?;
+            summary.report(file_path, outcome);
         }
-
-        for diag in &diagnostics {
-            print_diagnostic(file_path, diag);
-            match diag.fix.as_ref() {
-                Some(f) if f.is_safe() => fixable += 1,
-                Some(_) => unsafe_fixable += 1,
-                None => {}
-            }
-        }
-
-        total_diagnostics += diagnostics.len();
-        files_with_issues += 1;
+    } else {
+        lint_in_parallel(&cli, threads, new_linter, |file_path, outcome| {
+            summary.report(file_path, outcome?);
+            Ok(())
+        })?;
     }
 
-    if total_diagnostics > 0 {
+    if summary.total_diagnostics > 0 {
         println!(
             "\nFound {} issue{} in {} file{}.",
-            total_diagnostics,
-            if total_diagnostics == 1 { "" } else { "s" },
-            files_with_issues,
-            if files_with_issues == 1 { "" } else { "s" },
+            summary.total_diagnostics,
+            if summary.total_diagnostics == 1 {
+                ""
+            } else {
+                "s"
+            },
+            summary.files_with_issues,
+            if summary.files_with_issues == 1 {
+                ""
+            } else {
+                "s"
+            },
         );
-        if fixable > 0 {
-            println!("{fixable} fixable with the `--fix` option.");
+        if summary.fixable > 0 {
+            println!("{} fixable with the `--fix` option.", summary.fixable);
         }
-        if unsafe_fixable > 0 && !cli.unsafe_fixes {
+        if summary.unsafe_fixable > 0 && !cli.unsafe_fixes {
             println!(
-                "{unsafe_fixable} more with `--fix --unsafe-fixes` (these may change behaviour)."
+                "{} more with `--fix --unsafe-fixes` (these may change behaviour).",
+                summary.unsafe_fixable
             );
         }
         process::exit(1);
     }
 
     Ok(())
+}
+
+/// Lint the files of `cli` on `threads` threads, each with its own linter from
+/// `new_linter`, and hand each file's outcome to `report` in the order of the
+/// command line (so the output does not depend on which thread is faster).
+/// Stops at the first error `report` returns.
+fn lint_in_parallel(
+    cli: &Cli,
+    threads: usize,
+    new_linter: impl Fn() -> Linter + Sync,
+    mut report: impl FnMut(&Path, Result<FileOutcome>) -> Result<()>,
+) -> Result<()> {
+    let files = &cli.files;
+    let next = AtomicUsize::new(0);
+    let (sender, receiver) = mpsc::channel();
+    std::thread::scope(|scope| {
+        let mut started = 0;
+        for _ in 0..threads {
+            let sender = sender.clone();
+            let (next, new_linter) = (&next, &new_linter);
+            let worker = std::thread::Builder::new()
+                .name("malt".into())
+                .stack_size(LINT_STACK_BYTES)
+                .spawn_scoped(scope, move || {
+                    let mut linter = new_linter();
+                    loop {
+                        let index = next.fetch_add(1, Ordering::Relaxed);
+                        let Some(file_path) = files.get(index) else {
+                            break;
+                        };
+                        let outcome = check_file(&mut linter, file_path, cli);
+                        // The receiver is gone once reporting stopped at an error.
+                        if sender.send((index, outcome)).is_err() {
+                            break;
+                        }
+                    }
+                });
+            if worker.is_ok() {
+                started += 1;
+            }
+        }
+        drop(sender);
+        if started == 0 {
+            anyhow::bail!("could not start the analyzer threads");
+        }
+        // Outcomes arrive in any order: hold them until their turn.
+        let mut waiting = BTreeMap::new();
+        let mut turn = 0;
+        for (index, outcome) in receiver {
+            waiting.insert(index, outcome);
+            while let Some(outcome) = waiting.remove(&turn) {
+                report(&files[turn], outcome)?;
+                turn += 1;
+            }
+        }
+        Ok(())
+    })
+}
+
+/// What reading, linting and (with `--fix`) fixing one file gave.
+enum FileOutcome {
+    /// The file could not be read: its NOFIL or RDERR diagnostic.
+    Unreadable(Diagnostic),
+    /// The diagnostics that remain.
+    Linted(Vec<Diagnostic>),
+}
+
+/// Read, lint and, with `--fix`, fix one file.
+fn check_file(linter: &mut Linter, file_path: &Path, cli: &Cli) -> Result<FileOutcome> {
+    let source = match fs::read_to_string(file_path) {
+        Ok(s) => s,
+        Err(e) if e.kind() == io::ErrorKind::NotFound => {
+            // NOFIL — file not found. Skip lint + fix; never write an empty file
+            // to a missing path.
+            return Ok(FileOutcome::Unreadable(Diagnostic {
+                rule_id: "NOFIL",
+                message: format!(
+                    "Unable to open file {}. File is not found.",
+                    file_path.display()
+                ),
+                severity: Severity::Error,
+                byte_range: 0..1,
+                line: 1,
+                column: 1,
+                fix: None,
+            }));
+        }
+        Err(_) => {
+            // RDERR — non-NotFound I/O error (permission denied, directory, etc.).
+            // Catch-all Err(_) is intentional: std::io::ErrorKind has no stable
+            // IsADirectory variant.
+            return Ok(FileOutcome::Unreadable(Diagnostic {
+                rule_id: "RDERR",
+                message: format!("Unable to read file {}.", file_path.display()),
+                severity: Severity::Error,
+                byte_range: 0..1,
+                line: 1,
+                column: 1,
+                fix: None,
+            }));
+        }
+    };
+
+    let diagnostics = if cli.fix {
+        let mode = if cli.unsafe_fixes {
+            FixMode::All
+        } else {
+            FixMode::Safe
+        };
+        let outcome = fix_source(linter, &source, file_path, mode)
+            .with_context(|| format!("failed to parse {}", file_path.display()))?;
+        // Only touch the file when something was actually fixed.
+        if outcome.source != source {
+            fs::write(file_path, &outcome.source)
+                .with_context(|| format!("failed to write {}", file_path.display()))?;
+            println!(
+                "Fixed {} issue{} in {}",
+                outcome.applied,
+                if outcome.applied == 1 { "" } else { "s" },
+                file_path.display()
+            );
+        }
+        outcome.remaining
+    } else {
+        linter
+            .lint(&source, file_path)
+            .with_context(|| format!("failed to parse {}", file_path.display()))?
+    };
+    Ok(FileOutcome::Linted(diagnostics))
+}
+
+/// The counts behind the closing summary line.
+#[derive(Default)]
+struct Summary {
+    total_diagnostics: usize,
+    files_with_issues: usize,
+    fixable: usize,
+    unsafe_fixable: usize,
+}
+
+impl Summary {
+    /// Print the diagnostics of one file and count them.
+    fn report(&mut self, file_path: &Path, outcome: FileOutcome) {
+        let diagnostics = match outcome {
+            FileOutcome::Unreadable(diag) => {
+                print_diagnostic(file_path, &diag);
+                self.total_diagnostics += 1;
+                self.files_with_issues += 1;
+                return;
+            }
+            FileOutcome::Linted(diagnostics) => diagnostics,
+        };
+        if diagnostics.is_empty() {
+            return;
+        }
+        for diag in &diagnostics {
+            print_diagnostic(file_path, diag);
+            match diag.fix.as_ref() {
+                Some(f) if f.is_safe() => self.fixable += 1,
+                Some(_) => self.unsafe_fixable += 1,
+                None => {}
+            }
+        }
+        self.total_diagnostics += diagnostics.len();
+        self.files_with_issues += 1;
+    }
 }
 
 /// Print a diagnostic in the standard `file:line:col [E] ID: message` format.

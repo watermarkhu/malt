@@ -5,30 +5,33 @@ use super::*;
 impl FormattingEngine {
     /// Flag an assignment or expression statement inside a function that is not
     /// terminated by a semicolon, so it echoes its result to the console.
-    pub(crate) fn check_noprt(&self, node: Node, source: &str, diagnostics: &mut Vec<Diagnostic>) {
-        let is_statement_level = node
-            .parent()
-            .map(|p| STATEMENT_PARENTS.contains(&p.kind()))
-            .unwrap_or(false);
-        if !is_statement_level {
+    pub(crate) fn check_noprt(
+        &self,
+        node: Node,
+        frame: &Frame,
+        source: &str,
+        diagnostics: &mut Vec<Diagnostic>,
+    ) {
+        if !frame.statement_level {
             return;
         }
         // Only function bodies (not scripts), and not parfor bodies (probed: silent).
-        if !is_in_function(node) || is_in_parfor(node) {
+        if !frame.in_function || frame.in_parfor {
             return;
         }
         // `a = 1:2:3:4` parses as a range followed by an ERROR node, and MATLAB
         // reports M3COL for the chain, not NOPRT.
-        if node.next_sibling().is_some_and(|s| s.kind() == "ERROR") {
+        if frame.following.first().is_some_and(|s| s.kind() == "ERROR") {
+            return;
+        }
+        if semicolon_follows(node, frame.following.iter().copied(), source) {
             return;
         }
         // An assignment that a line break splits before `-x`/`+x` is reported by
         // NOPRC instead (`y = 3` then `-4`). Probed: an expression statement such
         // as `~x(1)` before `-x(1)` still gets NOPRT on its own line.
-        if node.kind() == "assignment" && crate::bugs::noprc_follows(node, source) {
-            return;
-        }
-        if has_trailing_semicolon(node, source) {
+        if node.kind() == "assignment" && super::check_nopts::noprc_follows_in(node, frame, source)
+        {
             return;
         }
 

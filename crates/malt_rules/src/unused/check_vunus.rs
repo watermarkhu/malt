@@ -14,7 +14,7 @@
 
 use super::*;
 use crate::analysis::symbols::{DefKind, ScopeKind, SymbolTable};
-use crate::formatting::has_trailing_semicolon;
+use crate::formatting::semicolon_follows;
 
 /// Node kinds whose value is an operator: `a + b`, `~a`, `a'`, `1:n`, `[a b]`, `{a}`.
 const OPERATOR_NODES: &[&str] = &[
@@ -44,23 +44,41 @@ impl UnusedEngine {
         if self.is_check_disabled("VUNUS") {
             return;
         }
-        walk_vunus(tree.root_node(), table, source, diagnostics);
+        walk_vunus(tree.root_node(), false, &[], table, source, diagnostics);
     }
 }
 
 /// Visit every statement of the file and report the discarded ones.
-fn walk_vunus(node: Node, table: &SymbolTable, source: &str, diagnostics: &mut Vec<Diagnostic>) {
-    let is_statement_level = node
-        .parent()
-        .map(|p| STATEMENT_PARENTS.contains(&p.kind()))
-        .unwrap_or(false);
+/// `statement_level` says whether the parent is a `source_file` or `block`, and
+/// `following` holds the siblings after `node`: the walk knows them, while
+/// `Node::parent` and `Node::next_sibling` would search from the root.
+fn walk_vunus(
+    node: Node,
+    statement_level: bool,
+    following: &[Node],
+    table: &SymbolTable,
+    source: &str,
+    diagnostics: &mut Vec<Diagnostic>,
+) {
     // A statement with a parse error inside (`x = (1:2:3:4)';`) is not a discarded
     // value: MATLAB reports the grammar problem instead.
-    if is_statement_level && !node.has_error() && has_trailing_semicolon(node, source) {
+    if statement_level
+        && !node.has_error()
+        && semicolon_follows(node, following.iter().copied(), source)
+    {
         check_discarded(node, table, source, diagnostics);
     }
-    for child in crate::analysis::symbols::children_of(node) {
-        walk_vunus(child, table, source, diagnostics);
+    let children = crate::analysis::symbols::children_of(node);
+    let child_level = STATEMENT_PARENTS.contains(&node.kind());
+    for (i, &child) in children.iter().enumerate() {
+        walk_vunus(
+            child,
+            child_level,
+            &children[i + 1..],
+            table,
+            source,
+            diagnostics,
+        );
     }
 }
 

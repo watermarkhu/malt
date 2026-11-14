@@ -62,6 +62,7 @@ impl CodegenEngine {
         // FPASE: `y = ...` after `y = fi(...)` in an enclosing block.
         if self.is_enabled("FPASE")
             && lhs.kind() == "identifier"
+            && crate::analysis::words::has_word(source, "fi")
             && !is_call_to(rhs, source, "fi")
             && Self::previously_assigned_fi(node, source, node_text(lhs, source))
         {
@@ -75,9 +76,15 @@ impl CodegenEngine {
     /// function boundary) assigned `name = fi(...)`.
     fn previously_assigned_fi(node: tree_sitter::Node, source: &str, name: &str) -> bool {
         let mut current = node;
-        loop {
-            let mut sib = current.prev_sibling();
-            while let Some(s) = sib {
+        while let Some(parent) = current.parent() {
+            // The siblings before `current`, nearest first. `prev_sibling` would
+            // restart from the parent for each step.
+            let siblings = crate::analysis::symbols::children_of(parent);
+            let at = siblings
+                .iter()
+                .position(|s| s.id() == current.id())
+                .unwrap_or(siblings.len());
+            for s in siblings[..at].iter().rev() {
                 if s.kind() == "assignment" {
                     let l = s.child_by_field_name("left").or_else(|| s.child(0));
                     let r = s.child_by_field_name("right").or_else(|| s.child(2));
@@ -88,15 +95,13 @@ impl CodegenEngine {
                         }
                     }
                 }
-                sib = s.prev_sibling();
             }
-            match current.parent() {
-                Some(p) if p.kind() != "function_definition" && p.kind() != "source_file" => {
-                    current = p;
-                }
-                _ => return false,
+            if matches!(parent.kind(), "function_definition" | "source_file") {
+                return false;
             }
+            current = parent;
         }
+        false
     }
 }
 
