@@ -25,7 +25,7 @@
 //! | --- | --- | --- | --- |
 //! | NASGU | warning | no | Value assigned to variable might be unused. |
 //! | NUSED | warning | no | Global or persistent variable might be unused or unset in this function or script. |
-//! | NOEFF | warning | no | The operation or expression VAR_OPERATOR has no evident effect. |
+//! | NOEFF | warning | no | The operation or expression VAR_OPERATOR has no evident effect. Not emitted: MATLAB reported none in its probes. |
 //! | EQEFF | warning | no | To assign values to variables, use =. The == operator compares equality of values. |
 //! | ASGLU | warning | no | Value assigned to variable might be unused. Consider replacing the variable with ~ instead. |
 //! | SETNU | warning | no | Variable is set, but might be unused. |
@@ -33,7 +33,7 @@
 //! | PREALL | warning | no | The preallocated value assigned to variable might be unused. |
 //! | INUSA | warning | no | Input argument might be unused after the function arguments block(s). |
 //! | INUSD | warning | no | Input argument might be unused. Consider replacing the argument with ~ instead. |
-//! | VANUS | warning | no | Input argument 'varargin' might be unused. |
+//! | VANUS | warning | no | Input argument 'varargin' might be unused. Not emitted: MATLAB reported none in its probes. |
 //! | VUNUS | warning | no | <operator> produces a value that might be unused. |
 //! | DEFNU | warning | no | Function might be unused. |
 //! | UNRCH | warning | no | This statement (and possibly following ones) cannot be reached. |
@@ -77,6 +77,8 @@ use std::collections::HashSet;
 use malt_core::{Category, Config, Diagnostic, FileContext, Rule, Severity};
 use serde::Deserialize;
 use tree_sitter::Node;
+
+pub(crate) use check_unrch::dead_regions;
 
 use crate::analysis::control_flow::find_unreachable;
 use crate::analysis::symbols::{DefKind, ScopeKind, SymbolTable};
@@ -158,10 +160,7 @@ impl UnusedEngine {
         let mut rule_config: UnusedConfig = config.rule_params("UNUSED_ENGINE");
         rule_config
             .disabled_checks
-            .extend(crate::off_under_mathworks(
-                config,
-                &["VANUS", "NOEFF", "PUSE"],
-            ));
+            .extend(crate::off_under_mathworks(config, &["VANUS", "NOEFF"]));
         Box::new(Self {
             config: rule_config,
         })

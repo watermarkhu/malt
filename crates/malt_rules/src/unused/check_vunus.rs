@@ -98,12 +98,27 @@ fn check_discarded(
             let message = vunus_message(&source[op.byte_range()]);
             push(diagnostics, op, message);
         }
+    } else if let Some(brace) = brace_index_token(expr) {
+        push(diagnostics, brace, vunus_message("{"));
     } else if let Some(name_node) = bare_name(expr) {
         let name = &source[name_node.byte_range()];
         if is_function_variable(table, name_node, name) {
             push(diagnostics, name_node, vunus_message(name));
         }
     }
+}
+
+/// The `{` of a brace index statement `c{1};`, which MATLAB reports as VUNUS
+/// (probed). A parenthesised index `x(1);` is silent.
+fn brace_index_token(node: Node) -> Option<Node> {
+    if node.kind() != "function_call" {
+        return None;
+    }
+    let children: Vec<Node> = {
+        let mut cursor = node.walk();
+        node.children(&mut cursor).collect()
+    };
+    children.into_iter().find(|child| child.kind() == "{")
 }
 
 /// The name of a statement that is only a name: `a;`. The grammar parses such a
@@ -343,5 +358,15 @@ mod tests {
         );
         // `ans` with no assignment in the function is not a variable here.
         assert!(vunus("function f()\n    ans;\nend\n").is_empty());
+    }
+
+    #[test]
+    fn vunus_brace_index_statement_at_the_brace() {
+        // Probed (q12): `x{1};` is VUNUS at the `{`; `x(1);` is silent.
+        assert_eq!(
+            vunus("function f(x)\n    x{1};\nend\n"),
+            vec![(2, 6, msg("{"))]
+        );
+        assert!(vunus("function f(x)\n    x(1);\nend\n").is_empty());
     }
 }

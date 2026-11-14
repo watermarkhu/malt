@@ -47,9 +47,14 @@ const COMPAT_FIELDS: &[Field] = &[
     ("args_all", StrList, false),
     ("unless_args", StrList, false),
     ("second_arg", Str, false),
+    ("second_arg_any", StrList, false),
     ("script_only", Bool, false),
     ("first_arg_text", Bool, false),
+    ("first_arg_not_text", Bool, false),
     ("min_outputs", OptUsize, false),
+    ("first_arg_any", StrList, false),
+    ("unless_sole_arg", StrList, false),
+    ("unless_all_args", StrList, false),
 ];
 
 const SUGGESTED_FIELDS: &[Field] = &[

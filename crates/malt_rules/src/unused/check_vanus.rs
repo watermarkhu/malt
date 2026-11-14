@@ -2,10 +2,14 @@
 
 use super::*;
 
+/// VANUS is not emitted: MATLAB reported no unused `varargin` in about nine probes
+/// (functions, methods and scripts; with `nargin`, `varargout`, `error` or no use).
+const VANUS_REPORTED: bool = false;
+
 impl UnusedEngine {
     /// Run VANUS check: a `varargin` input argument that is never used.
     pub(crate) fn check_vanus(&self, table: &SymbolTable, diagnostics: &mut Vec<Diagnostic>) {
-        if self.is_check_disabled("VANUS") {
+        if !VANUS_REPORTED || self.is_check_disabled("VANUS") {
             return;
         }
 
@@ -48,9 +52,10 @@ mod tests {
     // -- VANUS: unused `varargin` input argument -----------------------------
 
     #[test]
-    fn vanus_fires_on_unused_varargin() {
+    fn vanus_silent_on_unused_varargin() {
+        // Probed: MATLAB reports no unused varargin, so the check is not emitted.
         let diags = lint_file(&*engine(), "function foo(varargin)\nend\n");
-        assert!(has_id(&diags, "VANUS"), "got: {diags:?}");
+        assert!(!has_id(&diags, "VANUS"), "got: {diags:?}");
     }
 
     #[test]

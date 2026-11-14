@@ -9,6 +9,7 @@ impl UnsetVariablesEngine {
         &self,
         scope: &crate::analysis::symbols::Scope,
         _da: &DefiniteAssignment,
+        dead: &[std::ops::Range<usize>],
         diagnostics: &mut Vec<Diagnostic>,
     ) {
         for def in &scope.defs {
@@ -21,20 +22,11 @@ impl UnsetVariablesEngine {
                 continue;
             }
 
-            // Check if the output variable is definitely assigned at function end.
             // The output arg name is pre-added to the assigned set by
             // collect_function_args, so we need to check if there is an actual
-            // assignment (not just the output declaration itself). We look for
-            // any Assignment-kind def in the scope for this variable name.
-            let has_assignment = scope
-                .defs
-                .iter()
-                .any(|d| d.name == def.name && d.kind == DefKind::Assignment);
-
-            // If there's no assignment and the name is not in the definitely-
-            // assigned set from the analysis (excluding the initial output arg
-            // declaration), emit STOUT.
-            if !has_assignment && !self.has_non_output_def(scope, &def.name) {
+            // definition (not just the output declaration itself) that can run.
+            // Definitions in dead code do not count (probed).
+            if !self.has_live_non_output_def(scope, &def.name, dead) {
                 diagnostics.push(Diagnostic {
                     rule_id: "STOUT",
                     message: "Function return value might be unset.".to_string(),
@@ -48,12 +40,18 @@ impl UnsetVariablesEngine {
         }
     }
 
-    /// Check whether a variable has any non-OutputArg definition in the scope.
-    fn has_non_output_def(&self, scope: &crate::analysis::symbols::Scope, name: &str) -> bool {
-        scope
-            .defs
-            .iter()
-            .any(|d| d.name == name && d.kind != DefKind::OutputArg)
+    /// Whether a variable has a non-OutputArg definition outside the dead regions.
+    fn has_live_non_output_def(
+        &self,
+        scope: &crate::analysis::symbols::Scope,
+        name: &str,
+        dead: &[std::ops::Range<usize>],
+    ) -> bool {
+        scope.defs.iter().any(|d| {
+            d.name == name
+                && d.kind != DefKind::OutputArg
+                && !dead.iter().any(|r| r.contains(&d.byte_range.start))
+        })
     }
 }
 
@@ -132,6 +130,28 @@ end
         assert!(
             !diags.iter().any(|d| d.rule_id == "STOUT"),
             "should not fire STOUT when output is assigned"
+        );
+    }
+
+    #[test]
+    fn stout_when_the_only_assignment_is_dead() {
+        // Probed (o08, o10): an assignment in dead code does not set the output.
+        let diags = lint_file(
+            &*engine(),
+            "function r = foo()\nif false\n    r = 1;\nend\nend\n",
+        );
+        assert!(diags.iter().any(|d| d.rule_id == "STOUT"), "got: {diags:?}");
+        let diags = lint_file(&*engine(), "function r = foo()\nreturn;\nr = 1;\nend\n");
+        assert!(diags.iter().any(|d| d.rule_id == "STOUT"), "got: {diags:?}");
+    }
+
+    #[test]
+    fn stout_silent_when_the_assignment_runs_before_an_error() {
+        // Probed (o09): the assignment before `error` runs.
+        let diags = lint_file(&*engine(), "function r = foo()\nr = 1;\nerror('x');\nend\n");
+        assert!(
+            !diags.iter().any(|d| d.rule_id == "STOUT"),
+            "got: {diags:?}"
         );
     }
 }

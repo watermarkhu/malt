@@ -8,10 +8,15 @@
 use super::check_vunus::{is_equality_on_reference, operator_token, unwrap_parens};
 use super::*;
 
+/// NOEFF is not emitted: MATLAB reported none of its 340 probe statements (constants,
+/// strings, field reads, lambdas, indexing, `x.^2`, `x*2`, `s.a;`, `pi;`), and the
+/// operator shapes it would share with VUNUS are VUNUS in MATLAB.
+const NOEFF_REPORTED: bool = false;
+
 impl UnusedEngine {
     /// Run NOEFF/EQEFF checks: statements with no effect.
     pub(crate) fn check_noeff_eqeff(&self, ctx: &FileContext, diagnostics: &mut Vec<Diagnostic>) {
-        let noeff_disabled = self.is_check_disabled("NOEFF");
+        let noeff_disabled = !NOEFF_REPORTED || self.is_check_disabled("NOEFF");
         let eqeff_disabled = self.is_check_disabled("EQEFF");
 
         if noeff_disabled && eqeff_disabled {
@@ -141,9 +146,11 @@ mod tests {
     // -- NOEFF: statement with no effect ------------------------------------
 
     #[test]
-    fn noeff_fires_on_discarded_constant() {
+    fn noeff_silent_on_discarded_constant() {
+        // Probed: MATLAB reports no NOEFF for a discarded constant (or string,
+        // field read, lambda), so the check is not emitted.
         let diags = lint_file(&*engine(), "function foo()\n    5;\nend\n");
-        assert!(has_id(&diags, "NOEFF"), "got: {diags:?}");
+        assert!(!has_id(&diags, "NOEFF"), "got: {diags:?}");
     }
 
     #[test]

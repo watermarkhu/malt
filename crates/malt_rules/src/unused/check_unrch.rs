@@ -52,7 +52,7 @@ fn collect_constant_branches(
     seen: &mut std::collections::HashSet<(usize, usize)>,
     diagnostics: &mut Vec<Diagnostic>,
 ) {
-    if let Some(dead) = dead_constant_branch(node, source, truths) {
+    for dead in dead_constant_branches(node, source, truths) {
         emit_unrch(
             dead.start_byte()..dead.end_byte(),
             dead.start_position().row + 1,
@@ -73,39 +73,40 @@ fn collect_constant_branches(
 /// is dead: an `elseif` is reported at its keyword, an `else` at its first statement
 /// (probed: `if 1 ... elseif y ... else a = 3 end` reports the `elseif` line).
 /// Numeric literals, `true` and `false` count, and so do variables whose value is
-/// known at the condition (`k = 0; if k`), see `constant_truths`.
-fn dead_constant_branch<'a>(
+/// known at the condition (`k = 0; if k`), see `constant_truths`. A constant false
+/// clause does not stop the scan: `if 0 a elseif 1 b else c end` reports `a` and `c`
+/// (probed).
+fn dead_constant_branches<'a>(
     node: Node<'a>,
     source: &str,
     truths: &HashMap<usize, bool>,
-) -> Option<Node<'a>> {
+) -> Vec<Node<'a>> {
+    let mut dead = Vec::new();
     if node.kind() != "if_statement" {
-        return None;
+        return dead;
     }
     let mut after_true = false;
     for clause in if_clauses(node) {
         if after_true {
-            return if clause.is_else {
+            let first = if clause.is_else {
                 first_statement(&clause.parts)
             } else {
                 Some(clause.node)
             };
+            dead.extend(first);
+            break;
         }
         let truth = match clause.condition {
             None => Some(true),
             Some(condition) => constant_truth(condition, source, truths),
         };
         match truth {
-            Some(false) => {
-                if let Some(first) = first_statement(&clause.parts) {
-                    return Some(first);
-                }
-            }
+            Some(false) => dead.extend(first_statement(&clause.parts)),
             Some(true) => after_true = true,
             None => {}
         }
     }
-    None
+    dead
 }
 
 /// The truth value of a condition that is a literal or a known variable.
@@ -158,8 +159,9 @@ fn emit_unrch(
     });
 }
 
-/// A `try` with an empty body: MATLAB reports its `catch` as unreachable (probed:
-/// `try, catch end` and `try, catch ME, end` report the `catch` keyword).
+/// A `try` whose body cannot throw before it leaves: MATLAB reports its `catch` as
+/// unreachable (probed: `try, catch end` and `try, catch ME, end` report the `catch`
+/// keyword, and so does `try, return, catch, ..., end`).
 fn collect_empty_try(
     node: Node,
     seen: &mut std::collections::HashSet<(usize, usize)>,
@@ -167,12 +169,18 @@ fn collect_empty_try(
 ) {
     if node.kind() == "try_statement" {
         let children = named_children(node);
-        let body_has_statement = children
+        let first_statement = children
             .iter()
             .filter(|c| c.kind() == "block")
             .flat_map(|block| named_children(*block))
-            .any(|c| c.kind() != "comment");
-        if !body_has_statement {
+            .find(|c| c.kind() != "comment");
+        let body_cannot_throw = first_statement.is_none_or(|c| {
+            matches!(
+                c.kind(),
+                "return_statement" | "break_statement" | "continue_statement"
+            )
+        });
+        if body_cannot_throw {
             if let Some(catch) = children.iter().find(|c| c.kind() == "catch_clause") {
                 let pos = catch.start_position();
                 emit_unrch(
@@ -217,28 +225,116 @@ fn is_infinite_loop(node: Node, source: &str) -> bool {
     let Some(condition) = node.child_by_field_name("condition") else {
         return false;
     };
-    if source[condition.start_byte()..condition.end_byte()].trim() != "true" {
+    let text = source[condition.start_byte()..condition.end_byte()].trim();
+    let constant_true = text == "true" || text.parse::<f64>().is_ok_and(|v| v != 0.0);
+    if !constant_true {
         return false;
     }
-    !contains_kind(node, "break_statement")
+    !contains_live_break(node, source)
 }
 
-/// Returns `true` if `node` or any node below it has the given kind.
-fn contains_kind(node: Node, kind: &str) -> bool {
-    node.kind() == kind
-        || named_children(node)
+/// Returns `true` if `node` is a `try` whose body and `catch` both end in a
+/// terminator: an error in the body runs the `catch`, which does not come back
+/// (probed: `try, error('x'), catch, return, end` makes the next statement dead).
+fn is_terminating_try(node: Node, source: &str) -> bool {
+    if node.kind() != "try_statement" {
+        return false;
+    }
+    let children = named_children(node);
+    let body = children.iter().find(|c| c.kind() == "block");
+    let catch = children.iter().find(|c| c.kind() == "catch_clause");
+    let catch_block =
+        catch.and_then(|c| named_children(*c).into_iter().find(|b| b.kind() == "block"));
+    body.is_some_and(|b| block_terminates(*b, source))
+        && catch_block.is_some_and(|b| block_terminates(b, source))
+}
+
+/// Returns `true` if a block has a statement that never lets execution go on.
+fn block_terminates(block: Node, source: &str) -> bool {
+    named_children(block)
+        .into_iter()
+        .any(|c| statement_terminates(c, source))
+}
+
+/// Returns `true` if a statement never lets execution go on to the next one.
+fn statement_terminates(node: Node, source: &str) -> bool {
+    matches!(
+        node.kind(),
+        "return_statement" | "break_statement" | "continue_statement"
+    ) || is_terminator(node, source)
+}
+
+/// Returns `true` if a `break` below `node` can run: a `break` in a clause of an
+/// `if` whose literal condition is false never does (probed: `while 1, if 0, break,
+/// end, end` never ends).
+fn contains_live_break(node: Node, source: &str) -> bool {
+    match node.kind() {
+        "break_statement" => true,
+        "if_statement" => {
+            let truths = HashMap::new();
+            if_clauses(node).iter().any(|clause| {
+                let dead = clause
+                    .condition
+                    .is_some_and(|c| constant_truth(c, source, &truths) == Some(false));
+                !dead
+                    && clause
+                        .parts
+                        .iter()
+                        .any(|part| contains_live_break(*part, source))
+            })
+        }
+        _ => named_children(node)
             .into_iter()
-            .any(|c| contains_kind(c, kind))
+            .any(|c| contains_live_break(c, source)),
+    }
 }
 
 /// Returns `true` if `node` never lets execution continue to the next statement.
-/// Probes: `rethrow` calls, `error` calls whose first argument is not a variable
-/// (`error(s)` is not a terminator, gp-b__t2; `error(sprintf(...))` is, readability__t3),
-/// and `while true` loops with no `break`.
+/// Probes: `rethrow` and `exit` calls, `error` calls whose first argument is not a
+/// variable (`error(s)` is not a terminator, gp-b__t2; `error(sprintf(...))` is,
+/// readability__t3), `while true` and `while 1` loops with no `break`, and a `try`
+/// whose body and `catch` both terminate.
 fn is_terminator(node: Node, source: &str) -> bool {
-    is_call_to(node, source, &["rethrow"])
+    is_call_to(node, source, &["rethrow", "exit", "quit"])
+        || is_bare_name_of(node, source, &["exit", "quit"])
         || (is_call_to(node, source, &["error"]) && !has_variable_first_argument(node))
         || is_infinite_loop(node, source)
+        || is_terminating_try(node, source)
+        || is_terminating_if(node, source)
+}
+
+/// Returns `true` if `node` is a bare `exit;` or `quit` statement (no parentheses),
+/// which the grammar parses as a name or a command.
+fn is_bare_name_of(node: Node, source: &str, names: &[&str]) -> bool {
+    let name = match node.kind() {
+        "identifier" => node,
+        "command" if node.named_child_count() == 1 => match node.named_child(0) {
+            Some(child) if child.kind() == "command_name" => child,
+            _ => return false,
+        },
+        _ => return false,
+    };
+    names.contains(&&source[name.byte_range()])
+}
+
+/// Returns `true` if `node` is an `if` with an `else` whose every clause ends in a
+/// terminator (probed: `if c, error('a'), else, error('b'), end` makes the next
+/// statement dead).
+fn is_terminating_if(node: Node, source: &str) -> bool {
+    if node.kind() != "if_statement" {
+        return false;
+    }
+    let clauses = if_clauses(node);
+    clauses.iter().any(|c| c.is_else)
+        && clauses.iter().all(|clause| {
+            clause.parts.iter().any(|part| {
+                if part.kind() == "block" {
+                    block_terminates(*part, source)
+                } else {
+                    statement_terminates(*part, source)
+                }
+            })
+        })
 }
 
 /// Returns `true` if the first argument of a call is a bare identifier.
@@ -263,6 +359,38 @@ pub(crate) fn unreachable_regions(
         .collect();
     collect_regions_after_terminator(tree.root_node(), source, &mut regions);
     regions
+}
+
+/// Byte ranges of the code that cannot run: `unreachable_regions` and the dead
+/// clauses of constant conditions (`if false ... end`). STOUT does not count an
+/// assignment in them (probed: `if false, r = 1; end` and `return; r = 1;` leave
+/// the output unset).
+pub(crate) fn dead_regions(tree: &tree_sitter::Tree, source: &str) -> Vec<std::ops::Range<usize>> {
+    let mut regions = unreachable_regions(tree, source);
+    let table = SymbolTable::shared(|| tree.root_node(), source);
+    let truths = constant_truths(&table, tree, source);
+    collect_dead_constant_regions(tree.root_node(), source, &truths, &mut regions);
+    regions
+}
+
+fn collect_dead_constant_regions(
+    node: Node,
+    source: &str,
+    truths: &HashMap<usize, bool>,
+    regions: &mut Vec<std::ops::Range<usize>>,
+) {
+    for dead in dead_constant_branches(node, source, truths) {
+        let range = match dead.parent() {
+            Some(parent) if dead.kind() != "elseif_clause" && parent.kind() == "block" => {
+                parent.byte_range()
+            }
+            _ => dead.byte_range(),
+        };
+        regions.push(range);
+    }
+    for child in named_children(node) {
+        collect_dead_constant_regions(child, source, truths, regions);
+    }
 }
 
 fn collect_regions_after_terminator(
@@ -663,5 +791,83 @@ mod literal_condition_tests {
     fn unrch_silent_for_try_with_a_statement() {
         // Probed (try_multi.m).
         assert!(unrch("try\n x = 1;\ncatch, end\n").is_empty());
+    }
+
+    #[test]
+    fn unrch_after_while_one_without_break() {
+        // Probed (u08, u18, x13): `while 1` is an infinite loop, as `while true` is.
+        assert_eq!(
+            unrch("function f()\nwhile 1\n    disp(1);\nend\ndisp(2);\nend\n"),
+            vec![(5, 1)]
+        );
+        assert!(unrch("function f()\nwhile 1\n    break;\nend\ndisp(1);\nend\n").is_empty());
+    }
+
+    #[test]
+    fn unrch_after_exit_and_quit() {
+        // Probed (f33, x01, x02, x03): bare `exit;` and `quit;` and calls with arguments.
+        assert_eq!(unrch("function f()\nexit;\ndisp(1);\nend\n"), vec![(3, 1)]);
+        assert_eq!(unrch("function f()\nquit;\ndisp(1);\nend\n"), vec![(3, 1)]);
+        assert_eq!(
+            unrch("function f()\nquit(0);\ndisp(1);\nend\n"),
+            vec![(3, 1)]
+        );
+    }
+
+    #[test]
+    fn unrch_after_if_where_every_branch_errors() {
+        // Probed (x05).
+        assert_eq!(
+            unrch(
+                "function f(c)\nif c\n    error('a');\nelse\n    error('b');\nend\ndisp(1);\nend\n"
+            ),
+            vec![(7, 1)]
+        );
+    }
+
+    #[test]
+    fn unrch_after_try_whose_body_errors_and_catch_leaves() {
+        // Probed (x06, x15, f31): the catch runs and leaves, so the next statement is dead.
+        assert_eq!(
+            unrch("function f()\ntry\n    error('x');\ncatch e\n    rethrow(e);\nend\ndisp(1);\nend\n"),
+            vec![(7, 1)]
+        );
+        assert_eq!(
+            unrch("function f()\ntry\n    error('x');\ncatch\n    return;\nend\ndisp(1);\nend\n"),
+            vec![(7, 1)]
+        );
+        // Probed (x07): the body does not end, so the next statement is reachable.
+        assert!(unrch(
+            "function f()\ntry\n    disp(1);\ncatch\n    error('x');\nend\ndisp(2);\nend\n"
+        )
+        .is_empty());
+    }
+
+    #[test]
+    fn unrch_at_catch_when_try_body_returns_first() {
+        // Probed (x16): nothing in the body can throw before the return.
+        assert_eq!(
+            unrch("function f()\ntry\n    return;\ncatch\n    disp(1);\nend\ndisp(2);\nend\n"),
+            vec![(4, 1)]
+        );
+    }
+
+    #[test]
+    fn unrch_dead_break_does_not_end_a_loop() {
+        // Probed (x04): a `break` in `if 0` never runs, so the loop never ends.
+        let mut got =
+            unrch("function f()\nwhile 1\n    if 0\n        break;\n    end\nend\ndisp(1);\nend\n");
+        got.sort();
+        assert_eq!(got, vec![(4, 9), (7, 1)]);
+    }
+
+    #[test]
+    fn unrch_dead_elseif_and_clause_bodies_after_false_conditions() {
+        // Probed (x11): the `if 0` and `elseif 0` bodies are dead; the `else` runs.
+        let mut got = unrch(
+            "function f()\nif 0\n    disp(1);\nelseif 0\n    disp(2);\nelse\n    disp(3);\nend\nend\n",
+        );
+        got.sort();
+        assert_eq!(got, vec![(3, 5), (5, 5)]);
     }
 }

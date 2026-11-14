@@ -1,33 +1,3 @@
-# Compatibility checks data file for malt.
-#
-# Each [[checks]] entry represents one MATLAB Code Analyzer compatibility check.
-# The compatibility engine uses this to detect deprecated/removed function usage.
-#
-# Fields:
-#   id            - Check ID matching MATLAB Code Analyzer (e.g., "DPSD")
-#   function_name - The deprecated function/class name to match against
-#   severity      - "error" or "warning"
-#   message       - Human-readable diagnostic message
-#   category      - "compatibility", "forward-compatibility", or "behavior-changes"
-#   pattern       - (optional) why the name lookup does not match the entry: "generic" (an
-#                   AST check in compatibility/generic), "object" (a method or property of an
-#                   object, which needs the variable's class: not tracked), "unverified" (MATLAB
-#                   did not report it in any probe). Only entries without a pattern are looked up.
-#   args_any      - (optional) the call has one of these string arguments (any case)
-#   args_all      - (optional) the call has all of these string arguments
-#   unless_args   - (optional) the call has none of these string arguments
-#   min_args      - (optional) fewest arguments the call has
-#   max_args      - (optional) most arguments the call has
-#   second_arg    - (optional) shape of the second argument: "string" or "optimoptions"
-#   script_only   - (optional) reported only in a script file
-#   first_arg_text - (optional) the first argument is text: a quoted literal, or a
-#                    variable whose every assignment in scope is one
-#   min_outputs   - (optional) fewest outputs the call is assigned to: `[a, b] = f(x)` has two
-
-# =============================================================================
-# Compatibility Considerations (891 checks)
-# =============================================================================
-
 [[checks]]
 id = "DPSD"
 function_name = "psd"
@@ -76,6 +46,7 @@ function_name = "fcnchk"
 severity = "warning"
 message = "FCNCHK will be removed in a future release. Use anonymous functions instead."
 category = "compatibility"
+pattern = "unverified"
 
 [[checks]]
 id = "MSYSTEM"
@@ -83,6 +54,7 @@ function_name = "matlab.system.System"
 severity = "error"
 message = "matlab.system.System has been removed. Use matlab.System instead."
 category = "compatibility"
+pattern = "unverified"
 
 [[checks]]
 id = "MATPOOL"
@@ -98,6 +70,7 @@ function_name = "MATLABPOOL"
 severity = "error"
 message = "'MATLABPOOL' has been removed. Use 'PARPOOL' instead."
 category = "compatibility"
+pattern = "unverified"
 
 [[checks]]
 id = "TREEDISP"
@@ -189,6 +162,7 @@ function_name = "JavaFrame"
 severity = "error"
 message = "'JavaFrame' was undocumented and has been removed. There is no simple replacement for this."
 category = "compatibility"
+pattern = "unverified"
 
 [[checks]]
 id = "JAVCT"
@@ -196,6 +170,7 @@ function_name = "JavaContainer"
 severity = "error"
 message = "'JavaContainer' was undocumented and has been removed. There is no simple replacement for this."
 category = "compatibility"
+pattern = "unverified"
 
 [[checks]]
 id = "JAVCM"
@@ -224,7 +199,8 @@ function_name = "opengl"
 severity = "error"
 message = "'opengl('info')' has been removed. With appropriate code changes, use 'rendererinfo' instead."
 category = "compatibility"
-args_any = ["info"]
+first_arg_any = ["info"]
+max_args = 1
 
 [[checks]]
 id = "CNNCGD"
@@ -232,6 +208,8 @@ function_name = "cnncodegen"
 severity = "error"
 message = "'cnncodegen' with default 'targetlib' as 'cudnn' has been removed. With appropriate code changes, use 'codegen' instead."
 category = "compatibility"
+unless_args = ["targetlib"]
+min_args = 1
 
 [[checks]]
 id = "COMMSCOPEED"
@@ -417,7 +395,7 @@ category = "compatibility"
 
 [[checks]]
 id = "IMJAV"
-function_name = "imjava"
+function_name = "im2java2d"
 severity = "warning"
 message = "'im2java2d' has been removed. There is no simple replacement for this."
 category = "compatibility"
@@ -438,7 +416,7 @@ category = "compatibility"
 
 [[checks]]
 id = "FBUILDER"
-function_name = "filterBuilder"
+function_name = "filterbuilder"
 severity = "warning"
 message = "'filterbuilder' will be removed in a future release. Use 'filterBuilder' instead, which is a direct replacement."
 category = "compatibility"
@@ -494,7 +472,7 @@ category = "compatibility"
 
 [[checks]]
 id = "FISM2S"
-function_name = "mfedit"
+function_name = "mam2sug"
 severity = "warning"
 message = "'mam2sug' has been removed. Use 'convertToSugeno' instead, which is a direct replacement."
 category = "compatibility"
@@ -585,7 +563,7 @@ category = "compatibility"
 
 [[checks]]
 id = "FITNAIVEBAYES"
-function_name = "NaiveBayes.fit"
+function_name = "fitNaiveBayes"
 severity = "warning"
 message = "'fitNaiveBayes' has been removed. With appropriate code changes, use 'fitcnb' instead."
 category = "compatibility"
@@ -690,7 +668,7 @@ category = "compatibility"
 
 [[checks]]
 id = "HDFTL"
-function_name = "hdftl"
+function_name = "hdftool"
 severity = "warning"
 message = "'hdftool' has been removed. There is no simple replacement for this."
 category = "compatibility"
@@ -725,7 +703,7 @@ category = "compatibility"
 
 [[checks]]
 id = "COMPATVOL"
-function_name = "volshow"
+function_name = "images.compatibility.volshow.R2022a.volshow"
 severity = "warning"
 message = "'images.compatibility.volshow.R2022a.volshow' has been removed. With appropriate code changes, use 'volshow' instead."
 category = "compatibility"
@@ -746,7 +724,7 @@ category = "compatibility"
 
 [[checks]]
 id = "COMMBI"
-function_name = "biterr"
+function_name = "comm.BitToInteger"
 severity = "warning"
 message = "'comm.BitToInteger' has been removed. With appropriate code changes, use 'bit2int' instead."
 category = "compatibility"
@@ -823,7 +801,7 @@ category = "compatibility"
 
 [[checks]]
 id = "DCSHELP"
-function_name = "docsearch"
+function_name = "cshelp"
 severity = "warning"
 message = "'cshelp' will be removed in a future release. There is no simple replacement for this."
 category = "compatibility"
@@ -907,7 +885,7 @@ category = "compatibility"
 
 [[checks]]
 id = "VRCNVS"
-function_name = "vrcanvas"
+function_name = "vr.canvas"
 severity = "warning"
 message = "Simulink 3D Animation Viewer has been removed, so 'vr.canvas' does not open the virtual world. With appropriate code changes, use sim3d classes to create and view a 3D environment instead."
 category = "compatibility"
@@ -963,14 +941,14 @@ category = "compatibility"
 
 [[checks]]
 id = "RCSIIR"
-function_name = "rcosine"
+function_name = "rcosiir"
 severity = "warning"
 message = "'rcosiir' is unsupported and has been removed. There is no simple replacement for this."
 category = "compatibility"
 
 [[checks]]
 id = "RCSFIR"
-function_name = "rcosdesign"
+function_name = "rcosfir"
 severity = "warning"
 message = "'rcosfir' is unsupported and has been removed. With appropriate code changes, use 'rcosdesign' instead."
 category = "compatibility"
@@ -991,7 +969,7 @@ category = "compatibility"
 
 [[checks]]
 id = "EYESCOPE"
-function_name = "eyediagram"
+function_name = "eyescope"
 severity = "warning"
 message = "'eyescope' has been removed. There is no simple replacement for this."
 category = "compatibility"
@@ -1110,7 +1088,7 @@ category = "compatibility"
 
 [[checks]]
 id = "DSPLPC"
-function_name = "dsp.LPC"
+function_name = "dsp.LPCToLSP"
 severity = "warning"
 message = "'dsp.LPCToLSP' has been removed. With appropriate code changes, use 'cos(poly2lsf)' instead."
 category = "compatibility"
@@ -1327,14 +1305,14 @@ category = "compatibility"
 
 [[checks]]
 id = "CMLLD"
-function_name = "ClassificationModel.logLoss"
+function_name = "loadCompactModel"
 severity = "warning"
 message = "'loadCompactModel' has been removed. Use 'loadLearnerForCoder' instead, which is a direct replacement."
 category = "compatibility"
 
 [[checks]]
 id = "CMLSV"
-function_name = "ClassificationModel.logSV"
+function_name = "saveCompactModel"
 severity = "warning"
 message = "'saveCompactModel' has been removed. Use 'saveLearnerForCoder' instead, which is a direct replacement."
 category = "compatibility"
@@ -1348,10 +1326,11 @@ category = "compatibility"
 
 [[checks]]
 id = "DRYICE"
-function_name = "dryice"
+function_name = "earthSurfacePermittivity"
 severity = "warning"
 message = "Input argument 'dry-ice' of function 'earthSurfacePermittivity' will be removed in a future release. Use argument 'pure-ice' instead, which is a direct replacement."
 category = "compatibility"
+first_arg_any = ["dry-ice"]
 
 [[checks]]
 id = "PERFREF"
@@ -1359,17 +1338,18 @@ function_name = "perfcurve"
 severity = "warning"
 message = "'perfect-reflector' value will be removed in a future release. Use value 'PEC' instead, which is a direct replacement."
 category = "compatibility"
+pattern = "unverified"
 
 [[checks]]
 id = "YOLOV"
-function_name = "yolov2ObjectDetector"
+function_name = "yolov2ReorgLayer"
 severity = "warning"
 message = "'yolov2ReorgLayer' has been removed. With appropriate code changes, use 'spaceToDepthLayer' instead."
 category = "compatibility"
 
 [[checks]]
 id = "DDTRD"
-function_name = "dtree"
+function_name = "dataread"
 severity = "warning"
 message = "'dataread' will be removed in a future release. With appropriate code changes, use 'textscan' instead."
 category = "compatibility"
@@ -1430,6 +1410,7 @@ function_name = "USEV6PLOTAPI"
 severity = "warning"
 message = "USEV6PLOTAPI('on') will be removed in a future release. There is no simple replacement for this."
 category = "compatibility"
+pattern = "unverified"
 
 [[checks]]
 id = "PSTAT"
@@ -1541,6 +1522,7 @@ severity = "error"
 message = "Option 'Bufsize' has been removed. Manual buffering in 'textscan' is no longer needed."
 category = "compatibility"
 args_any = ["Bufsize"]
+min_args = 3
 
 [[checks]]
 id = "FEGLO"
@@ -1620,7 +1602,7 @@ function_name = "feature"
 severity = "error"
 message = "feature('EightyColumns') and feature('EightyColumns', VALUE) are unsupported and have been removed. With appropriate code changes, use 'settings' object instead."
 category = "compatibility"
-args_any = ["EightyColumns"]
+first_arg_any = ["EightyColumns"]
 
 [[checks]]
 id = "REPUDD"
@@ -1660,6 +1642,7 @@ severity = "error"
 message = "The 'CheckGradients' option has been removed from 'optimoptions'. With appropriate code changes, use the 'checkGradients' function instead."
 category = "compatibility"
 args_any = ["CheckGradients"]
+min_args = 3
 
 [[checks]]
 id = "LINPROGS"
@@ -1667,7 +1650,7 @@ function_name = "optimoptions"
 severity = "error"
 message = "'simplex' algorithm has been removed. With appropriate code changes, set 'Algorithm' value to 'interior-point' or 'dual-simplex' instead."
 category = "compatibility"
-args_all = ["linprog", "simplex"]
+args_all = ["Algorithm", "simplex"]
 
 [[checks]]
 id = "LSRET"
@@ -1691,6 +1674,7 @@ function_name = "com.mathworks"
 severity = "warning"
 message = "'com.mathworks' namespace and sub namespaces will be removed in a future release. There is no simple replacement for this."
 category = "compatibility"
+pattern = "unverified"
 
 [[checks]]
 id = "IMCLASS"
@@ -1706,6 +1690,7 @@ function_name = "web"
 severity = "warning"
 message = "The 'web' function does not return a handle or URL for pages that open in the system browser. Use 'stat = web(___, '-browser')' instead."
 category = "compatibility"
+min_outputs = 2
 
 [[checks]]
 id = "TCPC"
@@ -1713,6 +1698,7 @@ function_name = "tcpip"
 severity = "warning"
 message = "'tcpip' with 'client' as a 'NetworkRole' will be removed in a future release. With appropriate code changes, use 'tcpclient' instead."
 category = "compatibility"
+unless_all_args = ["NetworkRole", "server"]
 
 [[checks]]
 id = "TCPS"
@@ -1720,6 +1706,7 @@ function_name = "tcpip"
 severity = "warning"
 message = "'tcpip' with 'server' as a 'NetworkRole' will be removed in a future release. With appropriate code changes, use 'tcpserver' instead."
 category = "compatibility"
+args_all = ["NetworkRole", "server"]
 
 [[checks]]
 id = "QAMDEPM"
@@ -1727,6 +1714,7 @@ function_name = "qammod"
 severity = "error"
 message = "'qammod' no longer accepts the initial phase of a signal."
 category = "compatibility"
+min_args = 3
 
 [[checks]]
 id = "QAMDEPD"
@@ -1734,6 +1722,7 @@ function_name = "qamdemod"
 severity = "error"
 message = "'qamdemod' no longer accepts the initial phase of a signal."
 category = "compatibility"
+min_args = 3
 
 [[checks]]
 id = "GETERR"
@@ -1783,7 +1772,7 @@ pattern = "generic"
 
 [[checks]]
 id = "DILEVAL"
-function_name = "dicomLookupEval"
+function_name = "inlineeval"
 severity = "warning"
 message = "'inlineeval' will be removed in a future release. There is no simple replacement for this."
 category = "compatibility"
@@ -1806,7 +1795,7 @@ category = "compatibility"
 
 [[checks]]
 id = "DSP_LINKS"
-function_name = "dsp.SignalSource"
+function_name = "dsp_links"
 severity = "warning"
 message = "'dsp_links' will be removed in a future release. There is no simple replacement for this."
 category = "compatibility"
@@ -1836,7 +1825,7 @@ category = "compatibility"
 
 [[checks]]
 id = "FDESWEIGHT"
-function_name = "fdesign.arbmagnphase"
+function_name = "fdesign.audioweighting"
 severity = "warning"
 message = "'fdesign.audioweighting' has been removed. With appropriate code changes, use 'weightingFilter' instead."
 category = "compatibility"
@@ -9271,6 +9260,7 @@ function_name = "fdesign.decimator"
 severity = "error"
 message = "The 'Raised Cosine' response method of 'fdesign.decimator' object has been removed. With appropriate code changes use 'comm.RaisedCosineReceiveFilter' object instead."
 category = "compatibility"
+pattern = "object"
 
 [[checks]]
 id = "FDDECI2"
@@ -9278,6 +9268,7 @@ function_name = "fdesign.decimator"
 severity = "error"
 message = "The 'Square Root Raised Cosine' response method of 'fdesign.decimator' object has been removed. With appropriate code changes use 'comm.RaisedCosineReceiveFilter' object instead."
 category = "compatibility"
+pattern = "object"
 
 [[checks]]
 id = "FDINPO1"
@@ -9285,6 +9276,7 @@ function_name = "fdesign.interpolator"
 severity = "error"
 message = "The 'Raised Cosine' response method of 'fdesign.interpolator' object has been removed. With appropriate code changes use 'comm.RaisedCosineTransmitFilter' object instead."
 category = "compatibility"
+pattern = "object"
 
 [[checks]]
 id = "FDINPO2"
@@ -9292,6 +9284,7 @@ function_name = "fdesign.interpolator"
 severity = "error"
 message = "The 'Square Root Raised Cosine' response method of 'fdesign.interpolator' object has been removed. With appropriate code changes use 'comm.RaisedCosineTransmitFilter' object instead."
 category = "compatibility"
+pattern = "object"
 
 [[checks]]
 id = "WAVMENU"
@@ -9313,6 +9306,7 @@ function_name = "project"
 severity = "error"
 message = "'project' has been removed. With appropriate code changes, use 'projfwd' instead."
 category = "compatibility"
+pattern = "unverified"
 
 [[checks]]
 id = "RETPRI"
@@ -9320,6 +9314,8 @@ function_name = "ret2price"
 severity = "error"
 message = "Positional syntax for optional arguments has been removed from 'ret2price'. Use name-value pairs instead."
 category = "compatibility"
+min_args = 2
+second_arg = "not_string"
 
 [[checks]]
 id = "PRIRET"
@@ -9327,6 +9323,8 @@ function_name = "price2ret"
 severity = "error"
 message = "Positional syntax for optional arguments has been removed from 'price2ret'. Use name-value pairs instead."
 category = "compatibility"
+min_args = 2
+second_arg = "not_string"
 
 [[checks]]
 id = "ACORR"
@@ -9334,6 +9332,8 @@ function_name = "autocorr"
 severity = "error"
 message = "Positional syntax for optional arguments has been removed from 'autocorr'. Use name-value pairs instead."
 category = "compatibility"
+min_args = 2
+second_arg = "not_string"
 
 [[checks]]
 id = "PCORR"
@@ -9341,6 +9341,8 @@ function_name = "parcorr"
 severity = "error"
 message = "Positional syntax for optional arguments has been removed from 'parcorr'. Use name-value pairs instead."
 category = "compatibility"
+min_args = 2
+second_arg = "not_string"
 
 [[checks]]
 id = "XCORR"
@@ -9348,6 +9350,9 @@ function_name = "crosscorr"
 severity = "error"
 message = "Positional syntax for optional arguments has been removed from 'crosscorr'. Use name-value pairs instead."
 category = "compatibility"
+min_args = 3
+max_args = 4
+second_arg = "not_string"
 
 [[checks]]
 id = "HPFLTR"
@@ -9355,6 +9360,8 @@ function_name = "hpfilter"
 severity = "error"
 message = "Positional syntax for optional arguments has been removed from 'hpfilter'. Use name-value pairs instead."
 category = "compatibility"
+min_args = 2
+max_args = 2
 
 [[checks]]
 id = "H5PGET"
@@ -11778,6 +11785,7 @@ function_name = "Viewer3D"
 severity = "error"
 message = "'BackgroundColor' property has been removed. With appropriate code changes, use 'BackgroundColor' property of the parent 'Viewer3D' class instead."
 category = "compatibility"
+pattern = "object"
 
 [[checks]]
 id = "VLSCP"
@@ -11785,6 +11793,7 @@ function_name = "Viewer3D"
 severity = "error"
 message = "'CameraPosition' property has been removed. With appropriate code changes, use 'CameraPosition' property of the parent 'Viewer3D' class instead."
 category = "compatibility"
+pattern = "object"
 
 [[checks]]
 id = "VLSCT"
@@ -11792,6 +11801,7 @@ function_name = "Viewer3D"
 severity = "error"
 message = "'CameraTarget' property has been removed. With appropriate code changes, use 'CameraTarget' property of the parent 'Viewer3D' class instead."
 category = "compatibility"
+pattern = "object"
 
 [[checks]]
 id = "VLSCU"
@@ -11799,6 +11809,7 @@ function_name = "Viewer3D"
 severity = "error"
 message = "'CameraUpVector' property has been removed. With appropriate code changes, use 'CameraUpVector' property of the parent 'Viewer3D' class instead."
 category = "compatibility"
+pattern = "object"
 
 [[checks]]
 id = "VLSCV"
@@ -11806,6 +11817,7 @@ function_name = "Viewer3D"
 severity = "error"
 message = "'CameraViewAngle' property has been removed. There is no simple replacement for this."
 category = "compatibility"
+pattern = "object"
 
 [[checks]]
 id = "VLSIE"
@@ -11813,6 +11825,7 @@ function_name = "Viewer3D"
 severity = "error"
 message = "'InteractionsEnabled' property has been removed. With appropriate code changes, use 'Interactions' property of the parent 'Viewer3D' class instead."
 category = "compatibility"
+pattern = "object"
 
 [[checks]]
 id = "VLSLT"
@@ -11820,6 +11833,7 @@ function_name = "Viewer3D"
 severity = "error"
 message = "'Lighting' property has been removed. With appropriate code changes, use 'Lighting' property of the parent 'Viewer3D' class instead."
 category = "compatibility"
+pattern = "object"
 
 [[checks]]
 id = "VLSRD"
@@ -11827,6 +11841,7 @@ function_name = "Viewer3D"
 severity = "error"
 message = "'Renderer' property has been removed. With appropriate code changes, use 'RenderingStyle' property instead."
 category = "compatibility"
+pattern = "object"
 
 [[checks]]
 id = "VLSIC"
@@ -11834,6 +11849,7 @@ function_name = "Viewer3D"
 severity = "error"
 message = "'IsosurfaceColor' property has been removed. With appropriate code changes, use 'Colormap' property instead."
 category = "compatibility"
+pattern = "object"
 
 [[checks]]
 id = "VLSSF"
@@ -11841,6 +11857,7 @@ function_name = "Viewer3D"
 severity = "error"
 message = "'ScaleFactors' property has been removed. With appropriate code changes, use 'Transformation' property instead."
 category = "compatibility"
+pattern = "object"
 
 [[checks]]
 id = "VLSIV"
@@ -11848,6 +11865,7 @@ function_name = "Viewer3D"
 severity = "error"
 message = "'Isovalue' property has been removed. With appropriate code changes, use 'IsosurfaceValue' property instead."
 category = "compatibility"
+pattern = "object"
 
 [[checks]]
 id = "SESSIONQOD"
@@ -12288,7 +12306,7 @@ function_name = "optimoptions"
 severity = "error"
 message = "'dual-simplex-legacy' algorithm for 'linprog' solver has been removed. With appropriate code changes, set 'Algorithm' value to 'dual-simplex-highs' or 'interior-point' instead."
 category = "compatibility"
-args_all = ["linprog", "dual-simplex-legacy"]
+args_all = ["Algorithm", "dual-simplex-legacy"]
 
 [[checks]]
 id = "LINPROGA"
@@ -12296,7 +12314,7 @@ function_name = "optimoptions"
 severity = "error"
 message = "'active-set' algorithm for 'linprog' solver has been removed. With appropriate code changes, set 'Algorithm' value to 'interior-point' or 'dual-simplex' instead."
 category = "compatibility"
-args_all = ["linprog", "active-set"]
+args_all = ["linprog", "Algorithm", "active-set"]
 
 [[checks]]
 id = "INTLLEG1"
@@ -12305,6 +12323,7 @@ severity = "error"
 message = "'Algorithm' option for the 'intlinprog' solver has been removed. The 'intlinprog' solver always uses the 'highs' algorithm."
 category = "compatibility"
 args_all = ["intlinprog", "Algorithm"]
+min_args = 3
 
 [[checks]]
 id = "INTLLEG2"
@@ -12313,6 +12332,7 @@ severity = "error"
 message = "'BranchRule' option for the 'intlinprog' solver has been removed. There is no simple replacement for this."
 category = "compatibility"
 args_all = ["intlinprog", "BranchRule"]
+min_args = 3
 
 [[checks]]
 id = "INTLLEG3"
@@ -12321,6 +12341,7 @@ severity = "error"
 message = "'BranchingRule' option for the 'intlinprog' solver has been removed. There is no simple replacement for this."
 category = "compatibility"
 args_all = ["intlinprog", "BranchingRule"]
+min_args = 3
 
 [[checks]]
 id = "INTLLEG4"
@@ -12329,6 +12350,7 @@ severity = "error"
 message = "'CutGeneration' option for the 'intlinprog' solver has been removed. There is no simple replacement for this."
 category = "compatibility"
 args_all = ["intlinprog", "CutGeneration"]
+min_args = 3
 
 [[checks]]
 id = "INTLLEG5"
@@ -12337,6 +12359,7 @@ severity = "error"
 message = "'CutGenMaxIter' option for the 'intlinprog' solver has been removed. There is no simple replacement for this."
 category = "compatibility"
 args_all = ["intlinprog", "CutGenMaxIter"]
+min_args = 3
 
 [[checks]]
 id = "INTLLEG6"
@@ -12345,6 +12368,7 @@ severity = "error"
 message = "'CutMaxIterations' option for the 'intlinprog' solver has been removed. There is no simple replacement for this."
 category = "compatibility"
 args_all = ["intlinprog", "CutMaxIterations"]
+min_args = 3
 
 [[checks]]
 id = "INTLLEG7"
@@ -12353,6 +12377,7 @@ severity = "error"
 message = "'Heuristics' option for the 'intlinprog' solver has been removed. There is no simple replacement for this."
 category = "compatibility"
 args_all = ["intlinprog", "Heuristics"]
+min_args = 3
 
 [[checks]]
 id = "INTLLEG8"
@@ -12361,6 +12386,7 @@ severity = "error"
 message = "'HeuristicsMaxNodes' option for the 'intlinprog' solver has been removed. There is no simple replacement for this."
 category = "compatibility"
 args_all = ["intlinprog", "HeuristicsMaxNodes"]
+min_args = 3
 
 [[checks]]
 id = "INTLLEG9"
@@ -12369,6 +12395,7 @@ severity = "error"
 message = "'IPPreprocess' option for the 'intlinprog' solver has been removed. There is no simple replacement for this."
 category = "compatibility"
 args_all = ["intlinprog", "IPPreprocess"]
+min_args = 3
 
 [[checks]]
 id = "INTLLEG10"
@@ -12377,6 +12404,7 @@ severity = "error"
 message = "'IntegerPreprocess' option for the 'intlinprog' solver has been removed. There is no simple replacement for this."
 category = "compatibility"
 args_all = ["intlinprog", "IntegerPreprocess"]
+min_args = 3
 
 [[checks]]
 id = "INTLLEG11"
@@ -12385,6 +12413,7 @@ severity = "error"
 message = "'TolInteger' option for the 'intlinprog' solver has been removed. There is no simple replacement for this."
 category = "compatibility"
 args_all = ["intlinprog", "TolInteger"]
+min_args = 3
 
 [[checks]]
 id = "INTLLEG12"
@@ -12393,6 +12422,7 @@ severity = "error"
 message = "'IntegerTolerance' option for the 'intlinprog' solver has been removed. There is no simple replacement for this."
 category = "compatibility"
 args_all = ["intlinprog", "IntegerTolerance"]
+min_args = 3
 
 [[checks]]
 id = "INTLLEG13"
@@ -12401,6 +12431,7 @@ severity = "error"
 message = "'LPMaxIter' option for the 'intlinprog' solver has been removed. There is no simple replacement for this."
 category = "compatibility"
 args_all = ["intlinprog", "LPMaxIter"]
+min_args = 3
 
 [[checks]]
 id = "INTLLEG14"
@@ -12409,6 +12440,7 @@ severity = "error"
 message = "'LPMaxIterations' option for the 'intlinprog' solver has been removed. There is no simple replacement for this."
 category = "compatibility"
 args_all = ["intlinprog", "LPMaxIterations"]
+min_args = 3
 
 [[checks]]
 id = "INTLLEG15"
@@ -12417,6 +12449,7 @@ severity = "error"
 message = "'TolFunLP' option for the 'intlinprog' solver has been removed. There is no simple replacement for this."
 category = "compatibility"
 args_all = ["intlinprog", "TolFunLP"]
+min_args = 3
 
 [[checks]]
 id = "INTLLEG16"
@@ -12425,6 +12458,7 @@ severity = "error"
 message = "'LPOptimalityTolerance' option for the 'intlinprog' solver has been removed. There is no simple replacement for this."
 category = "compatibility"
 args_all = ["intlinprog", "LPOptimalityTolerance"]
+min_args = 3
 
 [[checks]]
 id = "INTLLEG17"
@@ -12433,6 +12467,7 @@ severity = "error"
 message = "'NodeSelection' option for the 'intlinprog' solver has been removed. There is no simple replacement for this."
 category = "compatibility"
 args_all = ["intlinprog", "NodeSelection"]
+min_args = 3
 
 [[checks]]
 id = "INTLLEG18"
@@ -12441,6 +12476,7 @@ severity = "error"
 message = "'RelObjThreshold' option for the 'intlinprog' solver has been removed. There is no simple replacement for this."
 category = "compatibility"
 args_all = ["intlinprog", "RelObjThreshold"]
+min_args = 3
 
 [[checks]]
 id = "INTLLEG19"
@@ -12449,6 +12485,7 @@ severity = "error"
 message = "'ObjectiveImprovementThreshold' option for the 'intlinprog' solver has been removed. There is no simple replacement for this."
 category = "compatibility"
 args_all = ["intlinprog", "ObjectiveImprovementThreshold"]
+min_args = 3
 
 [[checks]]
 id = "INTLLEG20"
@@ -12457,6 +12494,7 @@ severity = "error"
 message = "'RootLPAlgorithm' option for the 'intlinprog' solver has been removed. There is no simple replacement for this."
 category = "compatibility"
 args_all = ["intlinprog", "RootLPAlgorithm"]
+min_args = 3
 
 [[checks]]
 id = "INTLLEG21"
@@ -12465,6 +12503,7 @@ severity = "error"
 message = "'RootLPMaxIter' option for the 'intlinprog' solver has been removed. There is no simple replacement for this."
 category = "compatibility"
 args_all = ["intlinprog", "RootLPMaxIter"]
+min_args = 3
 
 [[checks]]
 id = "INTLLEG22"
@@ -12473,6 +12512,7 @@ severity = "error"
 message = "'RootLPMaxIterations' option for the 'intlinprog' solver has been removed. There is no simple replacement for this."
 category = "compatibility"
 args_all = ["intlinprog", "RootLPMaxIterations"]
+min_args = 3
 
 [[checks]]
 id = "INTLPOUTA"
@@ -12596,7 +12636,7 @@ message = "solve(PROBLEM, SOLVER) has been removed. Use solve(PROBLEM, 'Solver',
 category = "compatibility"
 min_args = 2
 max_args = 2
-second_arg = "string"
+second_arg_any = ["linprog", "intlinprog"]
 unless_args = ["Options", "Solver"]
 
 [[checks]]
@@ -12606,7 +12646,7 @@ severity = "error"
 message = "solve(PROBLEM, SOLVER, OPTIONS) has been removed. Use solve(PROBLEM, 'Solver', SOLVER, 'Options', OPTIONS) instead."
 category = "compatibility"
 min_args = 3
-second_arg = "string"
+second_arg_any = ["linprog", "intlinprog"]
 unless_args = ["Options", "Solver"]
 
 [[checks]]
@@ -12615,6 +12655,7 @@ function_name = "polyspace.Options"
 severity = "error"
 message = "Use 'MergedReporting' instead of 'Reporting' for polyspace.Options."
 category = "compatibility"
+pattern = "object"
 
 [[checks]]
 id = "POLYCS"
@@ -12622,6 +12663,7 @@ function_name = "polyspace.Options"
 severity = "error"
 message = "Use 'MergedComputingSettings' instead of 'ComputingSettings' for polyspace.Options."
 category = "compatibility"
+pattern = "object"
 
 [[checks]]
 id = "ADTPATH"
@@ -12701,6 +12743,7 @@ function_name = "instrhwinfo"
 severity = "warning"
 message = "'instrhwinfo('bluetooth',...)' will be removed in a future release. With appropriate code changes, use 'bluetoothlist' instead."
 category = "compatibility"
+args_any = ["bluetooth"]
 
 [[checks]]
 id = "INSTHWT"
@@ -12708,6 +12751,7 @@ function_name = "instrhwinfo"
 severity = "warning"
 message = "'instrhwinfo('tcpip')' will be removed in a future release. There is no simple replacement for this."
 category = "compatibility"
+args_any = ["tcpip"]
 
 [[checks]]
 id = "INSTHWU"
@@ -12715,6 +12759,7 @@ function_name = "instrhwinfo"
 severity = "warning"
 message = "'instrhwinfo('udp')' will be removed in a future release. There is no simple replacement for this."
 category = "compatibility"
+args_any = ["udp"]
 
 [[checks]]
 id = "CNNCGA"
@@ -12722,6 +12767,8 @@ function_name = "cnncodegen"
 severity = "error"
 message = "'cnncodegen' with 'targetlib' as 'arm-compute' has been removed. With appropriate code changes, use 'codegen' instead."
 category = "compatibility"
+args_all = ["targetlib", "arm-compute"]
+max_args = 3
 
 [[checks]]
 id = "CNNCGT"
@@ -12729,6 +12776,8 @@ function_name = "cnncodegen"
 severity = "error"
 message = "'cnncodegen' with 'targetlib' as 'tensorrt' has been removed. With appropriate code changes, use 'codegen' instead."
 category = "compatibility"
+args_all = ["targetlib", "tensorrt"]
+max_args = 3
 
 [[checks]]
 id = "CNNCGC"
@@ -12736,6 +12785,8 @@ function_name = "cnncodegen"
 severity = "error"
 message = "'cnncodegen' with 'targetlib' as 'cudnn' has been removed. With appropriate code changes, use 'codegen' instead."
 category = "compatibility"
+args_all = ["targetlib", "cudnn"]
+max_args = 3
 
 [[checks]]
 id = "CNNCGM"
@@ -12743,6 +12794,8 @@ function_name = "cnncodegen"
 severity = "error"
 message = "'cnncodegen' with 'targetlib' as 'mkldnn' has been removed. With appropriate code changes, use 'codegen' instead."
 category = "compatibility"
+args_all = ["targetlib", "mkldnn"]
+max_args = 3
 
 [[checks]]
 id = "MAOUTL"
@@ -12750,6 +12803,8 @@ function_name = "mapoutline"
 severity = "error"
 message = "'mapoutline' with referencing matrix has been removed. With appropriate code changes, use a geographic or map raster reference object as input instead."
 category = "compatibility"
+min_args = 1
+first_arg_not_text = true
 
 [[checks]]
 id = "MAWFW"
@@ -12757,6 +12812,8 @@ function_name = "worldfilewrite"
 severity = "error"
 message = "'worldfilewrite' with referencing matrix has been removed. With appropriate code changes, use a geographic or map raster reference object as input instead."
 category = "compatibility"
+min_args = 1
+first_arg_not_text = true
 
 [[checks]]
 id = "MAARMT"
@@ -12764,6 +12821,8 @@ function_name = "areamat"
 severity = "error"
 message = "'areamat' with referencing matrix or referencing vector has been removed. With appropriate code changes, use a geographic or map raster reference object as input instead."
 category = "compatibility"
+min_args = 2
+second_arg = "not_string"
 
 [[checks]]
 id = "MAFDM"
@@ -12771,6 +12830,8 @@ function_name = "findm"
 severity = "error"
 message = "'findm' with referencing matrix or referencing vector has been removed. With appropriate code changes, use a geographic or map raster reference object as input instead."
 category = "compatibility"
+min_args = 2
+second_arg = "not_string"
 
 [[checks]]
 id = "MAPFIL"
@@ -12778,6 +12839,8 @@ function_name = "mapprofile"
 severity = "error"
 message = "'mapprofile' with referencing matrix or referencing vector has been removed. With appropriate code changes, use a geographic or map raster reference object as input instead."
 category = "compatibility"
+min_args = 2
+second_arg = "not_string"
 
 [[checks]]
 id = "MAGRDNT"
@@ -12785,6 +12848,8 @@ function_name = "gradientm"
 severity = "error"
 message = "'gradientm' with referencing matrix or referencing vector has been removed. With appropriate code changes, use a geographic or map raster reference object as input instead."
 category = "compatibility"
+min_args = 2
+second_arg = "not_string"
 
 [[checks]]
 id = "MALOS2"
@@ -12792,6 +12857,8 @@ function_name = "los2"
 severity = "error"
 message = "'los2' with referencing matrix or referencing vector has been removed. With appropriate code changes, use a geographic or map raster reference object as input instead."
 category = "compatibility"
+min_args = 2
+second_arg = "not_string"
 
 [[checks]]
 id = "MAVWSH"
@@ -12799,6 +12866,8 @@ function_name = "viewshed"
 severity = "error"
 message = "'viewshed' with referencing matrix or referencing vector has been removed. With appropriate code changes, use a geographic or map raster reference object as input instead."
 category = "compatibility"
+min_args = 2
+second_arg = "not_string"
 
 [[checks]]
 id = "MANORG"
@@ -12806,6 +12875,8 @@ function_name = "neworig"
 severity = "error"
 message = "'neworig' with referencing matrix or referencing vector has been removed. With appropriate code changes, use a geographic or map raster reference object as input instead."
 category = "compatibility"
+min_args = 2
+second_arg = "not_string"
 
 [[checks]]
 id = "MACTRM"
@@ -12813,6 +12884,8 @@ function_name = "contourm"
 severity = "error"
 message = "'contourm' with referencing matrix or referencing vector has been removed. With appropriate code changes, use a geographic or map raster reference object as input instead."
 category = "compatibility"
+min_args = 2
+second_arg = "not_string"
 
 [[checks]]
 id = "MACTFM"
@@ -12820,6 +12893,8 @@ function_name = "contourfm"
 severity = "error"
 message = "'contourfm' with referencing matrix or referencing vector has been removed. With appropriate code changes, use a geographic or map raster reference object as input instead."
 category = "compatibility"
+min_args = 2
+second_arg = "not_string"
 
 [[checks]]
 id = "MACT3M"
@@ -12827,6 +12902,8 @@ function_name = "contour3m"
 severity = "error"
 message = "'contour3m' with referencing matrix or referencing vector has been removed. With appropriate code changes, use a geographic or map raster reference object as input instead."
 category = "compatibility"
+min_args = 2
+second_arg = "not_string"
 
 [[checks]]
 id = "MASHM"
@@ -12834,6 +12911,8 @@ function_name = "meshm"
 severity = "error"
 message = "'meshm' with referencing matrix or referencing vector has been removed. With appropriate code changes, use a geographic or map raster reference object as input instead."
 category = "compatibility"
+min_args = 2
+second_arg = "not_string"
 
 [[checks]]
 id = "MASHL"
@@ -12841,6 +12920,8 @@ function_name = "meshlsrm"
 severity = "error"
 message = "'meshlsrm' with referencing matrix or referencing vector has been removed. With appropriate code changes, use a geographic or map raster reference object as input instead."
 category = "compatibility"
+min_args = 2
+second_arg = "not_string"
 
 [[checks]]
 id = "MAGTFW"
@@ -12848,6 +12929,7 @@ function_name = "geotiffwrite"
 severity = "error"
 message = "'geotiffwrite' with referencing matrix or referencing vector has been removed. With appropriate code changes, use a geographic or map raster reference object as input instead."
 category = "compatibility"
+min_args = 3
 
 [[checks]]
 id = "MAFLTM"
@@ -12855,6 +12937,7 @@ function_name = "filterm"
 severity = "error"
 message = "'filterm' with referencing matrix or referencing vector has been removed. With appropriate code changes, use a geographic or map raster reference object as input instead."
 category = "compatibility"
+min_args = 4
 
 [[checks]]
 id = "MAVC2MX"
@@ -12862,6 +12945,7 @@ function_name = "vec2mtx"
 severity = "error"
 message = "'vec2mtx' with referencing matrix or referencing vector has been removed. With appropriate code changes, use a geographic or map raster reference object as input instead."
 category = "compatibility"
+min_args = 4
 
 [[checks]]
 id = "MAIMBED"
@@ -12869,6 +12953,7 @@ function_name = "imbedm"
 severity = "error"
 message = "'imbedm' with referencing matrix or referencing vector has been removed. With appropriate code changes, use a geographic or map raster reference object as input instead."
 category = "compatibility"
+min_args = 6
 
 [[checks]]
 id = "MAG2I"
@@ -12876,6 +12961,8 @@ function_name = "grid2image"
 severity = "error"
 message = "'grid2image' with referencing matrix or referencing vector has been removed. With appropriate code changes, use a geographic or map raster reference object as input instead."
 category = "compatibility"
+min_args = 2
+second_arg = "not_string"
 
 [[checks]]
 id = "WFLRD"
@@ -12883,6 +12970,8 @@ function_name = "worldfileread"
 severity = "error"
 message = "'worldfileread(worldFileName)' has been removed. With appropriate code changes, use 'worldfileread(worldFileName, coordinateSystemType, rasterSize)' instead."
 category = "compatibility"
+min_args = 1
+max_args = 1
 
 [[checks]]
 id = "EGMGD"
@@ -12890,6 +12979,7 @@ function_name = "egm96geoid"
 severity = "error"
 message = "'egm96geoid(SAMPLEFACTOR,...)' has been removed. With appropriate code changes, use 'egm96geoid(R)' instead, where R is a geographic raster reference object."
 category = "compatibility"
+min_args = 1
 
 [[checks]]
 id = "INSTHWS"
@@ -12897,6 +12987,7 @@ function_name = "instrhwinfo"
 severity = "warning"
 message = "'instrhwinfo('serial')' will be removed in a future release. With appropriate code changes, use 'serialportlist' instead."
 category = "compatibility"
+args_any = ["serial"]
 
 [[checks]]
 id = "INSTHWSP"
@@ -12904,6 +12995,7 @@ function_name = "instrhwinfo"
 severity = "warning"
 message = "'instrhwinfo('serialport')' will be removed in a future release. With appropriate code changes, use 'serialportlist' instead."
 category = "compatibility"
+args_any = ["serialport"]
 
 [[checks]]
 id = "INSTHWV"
@@ -12911,6 +13003,7 @@ function_name = "instrhwinfo"
 severity = "warning"
 message = "'instrhwinfo('visa')' will be removed in a future release. With appropriate code changes, use 'visadevlist' instead."
 category = "compatibility"
+args_any = ["visa"]
 
 [[checks]]
 id = "OPGLD"
@@ -12919,6 +13012,7 @@ severity = "error"
 message = "'opengl('data')' has been removed. With appropriate code changes, use 'rendererinfo' instead."
 category = "compatibility"
 args_any = ["data"]
+max_args = 1
 
 [[checks]]
 id = "OPGLO"
@@ -12934,6 +13028,7 @@ function_name = "propagationModel"
 severity = "error"
 message = "'propagationModel('raytracing-image-method')' syntax has been removed. With appropriate code changes, use 'propagationModel('raytracing', 'Method', 'image')' syntax instead."
 category = "compatibility"
+args_any = ["raytracing-image-method"]
 
 [[checks]]
 id = "PMRTM2"
@@ -12941,6 +13036,7 @@ function_name = "propagationModel"
 severity = "error"
 message = "'propagationModel('raytracing-imagemethod')' syntax has been removed. With appropriate code changes, use 'propagationModel('raytracing', 'Method', 'image')' syntax instead."
 category = "compatibility"
+args_any = ["raytracing-imagemethod"]
 
 [[checks]]
 id = "PMRTM3"
@@ -12948,6 +13044,7 @@ function_name = "propagationModel"
 severity = "error"
 message = "'propagationModel('raytracingimage-method')' syntax has been removed. With appropriate code changes, use 'propagationModel('raytracing', 'Method', 'image')' syntax instead."
 category = "compatibility"
+args_any = ["raytracingimage-method"]
 
 [[checks]]
 id = "PMRTM4"
@@ -12955,6 +13052,7 @@ function_name = "propagationModel"
 severity = "error"
 message = "'propagationModel('raytracingimagemethod')' syntax has been removed. With appropriate code changes, use 'propagationModel('raytracing', 'Method' , 'image')' syntax instead."
 category = "compatibility"
+args_any = ["raytracingimagemethod"]
 
 [[checks]]
 id = "INSTHWG"
@@ -12962,6 +13060,7 @@ function_name = "instrhwinfo"
 severity = "warning"
 message = "'instrhwinfo('gpib')' will be removed in a future release. With appropriate code changes, use 'visadevlist' instead."
 category = "compatibility"
+args_any = ["gpib"]
 
 [[checks]]
 id = "BLFOP"
@@ -13945,6 +14044,7 @@ function_name = "elevation"
 severity = "error"
 message = "'elevation' has been removed. With appropriate code changes, use 'geodetic2aer' instead."
 category = "compatibility"
+min_args = 6
 
 [[checks]]
 id = "INSTHWI2C"
@@ -13956,6 +14056,7 @@ category = "compatibility"
 # =============================================================================
 # Compatibility Considerations: removed toolbox functions (probed, MATLAB R2026b)
 # =============================================================================
+args_any = ["i2c"]
 
 [[checks]]
 id = "EVDOFRC"

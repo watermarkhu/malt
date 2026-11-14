@@ -13,6 +13,7 @@ impl UnsetVariablesEngine {
     ) -> Vec<Diagnostic> {
         let mut diagnostics = Vec::new();
         let mut functions = None;
+        let dead = crate::unused::dead_regions(tree, source);
 
         for scope in &symbol_table.scopes {
             // Only process function-like scopes.
@@ -97,7 +98,7 @@ impl UnsetVariablesEngine {
             // Check output arguments: STOUT. A classdef constructor returns the
             // object itself, so its unassigned output is not reported (probed).
             if !Self::is_classdef_constructor(func_node, source, &scope.name) {
-                self.check_output_args(scope, &da, &mut diagnostics);
+                self.check_output_args(scope, &da, &dead, &mut diagnostics);
             }
         }
 

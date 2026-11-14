@@ -37,7 +37,7 @@ Global or persistent variable might be unused or unset in this function or scrip
 
 Severity: **warning** · Auto-fix: **no**
 
-The operation or expression VAR_OPERATOR has no evident effect.
+The operation or expression VAR_OPERATOR has no evident effect. Not emitted: MATLAB reported none in its probes.
 
 ### EQEFF
 
@@ -85,7 +85,7 @@ Input argument might be unused. Consider replacing the argument with ~ instead.
 
 Severity: **warning** · Auto-fix: **no**
 
-Input argument 'varargin' might be unused.
+Input argument 'varargin' might be unused. Not emitted: MATLAB reported none in its probes.
 
 ### VUNUS
 

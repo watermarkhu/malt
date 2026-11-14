@@ -331,6 +331,62 @@ pub(crate) fn variable_kinds(ident: tree_sitter::Node, source: &str) -> Vec<&'st
     }
 }
 
+/// The right-hand side of every assignment to the variable `ident` in its scope, or
+/// `None` when the variable is bound another way (a loop, `[a, name] = f()`, a
+/// parameter) or never assigned. Like `variable_kinds`, but gives the values.
+pub(crate) fn variable_values<'a>(
+    ident: tree_sitter::Node<'a>,
+    source: &str,
+) -> Option<Vec<tree_sitter::Node<'a>>> {
+    let name = &source[ident.byte_range()];
+    let scope = enclosing_function(ident).unwrap_or_else(|| root_of(ident));
+    let mut values = Vec::new();
+    if collect_assigned_values(scope, name, source, &mut values) && !values.is_empty() {
+        Some(values)
+    } else {
+        None
+    }
+}
+
+fn collect_assigned_values<'a>(
+    scope: tree_sitter::Node<'a>,
+    name: &str,
+    source: &str,
+    values: &mut Vec<tree_sitter::Node<'a>>,
+) -> bool {
+    for child in crate::analysis::symbols::children_of(scope) {
+        match child.kind() {
+            "function_definition" => continue,
+            "assignment" => {
+                let (Some(left), Some(right)) = (
+                    child.child_by_field_name("left"),
+                    child.child_by_field_name("right"),
+                ) else {
+                    return false;
+                };
+                if left.kind() == "identifier" && &source[left.byte_range()] == name {
+                    values.push(right);
+                } else if mentions(left, name, source) {
+                    return false;
+                }
+            }
+            "for_statement" => {
+                let var = (0..child.named_child_count())
+                    .filter_map(|j| child.named_child(j))
+                    .find(|c| c.kind() == "identifier");
+                if var.is_some_and(|v| &source[v.byte_range()] == name) {
+                    return false;
+                }
+            }
+            _ => {}
+        }
+        if !collect_assigned_values(child, name, source, values) {
+            return false;
+        }
+    }
+    true
+}
+
 /// The innermost function definition that contains `node`.
 fn enclosing_function(node: tree_sitter::Node) -> Option<tree_sitter::Node> {
     let mut current = node.parent();

@@ -21,6 +21,51 @@ pub(crate) fn sole_input(scope: &Scope, source: &str) -> bool {
         && !header.contains('~')
 }
 
+/// Whether MANU, rather than INUSD, reports the sole input of a method. A `Static`
+/// method and a constructor (named after its class) are not MANU: MATLAB reports
+/// their unused input as INUSD (probed).
+pub(crate) fn manu_method(scope: &Scope, root: Node, source: &str) -> bool {
+    if !sole_input(scope, source) {
+        return false;
+    }
+    let Some(mut func) =
+        root.descendant_for_byte_range(scope.byte_range.start, scope.byte_range.end)
+    else {
+        return true;
+    };
+    while func.kind() != "function_definition" {
+        match func.parent() {
+            Some(parent) => func = parent,
+            None => return true,
+        }
+    }
+    let name = func
+        .child_by_field_name("name")
+        .map(|n| &source[n.byte_range()]);
+    let mut current = func.parent();
+    while let Some(node) = current {
+        match node.kind() {
+            "methods" => {
+                let header = source[node.start_byte()..].lines().next().unwrap_or("");
+                if header.to_ascii_lowercase().contains("static") {
+                    return false;
+                }
+            }
+            "class_definition" => {
+                let class = node
+                    .child_by_field_name("name")
+                    .map(|n| &source[n.byte_range()]);
+                if class.is_some() && class == name {
+                    return false;
+                }
+            }
+            _ => {}
+        }
+        current = node.parent();
+    }
+    true
+}
+
 /// Whether an input is also an output (`function obj = set(obj)`): the value
 /// is returned, so MATLAB does not report it (probed).
 pub(crate) fn returned_input(scope: &Scope, name: &str) -> bool {
@@ -39,7 +84,8 @@ impl UnusedEngine {
     ///
     /// MANU is reported only for a method whose sole input is unused (probes M1,
     /// M5 and ls-c__V4). A method with several inputs reports each unused one
-    /// as INUSD instead (probes M2, M3, M4 and M7).
+    /// as INUSD instead (probes M2, M3, M4 and M7), and so does a `Static`
+    /// method or a constructor (cl03, cl05).
     pub(crate) fn check_manu(
         &self,
         table: &SymbolTable,
@@ -53,7 +99,7 @@ impl UnusedEngine {
         let blocks = collect_arguments_blocks(root, source);
 
         for scope in &table.scopes {
-            if scope.kind != ScopeKind::Method || !sole_input(scope, source) {
+            if scope.kind != ScopeKind::Method || !manu_method(scope, root, source) {
                 continue;
             }
 
@@ -172,5 +218,23 @@ mod tests {
         );
         assert!(!has_id(&diags, "MANU"), "got: {diags:?}");
         assert!(!has_id(&diags, "INUSD"), "got: {diags:?}");
+    }
+
+    #[test]
+    fn static_method_and_constructor_inputs_are_inusd() {
+        // Probed (cl03, cl05): an unused input of a Static method or of a
+        // constructor is INUSD, not MANU.
+        let diags = lint_file(
+            &*engine(),
+            "classdef S_e\n    methods (Static)\n        function r = m(a)\n            r = 1;\n        end\n    end\nend\n",
+        );
+        assert!(!has_id(&diags, "MANU"), "got: {diags:?}");
+        assert!(has_id(&diags, "INUSD"), "got: {diags:?}");
+        let diags = lint_file(
+            &*engine(),
+            "classdef C_e\n    methods\n        function obj = C_e(a)\n            obj.x = 1;\n        end\n    end\nend\n",
+        );
+        assert!(!has_id(&diags, "MANU"), "got: {diags:?}");
+        assert!(has_id(&diags, "INUSD"), "got: {diags:?}");
     }
 }

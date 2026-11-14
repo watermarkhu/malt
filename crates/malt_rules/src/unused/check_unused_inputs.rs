@@ -79,7 +79,11 @@ impl UnusedEngine {
                 // INUSA, at its declaration. Name-value arguments, which are
                 // not in the signature, are not reported.
                 if let Some(decl) = declared.and_then(|d| d.iter().find(|d| d.name == *name)) {
-                    if inusa_on && !is_read_in(table, index, name, &blocks) {
+                    let unread = !is_read_in(table, index, name, &blocks)
+                        || entry_reads
+                            .as_ref()
+                            .is_some_and(|reads| !reads.contains(name));
+                    if inusa_on && unread {
                         diagnostics.push(Diagnostic {
                             rule_id: "INUSA",
                             message: "Input argument might be unused after the function arguments block(s)."
@@ -101,7 +105,7 @@ impl UnusedEngine {
                 // more inputs MATLAB reports each unused one as INUSD.
                 if scope.kind == ScopeKind::Method
                     && manu_enabled
-                    && super::check_manu::sole_input(scope, source)
+                    && super::check_manu::manu_method(scope, tree.root_node(), source)
                 {
                     continue;
                 }
@@ -404,6 +408,22 @@ mod tests {
             "function r = foo(n, opts)\narguments (Input)\n    n\n    opts.?matlab.graphics.chart.primitive.Line = 1\nend\nr = n;\nend\n",
         );
         assert!(has_id(&diags, "INUSA"), "got: {diags:?}");
+    }
+
+    #[test]
+    fn inusa_fires_when_block_input_is_overwritten_before_read() {
+        // Probed (ia03): the body overwrites the declared input before any read.
+        let diags = lint_file(
+            &*engine(),
+            "function r = foo(a)\narguments\n    a double\nend\na = 2;\nr = a;\nend\n",
+        );
+        assert_eq!(lines_of(&diags, "INUSA"), vec![3], "got: {diags:?}");
+        // Probed (ib02): `a = a + 1` reads the entry value first.
+        let diags = lint_file(
+            &*engine(),
+            "function r = foo(a)\narguments\n    a double\nend\na = a + 1;\nr = a;\nend\n",
+        );
+        assert!(!has_id(&diags, "INUSA"), "got: {diags:?}");
     }
 
     #[test]

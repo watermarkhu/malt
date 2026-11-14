@@ -116,16 +116,30 @@ struct CompatEntry {
     args_all: &'static [&'static str],
     /// The call has none of these string arguments.
     unless_args: &'static [&'static str],
-    /// Shape of the second argument: `"string"` or `"optimoptions"`.
+    /// Shape of the second argument: `"string"`, `"not_string"` (present and not
+    /// a string literal, so positional rather than name-value syntax) or
+    /// `"optimoptions"`.
     second_arg: &'static str,
+    /// The second argument is one of these strings, compared with case (a quoted
+    /// literal, or a variable every assignment of which is such a literal).
+    second_arg_any: &'static [&'static str],
     /// Reported only in a script file.
     script_only: bool,
     /// The first argument is text: a quoted literal, or a variable that every
     /// assignment in its scope gives a literal of (`ismethod(mdl, ...)` with an
     /// object `mdl` is not reported).
     first_arg_text: bool,
+    /// The first argument is not text (a number, a matrix or a variable that is
+    /// not known to hold text); a call whose first argument is a string is silent.
+    first_arg_not_text: bool,
     /// Fewest outputs the call is assigned to: `[a, b] = f(x)` has two.
     min_outputs: Option<usize>,
+    /// The first argument is one of these strings (compared without case).
+    first_arg_any: &'static [&'static str],
+    /// The call's only argument is one of these strings: the entry does not apply.
+    unless_sole_arg: &'static [&'static str],
+    /// The call does not have every one of these strings: the entry does not apply.
+    unless_all_args: &'static [&'static str],
 }
 
 // ---------------------------------------------------------------------------
@@ -182,8 +196,15 @@ const FORWARD_GATE_IDS: &[&str] = &[
     "FCLEN", "FCCPV", "FCDQS", "FCFAV", "FCHBL", "FCLFS", "FCNVA",
 ];
 
-/// Target node types for the compatibility engine.
-const TARGET_NODES: &[&str] = &["function_call", "command"];
+/// Target node types for the compatibility engine: calls and commands, and the
+/// bare references to a function (`@f`, and `pkg.f` used as a value).
+const TARGET_NODES: &[&str] = &[
+    "function_call",
+    "command",
+    "handle_operator",
+    "field_expression",
+    "identifier",
+];
 
 impl CompatibilityEngine {
     /// Factory constructor called by the rule registry.
@@ -389,8 +410,55 @@ fn extract_func_name<'a>(node: tree_sitter::Node<'a>, source: &'a str) -> Option
                 None
             }
         }
+        "handle_operator" => reference_name(node, source),
+        "identifier" => {
+            // `[h, a] = legend;`: a call without parentheses, with several outputs.
+            let parent = node.parent()?;
+            let is_value = parent.kind() == "assignment"
+                && parent
+                    .child_by_field_name("right")
+                    .is_some_and(|right| right.id() == node.id());
+            let several = parent
+                .child_by_field_name("left")
+                .is_some_and(|left| left.kind() == "multioutput_variable");
+            (is_value && several).then(|| &source[node.start_byte()..node.end_byte()])
+        }
+        "field_expression" => {
+            let parent = node.parent()?;
+            let is_value = match parent.kind() {
+                "source_file" | "block" => true,
+                "assignment" => parent
+                    .child_by_field_name("right")
+                    .is_some_and(|right| right.id() == node.id()),
+                _ => false,
+            };
+            if is_value {
+                reference_name(node, source)
+            } else {
+                None
+            }
+        }
         _ => None,
     }
+}
+
+/// The name of a function reference that is not called: `f` in `@f` and
+/// `pkg.f` in a bare `pkg.f` statement. Anything that is not a plain or dotted
+/// identifier (a call, an index) gives `None`.
+fn reference_name<'a>(node: tree_sitter::Node<'a>, source: &'a str) -> Option<&'a str> {
+    let text = source.get(node.start_byte()..node.end_byte())?;
+    let name = match node.kind() {
+        "handle_operator" => text.strip_prefix('@')?.trim_start(),
+        _ => text,
+    };
+    let is_identifier = |part: &str| {
+        let mut chars = part.chars();
+        chars
+            .next()
+            .is_some_and(|c| c.is_ascii_alphabetic() || c == '_')
+            && chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
+    };
+    (!name.is_empty() && name.split('.').all(is_identifier)).then_some(name)
 }
 
 /// Whether the data file lists `id` under MATLAB's low-reliability messages,
@@ -478,9 +546,13 @@ fn literal<'a>(arg: tree_sitter::Node, source: &'a str) -> Option<&'a str> {
     }
 }
 
-/// Whether an argument is text: a quoted literal, or a variable that every
-/// assignment in its scope gives a text literal (see `variable_kinds`).
+/// Whether an argument is text: a quoted literal, a command-syntax word, or a
+/// variable that every assignment in its scope gives a text literal (see
+/// `variable_kinds`).
 fn is_text_argument(arg: tree_sitter::Node, source: &str) -> bool {
+    if arg.kind() == "command_argument" {
+        return true;
+    }
     let kinds = if arg.kind() == "identifier" {
         crate::suggested_improvements::variable_kinds(arg, source)
     } else {
@@ -507,6 +579,13 @@ fn applies(
     {
         return false;
     }
+    if entry.first_arg_not_text
+        && args
+            .first()
+            .is_some_and(|arg| is_text_argument(*arg, source))
+    {
+        return false;
+    }
     if entry.min_args.is_some_and(|min| args.len() < min)
         || entry.max_args.is_some_and(|max| args.len() > max)
         || entry.min_outputs.is_some_and(|min| outputs < min)
@@ -524,16 +603,75 @@ fn applies(
     if !entry.args_all.iter().all(given) || entry.unless_args.iter().any(given) {
         return false;
     }
+    if !entry.unless_all_args.is_empty() && entry.unless_all_args.iter().all(given) {
+        return false;
+    }
+    if !entry.first_arg_any.is_empty()
+        && !args
+            .first()
+            .and_then(|arg| literal(*arg, source))
+            .is_some_and(|word| {
+                entry
+                    .first_arg_any
+                    .iter()
+                    .any(|v| word.eq_ignore_ascii_case(v))
+            })
+    {
+        return false;
+    }
+    if args.len() == 1
+        && words.len() == 1
+        && entry
+            .unless_sole_arg
+            .iter()
+            .any(|v| words[0].eq_ignore_ascii_case(v))
+    {
+        return false;
+    }
+    if !entry.second_arg_any.is_empty()
+        && !args
+            .get(1)
+            .is_some_and(|arg| second_arg_is_one_of(*arg, entry.second_arg_any, source))
+    {
+        return false;
+    }
     match entry.second_arg {
         "string" => args.get(1).is_some_and(|arg| arg.kind() == "string"),
-        "optimoptions" => args.get(1).is_some_and(|arg| {
-            arg.kind() == "function_call"
-                && arg.child_by_field_name("name").is_some_and(|name| {
-                    &source[name.start_byte()..name.end_byte()] == "optimoptions"
-                })
-        }),
+        "not_string" => args.get(1).is_some_and(|arg| arg.kind() != "string"),
+        "optimoptions" => args
+            .get(1)
+            .is_some_and(|arg| is_optimoptions_value(*arg, source)),
         _ => true,
     }
+}
+
+/// Whether an argument is a call of `optimoptions`, or a variable every assignment of
+/// which is one.
+fn is_optimoptions_value(arg: tree_sitter::Node, source: &str) -> bool {
+    let is_call = |node: tree_sitter::Node| {
+        node.kind() == "function_call"
+            && node
+                .child_by_field_name("name")
+                .is_some_and(|name| &source[name.start_byte()..name.end_byte()] == "optimoptions")
+    };
+    if arg.kind() == "identifier" {
+        return crate::suggested_improvements::variable_values(arg, source)
+            .is_some_and(|values| values.into_iter().all(is_call));
+    }
+    is_call(arg)
+}
+
+/// Whether an argument is a string literal equal (with case) to one of `words`, or a
+/// variable every assignment of which is such a literal.
+fn second_arg_is_one_of(arg: tree_sitter::Node, words: &[&str], source: &str) -> bool {
+    let matches = |node: tree_sitter::Node| {
+        node.kind() == "string" && literal(node, source).is_some_and(|text| words.contains(&text))
+    };
+    if arg.kind() == "identifier" {
+        return crate::suggested_improvements::variable_values(arg, source)
+            .is_some_and(|values| values.into_iter().all(matches));
+    }
+    matches(arg)
 }
 
 /// Parse a severity string from the TOML data into a `Severity` enum value.
@@ -626,8 +764,9 @@ mod tests {
     }
 
     #[test]
-    fn fcnchk_fires_dfcnchk() {
-        assert_call_fires("fcnchk", "DFCNCHK");
+    fn fcnchk_is_not_reported_by_matlab() {
+        // Probed in MATLAB R2026b: `fcnchk` is silent in every form, so DFCNCHK is unverified.
+        assert!(!fires("fcnchk(@sin);\n", "DFCNCHK"));
     }
 
     #[test]
@@ -691,11 +830,99 @@ mod tests {
 
     #[test]
     fn multi_function_name_emits_all_matching_ids() {
-        // `tcpip` maps to both TCPC (removed) and TCPS (behavior change); both
-        // diagnostics must be emitted now that the lookup table stores a Vec.
+        // `tcpip` maps to TCPC (client, the default role) and TCPS (server). Both
+        // entries stay in the lookup table; each one applies to its own role.
         let diags = lint_nodes(&*engine(), "tcpip('host', 80);\n");
         assert!(has_id(&diags, "TCPC"), "expected TCPC; got: {diags:?}");
-        assert!(has_id(&diags, "TCPS"), "expected TCPS; got: {diags:?}");
+        assert!(
+            !has_id(&diags, "TCPS"),
+            "TCPS needs the server role; got: {diags:?}"
+        );
+    }
+
+    #[test]
+    fn tcpip_server_role_fires_tcps_only() {
+        // Probed in MATLAB R2026b: `tcpip(1,'NetworkRole','server')` is TCPS only;
+        // `tcpip(1,'server')` (no NetworkRole) is TCPC.
+        assert!(fires("tcpip('x', 1, 'NetworkRole', 'server');\n", "TCPS"));
+        assert!(!fires("tcpip('x', 1, 'NetworkRole', 'server');\n", "TCPC"));
+        assert!(fires("tcpip(1, 'server');\n", "TCPC"));
+        assert!(!fires("tcpip(1, 'server');\n", "TCPS"));
+    }
+
+    #[test]
+    fn opengl_info_alone_fires_opgli_only() {
+        // Probed: `opengl('info')` is OPGLI; `opengl(1,'info')` is not (OPGLO, a
+        // different entry); the info argument must come first.
+        assert!(fires("opengl('info');\n", "OPGLI"));
+        assert!(!fires("opengl(1, 'info');\n", "OPGLI"));
+        assert!(!fires("opengl('info', 'data');\n", "OPGLI"));
+    }
+
+    #[test]
+    fn dry_ice_first_argument_fires_dryice() {
+        // Probed: `earthSurfacePermittivity('dry-ice')` and `('dry-ice', 1)` are
+        // reported under the function name, `(1, 'dry-ice')` is not.
+        assert!(fires(
+            "x = earthSurfacePermittivity('dry-ice');\n",
+            "DRYICE"
+        ));
+        assert!(fires("earthSurfacePermittivity('dry-ice', 1);\n", "DRYICE"));
+        assert!(!fires(
+            "earthSurfacePermittivity(1, 'dry-ice');\n",
+            "DRYICE"
+        ));
+    }
+
+    #[test]
+    fn feature_eightycolumns_must_be_the_first_argument() {
+        assert!(fires("feature('EightyColumns');\n", "EITYCN"));
+        assert!(fires("feature('EightyColumns', 1);\n", "EITYCN"));
+        assert!(!fires("feature('x', 'EightyColumns');\n", "EITYCN"));
+    }
+
+    #[test]
+    fn optimoptions_option_needs_its_value() {
+        // Probed: `optimoptions('fmincon','CheckGradients')` without a value is silent.
+        assert!(fires(
+            "optimoptions('fmincon', 'CheckGradients', true);\n",
+            "CHKGR"
+        ));
+        assert!(!fires(
+            "optimoptions('fmincon', 'CheckGradients');\n",
+            "CHKGR"
+        ));
+        assert!(fires(
+            "optimoptions('linprog', 'Algorithm', 'simplex');\n",
+            "LINPROGS"
+        ));
+        assert!(!fires(
+            "optimoptions('linprog', 'Algorithm', 'dual-simplex');\n",
+            "LINPROGS"
+        ));
+    }
+
+    #[test]
+    fn web_handle_output_needs_two_outputs() {
+        // Probed: `[s, x] = web(1)` is WEBREMOVE; `x = web(1)` is silent.
+        assert!(fires("[s, x] = web(1);\n", "WEBREMOVE"));
+        assert!(!fires("x = web(1);\n", "WEBREMOVE"));
+    }
+
+    #[test]
+    fn qammod_phase_argument_needs_three_arguments() {
+        // Probed: `qammod(1,4,0)` is QAMDEPM; `qammod(1,4)` is silent.
+        assert!(fires("qammod(1, 4, 0);\n", "QAMDEPM"));
+        assert!(!fires("qammod(1, 4);\n", "QAMDEPM"));
+        assert!(fires("qamdemod(1, 4, 0);\n", "QAMDEPD"));
+        assert!(!fires("qamdemod(1, 4);\n", "QAMDEPD"));
+    }
+
+    #[test]
+    fn ismethod_text_command_word_fires_imclass() {
+        // Probed: the command form `ismethod x abc` is IMCLASS (a command word is text).
+        assert!(fires("ismethod x abc;\n", "IMCLASS"));
+        assert!(fires("ismethod('x', 'abc');\n", "IMCLASS"));
     }
 
     #[test]
@@ -983,6 +1210,34 @@ mod tests {
     }
 
     #[test]
+    fn solve_forms_follow_matlab_probes() {
+        // MATLAB probes (optm1/optm2): OPTMSLV only for the solvers linprog and
+        // intlinprog, with case, also through a variable; OPTMOPT for an optimoptions
+        // call or a variable assigned one, whatever the solver.
+        assert!(fires("x = solve(p, 'linprog');\n", "OPTMSLV"));
+        assert!(fires("x = solve(p, 'intlinprog');\n", "OPTMSLV"));
+        assert!(fires("x = solve(p, \"linprog\");\n", "OPTMSLV"));
+        assert!(fires("s = 'linprog';\nx = solve(p, s);\n", "OPTMSLV"));
+        for solver in [
+            "quadprog", "fmincon", "fminunc", "lsqlin", "ga", "LINPROG", "bogus",
+        ] {
+            assert!(
+                !fires(&format!("x = solve(p, '{solver}');\n"), "OPTMSLV"),
+                "{solver}"
+            );
+        }
+        assert!(fires(
+            "o = optimoptions('fmincon');\nx = solve(p, o);\n",
+            "OPTMOPT"
+        ));
+        assert!(fires("x = solve(p, optimoptions('linprog'));\n", "OPTMOPT"));
+        assert!(!fires("x = solve(p, o);\n", "OPTMOPT"));
+        assert!(!fires("o = 3;\nx = solve(p, o);\n", "OPTMOPT"));
+        assert!(fires("x = solve(p, 'linprog', o);\n", "OPTMNVP"));
+        assert!(!fires("x = solve(p, 'fmincon', o);\n", "OPTMNVP"));
+    }
+
+    #[test]
     fn bare_nargout_fires_in_a_script_only() {
         // MATLAB probes: `nargout(f)` and `nargout('max')` in a script report nothing
         // (only the bare `nargout` of a script does, which malt does not match yet).
@@ -1038,5 +1293,107 @@ mod tests {
         ] {
             assert!(lint_nodes(&*engine(), source).is_empty(), "{source}");
         }
+    }
+
+    #[test]
+    fn handles_and_bare_dotted_names_are_references() {
+        // MATLAB R2026b reports a removed function used as a handle or as a bare
+        // dotted statement (probed).
+        for (source, id) in [
+            ("h = @psd;\n", "DPSD"),
+            ("k = @dsp.DCT;\n", "DSPDCT"),
+            ("dsp.DCT;\n", "DSPDCT"),
+            ("h = @comm.gpu.AWGNChannel;\n", "COMMGPUAWGN"),
+        ] {
+            assert!(has_id(&lint_nodes(&*engine(), source), id), "{source}");
+        }
+    }
+
+    #[test]
+    fn handle_to_a_variable_of_the_same_name_is_silent() {
+        let diags = lint_nodes(&*engine(), "psd = 3;\nh = @psd;\n");
+        assert!(!has_id(&diags, "DPSD"), "{diags:?}");
+    }
+
+    #[test]
+    fn positional_optional_arguments_need_a_non_string_second_argument() {
+        assert!(has_id(
+            &lint_nodes(&*engine(), "y = autocorr(x, 2);\n"),
+            "ACORR"
+        ));
+        assert!(!has_id(
+            &lint_nodes(&*engine(), "y = autocorr(x);\n"),
+            "ACORR"
+        ));
+        assert!(!has_id(
+            &lint_nodes(&*engine(), "y = autocorr(x, 'NumLags', 2);\n"),
+            "ACORR"
+        ));
+    }
+
+    #[test]
+    fn instrhwinfo_is_reported_for_its_literal_only() {
+        assert!(has_id(
+            &lint_nodes(&*engine(), "h = instrhwinfo('tcpip');\n"),
+            "INSTHWT"
+        ));
+        assert!(!has_id(
+            &lint_nodes(&*engine(), "h = instrhwinfo('visa');\n"),
+            "INSTHWT"
+        ));
+        assert!(!has_id(
+            &lint_nodes(&*engine(), "h = instrhwinfo('tcpip');\n"),
+            "INSTHWV"
+        ));
+    }
+
+    #[test]
+    fn legend_with_several_outputs_is_reported_without_parentheses() {
+        assert!(has_id(
+            &lint_nodes(&*engine(), "[h, a] = legend;\n"),
+            "LEGMOP"
+        ));
+        assert!(has_id(
+            &lint_nodes(&*engine(), "[h, a] = legend('a');\n"),
+            "LEGMOP"
+        ));
+        assert!(!has_id(&lint_nodes(&*engine(), "h = legend;\n"), "LEGMOP"));
+    }
+
+    #[test]
+    fn mapoutline_with_a_referencing_matrix_has_a_numeric_first_argument() {
+        assert!(has_id(
+            &lint_nodes(&*engine(), "m = mapoutline(z, R);\n"),
+            "MAOUTL"
+        ));
+        assert!(!has_id(
+            &lint_nodes(&*engine(), "m = mapoutline('z', R);\n"),
+            "MAOUTL"
+        ));
+        assert!(!has_id(&lint_nodes(&*engine(), "mapoutline;\n"), "MAOUTL"));
+    }
+
+    #[test]
+    fn hpfilter_positional_form_has_two_arguments() {
+        assert!(has_id(
+            &lint_nodes(&*engine(), "y = hpfilter(x, 1600);\n"),
+            "HPFLTR"
+        ));
+        assert!(!has_id(
+            &lint_nodes(&*engine(), "y = hpfilter(x, 1600, 2);\n"),
+            "HPFLTR"
+        ));
+    }
+
+    #[test]
+    fn cnncodegen_is_reported_for_its_target_library() {
+        assert!(has_id(
+            &lint_nodes(&*engine(), "cnncodegen(net, 'targetlib', 'cudnn');\n"),
+            "CNNCGC"
+        ));
+        assert!(!has_id(
+            &lint_nodes(&*engine(), "cnncodegen(net, 'targetlib', 'tensorrt');\n"),
+            "CNNCGC"
+        ));
     }
 }
