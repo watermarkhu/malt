@@ -31,10 +31,11 @@ lookup-based check.
 
 ## Check IDs
 
-### Suggested Improvements (245 checks)
+### Suggested Improvements (247 checks)
 
 | Check ID | Severity | Description |
 | -------- | -------- | ----------- |
+| <a id="importdyn"></a>`IMPORTDYN` | warning | Using function syntax to call 'import' is not recommended. With appropriate code changes, use command syntax instead. |
 | <a id="importdyn"></a>`IMPORTDYN` | warning | Using function syntax to call 'import' is not recommended. With appropriate code changes, use command syntax instead. |
 | <a id="lerr"></a>`LERR` | warning | LASTERR and LASTERROR are not recommended. Use an identifier on the CATCH block instead. |
 | <a id="evlc"></a>`EVLC` | warning | Using 'evalc' with two arguments is not recommended. Use try/catch statements instead to make code more clear and efficient. |
@@ -53,6 +54,7 @@ lookup-based check.
 | <a id="tnow2"></a>`TNOW2` | warning | 'datetime(now, 'ConvertFrom', 'datenum')' is not recommended. Use 'datetime(\ |
 | <a id="ttday1"></a>`TTDAY1` | warning | 'today' is not recommended. With appropriate code changes, use 'datetime(\ |
 | <a id="ttday2"></a>`TTDAY2` | warning | 'datetime(today, 'ConvertFrom', 'datenum')' is not recommended. Use 'datetime(\ |
+| <a id="match2"></a>`MATCH2` | warning | STRMATCH is not recommended. Use STRNCMP or VALIDATESTRING instead. |
 | <a id="match2"></a>`MATCH2` | warning | STRMATCH is not recommended. Use STRNCMP or VALIDATESTRING instead. |
 | <a id="imgdt"></a>`IMGDT` | warning | Using 'DataAugmentation' in function 'imageInputLayer' is not recommended. Use function 'augmentedImageDatastore' instead. |
 | <a id="match3"></a>`MATCH3` | warning | STRMATCH is not recommended. Use STRCMP instead. |

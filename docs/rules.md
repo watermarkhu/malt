@@ -1890,10 +1890,11 @@ to refresh them whenever `data/compatibility.toml` or
 | [`JAPIEXT884`](rules/compatibility.md#japiext884) | 'io.grpc.stub' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
 | [`JAPIEXT885`](rules/compatibility.md#japiext885) | 'io.grpc.util' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
 
-### Suggested Improvements (245 checks)
+### Suggested Improvements (247 checks)
 
 | Check ID | Message |
 | -------- | ------- |
+| [`IMPORTDYN`](rules/suggested-improvements.md#importdyn) | Using function syntax to call 'import' is not recommended. With appropriate code changes, use command syntax instead. |
 | [`IMPORTDYN`](rules/suggested-improvements.md#importdyn) | Using function syntax to call 'import' is not recommended. With appropriate code changes, use command syntax instead. |
 | [`LERR`](rules/suggested-improvements.md#lerr) | LASTERR and LASTERROR are not recommended. Use an identifier on the CATCH block instead. |
 | [`EVLC`](rules/suggested-improvements.md#evlc) | Using 'evalc' with two arguments is not recommended. Use try/catch statements instead to make code more clear and efficient. |
@@ -1912,6 +1913,7 @@ to refresh them whenever `data/compatibility.toml` or
 | [`TNOW2`](rules/suggested-improvements.md#tnow2) | 'datetime(now, 'ConvertFrom', 'datenum')' is not recommended. Use 'datetime(\ |
 | [`TTDAY1`](rules/suggested-improvements.md#ttday1) | 'today' is not recommended. With appropriate code changes, use 'datetime(\ |
 | [`TTDAY2`](rules/suggested-improvements.md#ttday2) | 'datetime(today, 'ConvertFrom', 'datenum')' is not recommended. Use 'datetime(\ |
+| [`MATCH2`](rules/suggested-improvements.md#match2) | STRMATCH is not recommended. Use STRNCMP or VALIDATESTRING instead. |
 | [`MATCH2`](rules/suggested-improvements.md#match2) | STRMATCH is not recommended. Use STRNCMP or VALIDATESTRING instead. |
 | [`IMGDT`](rules/suggested-improvements.md#imgdt) | Using 'DataAugmentation' in function 'imageInputLayer' is not recommended. Use function 'augmentedImageDatastore' instead. |
 | [`MATCH3`](rules/suggested-improvements.md#match3) | STRMATCH is not recommended. Use STRCMP instead. |

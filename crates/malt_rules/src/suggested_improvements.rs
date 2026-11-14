@@ -66,6 +66,7 @@ use std::sync::LazyLock;
 use malt_core::{Category, Config, Diagnostic, NodeContext, Rule, Severity};
 
 use crate::analysis::symbols::{is_field_name, ScopeKind, SymbolTable};
+use crate::compatibility::reference_name;
 
 // ---------------------------------------------------------------------------
 // Data types for TOML deserialization
@@ -95,10 +96,29 @@ struct SuggestedEntry {
     /// The usage is only discouraged with at most this many arguments
     /// (`format` with none: `max_args = 0`). Unset means no limit.
     max_args: Option<usize>,
+    /// The call is assigned to at least this many outputs (`[a, b] = sim('m')`).
+    /// 0 means any number, including none. Counted as `compatibility` counts them.
+    min_outputs: usize,
     /// The usage is only discouraged when one argument is one of these literals
     /// (`rand('seed', 1)`, `hold all`), compared case-insensitively. Empty means
     /// any call.
     literal_args: &'static [&'static str],
+    /// The literal in `literal_args` counts only when another argument follows it:
+    /// `cdfread(f, 'ConvertEpochToDatenum', x)` is the name-value pair,
+    /// `cdfread(f, 'ConvertEpochToDatenum')` is not.
+    literal_has_value: bool,
+    /// The literal of `literal_args` must be the argument at this 1-based position
+    /// (`hough(BW,'ThetaResolution',VAL)`); 0 means any position.
+    literal_at: usize,
+    /// The literal matches its case exactly (`rand('seed')`, not `rand('SEED')`).
+    literal_exact: bool,
+    /// Function syntax only: command syntax (`import a.b`) never matches.
+    function_only: bool,
+    /// Not when the call is the value of an assignment (`y = format;`).
+    not_assigned: bool,
+    /// Only as a statement: not inside an assignment, a call, an `if` or an anonymous
+    /// function (`import(1);` yes, `y = import(1);` no).
+    statement_only: bool,
     /// 1-based position of the argument that `arg_kinds`, `not_arg_kinds` and
     /// `arg_text` test. 0 means the first argument.
     arg_at: usize,
@@ -143,6 +163,22 @@ impl SuggestedEntry {
         if args.len() < self.min_args || self.max_args.is_some_and(|max| args.len() > max) {
             return false;
         }
+        if self.function_only && node.kind() == "command" {
+            return false;
+        }
+        if self.not_assigned && is_assigned_value(node) {
+            return false;
+        }
+        if self.statement_only
+            && !node
+                .parent()
+                .is_some_and(|p| matches!(p.kind(), "block" | "source_file"))
+        {
+            return false;
+        }
+        if self.min_outputs > 0 && crate::compatibility::output_count(node) < self.min_outputs {
+            return false;
+        }
         if self.within_parfor && !inside_parfor(node, source) {
             return false;
         }
@@ -155,10 +191,25 @@ impl SuggestedEntry {
             return false;
         }
         if !self.literal_args.is_empty() {
-            let matched = args.iter().any(|a| {
-                literal_text(*a, source)
-                    .is_some_and(|t| self.literal_args.iter().any(|l| l.eq_ignore_ascii_case(t)))
-            });
+            let is_literal = |t: &str| {
+                self.literal_args.iter().any(|l| {
+                    if self.literal_exact {
+                        *l == t
+                    } else {
+                        l.eq_ignore_ascii_case(t)
+                    }
+                })
+            };
+            let matched = if self.literal_at > 0 {
+                args.get(self.literal_at - 1)
+                    .and_then(|a| literal_text(*a, source))
+                    .is_some_and(is_literal)
+            } else {
+                args.iter().enumerate().any(|(i, a)| {
+                    (!self.literal_has_value || i + 1 < args.len())
+                        && literal_text(*a, source).is_some_and(is_literal)
+                })
+            };
             if !matched {
                 return false;
             }
@@ -181,13 +232,18 @@ impl SuggestedEntry {
         if !has_kind_condition {
             return true;
         }
-        if node.kind() == "command" {
-            return false;
-        }
         let Some(arg) = args.get(self.arg_at.max(1) - 1) else {
             return false;
         };
-        let kinds = if self.arg_through_variables && arg.kind() == "identifier" {
+        // Command arguments are text (`hour 1`, `display abc`): MATLAB reports the
+        // command for every such argument, whatever its kind would be in function
+        // syntax. Command syntax has no argument text to compare with `arg_text`.
+        let kinds = if node.kind() == "command" {
+            if !self.arg_text.is_empty() {
+                return false;
+            }
+            vec!["text"]
+        } else if self.arg_through_variables && arg.kind() == "identifier" {
             variable_kinds(*arg, source)
         } else {
             argument_kinds(*arg, source).to_vec()
@@ -207,6 +263,15 @@ impl SuggestedEntry {
     }
 }
 
+/// Whether `node` is the value of an assignment (`y = format;`).
+fn is_assigned_value(node: tree_sitter::Node) -> bool {
+    node.parent().is_some_and(|p| {
+        p.kind() == "assignment"
+            && p.child_by_field_name("right")
+                .is_some_and(|right| right.id() == node.id())
+    })
+}
+
 /// The kinds of a function-syntax argument, for the `arg_kinds` conditions.
 pub(crate) fn argument_kinds(arg: tree_sitter::Node, source: &str) -> &'static [&'static str] {
     match arg.kind() {
@@ -214,6 +279,8 @@ pub(crate) fn argument_kinds(arg: tree_sitter::Node, source: &str) -> &'static [
         "cell" if is_char_literal_cell(arg, source) => &["cell", "char_cell"],
         "cell" => &["cell"],
         "function_call" if call_name_is(arg, source, "cell") => &["cell"],
+        "function_call" if call_name_is(arg, source, "struct") => &["struct"],
+        "function_handle" | "handle_operator" => &["handle"],
         "string" if source[arg.byte_range()].starts_with('\'') => &["char", "text"],
         "string" => &["text"],
         "range" | "matrix" if is_number_expr(arg) => &["number"],
@@ -585,8 +652,15 @@ static SUGGESTED_TABLE: LazyLock<HashMap<&'static str, Vec<&'static SuggestedEnt
 pub struct SuggestedImprovementsEngine;
 
 /// Target node types for the suggested improvements engine. A bare name
-/// (`clock`, `format`, `@nanmean`) is a use with no arguments.
-const TARGET_NODES: &[&str] = &["function_call", "command", "identifier"];
+/// (`clock`, `format`, `@nanmean`) is a use with no arguments, and a bare dotted
+/// name (`sigwin.hamming;`, `@sigwin.hamming`) is a reference to the function.
+const TARGET_NODES: &[&str] = &[
+    "function_call",
+    "command",
+    "identifier",
+    "field_expression",
+    "handle_operator",
+];
 
 impl SuggestedImprovementsEngine {
     /// Factory constructor called by the rule registry.
@@ -628,7 +702,7 @@ impl Rule for SuggestedImprovementsEngine {
     fn check(&self, ctx: &NodeContext) -> Vec<Diagnostic> {
         let node = ctx.node;
         // A name used as a call (`f(x)`) or field (`s.clock`) is handled by its
-        // function_call node, not as a bare name.
+        // function_call or field_expression node, not as a bare name.
         if node.kind() == "identifier"
             && (node.parent().is_some_and(|p| p.kind() == "function_call") || is_field_name(node))
         {
@@ -649,7 +723,10 @@ impl Rule for SuggestedImprovementsEngine {
             .copied()
             .filter(|entry| entry.applies_to(node, &args, ctx.source))
             .collect();
-        if applicable.is_empty() || is_shadowed(node, func_name, ctx.source) {
+        // Command syntax with arguments is always a call: a variable of that name
+        // does not shadow it. A bare name parses as a command too, so it needs one.
+        let command_call = node.kind() == "command" && !args.is_empty();
+        if applicable.is_empty() || (!command_call && is_shadowed(node, func_name, ctx.source)) {
             return Vec::new();
         }
 
@@ -695,6 +772,29 @@ fn extract_func_name<'a>(node: tree_sitter::Node<'a>, source: &'a str) -> Option
             Some(&source[start..name_node.end_byte()])
         }
         "identifier" => Some(&source[node.start_byte()..node.end_byte()]),
+        // `pkg.f` as a statement or the value of an assignment, or `@pkg.f`: a
+        // reference to the function, not a call (`pkg.f(x)` is a function_call).
+        // `@f` of a plain name is an identifier (below); only the dotted form is
+        // a handle of its own, so the two do not both report.
+        "handle_operator" => reference_name(node, source).filter(|name| name.contains('.')),
+        "field_expression" => {
+            let parent = node.parent()?;
+            let is_value = match parent.kind() {
+                // `a.b.c` names the inner part, not a package function.
+                "field_expression" | "multioutput_variable" => false,
+                "assignment" => parent
+                    .child_by_field_name("right")
+                    .is_some_and(|right| right.id() == node.id()),
+                // `pkg.f 1` on a statement is command syntax, which MATLAB rejects.
+                "source_file" | "block" => ends_statement(node, source),
+                _ => true,
+            };
+            if is_value {
+                reference_name(node, source)
+            } else {
+                None
+            }
+        }
         "command" => {
             let name_node = node.child(0)?;
             if name_node.kind() == "command_name" {
@@ -705,6 +805,18 @@ fn extract_func_name<'a>(node: tree_sitter::Node<'a>, source: &'a str) -> Option
         }
         _ => None,
     }
+}
+
+/// Whether only a separator or a comment follows `node` on its line. A dotted
+/// name followed by an argument (`pkg.f 1`, `pkg.f 'a'`) is not a bare reference:
+/// MATLAB is silent on those (probes p29_C).
+fn ends_statement(node: tree_sitter::Node, source: &str) -> bool {
+    let rest = source[node.end_byte()..]
+        .split('\n')
+        .next()
+        .unwrap_or("")
+        .trim();
+    rest.is_empty() || rest.starts_with([';', ',', '%'])
 }
 
 /// The root node of the tree that `node` belongs to.
@@ -1072,6 +1184,43 @@ mod tests {
     }
 
     #[test]
+    fn bare_dotted_names_and_handles_are_references() {
+        // MATLAB R2026b reports a dotted name used as a statement, a value or a
+        // handle (probes p29_C: `sigwin.hamming;`, `@sigwin.hamming`).
+        assert_eq!(rule_ids("sigwin.hamming;\n"), vec!["DHMMNG"]);
+        assert_eq!(rule_ids("w = sigwin.hamming;\n"), vec!["DHMMNG"]);
+        assert_eq!(rule_ids("h = @sigwin.hamming;\n"), vec!["DHMMNG"]);
+        // Command syntax on a dotted name is silent in MATLAB (probe `sigwin.hamming seed`).
+        assert!(rule_ids("sigwin.hamming seed\n").is_empty());
+        assert!(rule_ids("sigwin.hamming 1\n").is_empty());
+        assert!(rule_ids("sigwin.hamming 'a'\n").is_empty());
+        // A call of the dotted name is one use, not a call and a reference.
+        assert_eq!(rule_ids("w = sigwin.hamming(3);\n"), vec!["DHMMNG"]);
+        // A value in any position: an argument, an operand, an `if` condition, a
+        // matrix element (probes p29_C/D0, D1).
+        assert_eq!(rule_ids("disp(sigwin.hamming + 1);\n"), vec!["DHMMNG"]);
+        assert_eq!(rule_ids("if sigwin.hamming == 1, end\n"), vec!["DHMMNG"]);
+        assert_eq!(rule_ids("x = [sigwin.hamming 1];\n"), vec!["DHMMNG"]);
+        // A chain names a member of the function, and an assignment target is
+        // not a use (probes D0 line 6, E0).
+        assert!(rule_ids("z = sigwin.hamming.x;\n").is_empty());
+        assert!(rule_ids("sigwin.hamming = 5;\n").is_empty());
+        // A field of a variable is not the package function.
+        assert!(rule_ids("s.hamming;\n").is_empty());
+    }
+
+    #[test]
+    fn blfread_channel_id_through_a_numeric_variable() {
+        // MATLAB reports a numeric variable as the channel ID (probe `x = [1 2]`).
+        assert_eq!(
+            rule_ids("x = [1 2];\nblfread('f.blf', x);\n"),
+            vec!["BLCHID"]
+        );
+        // A name-value channel is not the positional one (probe `blfread(1, 'ChannelID', 2)`).
+        assert!(rule_ids("blfread(1, 'ChannelID', 2);\n").is_empty());
+    }
+
+    #[test]
     fn verlessthan_matlab_fires_from_release_9_9() {
         // MATLAB reports verLessThan('matlab', V) only when V is a dotted release of 9.9 or later
         for version in [
@@ -1133,21 +1282,177 @@ mod tests {
 
     #[test]
     fn literal_args_pick_the_check_when_one_name_has_several() {
-        assert_eq!(rule_ids("v = get(0, 'FormatSpacing');\n"), vec!["GETFSP"]);
-        assert_eq!(rule_ids("v = get(0, 'Format');\n"), vec!["GETFMT"]);
-        assert_eq!(rule_ids("v = get(v, 'NumberOfFrames');\n"), vec!["VIDREAD"]);
+        // get/set with the numeric-format and spacing options, and interp1 'pp', are
+        // unverified: MATLAB reported none of them in its probes.
+        assert!(rule_ids("v = get(0, 'FormatSpacing');\n").is_empty());
+        assert!(rule_ids("v = get(0, 'Format');\n").is_empty());
+        assert!(rule_ids("v = get(v, 'NumberOfFrames');\n").is_empty());
         assert!(rule_ids("v = get(h, 'Color');\n").is_empty());
-        assert_eq!(
-            rule_ids("set(0, 'FormatSpacing', 'loose');\n"),
-            vec!["SETFSP"]
-        );
-        assert_eq!(rule_ids("set(0, 'Format', 'short');\n"), vec!["SETFMT"]);
+        assert!(rule_ids("set(0, 'FormatSpacing', 'loose');\n").is_empty());
+        assert!(rule_ids("set(0, 'Format', 'short');\n").is_empty());
         assert!(rule_ids("set(h, 'Color', 'r');\n").is_empty());
-        assert_eq!(rule_ids("y = interp1(x, v, 'pp');\n"), vec!["INTRPP"]);
+        assert!(rule_ids("y = interp1(x, v, 'pp');\n").is_empty());
         assert!(rule_ids("y = interp1(x, v, xi);\n").is_empty());
         assert_eq!(rule_ids("v = ver('matlab');\n"), vec!["VERMATLAB"]);
         assert!(rule_ids("v = ver('x');\n").is_empty());
         assert_eq!(rule_ids("p = feature('getpid');\n"), vec!["FEATGPID"]);
+    }
+
+    // Probes p29_A (MATLAB R2026b checkcode): each test is one shape MATLAB reports
+    // or stays silent on.
+
+    #[test]
+    fn command_syntax_is_reported_for_every_argument_kind() {
+        assert_eq!(rule_ids("hour 1\n"), vec!["THOUR"]);
+        assert_eq!(rule_ids("year abc\n"), vec!["TYEAR"]);
+        assert_eq!(rule_ids("hour(1)\n"), vec!["THOUR"]);
+        assert!(rule_ids("hour\n").is_empty());
+        assert!(rule_ids("hour()\n").is_empty());
+        assert!(rule_ids("hour(@sin)\n").is_empty());
+    }
+
+    #[test]
+    fn strmatch_three_arguments_are_strcmp_only() {
+        assert_eq!(rule_ids("y = strmatch(a);\n"), vec!["MATCH2"]);
+        assert_eq!(rule_ids("y = strmatch(a, b);\n"), vec!["MATCH2"]);
+        assert_eq!(rule_ids("y = strmatch(a, b, c, d);\n"), vec!["MATCH2"]);
+        assert_eq!(rule_ids("y = strmatch(a, b, c);\n"), vec!["MATCH3"]);
+    }
+
+    #[test]
+    fn eval_family_takes_the_argument_counts_of_the_message() {
+        assert_eq!(rule_ids("eval(a, b);\n"), vec!["EV2IN"]);
+        assert!(rule_ids("eval(a, b, c);\n").is_empty());
+        assert_eq!(rule_ids("evalin('base', a, b);\n"), vec!["EV3IN"]);
+        assert!(rule_ids("evalin('base', a);\n").is_empty());
+        assert!(rule_ids("evalin('base', a, b, c);\n").is_empty());
+        assert_eq!(rule_ids("evalc(a, b);\n"), vec!["EVLC"]);
+        assert!(rule_ids("evalc(a, b, c);\n").is_empty());
+    }
+
+    #[test]
+    fn rand_seed_option_is_the_first_argument_in_lowercase() {
+        assert_eq!(rule_ids("rand('seed', 1);\n"), vec!["RAND"]);
+        assert_eq!(rule_ids("rand seed\n"), vec!["RAND"]);
+        assert!(rule_ids("rand(3, 'seed');\n").is_empty());
+        assert!(rule_ids("rand('SEED');\n").is_empty());
+        assert_eq!(rule_ids("randn('state', 1);\n"), vec!["RAND"]);
+    }
+
+    #[test]
+    fn hough_theta_resolution_is_the_second_of_three_arguments() {
+        assert_eq!(
+            rule_ids("h = hough(bw, 'ThetaResolution', 5);\n"),
+            vec!["HOUGH"]
+        );
+        assert!(rule_ids("h = hough(bw, 'ThetaResolution');\n").is_empty());
+        assert!(rule_ids("h = hough(bw, 'Theta', -90:5:85);\n").is_empty());
+    }
+
+    #[test]
+    fn datetime_from_datenum_takes_exactly_three_arguments() {
+        assert_eq!(
+            rule_ids("t = datetime(now, 'ConvertFrom', 'datenum');\n"),
+            vec!["TNOW2"]
+        );
+        assert_eq!(
+            rule_ids("t = datetime(today, 'ConvertFrom', 'datenum');\n"),
+            vec!["TTDAY2"]
+        );
+    }
+
+    #[test]
+    fn image_input_layer_augmentation_needs_a_value() {
+        assert_eq!(
+            rule_ids("l = imageInputLayer([28 28 1], 'DataAugmentation', 'none');\n"),
+            vec!["IMGDT"]
+        );
+        assert_eq!(
+            rule_ids("l = imageInputLayer('DataAugmentation', x);\n"),
+            vec!["IMGDT"]
+        );
+        assert!(rule_ids("l = imageInputLayer(1, 'DataAugmentation');\n").is_empty());
+        assert!(rule_ids("l = imageInputLayer('DataAugmentation');\n").is_empty());
+    }
+
+    #[test]
+    fn maketform_type_and_argument_count() {
+        assert_eq!(rule_ids("t = maketform('affine', a);\n"), vec!["MTFA1"]);
+        assert_eq!(rule_ids("t = maketform('AFFINE', u, x);\n"), vec!["MTFA2"]);
+        assert_eq!(rule_ids("t = maketform('projective', a);\n"), vec!["MTFP1"]);
+        assert_eq!(
+            rule_ids("t = maketform('projective', u, x);\n"),
+            vec!["MTFP2"]
+        );
+        assert_eq!(rule_ids("t = maketform('box', 1, 2, 3);\n"), vec!["MTFB"]);
+        assert!(rule_ids("t = maketform('custom', a, b, c, d, e);\n").is_empty());
+    }
+
+    #[test]
+    fn pmtm_needs_three_output_arguments() {
+        assert_eq!(rule_ids("[p, f, c] = pmtm(x);\n"), vec!["PMTMCONF"]);
+        assert!(rule_ids("[p, f] = pmtm(x);\n").is_empty());
+        assert!(rule_ids("p = pmtm(x);\n").is_empty());
+    }
+
+    #[test]
+    fn iscellstr_is_silent_for_a_known_value() {
+        assert_eq!(rule_ids("b = iscellstr(zz);\n"), vec!["ISCLSTR"]);
+        assert_eq!(rule_ids("b = iscellstr(@sin);\n"), vec!["ISCLSTR"]);
+        assert!(rule_ids("b = iscellstr(1);\n").is_empty());
+        assert!(rule_ids("b = iscellstr({'a'});\n").is_empty());
+        assert!(rule_ids("b = iscellstr(zz, 1);\n").is_empty());
+        assert!(rule_ids("b = iscellstr(zz) || isstring(zz);\n").is_empty());
+        assert!(rule_ids("s = struct('a', 1);\nb = iscellstr(s);\n").is_empty());
+        assert!(rule_ids("c = 'abc';\nb = iscellstr(c);\n").is_empty());
+    }
+
+    #[test]
+    fn display_is_silent_for_a_handle_or_an_unknown_argument() {
+        assert_eq!(rule_ids("x = 5;\ndisplay(x);\n"), vec!["DISPLAYPROG"]);
+        assert_eq!(rule_ids("display abc\n"), vec!["DISPLAYPROG"]);
+        assert!(rule_ids("fh = @sin;\ndisplay(fh);\n").is_empty());
+        assert!(rule_ids("display(zz);\n").is_empty());
+        assert!(rule_ids("display(1, 2);\n").is_empty());
+    }
+
+    #[test]
+    fn import_two_arguments_and_statements_only() {
+        assert_eq!(rule_ids("import(1, 2);\n"), vec!["IMPORTDYN"]);
+        assert!(rule_ids("import('abc', 'def');\n").is_empty());
+        assert!(rule_ids("y = import(1);\n").is_empty());
+        assert!(rule_ids("disp(import(1));\n").is_empty());
+    }
+
+    #[test]
+    fn nargchk_geotiffread_medfilt1_and_format_arities() {
+        assert_eq!(rule_ids("n = nargchk(1, 2, 3);\n"), vec!["NCHKI"]);
+        assert!(rule_ids("y = nargchk;\n").is_empty());
+        assert_eq!(rule_ids("img = geotiffread(f);\n"), vec!["GTRED"]);
+        assert!(rule_ids("img = geotiffread(f, 1);\n").is_empty());
+        assert_eq!(rule_ids("y = medfilt1(x, 3, 1);\n"), vec!["MDFLT1"]);
+        assert!(rule_ids("y = medfilt1(x, 3);\n").is_empty());
+        assert_eq!(rule_ids("format;\n"), vec!["FORMATNOI"]);
+        assert!(rule_ids("y = format;\n").is_empty());
+    }
+
+    #[test]
+    fn string_of_one_text_argument() {
+        assert_eq!(rule_ids("s = string('abc');\n"), vec!["STRQUOT"]);
+        assert!(rule_ids("s = string('abc', 'def');\n").is_empty());
+    }
+
+    #[test]
+    fn command_syntax_is_a_call_despite_a_variable() {
+        assert_eq!(rule_ids("corner = 3;\ncorner abc;\n"), vec!["CRNR"]);
+        assert!(rule_ids("corner = 3;\ncorner;\n").is_empty());
+    }
+
+    #[test]
+    fn unverified_entries_are_silent() {
+        assert!(rule_ids("eml.extrinsic('sin');\n").is_empty());
+        assert!(rule_ids("p = addrule('x');\n").is_empty());
+        assert!(rule_ids("t = addParamValue('x', 1);\n").is_empty());
     }
 
     #[test]
@@ -1318,5 +1623,59 @@ mod tests {
         let source = "classdef C\n    methods\n        function display(obj)\n            fprintf('%s\\n', inputname(1));\n            disp(obj);\n        end\n    end\nend\n";
         assert!(rule_ids(source).is_empty());
         assert!(rule_ids("function display(obj)\nfprintf('a');\nend\n").is_empty());
+    }
+
+    #[test]
+    fn dotted_package_name_fires_bare_as_handle_and_called() {
+        // Probed: a package function is a use without arguments, in an
+        // assignment, as a handle, and with a call; a field of a struct is not.
+        assert_eq!(rule_ids("comm.PAMModulator;\n"), vec!["COMMPAMM"]);
+        assert_eq!(rule_ids("y = comm.PAMModulator;\n"), vec!["COMMPAMM"]);
+        assert_eq!(rule_ids("h = @comm.PAMModulator;\n"), vec!["COMMPAMM"]);
+        assert_eq!(rule_ids("comm.PAMModulator(4);\n"), vec!["COMMPAMM"]);
+        assert_eq!(rule_ids("H5.close;\n"), vec!["H5CLS"]);
+        assert_eq!(rule_ids("h = @H5.close;\n"), vec!["H5CLS"]);
+        assert_eq!(rule_ids("y = H5.open;\n"), vec!["H5OPN"]);
+        assert!(rule_ids("s.comm.PAMModulator = 1;\n").is_empty());
+    }
+
+    #[test]
+    fn instrhwinfo_fires_for_its_own_interface_only() {
+        assert_eq!(rule_ids("x = instrhwinfo('ivi');\n"), vec!["INSTHWI"]);
+        assert_eq!(rule_ids("x = instrhwinfo(\"IVI\");\n"), vec!["INSTHWI"]);
+        assert_eq!(rule_ids("instrhwinfo ivi\n"), vec!["INSTHWI"]);
+        assert_eq!(rule_ids("x = instrhwinfo('vxipnp');\n"), vec!["INWVX"]);
+        assert!(!rule_ids("x = instrhwinfo();\n").contains(&"INSTHWI"));
+        assert!(!rule_ids("x = instrhwinfo('vxipnp');\n").contains(&"INSTHWI"));
+    }
+
+    #[test]
+    fn cdfread_epoch_option_needs_a_value_after_its_name() {
+        assert_eq!(
+            rule_ids("x = cdfread(f, 'ConvertEpochToDatenum', true);\n"),
+            vec!["CDFEPOCH2DATE"]
+        );
+        assert_eq!(
+            rule_ids("x = cdfread('ConvertEpochToDatenum', true);\n"),
+            vec!["CDFEPOCH2DATE"]
+        );
+        assert_eq!(
+            rule_ids("x = cdfread(f, \"convertepochtodatenum\", 1);\n"),
+            vec!["CDFEPOCH2DATE"]
+        );
+        assert!(rule_ids("x = cdfread(f, 'ConvertEpochToDatenum');\n").is_empty());
+        assert!(rule_ids("x = cdfread(f);\n").is_empty());
+        assert!(rule_ids("x = cdfread(f, 'DatetimeType', 'datetime');\n").is_empty());
+    }
+
+    #[test]
+    fn sim_with_several_outputs_and_a_single_quoted_model_fires_oldsim() {
+        // Probed: two or more outputs, and the model is a single-quoted literal.
+        assert_eq!(rule_ids("[a, b] = sim('m');\n"), vec!["OLDSIM"]);
+        assert_eq!(rule_ids("[a, ~] = sim('m');\n"), vec!["OLDSIM"]);
+        assert!(rule_ids("a = sim('m');\n").is_empty());
+        assert!(rule_ids("[a, b] = sim(\"m\");\n").is_empty());
+        assert!(rule_ids("[a, b] = sim(m);\n").is_empty());
+        assert!(rule_ids("[a, b] = sim;\n").is_empty());
     }
 }

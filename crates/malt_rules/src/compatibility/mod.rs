@@ -445,7 +445,7 @@ fn extract_func_name<'a>(node: tree_sitter::Node<'a>, source: &'a str) -> Option
 /// The name of a function reference that is not called: `f` in `@f` and
 /// `pkg.f` in a bare `pkg.f` statement. Anything that is not a plain or dotted
 /// identifier (a call, an index) gives `None`.
-fn reference_name<'a>(node: tree_sitter::Node<'a>, source: &'a str) -> Option<&'a str> {
+pub(crate) fn reference_name<'a>(node: tree_sitter::Node<'a>, source: &'a str) -> Option<&'a str> {
     let text = source.get(node.start_byte()..node.end_byte())?;
     let name = match node.kind() {
         "handle_operator" => text.strip_prefix('@')?.trim_start(),
@@ -517,7 +517,7 @@ fn call_args(node: tree_sitter::Node) -> Vec<tree_sitter::Node> {
 
 /// The number of outputs a call is assigned to: `[a, ~, c] = f(x)` has three. A
 /// call that is not the right-hand side of an assignment has one.
-fn output_count(node: tree_sitter::Node) -> usize {
+pub(crate) fn output_count(node: tree_sitter::Node) -> usize {
     let Some(parent) = node.parent() else {
         return 1;
     };
