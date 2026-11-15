@@ -3,7 +3,8 @@
 
 [tools]
 # WASM toolchain for the browser/npm wasm package (pinned; Renovate updates).
-# 0.15.0 requires rustc >= 1.91; 0.13.1 builds on the current 1.90 toolchain.
+# 0.15.0 requires rustc >= 1.91 and the pinned toolchain (rust-toolchain.toml) is 1.100;
+# 0.13.1 is kept until the wasm build is re-verified with 0.15.
 "cargo:wasm-pack" = "0.13.1"
 # Node.js used for npm publishing and local tooling (pinned; Renovate updates).
 node = "24.19.0"

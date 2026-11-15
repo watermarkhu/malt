@@ -187,10 +187,8 @@ fn changes_in_loop(node: tree_sitter::Node, source: &str, name: &str) -> bool {
     while let Some(p) = current {
         match p.kind() {
             "function_definition" => break,
-            "for_statement" | "while_statement" => {
-                if loop_binds(p, source, name) {
-                    return true;
-                }
+            "for_statement" | "while_statement" if loop_binds(p, source, name) => {
+                return true;
             }
             _ => {}
         }

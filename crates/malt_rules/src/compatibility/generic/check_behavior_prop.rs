@@ -338,9 +338,7 @@ fn is_axes_variable(node: Node, name: &str, source: &str) -> bool {
                 left.kind() == "identifier" && &source[left.byte_range()] == name
             }) {
                 found = true;
-                all_axes &= current
-                    .child_by_field_name("right")
-                    .is_some_and(|right| is_axes(right));
+                all_axes &= current.child_by_field_name("right").is_some_and(is_axes);
             }
         }
         let mut cursor = current.walk();
