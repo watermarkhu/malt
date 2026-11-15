@@ -380,6 +380,10 @@ impl Rule for CompatibilityEngine {
             {
                 parent.named_child(0).unwrap_or(ctx.node)
             }
+            // A handle is reported at the name after the `@`.
+            _ if ctx.node.kind() == "handle_operator" => {
+                ctx.node.named_child(0).unwrap_or(ctx.node)
+            }
             _ => ctx.node,
         };
         let start = anchor.start_position();
@@ -1372,6 +1376,18 @@ mod tests {
     fn handle_form_follows_the_entry_flag() {
         assert!(!has_id(&lint_nodes(&*engine(), "h = @psd;\n"), "DPSD"));
         assert!(has_id(&lint_nodes(&*engine(), "k = @dsp.DCT;\n"), "DSPDCT"));
+    }
+
+    /// Probed (c3): a handle is reported at the name after the `@` (column 6 of
+    /// `h = @comm.gpu.AWGNChannel;`), not at the `@`.
+    #[test]
+    fn handle_is_reported_at_the_name_after_the_at_sign() {
+        let diags = lint_nodes(&*engine(), "h = @comm.gpu.AWGNChannel;\n");
+        let found = diags
+            .iter()
+            .find(|d| d.rule_id == "COMMGPUAWGN")
+            .expect("COMMGPUAWGN");
+        assert_eq!((found.line, found.column), (1, 6));
     }
 
     /// Probed: `cnncodegen('net')` is silent, `cnncodegen(net)` is reported.

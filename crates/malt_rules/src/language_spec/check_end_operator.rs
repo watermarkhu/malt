@@ -179,6 +179,14 @@ mod tests {
     }
 
     #[test]
+    fn test_idxcolnd_silent_end_inside_brackets() {
+        // MATLAB probes: `y = [end + 1];`, `z = {end};` and `w = [end 1];` give RESWD
+        // and no IDXCOLND (an `end` that indexes, `x(end)`, stays valid).
+        let source = "x = [1 2 3];\ny = [end + 1];\nz = {end};\nw = [end 1];\nv = x(end);\n";
+        assert!(idxcolnd_lines(source).is_empty());
+    }
+
+    #[test]
     fn test_idxcolnd_fires_end_value_in_broken_statement() {
         // MATLAB: `g = end;` is IDXCOLND (t__t1.m:14); the value `end` is
         // wrapped in `end_keyword` by the grammar.

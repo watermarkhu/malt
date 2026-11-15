@@ -9,6 +9,7 @@ impl SyntaxErrorsEngine {
         self.walk_error_nodes(root, source, last, &mut diagnostics);
         self.walk_dotted_name_value_calls(root, source, &mut diagnostics);
         Self::walk_end_in_control_header(root, &mut diagnostics);
+        Self::walk_dotted_commands(root, source, &mut diagnostics);
         self.walk_source_forms(root, source, &mut diagnostics);
 
         // An unclosed bracket that ends the file: ENDPAR, NOPAR or EOLPAR at the opener.
@@ -112,6 +113,30 @@ impl SyntaxErrorsEngine {
             column,
             fix: None,
         })
+    }
+
+    /// A dotted name followed by a word (`comm.gpu.AWGNChannel arg1`) cannot be a command in
+    /// MATLAB: it is a syntax error at the word, on that line only. The grammar reads it as a
+    /// command whose name is the first identifier and whose first argument is the rest of the
+    /// dotted name, glued to it.
+    fn walk_dotted_commands(node: Node, source: &str, diagnostics: &mut Vec<Diagnostic>) {
+        if node.kind() == "command" {
+            let mut cursor = node.walk();
+            let mut parts = node.children(&mut cursor);
+            let name = parts.next().filter(|n| n.kind() == "command_name");
+            let dotted = parts.next().filter(|a| {
+                a.kind() == "command_argument"
+                    && name.is_some_and(|n| n.end_byte() == a.start_byte())
+                    && source[a.start_byte()..].starts_with('.')
+            });
+            if let (Some(_), Some(_), Some(word)) = (name, dotted, parts.next()) {
+                diagnostics.push(Self::syner_at(source, word.start_byte()));
+            }
+        }
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            Self::walk_dotted_commands(child, source, diagnostics);
+        }
     }
 
     /// The grammar parses `if end > 1` (an `end` outside any index in a control header),

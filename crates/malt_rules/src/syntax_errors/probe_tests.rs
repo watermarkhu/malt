@@ -55,3 +55,28 @@ fn quoted_name_value_names_are_fvacs_or_fvami() {
     let fvami = lint_file(&*engine(), "f('Bad Name' = 1);\n");
     assert_eq!(positions(&fvami, "FVAMI"), vec![(1, 3)]);
 }
+
+#[test]
+fn dotted_name_followed_by_a_word_is_syner_at_the_word_and_stays_on_its_line() {
+    // MATLAB (probes c2, c3, c4): SYNER at the word (`arg1` column 18, `arg2` column 22,
+    // `baz` column 9) and the statements on the next lines are analysed as usual: the
+    // handle on line 3 is a statement of its own, not part of the broken one.
+    let source = "function f(x)\ncomm.AWGNChannel arg1\nh = @comm.gpu.AWGNChannel;\ncomm.gpu.AWGNChannel arg2\nfoo.bar baz\ny = x\nend\n";
+    let diags = lint_file(&*engine(), source);
+    assert_eq!(positions(&diags, "SYNER"), vec![(2, 18), (4, 22), (5, 9)]);
+}
+
+#[test]
+fn dotted_names_that_are_expressions_are_not_syner() {
+    // `x.y` alone, with an operator, with a call and a one-line `if` with a comma are valid.
+    let source = "x.y\nx.y.z;\nx.y - 1;\nx.y (1);\nif c, a.b, end\n";
+    assert!(!has_id(&lint_file(&*engine(), source), "SYNER"));
+}
+
+#[test]
+fn end_as_a_value_inside_brackets_is_reswd_at_the_end() {
+    // MATLAB: RESWD at the `end` (column 6) for `[end + 1]`, `{end}` and `[end 1]`.
+    let source = "y = [end + 1];\nz = {end};\nw = [end 1];\n";
+    let diags = lint_file(&*engine(), source);
+    assert_eq!(positions(&diags, "RESWD"), vec![(1, 6), (2, 6), (3, 6)]);
+}
