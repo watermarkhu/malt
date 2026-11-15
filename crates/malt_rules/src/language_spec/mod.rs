@@ -351,7 +351,7 @@ pub(crate) struct ParforAnalysis {
     /// Variables that appear on both sides of an assignment in the body.
     both_sides: HashSet<String>,
     /// Anonymous functions in the body: (start, referenced variable names).
-    lambdas: Vec<(usize, Vec<String>)>,
+    lambdas: Vec<(usize, Vec<String>, String)>,
     /// File handles opened read-only via `fid = fopen(...)`.
     read_only_handles: HashSet<String>,
     /// All variable names observed in the parfor body.
@@ -1263,6 +1263,29 @@ impl LanguageSpecEngine {
             );
         }
 
+        // A nested `for` over the parfor index assigns it (probed: PFXST at the `for`
+        // line, and no PFCTXT or PFFRNG for its indexing).
+        let parfor_var = context_stack
+            .iter()
+            .rev()
+            .find(|f| f.context == LoopContext::Parfor)
+            .and_then(|f| f.parfor_var.as_deref());
+        if parfor_var == Some(var.as_str()) {
+            let pos = node.start_position();
+            diagnostics.push(Diagnostic {
+                rule_id: "PFXST",
+                message:
+                    "Assigning to the parfor loop index variable is not supported in parfor loops."
+                        .to_string(),
+                severity: Severity::Error,
+                byte_range: node.start_byte()..node.end_byte(),
+                line: pos.row + 1,
+                column: pos.column + 1,
+                fix: None,
+            });
+            return;
+        }
+
         let (range_start, range_end, is_const_pos) = self.nested_for_range_info(node, source);
         if let Some(analysis) = current_parfor_analysis_mut(context_stack) {
             analysis.nested_fors.push(NestedForInfo {
@@ -1497,7 +1520,7 @@ impl LanguageSpecEngine {
                 }
             }
             "load" => {
-                if !is_assignment_rhs(node) {
+                if !is_assignment_rhs(node) && !node_is_inside_lambda(node) {
                     self.push_diag(
                         node,
                         "PFLD",
@@ -1678,10 +1701,41 @@ impl LanguageSpecEngine {
             collect_lambda_refs(child, source, &params, &mut refs);
         }
         if let Some(analysis) = current_parfor_analysis_mut(context_stack) {
-            analysis
-                .lambdas
-                .push((node.start_byte(), refs.into_iter().collect()));
+            analysis.lambdas.push((
+                node.start_byte(),
+                refs.into_iter().collect(),
+                node_text(node, source).to_string(),
+            ));
         }
+    }
+
+    /// The first whole-word mention of `name` in the body of a `parfor` loop. MATLAB
+    /// places the sliced-output and temporary-variable reports here, not at the
+    /// first invalid access (probed: `disp(r)` before `r(i) = 1`, `save('a.mat', 'r')`,
+    /// `x = v(k)` before `v(i) = x`, `v(i) = 1` before `x = v(i - 1)`).
+    fn first_body_mention(
+        &self,
+        parfor: tree_sitter::Node,
+        source: &str,
+        name: &str,
+    ) -> Option<usize> {
+        let mut cursor = parfor.walk();
+        let body = parfor.children(&mut cursor).find(|c| c.kind() == "block")?;
+        let text = &source[body.start_byte()..body.end_byte()];
+        let bytes = text.as_bytes();
+        let is_word = |b: u8| b.is_ascii_alphanumeric() || b == b'_';
+        let mut from = 0;
+        while let Some(pos) = text[from..].find(name) {
+            let start = from + pos;
+            let end = start + name.len();
+            if (start == 0 || !is_word(bytes[start - 1]))
+                && (end == bytes.len() || !is_word(bytes[end]))
+            {
+                return Some(body.start_byte() + start);
+            }
+            from = end;
+        }
+        None
     }
 
     /// Run the body-level parfor checks once the whole parfor body has been
@@ -1848,19 +1902,45 @@ impl LanguageSpecEngine {
         // `a = data; b(i) = a(i)` and for `f = @(x) ...; a(i) = f(i)` (probed).
 
         // PFSLRD: sliced output variable read without slicing
+        let saved = save_named_vars(parfor_node, source);
         for var in analysis.sliced_lhs.keys() {
             // Probed: a temporary (assigned as a whole first) is not a sliced output, and
-            // the report is at the first sliced write (pfunk_02, pfunk_12).
-            if analysis.temp_assigns.contains_key(var) {
+            // the report is at the first sliced write (pfunk_02, pfunk_12). A reduction
+            // variable is a temporary to MATLAB (PFUTVR), not a sliced output.
+            if analysis.temp_assigns.contains_key(var) || analysis.reductions.contains_key(var) {
+                continue;
+            }
+            if saved.contains(var) && !analysis.whole_reads.contains_key(var) {
+                let first = self
+                    .first_body_mention(parfor_node, source, var)
+                    .unwrap_or_else(|| {
+                        analysis
+                            .sliced_lhs
+                            .get(var)
+                            .and_then(|w| w.iter().map(|(_, s, _, _)| *s).min())
+                            .unwrap_or(0)
+                    });
+                self.push_diag_bytes(
+                    source,
+                    first,
+                    first + 1,
+                    "PFSLRD",
+                    &format!("Parfor loop variable {var} is accessed with an invalid combination of sliced indexing expressions and non-indexed reads. It is not valid to access the whole value of a sliced output variable."),
+                    diagnostics,
+                );
                 continue;
             }
             if let Some(wrs) = analysis.whole_reads.get(var) {
                 if let Some(first) = wrs.iter().min().copied() {
-                    let first = analysis
-                        .sliced_lhs
-                        .get(var)
-                        .and_then(|w| w.iter().map(|(_, s, _, _)| *s).min())
-                        .unwrap_or(first);
+                    let first = self
+                        .first_body_mention(parfor_node, source, var)
+                        .unwrap_or_else(|| {
+                            analysis
+                                .sliced_lhs
+                                .get(var)
+                                .and_then(|w| w.iter().map(|(_, s, _, _)| *s).min())
+                                .unwrap_or(first)
+                        });
                     self.push_diag_bytes(
                         source,
                         first,
@@ -1906,15 +1986,28 @@ impl LanguageSpecEngine {
                     (hits.len() == 1).then(|| hits[0])
                 })
                 .collect();
-            let consistent = lists.iter().zip(&positions).all(|(l, p)| {
-                p.is_some()
-                    && l.iter()
-                        .enumerate()
-                        .all(|(q, t)| Some(q) == *p || !args_tokens(t).contains(&parfor_var))
-            }) && positions.iter().all(|p| *p == positions[0]);
+            // A temporary in a subscript list is not a sliced subscript (probed: `q = 1;
+            // v(q, i) = 1` is PFSLO).
+            let temp_subscript = lists.iter().flatten().any(|t| {
+                t.split(|c: char| !(c.is_alphanumeric() || c == '_'))
+                    .any(|tok| {
+                        tok != parfor_var.as_str() && analysis.temp_assigns.contains_key(tok)
+                    })
+            });
+            let consistent = !temp_subscript
+                && lists.iter().zip(&positions).all(|(l, p)| {
+                    p.is_some()
+                        && l.iter()
+                            .enumerate()
+                            .all(|(q, t)| Some(q) == *p || !args_tokens(t).contains(&parfor_var))
+                })
+                && positions.iter().all(|p| *p == positions[0]);
             let same_count = lists.windows(2).all(|w| w[0].len() == w[1].len());
             let first = writes.iter().map(|(_, s, _, _)| *s).min().unwrap_or(0);
             if !consistent || !same_count {
+                let first = self
+                    .first_body_mention(parfor_node, source, var)
+                    .unwrap_or(first);
                 self.push_diag_bytes(
                     source,
                     first,
@@ -1935,6 +2028,91 @@ impl LanguageSpecEngine {
             }
         }
 
+        // PFUNK for writes that are neither sliced nor temporary subscripts: a variable
+        // with no write subscripted by the loop variable or by a bare name, and a write
+        // whose subscripts are literals, ranges, `end`, calls or fields (`x(3) = 1`,
+        // `x(1:3) = 1`, `x(end) = 1`, `x(v(i)) = 1`, `x{1} = i`) (probed).
+        let mut unclassified: Vec<(&String, usize)> = Vec::new();
+        for (var, writes) in &analysis.sliced_lhs {
+            if !predefined.contains(var) || analysis.temp_assigns.contains_key(var) {
+                continue;
+            }
+            if analysis.reductions.contains_key(var) {
+                continue;
+            }
+            let classified = writes.iter().any(|(args, _, _, _)| {
+                args.split(',').any(|sub| {
+                    let sub: String = sub.trim().chars().filter(|c| !c.is_whitespace()).collect();
+                    is_sliced_text(&sub, &parfor_var)
+                        || (sub != "end"
+                            && sub.starts_with(|c: char| c.is_alphabetic() || c == '_')
+                            && sub.chars().all(|c| c.is_alphanumeric() || c == '_'))
+                })
+            });
+            if classified {
+                continue;
+            }
+            if let Some(start) = writes.iter().map(|(_, s, _, _)| *s).min() {
+                unclassified.push((var, start));
+            }
+        }
+        for (var, start) in unclassified {
+            self.push_diag_bytes(
+                source,
+                start,
+                start + 1,
+                "PFUNK",
+                &format!("Unable to classify variable {var} in the body of the parfor loop."),
+                diagnostics,
+            );
+        }
+
+        // PFUNK for a field of a predefined variable written in the body (`s.f = 1`,
+        // `s.f(i) = 1`), at the assignment (probed: `s.i = 1` and `v(i) = s.i`).
+        let mut field_writes: Vec<(String, usize)> = Vec::new();
+        let mut walk = vec![parfor_node];
+        while let Some(m) = walk.pop() {
+            if m.kind() == "lambda" {
+                continue;
+            }
+            if m.kind() == "assignment" {
+                if let Some(left) = m.child_by_field_name("left") {
+                    let base = match left.kind() {
+                        "field_expression" => left.named_child(0),
+                        "function_call" => left
+                            .named_child(0)
+                            .filter(|b| b.kind() == "field_expression")
+                            .and_then(|b| b.named_child(0)),
+                        _ => None,
+                    };
+                    if let Some(b) = base.filter(|b| b.kind() == "identifier") {
+                        field_writes.push((node_text(b, source).to_string(), m.start_byte()));
+                    }
+                }
+            }
+            let mut c = m.walk();
+            walk.extend(m.children(&mut c));
+        }
+        field_writes.sort_by_key(|(_, start)| *start);
+        let mut reported_fields: HashSet<String> = HashSet::new();
+        for (var, start) in field_writes {
+            if var == parfor_var
+                || !(predefined.contains(&var)
+                    || assigned_before_text(source, parfor_node.start_byte(), &var))
+                || !reported_fields.insert(var.clone())
+            {
+                continue;
+            }
+            self.push_diag_bytes(
+                source,
+                start,
+                start + 1,
+                "PFUNK",
+                &format!("Unable to classify variable {var} in the body of the parfor loop."),
+                diagnostics,
+            );
+        }
+
         // PFUNK is not emitted for a variable that is both sliced and assigned as a
         // whole. Probed: MATLAB is silent for `a(i) = i; a = 3` and for `q = zeros(3,1);
         // q(i) = 1`, and reports PFUNK only for less common shapes such as a sliced
@@ -1944,6 +2122,22 @@ impl LanguageSpecEngine {
         // `k = i; v(k) = 1`. Probed: MATLAB reports it whatever the temporary's value
         // (`k = 2; v(k) = i`) and whether `k` is reassigned later (`k = 2` after the write).
         for (var, writes) in &analysis.sliced_lhs {
+            // A variable that is also indexed by the loop variable is PFSLO, not PFUNK
+            // (probed: `w = v(i); v(w) = 1` and `k = i; v(k) = 1; v(i) = 2`).
+            let loop_indexed = |args: &str| {
+                args.split(|c: char| !(c.is_alphanumeric() || c == '_'))
+                    .any(|t| t == parfor_var.as_str())
+            };
+            if writes
+                .iter()
+                .any(|(args, _, _, _)| loop_indexed(args.as_str()))
+                || analysis
+                    .indexed_reads
+                    .get(var)
+                    .is_some_and(|rs| rs.iter().any(|(args, _, _, _)| loop_indexed(args.as_str())))
+            {
+                continue;
+            }
             let mut first_write: Option<usize> = None;
             for (args, start, _end, _is_cell) in writes {
                 let uses_temp = args
@@ -1969,18 +2163,27 @@ impl LanguageSpecEngine {
             }
         }
 
-        // PFANON: sliced output variable used inside an anonymous function
-        for (start, refs) in &analysis.lambdas {
-            if refs.iter().any(|r| analysis.sliced_lhs.contains_key(r)) {
-                self.push_diag_bytes(
-                    source,
-                    *start,
-                    *start + 1,
-                    "PFANON",
-                    "Using a sliced output variable in an anonymous function is not \
-                     supported in parfor loops.",
-                    diagnostics,
-                );
+        // Anonymous functions in the body (probed on R2026b): a sliced output read whole is
+        // PFSLRD and one indexed by anything but the plain loop variable (`x(1)`, `x(i - 1)`,
+        // `x(t)` with a lambda parameter) is PFSLO, both at the first mention of the variable
+        // in the body; `x(i)` is PFANON at the variable inside the anonymous function.
+        for (start, refs, text) in &analysis.lambdas {
+            for var in refs.iter().filter(|r| analysis.sliced_lhs.contains_key(*r)) {
+                let uses = lambda_uses(text, var, &parfor_var);
+                let first = self
+                    .first_body_mention(parfor_node, source, var)
+                    .unwrap_or(*start);
+                let (id, message, at) = if uses.whole {
+                    ("PFSLRD", format!("Parfor loop variable {var} is accessed with an invalid combination of sliced indexing expressions and non-indexed reads. It is not valid to access the whole value of a sliced output variable."), first)
+                } else if let Some(offset) = uses.loop_indexed {
+                    ("PFANON", "Using a sliced output variable in an anonymous function is not supported in parfor loops.".to_string(), *start + offset)
+                } else if uses.constant {
+                    ("PFSLO", format!("Variable {var} is indexed using the parfor loop variable, but it is not a valid sliced output variable."), first)
+                } else {
+                    continue;
+                };
+                self.push_diag_bytes(source, at, at + 1, id, &message, diagnostics);
+                break;
             }
         }
 
@@ -2518,6 +2721,117 @@ pub(crate) fn arguments_text(node: tree_sitter::Node, source: &str) -> String {
 }
 
 /// Tokenize an arguments text into identifier-like tokens.
+/// `i` or `i+k` / `i-k` for a constant `k` (whitespace-free text).
+fn is_sliced_text(text: &str, parfor_var: &str) -> bool {
+    if text == parfor_var {
+        return true;
+    }
+    text.strip_prefix(parfor_var)
+        .and_then(|rest| rest.strip_prefix(['+', '-']))
+        .is_some_and(|k| !k.is_empty() && k.chars().all(|c| c.is_ascii_digit()))
+}
+
+/// Whether a line before `before` starts with `name` followed by `=`, `.`, `(` or `{`.
+fn assigned_before_text(source: &str, before: usize, name: &str) -> bool {
+    source[..before].lines().any(|line| {
+        line.trim_start()
+            .strip_prefix(name)
+            .and_then(|rest| rest.trim_start().chars().next())
+            .is_some_and(|c| matches!(c, '=' | '.' | '(' | '{'))
+    })
+}
+
+/// Variables named by a `save` in a parfor body, as `save('f.mat', 'v')` or
+/// `save f v` (probed: both read the whole value, PFSLRD). The first argument is the
+/// file, so it is not a variable.
+fn save_named_vars(parfor_node: tree_sitter::Node, source: &str) -> HashSet<String> {
+    let mut names = HashSet::new();
+    let mut walk = vec![parfor_node];
+    while let Some(m) = walk.pop() {
+        if m.kind() == "function_call"
+            && m.named_child(0)
+                .is_some_and(|b| node_text(b, source) == "save")
+        {
+            for arg in argument_nodes(m).into_iter().skip(1) {
+                let text = node_text(arg, source).trim();
+                let name = text.trim_matches('\'');
+                if name.chars().all(|c| c.is_alphanumeric() || c == '_') && !name.is_empty() {
+                    names.insert(name.to_string());
+                }
+            }
+        } else if m.kind() == "command"
+            && node_text(m, source).split_whitespace().next() == Some("save")
+        {
+            for word in node_text(m, source).split_whitespace().skip(2) {
+                names.insert(word.to_string());
+            }
+        }
+        let mut c = m.walk();
+        walk.extend(m.children(&mut c));
+    }
+    names
+}
+
+/// How a variable is used in the text of an anonymous function: `whole` for a bare
+/// read, `constant` for an index without the loop variable, `loop_indexed` for one
+/// with it.
+struct LambdaUses {
+    whole: bool,
+    constant: bool,
+    /// The byte offset in the lambda text of the first `x(i)`, an index that is exactly
+    /// the loop variable.
+    loop_indexed: Option<usize>,
+}
+
+fn lambda_uses(text: &str, var: &str, parfor_var: &str) -> LambdaUses {
+    let bytes = text.as_bytes();
+    let is_word = |c: u8| c.is_ascii_alphanumeric() || c == b'_';
+    let mut uses = LambdaUses {
+        whole: false,
+        constant: false,
+        loop_indexed: None,
+    };
+    let mut search = 0;
+    while let Some(found) = text[search..].find(var) {
+        let at = search + found;
+        let end = at + var.len();
+        search = end;
+        let before_ok = at == 0 || (!is_word(bytes[at - 1]) && bytes[at - 1] != b'.');
+        let after_ok = end >= bytes.len() || !is_word(bytes[end]);
+        if !before_ok || !after_ok {
+            continue;
+        }
+        let rest = text[end..].trim_start();
+        if !rest.starts_with('(') {
+            uses.whole = true;
+            continue;
+        }
+        let open = text.len() - rest.len();
+        let mut depth = 0;
+        let mut close = text.len();
+        for (k, c) in text[open..].char_indices() {
+            match c {
+                '(' => depth += 1,
+                ')' => {
+                    depth -= 1;
+                    if depth == 0 {
+                        close = open + k;
+                        break;
+                    }
+                }
+                _ => {}
+            }
+        }
+        let args = &text[open + 1..close.min(text.len())];
+        if args.split(',').any(|a| a.trim() == parfor_var) {
+            uses.loop_indexed.get_or_insert(at);
+        } else {
+            uses.constant = true;
+        }
+    }
+    uses
+}
+
 pub(crate) fn args_tokens(args: &str) -> Vec<String> {
     args.split(|c: char| !(c.is_alphanumeric() || c == '_'))
         .filter(|s| !s.is_empty())
@@ -4307,12 +4621,78 @@ end
     // -- PFANON --------------------------------------------------------------
 
     #[test]
+    fn test_pfslrd_and_pfslo_at_first_body_mention() {
+        // Probed (e_sr01, e_so05): MATLAB reports at the first mention of the variable in
+        // the body, not at the later invalid access.
+        let read_first = "function r = f(n)\nr = zeros(1, n);\nparfor i = 1:n\n    disp(r);\n    r(i) = 1;\nend\nend\n";
+        let diags = check_source(read_first, "f.m");
+        let pfslrd = filter_by_id(&diags, "PFSLRD");
+        assert_eq!(pfslrd.len(), 1, "got: {diags:?}");
+        assert_eq!(pfslrd[0].line, 4);
+        let shifted = "function v = f(n)\nv = zeros(1, n);\nparfor i = 1:n\n    v(i) = 1;\n    x = v(i - 1);\nend\nend\n";
+        let diags = check_source(shifted, "f.m");
+        let pfslo = filter_by_id(&diags, "PFSLO");
+        assert_eq!(pfslo.len(), 1, "got: {diags:?}");
+        assert_eq!(pfslo[0].line, 4);
+        // A valid sliced write alone is neither PFSLO nor PFSLRD.
+        let valid =
+            "function v = f(n)\nv = zeros(1, n);\nparfor i = 1:n\n    v(i) = i;\nend\nend\n";
+        let diags = check_source(valid, "f.m");
+        assert!(filter_by_id(&diags, "PFSLO").is_empty(), "got: {diags:?}");
+        assert!(filter_by_id(&diags, "PFSLRD").is_empty(), "got: {diags:?}");
+    }
+
+    #[test]
+    fn test_pfunk_not_for_temp_write_on_indexed_variable() {
+        // Probed (e_uk13): with a read `v(i)` in the loop, the temporary subscript is PFSLO
+        // at the first mention of `v`, not PFUNK.
+        let source = "function v = f(n)\nv = zeros(1, n);\nparfor i = 1:n\n    w = v(i);\n    v(w) = 1;\nend\nend\n";
+        let diags = check_source(source, "f.m");
+        assert!(filter_by_id(&diags, "PFUNK").is_empty(), "got: {diags:?}");
+        let pfslo = filter_by_id(&diags, "PFSLO");
+        assert_eq!(pfslo.len(), 1, "got: {diags:?}");
+        assert_eq!(pfslo[0].line, 4);
+    }
+
+    /// Probed on R2026b (v1-v8, f, h): with `x(i) = i;` on line 3, a lambda on line 4 gives
+    /// PFANON at the `x` inside it for `x(i)`, PFSLO at the first mention (3:9) for `x(1)`,
+    /// `x(i - 1)` and `x(t)` (a lambda parameter), and PFSLRD at the first mention for a
+    /// whole read.
+    #[test]
+    fn test_sliced_output_in_a_lambda_follows_matlab() {
+        let cases: [(&str, &str, (usize, usize)); 7] = [
+            ("g = @() x(i);", "PFANON", (4, 17)),
+            ("g = @(t) x(i) + t;", "PFANON", (4, 18)),
+            ("g = @() x(1);", "PFSLO", (3, 9)),
+            ("g = @(t) x(i - 1);", "PFSLO", (3, 9)),
+            ("g = @(t) x(t);", "PFSLO", (3, 9)),
+            ("g = @() x;", "PFSLRD", (3, 9)),
+            ("g = @() numel(x);", "PFSLRD", (3, 9)),
+        ];
+        for (lambda, id, at) in cases {
+            let source = format!("function f(n)\n    parfor i = 1:n\n        x(i) = i;\n        {lambda}\n    end\nend\n");
+            let diags = check_source(&source, "f.m");
+            let found: Vec<(usize, usize)> = filter_by_id(&diags, id)
+                .iter()
+                .map(|d| (d.line, d.column))
+                .collect();
+            assert_eq!(found, vec![at], "{lambda}: {diags:?}");
+        }
+        // A lambda that does not touch the sliced output reports nothing.
+        let source = "function f(n)\n    c = 3;\n    parfor i = 1:n\n        g = @(t) t + c;\n        z(i) = g(i);\n    end\nend\n";
+        let diags = check_source(source, "f.m");
+        for id in ["PFANON", "PFSLO", "PFSLRD"] {
+            assert!(filter_by_id(&diags, id).is_empty(), "{id}");
+        }
+    }
+
+    #[test]
     fn test_pfanon_fires_sliced_var_in_lambda() {
         let source = "\
 function f()
     parfor i = 1:10
         x(i) = i;
-        g = @(t) x(t);
+        g = @(t) x(i);
     end
 end
 ";

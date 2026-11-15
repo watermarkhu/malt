@@ -7,6 +7,10 @@ use super::*;
 /// 998 terms (997 operators) is not. The measure is depth: a balanced sum of 1000
 /// leaves is silent, and so are matrices and cell literals of 10,000 elements.
 const MXASET_OPERATOR_DEPTH: usize = 998;
+/// Transposes (`a'''...`) are reported from 997 nested transposes, and field accesses
+/// (`a.b.b...`) from 998 (probed with `checkcode`, one chain per file).
+const MXASET_POSTFIX_DEPTH: usize = 997;
+const MXASET_FIELD_DEPTH: usize = 998;
 
 impl IncompleteAnalysisEngine {
     /// MXASET: an expression nested too deeply through binary operators.
@@ -16,7 +20,10 @@ impl IncompleteAnalysisEngine {
         source: &str,
         diagnostics: &mut Vec<Diagnostic>,
     ) {
-        if metrics.max_operator_depth >= MXASET_OPERATOR_DEPTH {
+        if metrics.max_operator_depth >= MXASET_OPERATOR_DEPTH
+            || metrics.max_postfix_depth >= MXASET_POSTFIX_DEPTH
+            || metrics.max_field_depth >= MXASET_FIELD_DEPTH
+        {
             diagnostics.push(Diagnostic {
                 rule_id: "MXASET",
                 message: "The file is too complex to analyze. Simplify the code to improve code maintainability. For example, reduce the number of operations in expressions.".to_string(),

@@ -40,9 +40,27 @@ fn later_use<'a>(parfor: Node<'a>, name: &str, source: &str) -> Option<Node<'a>>
             break;
         }
         let assigned = stmt.kind() == "assignment"
-            && stmt
-                .child_by_field_name("left")
-                .is_some_and(|l| l.kind() == "identifier" && node_text(l, source).trim() == name);
+            && stmt.child_by_field_name("left").is_some_and(|l| {
+                // `name = ...`, or `[a, name] = ...`: a whole target is a write (probed:
+                // `[i, z] = deal(1, 2)` after the loop is silent for PFUIXE).
+                (l.kind() == "identifier" && node_text(l, source).trim() == name)
+                    || (!matches!(
+                        l.kind(),
+                        "function_call" | "field_expression" | "cell_index"
+                    ) && {
+                        let mut stack = vec![l];
+                        let mut found = false;
+                        while let Some(n) = stack.pop() {
+                            if n.kind() == "identifier" && node_text(n, source).trim() == name {
+                                found = true;
+                                break;
+                            }
+                            let mut c = n.walk();
+                            stack.extend(n.children(&mut c));
+                        }
+                        found
+                    })
+            });
         // For `name = ...` only the right-hand side can read the variable.
         let scope = if assigned {
             stmt.child_by_field_name("right").unwrap_or(stmt)

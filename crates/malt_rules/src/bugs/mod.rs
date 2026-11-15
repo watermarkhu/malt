@@ -410,7 +410,10 @@ impl BugsEngine {
 
     fn walk_switch_dup_cases(node: Node, source: &str, diagnostics: &mut Vec<Diagnostic>) {
         if node.kind() == "switch_statement" {
-            let mut case_values: Vec<(String, Node)> = Vec::new();
+            // The first node of each value, by its text: a lookup per case keeps a switch
+            // of 20,000 cases linear (a scan of the earlier values took 50 s).
+            let mut case_values: std::collections::HashMap<String, Node> =
+                std::collections::HashMap::new();
 
             let mut cursor = node.walk();
             for child in node.children(&mut cursor) {
@@ -418,7 +421,7 @@ impl BugsEngine {
                     // The case value is the first meaningful child after "case".
                     if let Some(case_val) = find_case_value(child) {
                         let val_text = normalize_whitespace(node_text(case_val, source));
-                        if let Some((_, first)) = case_values.iter().find(|(t, _)| *t == val_text) {
+                        if let Some(first) = case_values.get(&val_text).copied() {
                             let pos = case_val.start_position();
                             let first_line = first.start_position().row + 1;
                             let case_text = node_text(case_val, source).trim();
@@ -435,7 +438,7 @@ impl BugsEngine {
                                 fix: None,
                             });
                         } else {
-                            case_values.push((val_text, case_val));
+                            case_values.insert(val_text, case_val);
                         }
                     }
                 }

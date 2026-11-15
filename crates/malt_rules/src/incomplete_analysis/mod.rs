@@ -165,6 +165,10 @@ pub(crate) struct TreeMetrics {
     max_statement_weight: usize,
     /// Largest number of binary operators nested in one another (MXASET).
     max_operator_depth: usize,
+    /// Largest number of transposes (postfix operators) nested in one another (MXASET).
+    max_postfix_depth: usize,
+    /// Largest number of field accesses nested in one another (MXASET).
+    max_field_depth: usize,
     /// Whether the last child of the root is an ERROR or MISSING node.
     last_node_is_error: bool,
 }
@@ -180,6 +184,12 @@ struct Depths {
     statement: usize,
     /// Nested binary operators.
     operator: usize,
+    /// Nested transposes (postfix operators).
+    postfix: usize,
+    /// Nested field accesses.
+    field: usize,
+    /// Whether the parent node is a unary operator (see `visit_node`).
+    inside_unary: bool,
 }
 
 /// MATLAB's NOSPC weight of a statement, in quarter levels. Measured on
@@ -188,7 +198,14 @@ struct Depths {
 /// with 3 `for`s (993) are fine and 247 `if`s with 2 `for`s (994) are reported.
 /// An anonymous function weighs as a loop: 331 nested `@()` (993) are fine, 332
 /// (996) are reported; 247 `if`s with one lambda (991) are fine, with two (994)
-/// reported. Lambdas and statements share one sum along a path.
+/// reported. Lambdas and statements share one sum along a path. A unary operator
+/// adds one unit to the sum of a path only when it is nested in another unary
+/// operator: 247 `if`s with 6 unary minus (994 with the outermost one not counted)
+/// are fine, with 7 (995) reported; a chain of 995 unary minus is reported.
+/// A file's function (not one nested in it) weighs 5: 248 `if`s in a function
+/// (996) give NOSPC, 247 (993) do not; 494 `try`s (988) are fine, 495 (994) are not.
+const FUNCTION_WEIGHT: usize = 5;
+
 fn statement_weight(kind: &str) -> usize {
     match kind {
         "if_statement" => 4,
@@ -266,7 +283,10 @@ impl IncompleteAnalysisEngine {
             metrics.error_count += 1;
         }
         let line = node.start_position().row + 1;
-        let mut depths = parent;
+        let mut depths = Depths {
+            inside_unary: false,
+            ..parent
+        };
         match node.kind() {
             "parenthesis" | "arguments" | "matrix" | "cell" => {
                 depths.paren += 1;
@@ -282,6 +302,14 @@ impl IncompleteAnalysisEngine {
                     metrics.max_function_depth = depths.function;
                     metrics.max_function_line = line;
                 }
+                // The file's own function weighs as a statement; the functions nested
+                // in it add nothing (probed: a nested function with 247 `if`s, 988 +
+                // 5 with the outer function, is fine).
+                if depths.function == 1 {
+                    depths.statement += FUNCTION_WEIGHT;
+                    metrics.max_statement_weight =
+                        metrics.max_statement_weight.max(depths.statement);
+                }
             }
             "if_statement" | "for_statement" | "while_statement" | "switch_statement"
             | "try_statement" | "lambda" => {
@@ -291,6 +319,24 @@ impl IncompleteAnalysisEngine {
             "binary_operator" => {
                 depths.operator += 1;
                 metrics.max_operator_depth = metrics.max_operator_depth.max(depths.operator);
+            }
+            "postfix_operator" => {
+                depths.postfix += 1;
+                metrics.max_postfix_depth = metrics.max_postfix_depth.max(depths.postfix);
+            }
+            "field_expression" => {
+                // The parser keeps `a.b.c` flat: one `field` child per access.
+                let mut cursor = node.walk();
+                depths.field += node.children_by_field_name("field", &mut cursor).count();
+                metrics.max_field_depth = metrics.max_field_depth.max(depths.field);
+            }
+            "unary_operator" => {
+                if parent.inside_unary {
+                    depths.statement += 1;
+                    metrics.max_statement_weight =
+                        metrics.max_statement_weight.max(depths.statement);
+                }
+                depths.inside_unary = true;
             }
             _ => {}
         }

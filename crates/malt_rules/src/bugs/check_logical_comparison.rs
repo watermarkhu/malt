@@ -1,11 +1,16 @@
 use super::*;
 
 /// Functions whose logical result MATLAB compares as constant (`true`/`false`).
-/// Only the ones probed: MATLAB reports CFALSE for `isreal(x) == -1`, `== 2`,
-/// `any(x) == 2` and `isequal(x, 1) == 2`, and reports nothing for
-/// `isempty(x) == 2`, `ischar`, `islogical`, `isnumeric`, `ismember` or any
-/// comparison of `isempty` with `>`, `<` or `~=`. Unprobed functions are left out.
-const LOGICAL_FUNCTIONS: &[&str] = &["any", "isequal", "isreal"];
+/// Only the ones probed: MATLAB reports CFALSE for `all`, `any`, `isnan`, `isinf`,
+/// `isfinite`, `isrow`, `isvector`, `isscalar`, `isequal`, `isequaln`, `isreal` and
+/// `ismatrix` compared with `==`, `>=`, `<` or `== -1` against a value outside 0..1,
+/// and reports nothing for `strcmp`, `strncmp`, `ismember`, `isfield`, `isempty`,
+/// `ischar`, `islogical`, `isnumeric`, `isa`, `contains`, `xor`, `isspace`, `isKey`,
+/// `exist` or a comparison of a logical expression such as `(n > 2) == 2`.
+const LOGICAL_FUNCTIONS: &[&str] = &[
+    "all", "any", "isnan", "isinf", "isfinite", "isrow", "isvector", "isscalar", "isequal",
+    "isequaln", "isreal", "ismatrix",
+];
 
 /// Evaluate `lhs OP rhs` for the given comparison operator.
 fn compare(op: &str, lhs: f64, rhs: f64) -> Option<bool> {
@@ -109,6 +114,12 @@ mod tests {
             "B = isreal(A) == -1;\n",
             "B = any(A) == 2;\n",
             "B = isequal(A, 1) == 2;\n",
+            "B = all(A) >= 2;\n",
+            "B = all(A) < 0;\n",
+            "B = isnan(A) == -1;\n",
+            "B = isinf(A) >= 2;\n",
+            "B = isrow(A) == 2;\n",
+            "B = ismatrix(A) == 2;\n",
         ] {
             let diags = node_diags(src);
             assert!(has_id(&diags, "CFALSE"), "{src:?}: {diags:?}");

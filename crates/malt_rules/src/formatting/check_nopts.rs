@@ -21,7 +21,9 @@ impl FormattingEngine {
         if frame.in_function || frame.in_parfor {
             return;
         }
-        if semicolon_follows(node, frame.following.iter().copied(), source) {
+        if semicolon_follows(node, frame.following.iter().copied(), source)
+            && !crate::syntax_errors::has_end_value_in_literal(node, source)
+        {
             return;
         }
         // An assignment that a line break splits before `-x`/`+x` is reported by NOPRC

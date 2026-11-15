@@ -93,7 +93,20 @@ impl UnsetVariablesEngine {
                     && !Self::assigned_in_enclosing_loop(func_node, use_start, &assigns))
                     || Self::cleared_before(func_node, source, scope, name, use_start)
             };
-            self.emit_possibly_unset_diagnostics(&da, nodef_applies, &mut diagnostics);
+            let cleared_input = |name: &str, use_start: usize| {
+                crate::good_practices::is_cleared_parfor_input(
+                    tree.root_node(),
+                    source,
+                    name,
+                    use_start,
+                )
+            };
+            self.emit_possibly_unset_diagnostics(
+                &da,
+                nodef_applies,
+                cleared_input,
+                &mut diagnostics,
+            );
 
             // Check output arguments: STOUT. A classdef constructor returns the
             // object itself, so its unassigned output is not reported (probed).
@@ -187,6 +200,7 @@ impl UnsetVariablesEngine {
         &self,
         da: &DefiniteAssignment,
         nodef_applies: impl Fn(&str, usize) -> bool,
+        cleared_input: impl Fn(&str, usize) -> bool,
         diagnostics: &mut Vec<Diagnostic>,
     ) {
         // Track which variable names have already been reported to avoid duplicates.
@@ -197,6 +211,10 @@ impl UnsetVariablesEngine {
                 continue;
             }
             if reported.contains(&unset_var.name) {
+                continue;
+            }
+            // A parfor input cleared before the loop is PFIIN, not NODEF (probed).
+            if cleared_input(&unset_var.name, unset_var.use_byte_range.start) {
                 continue;
             }
             reported.insert(unset_var.name.clone());
@@ -260,6 +278,15 @@ mod tests {
     }
 
     // -- NODEF tests --------------------------------------------------------
+
+    #[test]
+    fn nodef_silent_for_parfor_input_cleared_before_loop() {
+        // Probed (e_ii01): `clear k` before a parfor loop that reads `k` is PFIIN at the
+        // read, not NODEF.
+        let source = "function r = f(n)\nk = 1;\nclear k;\nr = zeros(1, n);\nparfor i = 1:n\n    r(i) = k;\nend\nend\n";
+        let diags = lint_file(&*engine(), source);
+        assert!(diags.iter().all(|d| d.rule_id != "NODEF"), "got: {diags:?}");
+    }
 
     #[test]
     fn nodef_use_before_assign() {

@@ -256,10 +256,11 @@ fn read_outside_reduction(body: Node, name: &str, source: &str) -> bool {
 
 /// Whether a statement is `clear name` or `clear(name)`, in function or command syntax
 /// (probed: both end the value, t05 and t18).
-fn is_clear_of(statement: Node, name: &str, source: &str) -> bool {
+pub(crate) fn is_clear_of(statement: Node, name: &str, source: &str) -> bool {
     let text = node_text(statement, source).trim().trim_end_matches(';');
     let mut words = text
         .split(|c: char| c.is_whitespace() || matches!(c, '(' | ')' | ','))
+        .map(|w| w.trim_matches(['\'', '"']))
         .filter(|w| !w.is_empty());
     words.next() == Some("clear") && words.any(|w| w == name)
 }
@@ -293,6 +294,21 @@ fn reduction_operator(rhs: Node, name: &str, source: &str) -> Option<String> {
         return Some(f.to_string());
     }
     let root = unwrap_parentheses(rhs);
+    // `s = [s i]` and `s = [s, i]` are reductions by concatenation (probed: PFRUS when `s`
+    // is not used after the loop).
+    if root.kind() == "matrix" {
+        // The elements sit in a `row` node.
+        let first = first_named_child(root).map(|r| {
+            if r.kind() == "row" {
+                first_named_child(r).unwrap_or(r)
+            } else {
+                r
+            }
+        });
+        return first
+            .filter(|c| c.kind() == "identifier" && node_text(*c, source) == name)
+            .map(|_| "[]".to_string());
+    }
     if root.kind() != "binary_operator" {
         return None;
     }
@@ -466,6 +482,19 @@ mod tests {
         assert_eq!(pfr_ids_for(function_syntax, "PFRUS").len(), 1);
         let command_syntax = "function r = f(n)\ns = 0;\nparfor i = 1:n\n    s = s + i;\nend\nclear s\nr = 1;\nend\n";
         assert_eq!(pfr_ids_for(command_syntax, "PFRUS").len(), 1);
+    }
+
+    #[test]
+    fn test_pfrus_fires_on_concatenation_reduction() {
+        // Probed (e_in01, e_in03, e_in02): `s = [s i]` and `s = [s, i]` reduce `s`: PFRUS
+        // when `s` is not used after the loop, silent when `numel(s)` reads it after.
+        let unused = "function f(n)\ns = [];\nparfor i = 1:n\n    s = [s i];\nend\nend\n";
+        assert_eq!(pfr_ids_for(unused, "PFRUS").len(), 1);
+        let comma = "function f(n)\ns = [];\nparfor i = 1:n\n    s = [s, i];\nend\nend\n";
+        assert_eq!(pfr_ids_for(comma, "PFRUS").len(), 1);
+        let used =
+            "function f(n)\ns = [];\nparfor i = 1:n\n    s = [s i];\nend\nr = numel(s);\nend\n";
+        assert!(pfr_ids_for(used, "PFRUS").is_empty());
     }
 
     #[test]

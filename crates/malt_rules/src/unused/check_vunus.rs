@@ -90,7 +90,9 @@ fn check_discarded(
     diagnostics: &mut Vec<Diagnostic>,
 ) {
     let expr = unwrap_parens(node);
-    if is_equality_on_reference(expr, source) {
+    if is_equality_on_reference(expr, source)
+        || crate::syntax_errors::has_end_value_in_literal(expr, source)
+    {
         return;
     }
     if OPERATOR_NODES.contains(&expr.kind()) {

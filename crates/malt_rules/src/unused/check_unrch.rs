@@ -1,7 +1,7 @@
 //! UNRCH check: unreachable code after return/break/continue/error.
 
 use super::*;
-use crate::analysis::control_flow::is_script_body;
+use crate::analysis::control_flow::{error_call_always_throws, is_script_body};
 use crate::analysis::liveness::{constant_truths, if_clauses};
 use crate::analysis::symbols::SymbolTable;
 use std::collections::HashMap;
@@ -33,7 +33,7 @@ impl UnusedEngine {
 
         // Dead branches of constant conditions (`if true ... else`, `k = 0; if k`).
         let table = SymbolTable::shared(|| ctx.tree.root_node(), ctx.source);
-        let truths = constant_truths(&table, ctx.tree, ctx.source);
+        let truths = constant_truths(&table, ctx.tree.root_node(), ctx.source);
         collect_constant_branches(
             ctx.tree.root_node(),
             ctx.source,
@@ -44,6 +44,28 @@ impl UnusedEngine {
     }
 }
 
+/// The body of a `while` whose condition is constant false: MATLAB reports its first
+/// statement (probed: `while false`, `while 0`, `while ~true`, `while []` and a
+/// variable that holds false). A `for` over an empty range is not folded.
+fn dead_loop_body<'a>(
+    node: Node<'a>,
+    source: &str,
+    truths: &HashMap<usize, bool>,
+) -> Option<Node<'a>> {
+    if node.kind() != "while_statement" {
+        return None;
+    }
+    let condition = node.child_by_field_name("condition")?;
+    if constant_truth(condition, source, truths) != Some(false) {
+        return None;
+    }
+    let parts: Vec<Node> = named_children(node)
+        .into_iter()
+        .filter(|c| c.id() != condition.id())
+        .collect();
+    first_statement(&parts)
+}
+
 /// Walk the tree and report the dead branch of each constant `if` condition.
 fn collect_constant_branches(
     node: Node,
@@ -52,7 +74,10 @@ fn collect_constant_branches(
     seen: &mut std::collections::HashSet<(usize, usize)>,
     diagnostics: &mut Vec<Diagnostic>,
 ) {
-    for dead in dead_constant_branches(node, source, truths) {
+    for dead in dead_constant_branches(node, source, truths)
+        .into_iter()
+        .chain(dead_loop_body(node, source, truths))
+    {
         emit_unrch(
             dead.start_byte()..dead.end_byte(),
             dead.start_position().row + 1,
@@ -295,9 +320,9 @@ fn contains_live_break(node: Node, source: &str) -> bool {
 /// readability__t3), `while true` and `while 1` loops with no `break`, and a `try`
 /// whose body and `catch` both terminate.
 fn is_terminator(node: Node, source: &str) -> bool {
-    is_call_to(node, source, &["rethrow", "exit", "quit"])
+    is_call_to(node, source, &["throw", "rethrow", "exit", "quit"])
         || is_bare_name_of(node, source, &["exit", "quit"])
-        || (is_call_to(node, source, &["error"]) && !has_variable_first_argument(node))
+        || (is_call_to(node, source, &["error"]) && error_call_always_throws(node, source))
         || is_infinite_loop(node, source)
         || is_terminating_try(node, source)
         || is_terminating_if(node, source)
@@ -338,14 +363,6 @@ fn is_terminating_if(node: Node, source: &str) -> bool {
 }
 
 /// Returns `true` if the first argument of a call is a bare identifier.
-fn has_variable_first_argument(node: Node) -> bool {
-    named_children(node)
-        .into_iter()
-        .find(|c| c.kind() == "arguments")
-        .and_then(|args| named_children(args).into_iter().next())
-        .is_some_and(|arg| arg.kind() == "identifier")
-}
-
 /// Byte ranges of the code that UNRCH reports as unreachable: every statement
 /// after a `return`, `break`, `continue`, `error` or infinite loop in the same
 /// block. Other checks use them to stay silent where MATLAB does not analyse.
@@ -365,10 +382,18 @@ pub(crate) fn unreachable_regions(
 /// clauses of constant conditions (`if false ... end`). STOUT does not count an
 /// assignment in them (probed: `if false, r = 1; end` and `return; r = 1;` leave
 /// the output unset).
+pub(crate) fn dead_constant_regions(root: Node, source: &str) -> Vec<std::ops::Range<usize>> {
+    let table = SymbolTable::shared(|| root, source);
+    let truths = constant_truths(&table, root, source);
+    let mut regions = Vec::new();
+    collect_dead_constant_regions(root, source, &truths, &mut regions);
+    regions
+}
+
 pub(crate) fn dead_regions(tree: &tree_sitter::Tree, source: &str) -> Vec<std::ops::Range<usize>> {
     let mut regions = unreachable_regions(tree, source);
     let table = SymbolTable::shared(|| tree.root_node(), source);
-    let truths = constant_truths(&table, tree, source);
+    let truths = constant_truths(&table, tree.root_node(), source);
     collect_dead_constant_regions(tree.root_node(), source, &truths, &mut regions);
     regions
 }
@@ -493,6 +518,36 @@ mod tests {
         let src =
             "function f(x)\n  k = 0;\n  if x\n    k = 1;\n  end\n  if k\n    disp(1)\n  end\nend\n";
         assert!(!has_id(&lint_file(&*engine(), src), "UNRCH"));
+    }
+
+    #[test]
+    fn unrch_dead_branch_of_strcmp_strcmpi_and_ischar_on_known_values() {
+        // Probed: `strcmp` and `strcmpi` of known text (also through a copy of the
+        // result) and `ischar` of a known value fold; the other branch is dead.
+        let src = "function f()\n  b = 'x';\n  if strcmp(b, 'y')\n    disp(1)\n  end\nend\n";
+        assert_eq!(unrch_lines(&lint_file(&*engine(), src)), vec![4]);
+        let src = "function f()\n  b = 'x';\n  if strcmpi(b, 'X')\n    disp(1)\n  else\n    disp(2)\n  end\nend\n";
+        assert_eq!(unrch_lines(&lint_file(&*engine(), src)), vec![6]);
+        let src = "function f()\n  b = 5;\n  if ischar(b)\n    disp(1)\n  end\nend\n";
+        assert_eq!(unrch_lines(&lint_file(&*engine(), src)), vec![4]);
+        let src =
+            "function f()\n  b = 'x';\n  c = strcmp(b, 'y');\n  if c\n    disp(1)\n  end\nend\n";
+        assert_eq!(unrch_lines(&lint_file(&*engine(), src)), vec![5]);
+    }
+
+    #[test]
+    fn unrch_silent_on_unknown_or_unfolded_strcmp_and_ischar() {
+        // Probed: a value that is one of two, a parameter, `==` on a known number, and
+        // `isempty`/`isnumeric` on known values do not fold: the branches stay live.
+        for src in [
+            "function f()\n  b = 'x';\n  if rand > 2\n    b = 'y';\n  end\n  if strcmp(b, 'x')\n    disp(1)\n  end\nend\n",
+            "function f(b)\n  if strcmp(b, 'x')\n    disp(1)\n  end\nend\n",
+            "function f()\n  n = 3;\n  if n == 4\n    disp(1)\n  end\nend\n",
+            "function f()\n  b = [];\n  if isempty(b)\n    disp(1)\n  else\n    disp(2)\n  end\nend\n",
+            "function f()\n  n = 3;\n  if isnumeric(n)\n    disp(1)\n  else\n    disp(2)\n  end\nend\n",
+        ] {
+            assert!(!has_id(&lint_file(&*engine(), src), "UNRCH"), "{src}");
+        }
     }
 
     #[test]

@@ -2,6 +2,22 @@
 
 use super::*;
 
+/// Whether `node` holds `end` as a value inside a `[` or `{` literal (`[end + 1]`, `{end}`).
+/// Probed: MATLAB reports RESWD and NOPTS on such a statement even with a semicolon,
+/// and neither NBRAK2 nor VUNUS. An index (`[x(end)]`) is not a literal.
+pub(crate) fn has_end_value_in_literal(node: Node, source: &str) -> bool {
+    if node.kind() == "end_keyword" {
+        return SyntaxErrorsEngine::in_literal_bracket(source, node.start_byte());
+    }
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        if has_end_value_in_literal(child, source) {
+            return true;
+        }
+    }
+    false
+}
+
 impl SyntaxErrorsEngine {
     pub(crate) fn check_reserved_and_not(&self, root: Node, source: &str) -> Vec<Diagnostic> {
         let mut diagnostics = Vec::new();

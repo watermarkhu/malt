@@ -118,6 +118,43 @@ mod tests {
     }
 
     #[test]
+    fn nospc_weighs_the_file_function_as_five() {
+        // MATLAB probe: 247 `if`s in a function (988 + 5 = 993) do not give NOSPC, 248
+        // (992 + 5) do; 246 `if`s and 2 `for`s in a function (990 + 5) do, 246 `if`s and
+        // 1 `for` (987 + 5) do not.
+        let in_function = |body: &str| format!("function f(a)\n{body}end\n");
+        let ifs = |n: usize| nested(&vec!["if"; n]);
+        assert!(!has_id(
+            &lint_file(&*engine(), &in_function(&ifs(247))),
+            "NOSPC"
+        ));
+        assert!(has_id(
+            &lint_file(&*engine(), &in_function(&ifs(248))),
+            "NOSPC"
+        ));
+        let mut kinds = vec!["if"; 246];
+        kinds.push("for");
+        assert!(!has_id(
+            &lint_file(&*engine(), &in_function(&nested(&kinds))),
+            "NOSPC"
+        ));
+        kinds.push("for");
+        assert!(has_id(
+            &lint_file(&*engine(), &in_function(&nested(&kinds))),
+            "NOSPC"
+        ));
+    }
+
+    #[test]
+    fn nospc_adds_no_weight_for_nested_functions() {
+        // MATLAB probe: a function nested in the file's function with 247 `if`s is fine:
+        // the outer function weighs 5, the nested one nothing (988 + 5).
+        let body = nested(&vec!["if"; 247]);
+        let source = format!("function f(a)\nfunction g(b)\n{body}end\nend\n");
+        assert!(!has_id(&lint_file(&*engine(), &source), "NOSPC"));
+    }
+
+    #[test]
     fn nospc_ok_on_shallow_nesting() {
         let diags = lint_file(&*engine(), "if x\n    y = 1;\nend\n");
         assert!(!has_id(&diags, "NOSPC"), "got: {diags:?}");

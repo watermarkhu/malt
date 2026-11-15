@@ -90,6 +90,7 @@ fn has_settled_operand(node: tree_sitter::Node, source: &str) -> bool {
 const OR2_CALLS: &[&str] = &[
     "numel",
     "length",
+    "size",
     "isnan",
     "any",
     "mean",
@@ -443,5 +444,18 @@ mod settled_tests {
             let diags = lint_nodes(&*engine(), src);
             assert!(!has_id(&diags, "AND2"), "{src}: got: {diags:?}");
         }
+    }
+
+    #[test]
+    fn or2_on_size_operand_in_a_condition() {
+        // Probed: `size` is a bare OR2 operand as `numel` is (`if size(a, 1) | b`);
+        // `c = size(a) | b;` is not a condition and stays silent.
+        let diags = lint_nodes(
+            &*engine(),
+            "a = rand(3);\nb = rand;\nif size(a, 1) | b\n    c = 1;\nend\n",
+        );
+        assert!(has_id(&diags, "OR2"), "got: {diags:?}");
+        let diags = lint_nodes(&*engine(), "a = rand(3);\nb = rand;\nc = size(a) | b;\n");
+        assert!(!has_id(&diags, "OR2"), "got: {diags:?}");
     }
 }

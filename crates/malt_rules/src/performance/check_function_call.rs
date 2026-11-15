@@ -426,6 +426,10 @@ impl PerformanceEngine {
             && args.iter().take(2).any(|a| {
                 string_literal(*a, source).is_some_and(|s| !s.chars().any(|c| c.is_alphabetic()))
             })
+            && !args.iter().take(2).any(|a| {
+                a.kind() == "function_call"
+                    && matches!(call_name(*a, source), Some("lower" | "upper"))
+            })
         {
             diags.push(make_diag("STCCS", node));
         }

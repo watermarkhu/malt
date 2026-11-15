@@ -134,6 +134,7 @@ mod check_function_names;
 mod check_name_value;
 mod check_number_literals;
 mod check_reserved_and_not;
+pub(crate) use check_reserved_and_not::has_end_value_in_literal;
 mod check_sepexc;
 mod check_statements;
 mod check_unterminated;

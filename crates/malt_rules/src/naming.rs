@@ -404,6 +404,16 @@ impl Rule for NamingEngine {
 // Entity extraction
 // ---------------------------------------------------------------------------
 
+/// `true` for a script: the file's first statement (comments aside) is neither a
+/// function nor a class definition.
+fn is_script_file(root: tree_sitter::Node) -> bool {
+    let mut cursor = root.walk();
+    let first = root
+        .named_children(&mut cursor)
+        .find(|c| !matches!(c.kind(), "comment" | "line_continuation"));
+    first.is_some_and(|c| !matches!(c.kind(), "function_definition" | "class_definition"))
+}
+
 /// Walk the tree-sitter tree and extract all named entities.
 ///
 /// Determines entity type based on AST context:
@@ -422,7 +432,9 @@ fn collect_named_entities<'a>(
     source: &'a str,
 ) -> Vec<NamedEntity<'a>> {
     let mut entities = Vec::new();
-    let mut first_function_seen = false;
+    // In a script every function is a local function (probed: MATLAB gives
+    // `localFunction` to a function after a script's statements), so the flag starts set.
+    let mut first_function_seen = is_script_file(tree.root_node());
 
     collect_recursive(
         tree.root_node(),
@@ -1381,6 +1393,67 @@ mod tests {
         let diags = lint_file(&*engine, "try\nerror('x')\ncatch errObj\nend\n");
         assert!(
             has_id(&diags, "naming.variable.maxLength"),
+            "got: {diags:?}"
+        );
+    }
+
+    #[test]
+    fn function_after_script_statements_is_a_local_function() {
+        // MATLAB probe (casing config): `Bad_helper` after a script's statements is
+        // reported as naming.localFunction.casing, in a function file too after the main one.
+        let script = "x = 1;\ndisp(x)\nBad_helper();\nfunction Bad_helper()\ndisp(1)\nend\n";
+        let local = engine_with("naming.localFunction.casing", "style = \"lowerCamelCase\"");
+        assert!(has_id(
+            &lint_file(&*local, script),
+            "naming.localFunction.casing"
+        ));
+        let function = engine_with("naming.function.casing", "style = \"lowerCamelCase\"");
+        assert!(!has_id(
+            &lint_file(&*function, script),
+            "naming.function.casing"
+        ));
+
+        let file = "function mainF()\ndisp(1)\nend\nfunction Bad_helper()\ndisp(2)\nend\n";
+        assert!(has_id(
+            &lint_file(&*local, file),
+            "naming.localFunction.casing"
+        ));
+        assert!(!has_id(
+            &lint_file(&*function, file),
+            "naming.function.casing"
+        ));
+    }
+
+    #[test]
+    fn required_prefix_array_is_any_of() {
+        // MATLAB probe (requiredPrefix ["ab", "xy"]): `abVal` and `xyVal` pass, `zzVal` is
+        // reported. The suffix array ["Max", "Min"] works the same way (valMax passes).
+        let source = "function p()\nabVal = 1;\nxyVal = 2;\nzzVal = 3;\nvalMax = 4;\n\
+                      disp(abVal + xyVal + zzVal + valMax)\nend\n";
+        let engine = engine_with(
+            "naming.variable.requiredPrefix",
+            "prefix = [\"ab\", \"xy\"]",
+        );
+        let diags = lint_file(&*engine, source);
+        let reported: Vec<&str> = diags
+            .iter()
+            .filter(|d| d.rule_id == "naming.variable.requiredPrefix")
+            .map(|d| d.message.as_str())
+            .collect();
+        assert_eq!(reported.len(), 2, "got: {diags:?}");
+        assert!(reported[0].contains("'zzVal'") && reported[1].contains("'valMax'"));
+
+        let engine = engine_with(
+            "naming.variable.requiredSuffix",
+            "suffix = [\"Max\", \"Min\"]",
+        );
+        let diags = lint_file(&*engine, source);
+        assert!(
+            diags.iter().all(|d| !d.message.contains("'valMax'")),
+            "got: {diags:?}"
+        );
+        assert!(
+            diags.iter().any(|d| d.message.contains("'abVal'")),
             "got: {diags:?}"
         );
     }

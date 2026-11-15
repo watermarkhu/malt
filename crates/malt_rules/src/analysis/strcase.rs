@@ -79,9 +79,9 @@ pub(crate) fn strcmp_case(call: Node, source: &str) -> Option<StrcmpCase> {
 /// `upper` output has no lowercase letters, a `lower` output no uppercase ones.
 fn conflicts(s: &str, upper: bool) -> bool {
     if upper {
-        s.chars().any(|c| c.is_ascii_lowercase())
+        s.chars().any(char::is_lowercase)
     } else {
-        s.chars().any(|c| c.is_ascii_uppercase())
+        s.chars().any(char::is_uppercase)
     }
 }
 

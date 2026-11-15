@@ -26,7 +26,7 @@ impl LanguageSpecEngine {
                     Some(_) => self.push_diag(node, "SPBFN", "Use of this function is invalid inside an SPMD block because it accesses or modifies the workspace in a non-transparent way.", diagnostics),
                 }
             }
-            "eval" | "evalc" | "clear" | "clearvars" => {
+            "eval" | "evalc" | "clear" | "clearvars" | "run" => {
                 self.push_diag(node, "SPBFN", "Use of this function is invalid inside an SPMD block because it accesses or modifies the workspace in a non-transparent way.", diagnostics);
             }
             "load" => {
@@ -147,6 +147,14 @@ fn is_function_argument(node: tree_sitter::Node) -> bool {
 mod tests {
 
     use crate::language_spec::tests::{check_source, filter_by_id};
+
+    #[test]
+    fn test_spbfn_run_inside_spmd() {
+        // Probed (e_sb01): `run('s.m')` in an spmd block accesses the workspace: SPBFN.
+        let source = "function r = f()\nr = 0;\nspmd\n    run('s.m');\nend\nend\n";
+        let diags = check_source(source, "f.m");
+        assert_eq!(filter_by_id(&diags, "SPBFN").len(), 1, "got: {diags:?}");
+    }
 
     #[test]
     fn test_spwhos_fires_bare_who_assigned_in_spmd() {

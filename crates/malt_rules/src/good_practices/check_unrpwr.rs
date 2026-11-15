@@ -1,4 +1,5 @@
 use super::*;
+use crate::analysis::elementwise::operator_token;
 
 /// True for a binary `^` or `.^` node.
 fn is_power(node: Node, source: &str) -> bool {
@@ -34,7 +35,14 @@ impl GoodPracticesEngine {
             return Vec::new();
         }
 
-        let pos = node.start_position();
+        // MATLAB points at the power operator before the sign (`2^-a^2` at the `^` after
+        // the 2, `2 .^ -a` at the `.`), not at the sign itself (probed).
+        let anchor = if unary_over_power {
+            node
+        } else {
+            node.parent().unwrap_or(node)
+        };
+        let pos = operator_token(anchor).unwrap_or(anchor).start_position();
         vec![Diagnostic {
             rule_id: "UNRPWR",
             message: "Combining exponentiation operators with unary operators (such as logical negation) without parentheses will not be supported in a future release. Use parentheses to clarify the evaluation order.".to_string(),
@@ -152,6 +160,32 @@ mod tests {
         for src in ["y = 2^-a;\n", "y = -a^-b;\n", "y = ~a^b^c;\n"] {
             let diags = unrpwr_diags(src);
             assert!(!has_id(&diags, "UNRPWR"), "{src}: got {diags:?}");
+        }
+    }
+}
+
+#[cfg(test)]
+mod column_tests {
+    use super::super::engine;
+    use crate::test_util::lint_nodes;
+
+    #[test]
+    fn unrpwr_column_is_the_power_operator_before_the_sign() {
+        // Probed: MATLAB reports UNRPWR at the `^` (or `.^`) before the sign: column 6 for
+        // `y = 2^-a^2;`, 7 for `y = 3 ^ -a ^ 2;` and `y = 2 .^ -a .^ 2;`, not at the sign.
+        for (src, column) in [
+            ("a = 2;\ny = 2^-a^2;\n", 6),
+            ("a = 2;\ny = 3 ^ -a ^ 2;\n", 7),
+            ("a = 2;\ny = 2 .^ -a .^ 2;\n", 7),
+            ("a = 2;\nb = 3;\ny = 2^~a^b;\n", 6),
+        ] {
+            let diags = lint_nodes(&engine(), src);
+            let found: Vec<usize> = diags
+                .iter()
+                .filter(|d| d.rule_id == "UNRPWR")
+                .map(|d| d.column)
+                .collect();
+            assert_eq!(found, vec![column], "{src}: got: {diags:?}");
         }
     }
 }

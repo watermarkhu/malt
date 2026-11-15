@@ -47,6 +47,8 @@ use std::ops::Range;
 
 use tree_sitter::{Node, Tree};
 
+use super::control_flow::call_argument_nodes;
+use super::reaching::resolved_values;
 use super::symbols::{is_qualified_call, DefKind, FileKey, Scope, ScopeKind, SymbolTable};
 
 /// Interned variable names of one analysis: a name has a dense id, its position in `list`.
@@ -277,7 +279,7 @@ pub fn dead_stores(table: &SymbolTable, index: usize, tree: &Tree, source: &str)
     ) {
         return None;
     }
-    let Some(body) = scope_body(scope, tree) else {
+    let Some(body) = scope_body(scope, tree.root_node()) else {
         return Some(Dead::default());
     };
     if calls_dynamic(body, source) {
@@ -361,7 +363,7 @@ pub fn dead_stores(table: &SymbolTable, index: usize, tree: &Tree, source: &str)
         use_ids,
         exit: exit.clone(),
         excluded,
-        truths: scope_truths(table, index, tree, source),
+        truths: scope_truths(table, index, tree.root_node(), source),
         loops: Vec::new(),
         extra: Live::new(),
         reports: Vec::new(),
@@ -394,10 +396,10 @@ pub fn dead_stores(table: &SymbolTable, index: usize, tree: &Tree, source: &str)
 
 /// The truth value of every constant condition in the file, keyed by the start
 /// byte of the condition node. See the module docs for what counts as constant.
-pub fn constant_truths(table: &SymbolTable, tree: &Tree, source: &str) -> HashMap<usize, bool> {
+pub fn constant_truths(table: &SymbolTable, root: Node, source: &str) -> HashMap<usize, bool> {
     let mut truths = HashMap::new();
     for index in 0..table.scopes.len() {
-        truths.extend(scope_truths(table, index, tree, source));
+        truths.extend(scope_truths(table, index, root, source));
     }
     truths
 }
@@ -407,7 +409,7 @@ pub fn constant_truths(table: &SymbolTable, tree: &Tree, source: &str) -> HashMa
 pub fn scope_truths(
     table: &SymbolTable,
     index: usize,
-    tree: &Tree,
+    root: Node,
     source: &str,
 ) -> HashMap<usize, bool> {
     let Some(scope) = table.scopes.get(index) else {
@@ -423,7 +425,7 @@ pub fn scope_truths(
     ) {
         return HashMap::new();
     }
-    let Some(body) = scope_body(scope, tree) else {
+    let Some(body) = scope_body(scope, root) else {
         return HashMap::new();
     };
     let mut def_spans: Vec<(usize, usize, usize)> = scope
@@ -473,10 +475,8 @@ pub fn is_field_store(tree: &Tree, range: Range<usize>) -> bool {
 }
 
 /// The node holding a scope's statements: the `source_file`, or the `function_definition`.
-fn scope_root<'t>(tree: &'t Tree, scope: &Scope) -> Option<Node<'t>> {
-    let mut node = tree
-        .root_node()
-        .descendant_for_byte_range(scope.byte_range.start, scope.byte_range.end)?;
+fn scope_root<'t>(root: Node<'t>, scope: &Scope) -> Option<Node<'t>> {
+    let mut node = root.descendant_for_byte_range(scope.byte_range.start, scope.byte_range.end)?;
     while !matches!(node.kind(), "source_file" | "function_definition") {
         // The root of a broken function header is an `ERROR` node, see
         // `SymbolTable::build`.
@@ -490,8 +490,8 @@ fn scope_root<'t>(tree: &'t Tree, scope: &Scope) -> Option<Node<'t>> {
 
 /// The node whose named children are the statements of a scope: the
 /// `source_file` of a script, the `block` of a function.
-fn scope_body<'t>(scope: &Scope, tree: &'t Tree) -> Option<Node<'t>> {
-    let root = scope_root(tree, scope)?;
+fn scope_body<'t>(scope: &Scope, tree_root: Node<'t>) -> Option<Node<'t>> {
+    let root = scope_root(tree_root, scope)?;
     if root.kind() == "source_file" {
         Some(root)
     } else if root.kind() == "function_definition" || scope.kind != ScopeKind::Script {
@@ -1322,11 +1322,13 @@ impl ConstPass<'_> {
         };
         if body.iter().any(|stmt| self.facts.contains_jump(*stmt)) {
             let head = self.remove_defs(pre, node);
+            self.forget_truths(node);
             self.sequence(&body, Some(head.clone()));
             return Some(head);
         }
         let mut head = pre.clone();
         for _ in 0..16 {
+            self.forget_truths(node);
             let out = self.sequence(&body, Some(head.clone()));
             let next = join(Some(pre.clone()), out).unwrap_or_default();
             if next == head {
@@ -1335,6 +1337,13 @@ impl ConstPass<'_> {
             head = next;
         }
         Some(head)
+    }
+
+    /// Drops the truth values recorded inside `node`: a fixed-point pass over a loop
+    /// records them again, and a value from an earlier pass must not stay.
+    fn forget_truths(&mut self, node: Node) {
+        let (start, end) = (node.start_byte(), node.end_byte());
+        self.truths.retain(|at, _| *at < start || *at >= end);
     }
 
     fn if_statement(&mut self, node: Node, env: Known) -> Option<Known> {
@@ -1444,6 +1453,7 @@ impl ConstPass<'_> {
         let text = &self.source[node.byte_range()];
         match node.kind() {
             "number" => text.parse::<f64>().ok().map(|v| v != 0.0),
+            "matrix" if node.named_child_count() == 0 => Some(false),
             "identifier" => {
                 if self.def_names.contains(text) {
                     env.get(text).copied()
@@ -1460,9 +1470,58 @@ impl ConstPass<'_> {
                 .and_then(|operand| self.eval(operand, env))
                 .map(|v| !v),
             "parenthesis" => node.named_child(0).and_then(|inner| self.eval(inner, env)),
+            "function_call" => self.eval_known_call(node),
             _ => None,
         }
     }
+
+    /// `strcmp` and `strcmpi` of two text values, and `ischar` of one, when each value
+    /// is known: a single literal that reaches the call (`b = 'x'; strcmp(b, 'X')`).
+    /// Probed: these fold like a literal condition (the other branch is dead, and a
+    /// copy of the result folds too). `==`, `isempty` and `isnumeric` do not fold.
+    fn eval_known_call(&self, node: Node) -> Option<bool> {
+        let source = self.source;
+        let name = node.child_by_field_name("name")?;
+        let args: Vec<Node> = call_argument_nodes(node)
+            .into_iter()
+            .map(|arg| known_literal(arg, source))
+            .collect::<Option<_>>()?;
+        match (&source[name.byte_range()], args.as_slice()) {
+            ("strcmp", [a, b]) => Some(text_of(*a, source)? == text_of(*b, source)?),
+            ("strcmpi", [a, b]) => {
+                Some(text_of(*a, source)?.eq_ignore_ascii_case(text_of(*b, source)?))
+            }
+            ("ischar", [a]) => match a.kind() {
+                "number" => Some(false),
+                "string" => text_of(*a, source).map(|_| true),
+                _ => None,
+            },
+            _ => None,
+        }
+    }
+}
+
+/// The literal that the expression `node` stands for: itself, or the one value that
+/// reaches it when it is a name. `None` when there are several values or none is known.
+fn known_literal<'a>(node: Node<'a>, source: &str) -> Option<Node<'a>> {
+    let mut values = resolved_values(node, source)?;
+    (values.len() == 1).then(|| values.swap_remove(0))
+}
+
+/// The text of a single-quoted or double-quoted literal without quotes inside.
+fn text_of<'s>(node: Node, source: &'s str) -> Option<&'s str> {
+    if node.kind() != "string" {
+        return None;
+    }
+    let text = &source[node.byte_range()];
+    let inner = text
+        .strip_prefix('\'')
+        .and_then(|rest| rest.strip_suffix('\''))
+        .or_else(|| {
+            text.strip_prefix('"')
+                .and_then(|rest| rest.strip_suffix('"'))
+        })?;
+    (!inner.contains(['\'', '"'])).then_some(inner)
 }
 
 /// The known values of two paths merged: a value survives only where both agree.

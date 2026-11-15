@@ -118,6 +118,9 @@ impl LanguageSpecEngine {
 
 /// Whether an earlier statement in an enclosing block ends control flow.
 fn in_unreachable_code(node: tree_sitter::Node, source: &str) -> bool {
+    if crate::analysis::control_flow::in_unreachable_code(node, source) {
+        return true;
+    }
     let mut current = node;
     while let Some(parent) = current.parent() {
         if matches!(parent.kind(), "block" | "source_file") {

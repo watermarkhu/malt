@@ -534,7 +534,13 @@ impl GoodPracticesEngine {
                             || collect_field_lhs_assignments(body_node, source)
                                 .iter()
                                 .any(|(n, _)| *n == name)
-                            || is_defined_before_parfor(&sym, &name, parfor.start_byte())
+                            || (is_defined_before_parfor(&sym, &name, parfor.start_byte())
+                                && !cleared_before_parfor(
+                                    tree.root_node(),
+                                    source,
+                                    &name,
+                                    parfor.start_byte(),
+                                ))
                             || is_assigned_in_body(body_node, &name, source)
                             || assigned_as_target(body_node, &name, source)
                             || matches!(name.as_str(), "nargin" | "nargout" | "who" | "whos")
@@ -570,6 +576,9 @@ impl GoodPracticesEngine {
                         .map(|(n, _)| n)
                         .collect();
                     let mut writes = collect_indexed_lhs_assignments(body_node, source);
+                    // A field write (`s.i = 1`, `s(i).x = i`) is an output too (probed).
+                    writes.extend(collect_field_lhs_assignments(body_node, source));
+                    writes.extend(collect_struct_array_field_writes(body_node, source));
                     writes.sort_by_key(|(_, n)| n.start_byte());
                     let mut reported: Vec<String> = Vec::new();
                     for (name, lhs_node) in writes {
@@ -577,6 +586,7 @@ impl GoodPracticesEngine {
                             || whole.contains(&name)
                             || reported.contains(&name)
                             || has_whole_read(body_node, &name, source)
+                            || read_before_write_stmt(body_node, &name, source)
                         {
                             continue;
                         }
@@ -618,6 +628,32 @@ impl GoodPracticesEngine {
                             continue;
                         }
                         let uses = uses_after_parfor(&sym, &name, parfor.end_byte(), tree, false);
+                        // A function output assigned whole in the body is returned after the
+                        // loop, so MATLAB reports PFTUSW on the function's line (probed).
+                        if self.is_check_enabled("PFTUSW")
+                            && uses.is_empty()
+                            && is_output_of_enclosing_function(&sym, parfor.start_byte(), &name)
+                            && !collect_indexed_lhs_assignments(body_node, source)
+                                .iter()
+                                .any(|(n, _)| *n == name)
+                            && !reads_itself(lhs_node, &name, source)
+                            && !overwritten_before_read(*parfor, &name, source)
+                        {
+                            let header = enclosing_function_line(*parfor);
+                            let pos = lhs_node.start_position();
+                            diagnostics.push(Diagnostic {
+                                rule_id: "PFTUSW",
+                                message: format!(
+                                    "The temporary variable {name} might be used after the PARFOR loop on line {header}. The value set on this line is not available after the loop."
+                                ),
+                                severity: Severity::Warning,
+                                byte_range: lhs_node.start_byte()..lhs_node.end_byte(),
+                                line: pos.row + 1,
+                                column: pos.column + 1,
+                                fix: None,
+                            });
+                            continue;
+                        }
                         // MATLAB reports only when the variable already had a value before the
                         // loop and its first access after the loop is a read (probed).
                         if self.is_check_enabled("PFTUSW")
@@ -650,28 +686,9 @@ impl GoodPracticesEngine {
                 }
             }
 
-            // PFUIXW: index variable used after the loop.
-            if self.is_check_enabled("PFUIXW") {
-                if let Some(ref idx) = idx_var {
-                    let uses = uses_after_parfor(&sym, idx, parfor.end_byte(), tree, true);
-                    if let Some(line) = uses.first() {
-                        let idx_node = find_parfor_index_identifier(*parfor);
-                        let target = idx_node.unwrap_or(*parfor);
-                        let pos = target.start_position();
-                        diagnostics.push(Diagnostic {
-                            rule_id: "PFUIXW",
-                            message: format!(
-                                "The index variable {idx} might be used after the PARFOR loop on line {line}. The value set on this line is not available after the loop."
-                            ),
-                            severity: Severity::Warning,
-                            byte_range: target.start_byte()..target.end_byte(),
-                            line: pos.row + 1,
-                            column: pos.column + 1,
-                            fix: None,
-                        });
-                    }
-                }
-            }
+            // PFUIXW is not emitted: MATLAB reports a read of the index after the loop as
+            // PFUIXE (the bugs engine, at the loop header) and never PFUIXW, and a write
+            // after the loop as nothing (probed: `disp(i)`, `i = i + 1`, `i = 5`).
         }
 
         diagnostics
@@ -1570,6 +1587,149 @@ pub(crate) fn collect_global_use_diagnostics<'a>(
         });
     }
     diagnostics
+}
+
+/// The line of the function that encloses a `parfor` loop (1 for a script).
+fn enclosing_function_line(parfor: Node) -> usize {
+    let mut current = parfor.parent();
+    while let Some(p) = current {
+        if p.kind() == "function_definition" {
+            return p.start_position().row + 1;
+        }
+        current = p.parent();
+    }
+    1
+}
+
+/// Where a use of an identifier writes it: `Some(start of the assignment)` when the
+/// identifier is in the left side of an assignment, `None` for a read. A read on the
+/// right of the same assignment is not before its write (probed: `v(i) = v(i) + 1` is
+/// PFOUS), while a read in an earlier statement is.
+fn write_key(node: Node) -> Option<usize> {
+    let mut current = node;
+    while let Some(p) = current.parent() {
+        match p.kind() {
+            "assignment" => {
+                let left = p.child_by_field_name("left")?;
+                let in_left =
+                    left.start_byte() <= node.start_byte() && node.end_byte() <= left.end_byte();
+                return in_left.then(|| p.start_byte());
+            }
+            "block" | "source_file" | "function_definition" => return None,
+            _ => current = p,
+        }
+    }
+    None
+}
+
+/// Whether the right side of the assignment that holds `lhs` reads `name` (a reduction such
+/// as `y = y + j` is not a temporary output, probed on a nested parfor).
+fn reads_itself(lhs: Node, name: &str, source: &str) -> bool {
+    lhs.parent()
+        .and_then(|a| a.child_by_field_name("right"))
+        .is_some_and(|r| {
+            node_text(r, source)
+                .split(|c: char| !(c.is_alphanumeric() || c == '_'))
+                .any(|t| t == name)
+        })
+}
+
+/// The base variable of a struct-array field write `s(i).f = ...` (probed: PFOUS for `s`).
+fn collect_struct_array_field_writes<'a>(node: Node<'a>, source: &str) -> Vec<(String, Node<'a>)> {
+    let mut out = Vec::new();
+    let mut stack = vec![node];
+    while let Some(n) = stack.pop() {
+        if n.kind() == "assignment" {
+            let left = n.child_by_field_name("left");
+            if let Some(base) = left
+                .filter(|l| l.kind() == "field_expression")
+                .and_then(|l| l.named_child(0))
+                .filter(|b| b.kind() == "function_call")
+                .and_then(|b| b.named_child(0))
+                .filter(|b| b.kind() == "identifier")
+            {
+                out.push((node_text(base, source).to_string(), base));
+            }
+        }
+        let mut c = n.walk();
+        stack.extend(n.children(&mut c));
+    }
+    out
+}
+
+/// Whether a read of `name` in the parfor body comes before its first write (PFOUS: a
+/// variable read before it is set is used, not only an output). The read on the right of
+/// `v(i) = v(i) + 1` counts as before the write (probed: MATLAB is silent).
+fn read_before_write_stmt(body: Node, name: &str, source: &str) -> bool {
+    let mut first_read: Option<usize> = None;
+    let mut first_write: Option<usize> = None;
+    let mut stack = vec![body];
+    while let Some(n) = stack.pop() {
+        if n.kind() == "identifier" && node_text(n, source) == name {
+            match write_key(n) {
+                Some(key) => first_write = Some(first_write.map_or(key, |f| f.min(key))),
+                None => {
+                    first_read = Some(first_read.map_or(n.start_byte(), |f| f.min(n.start_byte())))
+                }
+            }
+        }
+        let mut c = n.walk();
+        stack.extend(n.children(&mut c));
+    }
+    matches!((first_read, first_write), (Some(r), Some(w)) if r < w)
+}
+
+/// Whether `name` is cleared (`clear name`) before the parfor loop starts at `before` and
+/// not assigned again between the clear and the loop. MATLAB then reports PFIIN, not a
+/// use before definition (probed: `k = 1; clear k; parfor ... r(i) = k` and `clear k(;)`).
+/// `clear all` is silent (probed).
+pub(crate) fn cleared_before_parfor(root: Node, source: &str, name: &str, before: usize) -> bool {
+    let mut last_clear: Option<usize> = None;
+    let mut last_def: Option<usize> = None;
+    let mut stack = vec![root];
+    while let Some(n) = stack.pop() {
+        if n.start_byte() < before && n.end_byte() <= before {
+            match n.kind() {
+                "function_call" | "command"
+                    if check_parfor_reduction::is_clear_of(n, name, source) =>
+                {
+                    last_clear = Some(last_clear.map_or(n.start_byte(), |c| c.max(n.start_byte())));
+                }
+                "assignment" => {
+                    let whole = n
+                        .child_by_field_name("left")
+                        .is_some_and(|l| l.kind() == "identifier" && node_text(l, source) == name);
+                    if whole {
+                        last_def = Some(last_def.map_or(n.start_byte(), |d| d.max(n.start_byte())));
+                    }
+                }
+                _ => {}
+            }
+        }
+        let mut c = n.walk();
+        stack.extend(n.children(&mut c));
+    }
+    last_clear.is_some_and(|c| last_def.is_none_or(|d| c > d))
+}
+
+/// Whether a use of `name` at `use_start` is in a parfor body after the variable was cleared
+/// before that loop (such a use is PFIIN, so the unset-variable engine stays silent).
+pub(crate) fn is_cleared_parfor_input(
+    root: Node,
+    source: &str,
+    name: &str,
+    use_start: usize,
+) -> bool {
+    let Some(mut current) = root.descendant_for_byte_range(use_start, use_start + 1) else {
+        return false;
+    };
+    while let Some(p) = current.parent() {
+        if p.kind() == "for_statement" && node_text(p, source).trim_start().starts_with("parfor") {
+            return cleared_before_parfor(root, source, name, p.start_byte());
+        }
+        current = p;
+    }
+    false
 }
 
 /// Collect plain-identifier reads inside a parfor body (for PFIIN).
@@ -2790,19 +2950,84 @@ z = f(eval(x + y));\nonCleanup(@f);\n[~] = onCleanup(@f);\nc = computer('arch');
     }
 
     #[test]
-    fn test_pfuiwx_fires_on_index_used_after() {
+    fn test_pfous_read_before_write_and_struct_array_field() {
+        // Probed (e_so04, e_so03, e_ou02, e_ou17): a read in an earlier statement uses the
+        // value, while `v(i) = v(i) + 1` is still an output; a field write `s(i).x = i` is
+        // one too, and a read of `s` after the loop uses it.
+        let lines = |source: &str, id: &str| -> Vec<usize> {
+            let tree = parse(source);
+            engine()
+                .check_parfor_file_level(&tree, source)
+                .iter()
+                .filter(|d| d.rule_id == id)
+                .map(|d| d.line)
+                .collect()
+        };
+        let read_first = "function f(n)\nv = zeros(1, n);\nparfor i = 1:n\n    x = v(i);\n    v(i) = x;\nend\nend\n";
+        assert!(lines(read_first, "PFOUS").is_empty());
+        let same_statement =
+            "function f(n)\nv = zeros(1, n);\nparfor i = 1:n\n    v(i) = v(i) + 1;\nend\nend\n";
+        assert_eq!(lines(same_statement, "PFOUS"), vec![4]);
+        let field = "function r = f(n)\nr = zeros(1, n);\ns = struct('x', cell(1, n));\nparfor i = 1:n\n    s(i).x = i;\nend\nend\n";
+        assert_eq!(lines(field, "PFOUS"), vec![5]);
+        let used = "function r = f(n)\nr = zeros(1, n);\ns = struct('x', cell(1, n));\nparfor i = 1:n\n    s(i).x = i;\nend\ndisp(s);\nend\n";
+        assert!(lines(used, "PFOUS").is_empty());
+    }
+
+    #[test]
+    fn test_pfiin_for_input_cleared_before_loop() {
+        // Probed (e_ii01, e_ii06): `clear k` before the loop makes `k` an input, reported
+        // as PFIIN at the read. An assignment after the clear sets it again.
+        let lines = |source: &str| -> Vec<usize> {
+            let tree = parse(source);
+            engine()
+                .check_parfor_file_level(&tree, source)
+                .iter()
+                .filter(|d| d.rule_id == "PFIIN")
+                .map(|d| d.line)
+                .collect()
+        };
+        let cleared = "function r = f(n)\nk = 1;\nclear k;\nr = zeros(1, n);\nparfor i = 1:n\n    r(i) = k;\nend\nend\n";
+        assert_eq!(lines(cleared), vec![6]);
+        let reset = "function r = f(n)\nk = 1;\nclear k;\nk = 3;\nr = zeros(1, n);\nparfor i = 1:n\n    r(i) = k;\nend\nend\n";
+        assert!(lines(reset).is_empty());
+    }
+
+    #[test]
+    fn test_pftusw_for_function_output_assigned_whole() {
+        // Probed (e_tw02, e_tw01): a function output assigned whole in the body is returned
+        // after the loop, so PFTUSW is reported on the assignment, naming the header line.
+        let eng = engine();
+        let whole = "function r = f(n)\nr = zeros(1, n);\nparfor i = 1:n\n    r = i;\nend\nend\n";
+        let tree = parse(whole);
+        let diags = eng.check_parfor_file_level(&tree, whole);
+        let pftusw: Vec<_> = diags.iter().filter(|d| d.rule_id == "PFTUSW").collect();
+        assert_eq!(pftusw.len(), 1, "got: {diags:?}");
+        assert_eq!(pftusw[0].line, 4);
+        assert!(
+            pftusw[0].message.contains("on line 1"),
+            "got: {}",
+            pftusw[0].message
+        );
+        // A sliced write is the output itself, not a temporary.
+        let sliced =
+            "function r = f(n)\nr = zeros(1, n);\nparfor i = 1:n\n    r(i) = i;\nend\nend\n";
+        let tree = parse(sliced);
+        assert!(eng
+            .check_parfor_file_level(&tree, sliced)
+            .iter()
+            .all(|d| d.rule_id != "PFTUSW"));
+    }
+
+    #[test]
+    fn test_pfuiwx_silent_for_read_after_loop() {
+        // Probed (e_ux02, e_ux04, e_tu12): a read of the index after the loop is PFUIXE at
+        // the loop header (bugs engine); MATLAB never reports PFUIXW.
         let source = "parfor i = 1:10\n    x(i) = i;\nend\ndisp(i);\n";
         let tree = parse(source);
         let eng = engine();
 
-        let ids = g2_file_ids_with(&eng, &tree, source, "PFUIXW");
-        assert_eq!(ids.len(), 1);
-        let diag = eng
-            .check_parfor_file_level(&tree, source)
-            .into_iter()
-            .find(|d| d.rule_id == "PFUIXW")
-            .unwrap();
-        assert!(diag.message.contains("on line 4"), "got: {}", diag.message);
+        assert!(g2_file_ids_with(&eng, &tree, source, "PFUIXW").is_empty());
     }
 
     #[test]
@@ -2837,7 +3062,7 @@ z = f(eval(x + y));\nonCleanup(@f);\n[~] = onCleanup(@f);\nc = computer('arch');
         let source = "parfor i = 1:2:10\n    evalin('base','x');\n    x(i) = i;\nend\ntmp = 0;\nparfor i = 1:10\n    tmp = compute(i);\n    x(i) = tmp;\nend\ndisp(tmp);\nparfor i = 1:10\n    x(i) = i;\nend\ndisp(i);\nspmd\n    d = distributed(zeros(100));\nend\n";
         let tree = parse(source);
         let ids = g2_collect_ids(&eng, &tree, source);
-        for must in ["PFRNI", "PFEVB", "PFTUSW", "PFUIXW", "DSPMDA"] {
+        for must in ["PFRNI", "PFEVB", "PFTUSW", "DSPMDA"] {
             assert!(ids.contains(&must), "{must} missing from: {ids:?}");
         }
     }

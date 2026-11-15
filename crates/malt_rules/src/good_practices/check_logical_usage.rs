@@ -15,14 +15,15 @@
 //! - BDSCI  — a reaching definition is non-scalar: a range, a matrix literal, a
 //!   char vector of two or more characters, a cell, or element-wise arithmetic.
 //! - BDLOG1 — a transposed condition or `&&`/`||` operand (`if a'`, `x && a'`).
-//! - BDLOG2 — a scalar numeric condition (see `check_bare_condition`).
+//! - BDLOG2 — an arithmetic operator (`+ - * / \ ^`) at the root of a condition or
+//!   `&&`/`||` operand, reported at the operator (`if z + 1`); the elementwise operators
+//!   (`.* ./ .^ .\`) give BDLOG1.
 //!
 //! All diagnostics are `Severity::Warning` and gated on `disabled_checks`.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::BTreeMap;
 
 use super::*;
-use crate::analysis::typing::{TypeEnv, TypeKind};
 
 /// Bound on the fixpoint iterations over a loop; the lattice is small, so the
 /// bound is only a safety net.
@@ -198,6 +199,7 @@ struct FlowWalker<'s> {
     want_lgi: bool,
     want_sci: bool,
     want_log1: bool,
+    want_log2: bool,
     /// The decision for each (position, check). A loop body is visited more than
     /// once, so the last visit, made with the converged state, wins.
     decided: BTreeMap<(usize, &'static str), Option<Diagnostic>>,
@@ -457,6 +459,7 @@ impl FlowWalker<'_> {
         if self.want_log1 && value.kind() == "postfix_operator" {
             self.log1(value);
         }
+        self.arithmetic_condition(operand);
 
         // BDLGI: the variable itself, through parentheses and `~`.
         let mut root = operand;
@@ -511,6 +514,66 @@ impl FlowWalker<'_> {
         self.decided.insert((ident.start_byte(), check), diag);
     }
 
+    /// An arithmetic operator at the root of a condition or `&&`/`||` operand, through
+    /// parentheses and the elementwise `&`/`|`. Probed on R2026b: `+ - * / \\ ^` give BDLOG2
+    /// at the operator (`if z + 1`, `if 2 * 3`, `if (z + 1) * 2` at the `*`), the elementwise
+    /// `.* ./ .^ .\\` give BDLOG1, and a comparison, a call, an index, a literal, a variable
+    /// or a unary operator gives neither.
+    fn arithmetic_condition(&mut self, operand: Node) {
+        let mut value = operand;
+        while value.kind() == "parenthesis" {
+            match first_named_child(value) {
+                Some(inner) => value = inner,
+                None => return,
+            }
+        }
+        if value.kind() != "binary_operator" {
+            return;
+        }
+        let Some(op) = operator_child(value) else {
+            return;
+        };
+        let text = self.text(op).to_string();
+        match text.as_str() {
+            "&" | "|" => {
+                for side in ["left", "right"] {
+                    if let Some(inner) = value.child_by_field_name(side) {
+                        self.arithmetic_condition(inner);
+                    }
+                }
+            }
+            "+" | "-" | "*" | "/" | "\\" | "^" if self.want_log2 => {
+                self.operator_diagnostic(op, "BDLOG2");
+            }
+            ".*" | "./" | ".^" | ".\\" if self.want_log1 => {
+                self.operator_diagnostic(op, "BDLOG1");
+            }
+            _ => {}
+        }
+    }
+
+    fn operator_diagnostic(&mut self, op: Node, id: &'static str) {
+        let pos = op.start_position();
+        let message = if id == "BDLOG2" {
+            "A scalar logical value is expected in the conditional expression. \
+             Use 'any' or 'all' to reduce the array to a logical scalar, or \
+             compare the scalar value to 0."
+        } else {
+            "A scalar logical value is expected in the conditional expression. \
+             Use 'any' or 'all' to reduce the array to a logical scalar."
+        };
+        let diag = Diagnostic {
+            rule_id: id,
+            message: message.to_string(),
+            severity: Severity::Warning,
+            byte_range: op.start_byte()..op.end_byte(),
+            line: pos.row + 1,
+            column: pos.column + 1,
+            fix: None,
+        };
+        self.decided.insert((op.start_byte(), id), Some(diag));
+    }
+
     /// BDLOG1 at the transpose operator of `value` (`a'`, `a.'`).
     fn log1(&mut self, value: Node) {
         let op_start = value
@@ -530,6 +593,15 @@ impl FlowWalker<'_> {
         };
         self.decided.insert((op_start, "BDLOG1"), Some(diag));
     }
+}
+
+/// The operator token of a binary operator: the anonymous child between its operands.
+fn operator_child(node: Node) -> Option<Node> {
+    let mut cursor = node.walk();
+    let found = node
+        .children(&mut cursor)
+        .find(|c| !c.is_named() && !c.is_extra());
+    found
 }
 
 /// The identifiers reached from a condition or operand through operators, in
@@ -631,14 +703,6 @@ fn subtree_has_kind(node: Node, kinds: &[&str]) -> bool {
         .any(|c| subtree_has_kind(c, kinds))
 }
 
-/// Per-name assignment classifications collected by scanning every assignment
-/// in the file. Each map records the classification of the *latest* assignment
-/// to the name, mirroring the type environment's last-assignment-wins rule.
-struct AssignmentClasses {
-    /// Names whose latest assignment RHS is a number literal.
-    scalar_literal: HashMap<String, bool>,
-}
-
 impl GoodPracticesEngine {
     /// BDLGI / BDLOG1 / BDLOG2 / BDSCI: logical-usage checks. BDLGI and BDSCI
     /// and BDLOG1 come from [`FlowWalker`]; BDLOG2 from the type environment.
@@ -655,43 +719,7 @@ impl GoodPracticesEngine {
             return Vec::new();
         }
 
-        let env = TypeEnv::build(tree, source);
         let mut diagnostics = Vec::new();
-
-        // ---- BDLOG2 pass 1: classify every simple-identifier assignment ----
-        let mut classes = AssignmentClasses {
-            scalar_literal: HashMap::new(),
-        };
-        let mut assignments = Vec::new();
-        collect_nodes_of_kind(tree.root_node(), "assignment", &mut assignments);
-        for assign in assignments {
-            let Some(lhs) = assign.child_by_field_name("left") else {
-                continue;
-            };
-            if lhs.kind() != "identifier" {
-                continue;
-            }
-            let name = node_text(lhs, source).to_string();
-            let Some(rhs) = assign.child_by_field_name("right") else {
-                continue;
-            };
-            classes.scalar_literal.insert(name, rhs.kind() == "number");
-        }
-
-        // ---- BDLOG2 pass 2: walk if/while/elseif condition expressions ----
-        let mut conditions = Vec::new();
-        collect_condition_expressions(tree.root_node(), &mut conditions);
-        for (cond, is_if_while) in conditions {
-            check_bare_condition(
-                cond,
-                is_if_while,
-                &env,
-                &classes,
-                source,
-                self,
-                &mut diagnostics,
-            );
-        }
 
         // ---- BDLGI, BDSCI, BDLOG1: flow-sensitive walk ----
         let mut walker = FlowWalker {
@@ -699,6 +727,7 @@ impl GoodPracticesEngine {
             want_lgi: self.is_check_enabled("BDLGI"),
             want_sci: self.is_check_enabled("BDSCI"),
             want_log1: self.is_check_enabled("BDLOG1"),
+            want_log2: self.is_check_enabled("BDLOG2"),
             decided: BTreeMap::new(),
         };
         let mut root = Flow {
@@ -709,79 +738,6 @@ impl GoodPracticesEngine {
         diagnostics.extend(walker.decided.into_values().flatten());
 
         diagnostics
-    }
-}
-
-/// Collect `(condition, is_if_while)` pairs: the condition of every
-/// `if_statement`, `while_statement` and `elseif_clause`, plus the switch
-/// expression of every `switch_statement` (with `is_if_while == false`).
-fn collect_condition_expressions<'a>(node: Node<'a>, out: &mut Vec<(Node<'a>, bool)>) {
-    match node.kind() {
-        "if_statement" | "while_statement" | "elseif_clause" => {
-            if let Some(cond) = first_named_child(node) {
-                out.push((cond, true));
-            }
-        }
-        "switch_statement" => {
-            if let Some(expr) = first_named_child(node) {
-                out.push((expr, false));
-            }
-        }
-        _ => {}
-    }
-    let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        if child.is_named() {
-            collect_condition_expressions(child, out);
-        }
-    }
-}
-
-/// BDLOG2 on a condition: a scalar numeric value that is not provably logical.
-/// Parentheses around a simple value are unwrapped so `if (x)` behaves like `if x`.
-fn check_bare_condition(
-    cond: Node,
-    is_if_while: bool,
-    env: &TypeEnv,
-    classes: &AssignmentClasses,
-    source: &str,
-    eng: &GoodPracticesEngine,
-    diagnostics: &mut Vec<Diagnostic>,
-) {
-    if !is_if_while || !eng.is_check_enabled("BDLOG2") {
-        return;
-    }
-    let mut value = cond;
-    while value.kind() == "parenthesis" {
-        match first_named_child(value) {
-            Some(inner) => value = inner,
-            None => return,
-        }
-    }
-    let pos = value.start_position();
-    let scalar = match value.kind() {
-        "identifier" => {
-            let name = node_text(value, source);
-            let info = env.type_of(name);
-            info.kind != TypeKind::Logical
-                && (info.scalar || classes.scalar_literal.get(name) == Some(&true))
-        }
-        "number" => true,
-        _ => false,
-    };
-    if scalar {
-        diagnostics.push(Diagnostic {
-            rule_id: "BDLOG2",
-            message: "A scalar logical value is expected in the conditional expression. \
-                      Use 'any' or 'all' to reduce the array to a logical scalar, or \
-                      compare the scalar value to 0."
-                .to_string(),
-            severity: Severity::Warning,
-            byte_range: value.start_byte()..value.end_byte(),
-            line: pos.row + 1,
-            column: pos.column + 1,
-            fix: None,
-        });
     }
 }
 
@@ -1108,17 +1064,67 @@ mod tests {
     // -- BDLOG2 -------------------------------------------------------------
 
     #[test]
-    fn test_bdlog2_fires_on_scalar_numeric_condition() {
-        let source = "x = 5;\nif x\n    y = 1;\nend\n";
-        let ids = logical_ids(source, "BDLOG2");
-        assert_eq!(ids.len(), 1, "got: {:?}", logical_ids(source, "BDLOG2"));
+    fn test_bdlog2_silent_for_numeric_variable_and_literal_conditions() {
+        // Probed on R2026b (-allmsg): `x = 5; if x`, `if 1`, `if 5`, `t = true; if t` and
+        // `while k` give no BDLOG2.
+        for source in [
+            "x = 5;\nif x\n    y = 1;\nend\n",
+            "if 1\n    y = 1;\nend\n",
+            "if 5\n    y = 1;\nend\n",
+            "t = true;\nif t\n    y = 1;\nend\n",
+        ] {
+            assert!(logical_ids(source, "BDLOG2").is_empty(), "{source:?}");
+        }
     }
 
     #[test]
-    fn test_bdlog2_fires_on_number_literal_condition() {
-        let source = "if 1\n    y = 1;\nend\n";
-        let ids = logical_ids(source, "BDLOG2");
-        assert_eq!(ids.len(), 1, "got: {:?}", logical_ids(source, "BDLOG2"));
+    fn test_bdlog2_fires_on_an_arithmetic_condition_at_the_operator() {
+        // Probed: `if z + 1` (column 6), `if z * 2`, `if z / 2`, `if z \\ 2`, `if z ^ 2`,
+        // `if 2 * 3`, `if 1 + 1`, `if z + a`, `if (z + 1)` (column 7) and `if (z + 1) * 2`
+        // (at the `*`, column 12).
+        for (source, column) in [
+            ("function f(z, a)\nif z + 1\nend\nend\n", 6),
+            ("function f(z, a)\nif z * 2\nend\nend\n", 6),
+            ("function f(z, a)\nif z / 2\nend\nend\n", 6),
+            ("function f(z, a)\nif z \\ 2\nend\nend\n", 6),
+            ("function f(z, a)\nif z ^ 2\nend\nend\n", 6),
+            ("function f(z, a)\nif 2 * 3\nend\nend\n", 6),
+            ("function f(z, a)\nif z + a\nend\nend\n", 6),
+            ("function f(z, a)\nif (z + 1)\nend\nend\n", 7),
+            ("function f(z, a)\nif (z + 1) * 2\nend\nend\n", 12),
+            ("function f(z, a)\nif 5 * 5 + z\nend\nend\n", 10),
+            ("function f(z, a)\nif z + 1 && z\nend\nend\n", 6),
+            ("function f(z, a)\nif z + 1 | z\nend\nend\n", 6),
+        ] {
+            assert_eq!(sites(source, "BDLOG2"), vec![(2, column)], "{source:?}");
+        }
+    }
+
+    #[test]
+    fn test_bdlog2_silent_for_other_condition_shapes() {
+        // Probed: unary minus, calls, indexing, comparisons, `~z` and `z & 1` give no BDLOG2.
+        for cond in [
+            "-z",
+            "numel(a)",
+            "a(1)",
+            "z == 1",
+            "z + 1 > 0",
+            "abs(z)",
+            "~z",
+            "z & 1",
+        ] {
+            let source = format!("function f(z, a)\nif {cond}\nend\nend\n");
+            assert!(logical_ids(&source, "BDLOG2").is_empty(), "{cond}");
+        }
+    }
+
+    #[test]
+    fn test_bdlog1_fires_on_an_elementwise_condition_at_the_operator() {
+        // Probed: `if z .* 2` and `if z ./ 2` (column 6) and `if z .^ 2` give BDLOG1.
+        for cond in ["z .* 2", "z ./ 2", "z .^ 2"] {
+            let source = format!("function f(z)\nif {cond}\nend\nend\n");
+            assert_eq!(sites(&source, "BDLOG1"), vec![(2, 6)], "{cond}");
+        }
     }
 
     #[test]

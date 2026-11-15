@@ -715,12 +715,14 @@ fn limit_parse_errors(diagnostics: &mut Vec<Diagnostic>) {
     });
 }
 
-/// The budget units one message uses against MATLAB's message limit. NOPTS
-/// counts three (probed: 3,334 NOPTS messages are kept, the 3,335th is cut and
-/// TMMSG added); every other message counts one.
+/// The budget units one message uses against MATLAB's message limit. NOPTS,
+/// FNDEF and INUSD count three (probed: 3,334 NOPTS messages are kept, the 3,335th
+/// is cut and TMMSG added; a function file with 10,500 unused assignments keeps
+/// 9,997 of them beside FNDEF). NASGU, UNRCH, AGROW, ALIGN, COMPNOT and COMPNOP
+/// count one, as do the IDs not probed.
 fn message_units(rule_id: &str) -> usize {
     match rule_id {
-        "NOPTS" => 3,
+        "NOPTS" | "FNDEF" | "INUSD" => 3,
         _ => 1,
     }
 }
@@ -1339,6 +1341,23 @@ mod statement_error_tests {
         limit_messages(&mut diags, "");
         assert_eq!(diags.len(), 3000);
         assert!(diags.iter().all(|d| d.rule_id == "NOPTS"));
+    }
+
+    #[test]
+    fn fndef_and_inusd_count_three_units_towards_the_matlab_limit() {
+        // MATLAB probe: a function file with 10,500 unused assignments keeps 9,997 of
+        // them beside FNDEF (3 units): 3 + 9,997 = 10,000. Also INUSD (3 units).
+        let mut diags = vec![diag("FNDEF", 0)];
+        diags.extend((1..=10_500).map(|i| diag("NASGU", i)));
+        limit_messages(&mut diags, "");
+        assert_eq!(diags.iter().filter(|d| d.rule_id == "NASGU").count(), 9997);
+        assert_eq!(diags.last().unwrap().rule_id, "TMMSG");
+
+        let mut diags = vec![diag("INUSD", 0), diag("FNDEF", 0)];
+        diags.extend((1..=9_994).map(|i| diag("NASGU", i)));
+        diags.push(diag("NASGU", 9_995));
+        limit_messages(&mut diags, "");
+        assert_eq!(diags.iter().filter(|d| d.rule_id == "NASGU").count(), 9_994);
     }
 
     fn diag(rule_id: &'static str, start: usize) -> Diagnostic {

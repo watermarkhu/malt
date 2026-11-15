@@ -19,12 +19,15 @@ impl FormattingEngine {
         if !frame.in_function || frame.in_parfor {
             return;
         }
+        // A bare `end` in brackets (`[end + 1];`) is a parse error that MATLAB recovers
+        // from as a statement without its semicolon: NOPRT, whatever the `;` (probed).
+        let bare_end = crate::syntax_errors::has_end_value_in_literal(node, source);
         // `a = 1:2:3:4` parses as a range followed by an ERROR node, and MATLAB
         // reports M3COL for the chain, not NOPRT.
-        if frame.following.first().is_some_and(|s| s.kind() == "ERROR") {
+        if !bare_end && frame.following.first().is_some_and(|s| s.kind() == "ERROR") {
             return;
         }
-        if semicolon_follows(node, frame.following.iter().copied(), source) {
+        if !bare_end && semicolon_follows(node, frame.following.iter().copied(), source) {
             return;
         }
         // An assignment that a line break splits before `-x`/`+x` is reported by
@@ -135,5 +138,17 @@ mod tests {
         let source = "x = 5\n";
         let diags = lint(source);
         assert!(!has_id(&diags, "NOPRT"), "got: {diags:?}");
+    }
+
+    #[test]
+    fn noprt_on_bare_end_statement_whatever_the_semicolon() {
+        // Probed: MATLAB reports NOPRT on `[end + 1];` and `{end};` in a function (its
+        // recovery drops the semicolon); a statement with no error and a semicolon is silent.
+        assert!(has_id(
+            &lint("function y = f()\n[end + 1];\nend\n"),
+            "NOPRT"
+        ));
+        assert!(has_id(&lint("function y = f()\n{end};\nend\n"), "NOPRT"));
+        assert!(!has_id(&lint("function f()\nx = [1 2];\nend\n"), "NOPRT"));
     }
 }

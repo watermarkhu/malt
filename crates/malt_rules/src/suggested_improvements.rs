@@ -138,6 +138,10 @@ struct SuggestedEntry {
     /// every assignment to it in its scope gives (`x = 5; year(x)`). A
     /// parameter or a value that is not a literal leaves the kind unknown.
     arg_through_variables: bool,
+    /// The argument at `arg_at`, when it is a variable, takes the kind of the one value
+    /// that reaches the call (`x = 'abc'; string(x)`). Two values, a parameter or a loop
+    /// variable leave the kind unknown (probed for STRQUOT).
+    arg_sole_value: bool,
     /// The argument at `arg_at` is a dotted release number at least this one
     /// (`verLessThan('matlab', '9.10')` with `9.9`). Other text, such as
     /// `'R2021a'`, does not match.
@@ -281,6 +285,8 @@ impl SuggestedEntry {
             vec!["text"]
         } else if self.arg_through_variables && arg.kind() == "identifier" {
             variable_kinds(*arg, source)
+        } else if self.arg_sole_value && arg.kind() == "identifier" {
+            sole_value_kinds(*arg, source)
         } else {
             argument_kinds(*arg, source).to_vec()
         };
@@ -320,7 +326,50 @@ pub(crate) fn argument_kinds(arg: tree_sitter::Node, source: &str) -> &'static [
         "string" if source[arg.byte_range()].starts_with('\'') => &["char", "text"],
         "string" => &["text"],
         "range" | "matrix" if is_number_expr(arg) => &["number"],
+        "unary_operator" if is_signed_number(arg, source) => &["signed_number"],
         _ => &[],
+    }
+}
+
+/// Whether `node` is a unary `+` or `-` of a number, or of a variable that holds only
+/// numbers (`year(-5)`, `year(-x)`). Probed: MATLAB reports TYEAR on these, but not
+/// DISPLAYPROG on `display(-3)` or `display(-x)`, so the kind is its own.
+fn is_signed_number(node: tree_sitter::Node, source: &str) -> bool {
+    if !source[node.byte_range()].starts_with(['-', '+']) {
+        return false;
+    }
+    let Some(operand) = node.named_child(0) else {
+        return false;
+    };
+    match operand.kind() {
+        "number" => true,
+        "identifier" => {
+            let kinds = variable_kinds(operand, source);
+            !kinds.is_empty() && kinds.iter().all(|k| *k == "number")
+        }
+        _ => false,
+    }
+}
+
+/// The kinds of the one value that reaches the variable `ident` in a function
+/// (`x = 'abc'; string(x)`). Probed: STRQUOT is silent in a script (`x = 'abc';
+/// string(x)`), when the value is one of two (`if c, x = 'def'; end`), and for a
+/// parameter or a number.
+fn sole_value_kinds(ident: tree_sitter::Node, source: &str) -> Vec<&'static str> {
+    let mut current = ident.parent();
+    let in_function = loop {
+        match current {
+            Some(node) if node.kind() == "function_definition" => break true,
+            Some(node) => current = node.parent(),
+            None => break false,
+        }
+    };
+    if !in_function {
+        return Vec::new();
+    }
+    match resolved_values(ident, source) {
+        Some(values) if values.len() == 1 => argument_kinds(values[0], source).to_vec(),
+        _ => Vec::new(),
     }
 }
 
@@ -1550,6 +1599,47 @@ mod tests {
     fn string_of_one_text_argument() {
         assert_eq!(rule_ids("s = string('abc');\n"), vec!["STRQUOT"]);
         assert!(rule_ids("s = string('abc', 'def');\n").is_empty());
+    }
+
+    #[test]
+    fn string_of_variable_with_one_text_value_in_a_function() {
+        // Probed: `x = 'abc'; y = string(x)` is reported in a function, also after a
+        // reassignment; silent in a script, after a conditional write, for a parameter
+        // and for a number.
+        let in_fn = |body: &str| format!("function y = f(p)\n{body}\nend\n");
+        assert_eq!(
+            rule_ids(&in_fn("x = 'abc';\ny = string(x);")),
+            vec!["STRQUOT"]
+        );
+        assert_eq!(
+            rule_ids(&in_fn("x = 'abc';\nx = 'def';\ny = string(x);")),
+            vec!["STRQUOT"]
+        );
+        assert!(rule_ids("x = 'abc';\ns = string(x);\n").is_empty());
+        assert!(rule_ids(&in_fn(
+            "x = 'abc';\nif p\n    x = 'def';\nend\ny = string(x);"
+        ))
+        .is_empty());
+        assert!(rule_ids(&in_fn("y = string(p);")).is_empty());
+        assert!(rule_ids(&in_fn("x = 3;\ny = string(x);")).is_empty());
+    }
+
+    #[test]
+    fn signed_numbers_for_the_date_functions_but_not_display() {
+        // Probed: TYEAR and TMNUT on a signed number or a variable holding a number
+        // (`year(-5)`, `year(- 5)`, `year(+x)`, `minute(-5)`); DISPLAYPROG is silent on
+        // `display(-3)`, `display(+3)` and `display(-x)`; a parameter is not known.
+        assert_eq!(rule_ids("y = year(-5);\n"), vec!["TYEAR"]);
+        assert_eq!(rule_ids("y = year(- 5);\n"), vec!["TYEAR"]);
+        assert_eq!(rule_ids("y = year(-5.5);\n"), vec!["TYEAR"]);
+        assert_eq!(rule_ids("x = 5;\ny = year(+x);\n"), vec!["TYEAR"]);
+        assert_eq!(rule_ids("x = -5;\ny = year(x);\n"), vec!["TYEAR"]);
+        assert_eq!(rule_ids("y = minute(-5);\n"), vec!["TMNUT"]);
+        assert!(rule_ids("display(-3);\n").is_empty());
+        assert!(rule_ids("display(+3);\n").is_empty());
+        assert!(rule_ids("x = 3;\ndisplay(-x);\n").is_empty());
+        assert!(rule_ids("function y = f(p)\ny = year(-p);\nend\n").is_empty());
+        assert!(rule_ids("y = weekday(-5);\n").is_empty());
     }
 
     #[test]

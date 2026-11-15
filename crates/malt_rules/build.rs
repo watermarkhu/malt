@@ -85,6 +85,7 @@ const SUGGESTED_FIELDS: &[Field] = &[
     ("arg_text", Str, false),
     ("not_with_call", Str, false),
     ("arg_through_variables", Bool, false),
+    ("arg_sole_value", Bool, false),
     ("version_at_least", Str, false),
     ("within_parfor", Bool, false),
     ("not_in_call", Str, false),

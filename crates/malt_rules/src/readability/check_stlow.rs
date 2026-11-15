@@ -8,7 +8,9 @@ use super::*;
 
 impl ReadabilityEngine {
     /// STLOW: `strcmpi`/`strncmpi` with an `upper`/`lower` call as a compared
-    /// argument (the first two arguments).
+    /// argument (the first two arguments). `strcmp` and `strncmp` are reported only
+    /// against a literal without letters (`strcmp(lower(b), '1-2')`, probed); with a
+    /// letter in the literal the case verdict is STCI or STCUL instead.
     pub(crate) fn check_stlow(
         &self,
         node: tree_sitter::Node,
@@ -18,7 +20,12 @@ impl ReadabilityEngine {
         if !self.is_check_enabled("STLOW") {
             return;
         }
-        for arg in call_args(node).into_iter().take(2) {
+        let args = call_args(node);
+        let case_insensitive = matches!(call_name(node, source), Some("strcmpi" | "strncmpi"));
+        if !case_insensitive && !args.iter().take(2).any(|a| letterless_literal(*a, source)) {
+            return;
+        }
+        for arg in args.into_iter().take(2) {
             if arg.kind() != "function_call"
                 || !matches!(call_name(arg, source), Some("upper" | "lower"))
             {
@@ -38,6 +45,13 @@ impl ReadabilityEngine {
             ));
         }
     }
+}
+
+/// A single-quoted literal with no letters (`'1-2'`, `''`), which a case conversion
+/// cannot change. A double-quoted string is not one: MATLAB reports it as STCI.
+fn letterless_literal(node: tree_sitter::Node, source: &str) -> bool {
+    let text = &source[node.start_byte()..node.end_byte()];
+    node.kind() == "string" && text.starts_with('\'') && !text.chars().any(char::is_alphabetic)
 }
 
 #[cfg(test)]

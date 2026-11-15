@@ -286,8 +286,11 @@ impl ReadabilityEngine {
         };
 
         match func_name {
-            "strcmp" => self.check_class_compare(node, source, results),
-            "strcmpi" | "strncmpi" => self.check_stlow(node, source, results),
+            "strcmp" => {
+                self.check_class_compare(node, source, results);
+                self.check_stlow(node, source, results);
+            }
+            "strcmpi" | "strncmpi" | "strncmp" => self.check_stlow(node, source, results),
             "isempty" => self.check_isempty_strfind(node, source, results),
             "cellfun" => self.check_cellfun_strfind(node, source, results),
             "strfind" => self.check_strfind_condition(node, source, results),

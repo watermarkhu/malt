@@ -56,7 +56,11 @@
 
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
+use std::ops::Range;
+
 use tree_sitter::{Node, Tree};
+
+use super::reaching::resolved_values;
 
 // ---------------------------------------------------------------------------
 // Unreachable code types
@@ -276,6 +280,9 @@ fn contains_loop_break(node: Node) -> bool {
 /// each block is memoised (see [`first_terminator`]). A block of n statements
 /// costs one scan, not one scan per statement.
 pub fn in_unreachable_code(node: Node, source: &str) -> bool {
+    if in_dead_constant_region(node, source) {
+        return true;
+    }
     let mut statement = node;
     while let Some(parent) = statement.parent() {
         if matches!(parent.kind(), "block" | "source_file") {
@@ -289,6 +296,57 @@ pub fn in_unreachable_code(node: Node, source: &str) -> bool {
     // A statement is unreachable when a terminating statement comes before it.
     first_terminator(block, source)
         .is_some_and(|at| at < statement.start_byte() - block.start_byte())
+}
+
+/// Whether `node` lies in a dead clause of a constant condition (`c = true; if c ...
+/// else ... end` makes the `else` dead). MATLAB does not analyse such code, so the
+/// checks that use [`in_unreachable_code`] stay silent there.
+fn in_dead_constant_region(node: Node, source: &str) -> bool {
+    let mut root = node;
+    while let Some(parent) = root.parent() {
+        root = parent;
+    }
+    let epoch = malt_core::parse_epoch();
+    let stale = DEAD_REGIONS.with(|memo| memo.borrow().epoch != Some(epoch));
+    if stale {
+        let mut regions = crate::unused::dead_constant_regions(root, source);
+        regions.sort_by_key(|r| r.start);
+        let mut reach = 0;
+        let max_end = regions
+            .iter()
+            .map(|r| {
+                reach = reach.max(r.end);
+                reach
+            })
+            .collect();
+        DEAD_REGIONS.with(|memo| {
+            *memo.borrow_mut() = DeadRegions {
+                epoch: Some(epoch),
+                regions,
+                max_end,
+            }
+        });
+    }
+    let offset = node.start_byte();
+    DEAD_REGIONS.with(|memo| {
+        let memo = memo.borrow();
+        let found = memo.regions.partition_point(|r| r.start <= offset);
+        found > 0 && memo.max_end[found - 1] > offset
+    })
+}
+
+thread_local! {
+    /// Dead clauses of the current parse, see [`in_dead_constant_region`].
+    static DEAD_REGIONS: RefCell<DeadRegions> = RefCell::new(DeadRegions::default());
+}
+
+/// The dead clauses of one parse, sorted by start, with the furthest end among those
+/// that start at or before each one (so a containing region is found by search).
+#[derive(Default)]
+struct DeadRegions {
+    epoch: Option<u64>,
+    regions: Vec<Range<usize>>,
+    max_end: Vec<usize>,
 }
 
 thread_local! {
@@ -347,6 +405,54 @@ fn ends_control_flow(statement: Node, source: &str) -> bool {
         _ => None,
     };
     callee.is_some_and(|c| node_text(c, source) == "error")
+        && error_call_always_throws(statement, source)
+}
+
+/// Whether an `error` call always throws. Its first argument is not a variable, or
+/// the call has one argument whose every value is certain text (a non-empty literal or
+/// `sprintf`). An unknown message may be empty, and `error` then does nothing (probed:
+/// `msg = 'abc'; error(msg)` leaves the next statement unreached, a parameter `msg`
+/// does not).
+pub fn error_call_always_throws(call: Node, source: &str) -> bool {
+    let args = call_argument_nodes(call);
+    let Some(first) = args.first() else {
+        return true;
+    };
+    if first.kind() != "identifier" {
+        return true;
+    }
+    args.len() == 1
+        && resolved_values(*first, source)
+            .is_some_and(|values| values.iter().all(|v| certain_text(*v, source)))
+}
+
+/// The argument nodes of a `function_call` or a `command`, without comments.
+pub(crate) fn call_argument_nodes(call: Node) -> Vec<Node> {
+    if call.kind() == "command" {
+        return named_children(call)
+            .into_iter()
+            .skip(1)
+            .filter(|c| c.kind() != "comment")
+            .collect();
+    }
+    let arguments = named_children(call)
+        .into_iter()
+        .find(|c| c.kind() == "arguments");
+    arguments.map(named_children).unwrap_or_default()
+}
+
+/// Text that `error` always throws with: a non-empty single-quoted literal or `sprintf`.
+fn certain_text(node: Node, source: &str) -> bool {
+    match node.kind() {
+        "string" => {
+            let text = node_text(node, source);
+            text.len() > 2 && text.starts_with('\'')
+        }
+        "function_call" => node
+            .child_by_field_name("name")
+            .is_some_and(|name| node_text(name, source) == "sprintf"),
+        _ => false,
+    }
 }
 
 /// For a single `block` node, find the first terminating statement and mark

@@ -14,7 +14,9 @@ impl ReadabilityEngine {
         source: &str,
         results: &mut Vec<Diagnostic>,
     ) {
-        if !self.is_check_enabled("NBRAK2") {
+        if !self.is_check_enabled("NBRAK2")
+            || crate::syntax_errors::has_end_value_in_literal(node, source)
+        {
             return;
         }
 
