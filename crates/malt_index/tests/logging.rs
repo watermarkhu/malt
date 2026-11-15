@@ -29,6 +29,9 @@ impl Log for Capture {
 
 static CAPTURE: Capture = Capture;
 
+/// The tests share the global logger and its records, so they run one at a time.
+static SERIAL: Mutex<()> = Mutex::new(());
+
 fn install() {
     let _ = log::set_logger(&CAPTURE);
     log::set_max_level(LevelFilter::Trace);
@@ -40,6 +43,7 @@ fn take() -> Vec<(Level, String)> {
 
 #[test]
 fn parsing_logs_a_debug_record_and_recovered_syntax_errors_warn() {
+    let _serial = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
     install();
     let dir = std::env::temp_dir().join(format!("malt-log-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
@@ -69,6 +73,7 @@ fn parsing_logs_a_debug_record_and_recovered_syntax_errors_warn() {
 
 #[test]
 fn an_unreadable_path_warns_and_is_kept_as_an_error() {
+    let _serial = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
     install();
     let missing = std::env::temp_dir().join("malt-log-no-such-folder-xyz");
     take();

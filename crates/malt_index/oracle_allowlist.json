@@ -141,5 +141,15 @@
     "project": "live-text",
     "field": "sections.count",
     "reason": "The section count follows from the split above: one maxx cell is one or more malt runs."
+  },
+  {
+    "project": "live-real",
+    "field": "sections.*",
+    "reason": "maxx only treats the paragraph style matlab-Code as code, but MATLAB writes the style code (code in CDATA), so maxx reads a whole real .mlx as one text section with the code lines inside. The index reads code paragraphs as code."
+  },
+  {
+    "project": "live-real",
+    "field": "sections.count",
+    "reason": "Follows from the code-style difference above."
   }
 ]

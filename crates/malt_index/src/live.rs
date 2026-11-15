@@ -170,6 +170,13 @@ fn paragraphs_of_xml(xml: &[u8]) -> Result<Vec<(SectionKind, String)>, quick_xml
                     paragraph.1.push_str(&text);
                 }
             }
+            Event::CData(c) if in_text => {
+                if let Some(paragraph) = current.as_mut() {
+                    paragraph
+                        .1
+                        .push_str(&String::from_utf8_lossy(&c.into_inner()));
+                }
+            }
             Event::End(e) => {
                 let name = e.local_name();
                 match name.as_ref() {
@@ -190,11 +197,13 @@ fn paragraphs_of_xml(xml: &[u8]) -> Result<Vec<(SectionKind, String)>, quick_xml
     Ok(paragraphs)
 }
 
-/// Whether a `pStyle` element names the code style (`matlab-Code`).
+/// Whether a `pStyle` element names a code style: `code` (written by MATLAB) or
+/// `matlab-Code`.
 fn style_is_code(e: &quick_xml::events::BytesStart) -> bool {
-    e.attributes()
-        .flatten()
-        .any(|a| a.key.local_name().as_ref() == b"val" && a.value.as_ref() == b"matlab-Code")
+    e.attributes().flatten().any(|a| {
+        a.key.local_name().as_ref() == b"val"
+            && matches!(a.value.as_ref(), b"code" | b"matlab-Code")
+    })
 }
 
 /// Group paragraphs into runs of one kind. Empty paragraphs add nothing, and runs

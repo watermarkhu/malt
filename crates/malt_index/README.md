@@ -354,3 +354,11 @@ The sample project under `tests/project` is written for these tests.
   (`export` or `matlab.desktop.editor`). Unknown markers are treated as output blocks.
 - No section-level line spans for a `.mlx`, and no docstrings for live scripts.
 - `events` blocks are still not entities.
+
+## Real `.mlx` files
+
+MATLAB writes code paragraphs with the style `code` (text in CDATA); maxx's own test file uses
+`matlab-Code`. The reader accepts both. Checked on the three real MATLAB-made `.mlx` files in the
+maxx checkout (advanced-logger `GettingStarted.mlx` and `CustomizingLogger.mlx`): the sections
+alternate text and code. maxx reads such a file as one text section (allowlist project
+`live-real`).

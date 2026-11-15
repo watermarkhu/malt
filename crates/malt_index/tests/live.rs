@@ -69,6 +69,24 @@ fn mlx_paragraphs_group_into_text_and_code_runs() {
 }
 
 #[test]
+fn mlx_as_written_by_matlab_has_code_style_and_cdata() {
+    let document = r#"<w:document xmlns:w="w"><w:body>
+<w:p><w:pPr><w:pStyle w:val="text"/></w:pPr><w:r><w:t>Create it:</w:t></w:r></w:p>
+<w:p><w:pPr><w:pStyle w:val="code"/></w:pPr><w:r><w:t><![CDATA[a = 1;
+b = "x";]]></w:t></w:r></w:p>
+<w:p><w:pPr><w:pStyle w:val="text"/></w:pPr><w:r><w:t></w:t></w:r></w:p>
+</w:body></w:document>"#;
+    let entity = parse_live_bytes(Path::new("Real.mlx"), &mlx(document), false).unwrap();
+    assert_eq!(
+        sections(&entity),
+        [
+            (SectionKind::Text, "Create it:".to_string()),
+            (SectionKind::Code, "a = 1;\nb = \"x\";".to_string()),
+        ]
+    );
+}
+
+#[test]
 fn mlx_without_namespace_prefixes_is_read_too() {
     let plain = r#"<document><body><p><pPr><pStyle val="matlab-Code"/></pPr><r><t>z = 3;</t></r></p></body></document>"#;
     let entity = parse_live_bytes(Path::new("Plain.mlx"), &mlx(plain), false).unwrap();
