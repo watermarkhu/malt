@@ -9,7 +9,7 @@ impl CodegenEngine {
     ) -> Vec<Diagnostic> {
         let mut diags = Vec::new();
 
-        let func_name = match extract_func_name(node, source) {
+        let func_name = match call_path(node, source, Dotted::Trailing) {
             Some(n) => n,
             None => return diags,
         };

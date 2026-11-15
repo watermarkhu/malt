@@ -65,9 +65,9 @@ use std::sync::LazyLock;
 
 use malt_core::{Category, Config, Diagnostic, NodeContext, Rule, Severity};
 
+use crate::analysis::callee::{self, call_path, reference_name, Dotted, Visibility};
 use crate::analysis::reaching::resolved_values;
-use crate::analysis::symbols::{is_field_name, ScopeKind, SymbolTable};
-use crate::compatibility::reference_name;
+use crate::analysis::symbols::{is_field_name, SymbolTable};
 
 // ---------------------------------------------------------------------------
 // Data types for TOML deserialization
@@ -320,8 +320,10 @@ pub(crate) fn argument_kinds(arg: tree_sitter::Node, source: &str) -> &'static [
         "number" => &["number"],
         "cell" if is_char_literal_cell(arg, source) => &["cell", "char_cell"],
         "cell" => &["cell"],
-        "function_call" if call_name_is(arg, source, "cell") => &["cell"],
-        "function_call" if call_name_is(arg, source, "struct") => &["struct"],
+        "function_call" if call_path(arg, source, Dotted::Trailing) == Some("cell") => &["cell"],
+        "function_call" if call_path(arg, source, Dotted::Trailing) == Some("struct") => {
+            &["struct"]
+        }
         "function_handle" | "handle_operator" => &["handle"],
         "string" if source[arg.byte_range()].starts_with('\'') => &["char", "text"],
         "string" => &["text"],
@@ -402,12 +404,6 @@ fn char_literals_only(node: tree_sitter::Node, source: &str, count: &mut usize) 
     true
 }
 
-/// Whether the function call `node` calls `name`.
-fn call_name_is(node: tree_sitter::Node, source: &str, name: &str) -> bool {
-    node.child_by_field_name("name")
-        .is_some_and(|callee| &source[callee.byte_range()] == name)
-}
-
 /// Whether the statement that holds `node` also calls `name`. For a call in an
 /// `if` header (or an `elseif` condition) the header is every condition of that
 /// `if`, not its bodies: `if iscellstr(x) || isstring(x)` holds `isstring`.
@@ -430,7 +426,7 @@ fn statement_calls(node: tree_sitter::Node, source: &str, name: &str) -> bool {
 /// Whether `node` or a descendant calls `name`; with `skip_blocks`, the bodies
 /// (`block` nodes) are not searched.
 fn calls_named(node: tree_sitter::Node, source: &str, name: &str, skip_blocks: bool) -> bool {
-    if node.kind() == "function_call" && call_name_is(node, source, name) {
+    if node.kind() == "function_call" && call_path(node, source, Dotted::Trailing) == Some(name) {
         return true;
     }
     let mut cursor = node.walk();
@@ -794,7 +790,7 @@ impl Rule for SuggestedImprovementsEngine {
             return Vec::new();
         }
 
-        let func_name = match extract_func_name(node, ctx.source) {
+        let func_name = match checked_name(node, ctx.source) {
             Some(name) => name,
             None => return Vec::new(),
         };
@@ -818,7 +814,14 @@ impl Rule for SuggestedImprovementsEngine {
         // A variable of the name shadows the function, except in command syntax with
         // arguments, where only the entries marked `shadowed_command` still report.
         // A bare name parses as a command too, so it needs an argument.
-        if !applicable.is_empty() && is_shadowed(node, func_name, ctx.source) {
+        if !applicable.is_empty()
+            && callee::is_shadowed(
+                node,
+                func_name,
+                &SymbolTable::shared(|| root_of(node), ctx.source),
+                Visibility::WithScript,
+            )
+        {
             let command_call = node.kind() == "command" && !args.is_empty();
             applicable.retain(|entry| command_call && entry.shadowed_command);
         }
@@ -852,21 +855,11 @@ impl Rule for SuggestedImprovementsEngine {
 /// and dotted names like `sigwin.hamming`).
 ///
 /// For `command`: extracts the first child (the command name).
-fn extract_func_name<'a>(node: tree_sitter::Node<'a>, source: &'a str) -> Option<&'a str> {
+fn checked_name<'a>(node: tree_sitter::Node<'a>, source: &'a str) -> Option<&'a str> {
     match node.kind() {
-        "function_call" => {
-            let name_node = node.child_by_field_name("name")?;
-            // `sigwin.hamming(n)`: the call is the trailing member of a dotted
-            // expression, so match the whole package path. A variable in front
-            // (`s.isdir(x)`) yields a path that matches no entry.
-            let start = match node.parent() {
-                Some(parent) if crate::analysis::symbols::is_qualified_call(node) => {
-                    parent.named_child(0)?.start_byte()
-                }
-                _ => name_node.start_byte(),
-            };
-            Some(&source[start..name_node.end_byte()])
-        }
+        // `sigwin.hamming(n)` matches the whole package path; a variable in front
+        // (`s.isdir(x)`) yields a path that matches no entry.
+        "function_call" => call_path(node, source, Dotted::Whole),
         "identifier" => Some(&source[node.start_byte()..node.end_byte()]),
         // `pkg.f` as a statement or the value of an assignment, or `@pkg.f`: a
         // reference to the function, not a call (`pkg.f(x)` is a function_call).
@@ -922,26 +915,6 @@ fn root_of(node: tree_sitter::Node) -> tree_sitter::Node {
         root = parent;
     }
     root
-}
-
-/// Whether a name is shadowed where `node` uses it: a variable of that name in
-/// its scope, or a local function. MATLAB then uses that, not the function.
-/// Dotted names are never shadowed.
-fn is_shadowed(node: tree_sitter::Node, name: &str, source: &str) -> bool {
-    if name.contains('.') {
-        return false;
-    }
-    let table = SymbolTable::shared(|| root_of(node), source);
-    // A script variable also shadows the function inside an anonymous function
-    // (`f = @() isdir(p)`), which has a scope of its own.
-    table.root_scope().is_defined(name)
-        || table
-            .scope_at(node.start_byte())
-            .is_some_and(|scope| scope.is_defined(name))
-        || table.function_scopes().iter().any(|scope| {
-            matches!(scope.kind, ScopeKind::Function | ScopeKind::LocalFunction)
-                && scope.name == name
-        })
 }
 
 // ---------------------------------------------------------------------------

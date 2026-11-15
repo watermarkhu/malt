@@ -387,25 +387,14 @@ impl LanguageSpecEngine {
         while let Some(node) = stack.pop() {
             if node.kind() == "arguments_statement" {
                 if let Some(attrs_node) = find_child_kind(node, "attributes") {
-                    let mut assigned = Vec::new();
-                    let mut cursor = attrs_node.walk();
-                    for child in attrs_node.children(&mut cursor) {
-                        match child.kind() {
-                            // `Input = value` is an `attribute` with a value child.
-                            "attribute" if child.named_child_count() > 1 => {
-                                if let Some(name) = child.named_child(0) {
-                                    assigned.push(node_text(name, source).to_string());
-                                }
-                            }
-                            "not_operator" => {
-                                let text = node_text(child, source);
-                                assigned.push(text.trim_start_matches('~').trim().to_string());
-                            }
-                            _ => {}
-                        }
-                    }
-                    let is_io = |n: &String| n == "Input" || n == "Output";
-                    if assigned.iter().any(is_io) && self.is_check_enabled("ATLAB") {
+                    // `Input = value` has a value; `~Output` is negated.
+                    let assigned = attribute_entries(attrs_node, source, AttrForms::Written)
+                        .iter()
+                        .any(|attr| {
+                            (attr.value.is_some() || attr.negated)
+                                && (attr.name == "Input" || attr.name == "Output")
+                        });
+                    if assigned && self.is_check_enabled("ATLAB") {
                         self.push_diag(
                             attrs_node,
                             "ATLAB",

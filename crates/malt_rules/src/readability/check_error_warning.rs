@@ -21,7 +21,7 @@ impl ReadabilityEngine {
             return;
         }
         let inner = args[0];
-        match call_name(inner, source) {
+        match call_path(inner, source, Dotted::Skip) {
             Some("sprintf") => {
                 if !self.is_check_enabled(check_id) {
                     return;

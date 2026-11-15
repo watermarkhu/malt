@@ -63,6 +63,7 @@
 mod check_command;
 mod check_function_call;
 
+use crate::analysis::callee::{call_path, command_path, Dotted};
 use malt_core::{Category, Config, Diagnostic, NodeContext, Rule, Severity};
 use serde::Deserialize;
 
@@ -254,34 +255,6 @@ pub(crate) fn make_diag(check_id: &'static str, node: tree_sitter::Node) -> Diag
 /// Extract the raw text of a node.
 fn node_text<'a>(node: tree_sitter::Node<'a>, source: &'a str) -> &'a str {
     &source[node.start_byte()..node.end_byte()]
-}
-
-/// Extract function name from a `function_call` node.
-pub(crate) fn extract_func_name<'a>(
-    node: tree_sitter::Node<'a>,
-    source: &'a str,
-) -> Option<&'a str> {
-    if node.kind() != "function_call" {
-        return None;
-    }
-    let name_node = node.child_by_field_name("name")?;
-    Some(&source[name_node.start_byte()..name_node.end_byte()])
-}
-
-/// Extract command name from a `command` node.
-pub(crate) fn extract_command_name<'a>(
-    node: tree_sitter::Node<'a>,
-    source: &'a str,
-) -> Option<&'a str> {
-    if node.kind() != "command" {
-        return None;
-    }
-    let name_node = node.child(0)?;
-    if name_node.kind() == "command_name" {
-        Some(&source[name_node.start_byte()..name_node.end_byte()])
-    } else {
-        None
-    }
 }
 
 // ---------------------------------------------------------------------------

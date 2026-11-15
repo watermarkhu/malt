@@ -14,6 +14,7 @@
 //!   `'DirectFeedthrough'`, `'NumReflections'`, `'UseHG2'`).
 
 use super::super::CompatibilityEngine;
+use crate::analysis::metadata::{attribute_entries, AttrForms};
 use malt_core::{Diagnostic, Severity};
 use tree_sitter::Node;
 
@@ -137,26 +138,11 @@ fn attribute_names(node: Node, source: &str) -> Vec<String> {
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
         if child.kind() == "attributes" {
-            for name in attribute_names_in(child, source) {
-                out.push(name);
-            }
-        }
-    }
-    out
-}
-
-/// Extract attribute names from an `attributes` node's `attribute` children.
-fn attribute_names_in(attrs: Node, source: &str) -> Vec<String> {
-    let mut out = Vec::new();
-    let mut cursor = attrs.walk();
-    for child in attrs.children(&mut cursor) {
-        if child.kind() == "attribute" {
-            if let Some(id) = child
-                .children(&mut child.walk())
-                .find(|c| c.kind() == "identifier")
-            {
-                out.push(source[id.start_byte()..id.end_byte()].to_string());
-            }
+            out.extend(
+                attribute_entries(child, source, AttrForms::Named)
+                    .into_iter()
+                    .map(|attr| attr.name),
+            );
         }
     }
     out

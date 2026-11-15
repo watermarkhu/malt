@@ -26,7 +26,7 @@ impl UnsupportedEngine {
         {
             return diags;
         }
-        let Some(func_name) = extract_func_name(node, source) else {
+        let Some(func_name) = call_path(node, source, Dotted::Trailing) else {
             return diags;
         };
 
@@ -56,7 +56,7 @@ impl UnsupportedEngine {
             match child.kind() {
                 "identifier" => segs.push(node_text(child, source)),
                 "function_call" => {
-                    if let Some(n) = extract_func_name(child, source) {
+                    if let Some(n) = call_path(child, source, Dotted::Trailing) {
                         segs.push(n);
                     }
                     break;

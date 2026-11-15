@@ -126,8 +126,8 @@ use malt_core::{Category, Config, Diagnostic, FileContext, Fix, NodeContext, Rul
 use serde::Deserialize;
 use tree_sitter::Node;
 
+use crate::analysis::callee::{call_path, Dotted};
 use crate::analysis::control_flow::{in_unreachable_code, is_split_statement_continuation};
-use crate::analysis::elementwise::call_name;
 use crate::analysis::reaching::reaching_values;
 use crate::analysis::symbols::SymbolTable;
 use crate::readability::is_variable_defined_before;
@@ -552,7 +552,7 @@ impl BugsEngine {
                 // literal (`max = 3; [~, idx] = max(y)` shadows the function).
                 let indexed_variable = || {
                     rhs.kind() == "function_call"
-                        && call_name(rhs, source)
+                        && call_path(rhs, source, Dotted::Trailing)
                             .is_some_and(|name| variable_holds_numeric_literal(rhs, name, source))
                         && !in_unreachable_code(node, source)
                 };

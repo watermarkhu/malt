@@ -423,14 +423,6 @@ pub(crate) fn dead_constant_regions(root: Node, source: &str) -> Vec<std::ops::R
     regions
 }
 
-pub(crate) fn dead_regions(tree: &tree_sitter::Tree, source: &str) -> Vec<std::ops::Range<usize>> {
-    let mut regions = unreachable_regions(tree, source);
-    let table = SymbolTable::shared(|| tree.root_node(), source);
-    let truths = constant_truths(&table, tree.root_node(), source);
-    collect_dead_constant_regions(tree.root_node(), source, &truths, &mut regions);
-    regions
-}
-
 fn collect_dead_constant_regions(
     node: Node,
     source: &str,

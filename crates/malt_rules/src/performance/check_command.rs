@@ -11,7 +11,7 @@ impl PerformanceEngine {
     ) -> Vec<Diagnostic> {
         let mut diags = Vec::new();
 
-        let cmd_name = match extract_command_name(node, source) {
+        let cmd_name = match command_path(node, source) {
             Some(n) => n,
             None => return diags,
         };

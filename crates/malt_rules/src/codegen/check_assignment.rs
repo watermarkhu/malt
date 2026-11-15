@@ -2,7 +2,7 @@ use super::*;
 
 /// Whether `node` is a call to the function `name`.
 fn is_call_to(node: tree_sitter::Node, source: &str, name: &str) -> bool {
-    extract_func_name(node, source) == Some(name)
+    call_path(node, source, Dotted::Trailing) == Some(name)
 }
 
 impl CodegenEngine {

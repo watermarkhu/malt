@@ -78,7 +78,7 @@ use malt_core::{Category, Config, Diagnostic, FileContext, Rule, Severity};
 use serde::Deserialize;
 use tree_sitter::Node;
 
-pub(crate) use check_unrch::{dead_constant_regions, dead_regions};
+pub(crate) use check_unrch::dead_constant_regions;
 
 use crate::analysis::control_flow::find_unreachable;
 use crate::analysis::symbols::{DefKind, ScopeKind, SymbolTable};

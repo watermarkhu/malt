@@ -6,9 +6,12 @@
 //! - [`typing`]: Conservative one-pass type inference for variables.
 
 pub mod ancestors;
+pub(crate) mod callee;
+pub mod command;
 pub mod control_flow;
 pub mod elementwise;
 pub mod liveness;
+pub(crate) mod maybe_defined;
 pub mod metadata;
 pub mod reaching;
 pub mod strcase;

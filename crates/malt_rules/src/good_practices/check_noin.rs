@@ -1,5 +1,5 @@
 use super::*;
-use crate::analysis::metadata::AttributeMeta;
+use crate::analysis::metadata::{AttributeMeta, Attributes};
 
 impl GoodPracticesEngine {
     /// NOIN: A non-static class method declares no input arguments, so it can
@@ -74,9 +74,7 @@ fn name_column(source: &str, line: usize, name: &str) -> usize {
 /// `Static = true` or `Static = 1`. MATLAB does not evaluate other values
 /// (`FALSE`, `0`, `TRUE`) and treats the block as not static (probed).
 fn is_static(attributes: &[AttributeMeta]) -> bool {
-    attributes
-        .iter()
-        .any(|a| a.name == "Static" && a.is_literal_set())
+    Attributes(attributes).is_true("Static")
 }
 
 #[cfg(test)]

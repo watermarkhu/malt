@@ -253,7 +253,8 @@ use malt_core::{Category, Config, Diagnostic, FileContext, Rule, Severity};
 use serde::Deserialize;
 
 use crate::analysis::metadata::{
-    ArgValidation, AttributeMeta, ClassMeta, FileMeta, FileType, FunctionMeta,
+    attribute_entries, attributes_of, ArgValidation, AttrForms, AttributeMeta, Attributes,
+    ClassMeta, FileMeta, FileType, FunctionMeta,
 };
 use crate::analysis::symbols::{DefKind, SymbolTable};
 
@@ -3179,20 +3180,10 @@ pub(crate) fn extract_arguments_blocks_grouped<'a>(
 
 /// Collect the attribute identifiers declared on an arguments block.
 pub(crate) fn block_attributes(block_node: tree_sitter::Node, source: &str) -> Vec<String> {
-    let mut attrs = Vec::new();
-    let mut cursor = block_node.walk();
-    for child in block_node.children(&mut cursor) {
-        if child.kind() == "attributes" {
-            let mut inner = child.walk();
-            for attr in child.children(&mut inner) {
-                if attr.kind() == "identifier" {
-                    attrs.push(node_text(attr, source).to_string());
-                }
-            }
-            break;
-        }
-    }
-    attrs
+    attributes_of(block_node, source, AttrForms::Bare)
+        .into_iter()
+        .map(|attr| attr.name)
+        .collect()
 }
 
 /// Derive the role of an arguments block from its attribute identifiers.
@@ -3408,10 +3399,13 @@ pub(crate) fn attributes_have_value(block_node: tree_sitter::Node, source: &str)
         .filter(|child| child.kind() == "attributes")
         .collect();
     attrs.into_iter().any(|attrs| {
-        node_text(attrs, source).split('=').skip(1).any(|rest| {
-            let value = rest.split([',', ')']).next().unwrap_or_default().trim();
-            value != "true" && value != "false"
-        })
+        attribute_entries(attrs, source, AttrForms::Written)
+            .iter()
+            .any(|attr| {
+                attr.value
+                    .as_deref()
+                    .is_some_and(|v| v != "true" && v != "false")
+            })
     })
 }
 

@@ -19,20 +19,26 @@ impl GoodPracticesEngine {
             return Vec::new();
         };
 
-        // The attribute metadata drops the unnamed `~Abstract` form, so it is read here.
-        if let Some(node) = negated_abstract(tree, source) {
+        // The named attributes drop the unnamed `~Abstract` form, so it is read from the
+        // written ones.
+        let class_node = find_child_of_kind(tree.root_node(), "class_definition");
+        let written = class_node
+            .map(|cn| attributes_of(cn, source, AttrForms::Written))
+            .unwrap_or_default();
+        if let Some(neg) = written.iter().find(|a| {
+            a.negated && a.name == "Abstract" && &source[a.byte_range.clone()] == "~Abstract"
+        }) {
             if !self.is_check_enabled("ATTOF") {
                 return Vec::new();
             }
-            let pos = node.start_position();
             return vec![Diagnostic {
                 rule_id: "ATTOF",
                 message: "Setting the class attribute Abstract to false is not recommended."
                     .to_string(),
                 severity: Severity::Warning,
-                byte_range: node.byte_range(),
-                line: pos.row + 1,
-                column: pos.column + 1,
+                byte_range: neg.byte_range.clone(),
+                line: neg.line,
+                column: neg.column,
                 fix: None,
             }];
         }
@@ -47,17 +53,12 @@ impl GoodPracticesEngine {
             None => return Vec::new(),
         };
 
-        let class_node = find_child_of_kind(tree.root_node(), "class_definition");
-        let attr_node = class_node.and_then(|cn| find_attribute_node(cn, "Abstract", source));
-        let (start_byte, end_byte, line, column) = match attr_node {
-            Some(an) => (
-                an.start_byte(),
-                an.end_byte(),
-                an.start_position().row + 1,
-                an.start_position().column + 1,
-            ),
-            None => (class.byte_range.start, class.byte_range.end, class.line, 1),
-        };
+        let (start_byte, end_byte, line, column) = (
+            attr.byte_range.start,
+            attr.byte_range.end,
+            attr.line,
+            attr.column,
+        );
 
         // MATLAB reads the literals case-sensitively: `Abstract = FALSE` is ATTF (probed).
         let is_valid_literal = matches!(value, "true" | "false" | "1" | "0" | "on" | "off");
@@ -87,20 +88,6 @@ impl GoodPracticesEngine {
         }
         diagnostics
     }
-}
-
-/// The `~Abstract` attribute of the class, if the class has one.
-fn negated_abstract<'t>(
-    tree: &'t tree_sitter::Tree,
-    source: &str,
-) -> Option<tree_sitter::Node<'t>> {
-    let class_node = find_child_of_kind(tree.root_node(), "class_definition")?;
-    let attrs = find_child_of_kind(class_node, "attributes")?;
-    let mut cursor = attrs.walk();
-    let found = attrs
-        .children(&mut cursor)
-        .find(|a| node_text(*a, source).trim() == "~Abstract");
-    found
 }
 
 #[cfg(test)]

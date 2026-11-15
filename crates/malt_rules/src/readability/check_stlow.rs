@@ -21,13 +21,19 @@ impl ReadabilityEngine {
             return;
         }
         let args = call_args(node);
-        let case_insensitive = matches!(call_name(node, source), Some("strcmpi" | "strncmpi"));
+        let case_insensitive = matches!(
+            call_path(node, source, Dotted::Skip),
+            Some("strcmpi" | "strncmpi")
+        );
         if !case_insensitive && !args.iter().take(2).any(|a| letterless_literal(*a, source)) {
             return;
         }
         for arg in args.into_iter().take(2) {
             if arg.kind() != "function_call"
-                || !matches!(call_name(arg, source), Some("upper" | "lower"))
+                || !matches!(
+                    call_path(arg, source, Dotted::Skip),
+                    Some("upper" | "lower")
+                )
             {
                 continue;
             }

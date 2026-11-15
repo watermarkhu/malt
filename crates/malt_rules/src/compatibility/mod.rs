@@ -72,6 +72,7 @@ use std::sync::LazyLock;
 
 use malt_core::{Category, Config, Diagnostic, FileContext, NodeContext, Rule, Severity};
 
+use crate::analysis::callee::{self, Dotted, Visibility};
 use crate::analysis::symbols::{ScopeKind, SymbolTable};
 
 /// Generic (AST-pattern) compatibility checks that the name-lookup table cannot
@@ -346,7 +347,7 @@ impl Rule for CompatibilityEngine {
 
     fn check(&self, ctx: &NodeContext) -> Vec<Diagnostic> {
         // Extract the function/command name from the node.
-        let func_name = match extract_func_name(ctx.node, ctx.source) {
+        let func_name = match checked_name(ctx.node, ctx.source) {
             Some(name) => name,
             None => return Vec::new(),
         };
@@ -391,7 +392,7 @@ impl Rule for CompatibilityEngine {
 
         // A variable or a local function of the same name shadows the removed one.
         let table = SymbolTable::shared(|| root_of(ctx.node), ctx.source);
-        if is_shadowed(&table, ctx.node, func_name) {
+        if callee::is_shadowed(ctx.node, func_name, &table, Visibility::Enclosing) {
             return Vec::new();
         }
         let script = matches!(table.root_scope().kind, ScopeKind::Script);
@@ -429,36 +430,14 @@ impl Rule for CompatibilityEngine {
 // Helpers
 // ---------------------------------------------------------------------------
 
-/// Extract the function/command name from a `function_call` or `command` node.
-///
-/// For `function_call`: extracts the `name` field (handles simple identifiers
-/// and dotted names like `dsp.FIRFilter`).
-///
-/// For `command`: extracts the first child (the command name).
-fn extract_func_name<'a>(node: tree_sitter::Node<'a>, source: &'a str) -> Option<&'a str> {
+/// The name a compatibility check looks up for `node`: the callee of a call,
+/// command or handle (see [`callee::callee_path`]), or a bare reference in value
+/// position (`[h, a] = legend;`, `x = pkg.f;`). Other shapes give `None`.
+fn checked_name<'a>(node: tree_sitter::Node<'a>, source: &'a str) -> Option<&'a str> {
+    if callee::kind(node).is_some() {
+        return callee::callee_path(node, source, Dotted::Whole);
+    }
     match node.kind() {
-        "function_call" => {
-            let name_node = node.child_by_field_name("name")?;
-            // `comm.HelicalInterleaver(x)`: the call is the trailing member of a
-            // dotted expression, so match the whole package path. A variable in
-            // front (`s.psd(x)`) yields a path that matches no entry.
-            let start = match node.parent() {
-                Some(parent) if crate::analysis::symbols::is_qualified_call(node) => {
-                    parent.named_child(0)?.start_byte()
-                }
-                _ => name_node.start_byte(),
-            };
-            Some(&source[start..name_node.end_byte()])
-        }
-        "command" => {
-            let name_node = node.child(0)?;
-            if name_node.kind() == "command_name" {
-                Some(&source[name_node.start_byte()..name_node.end_byte()])
-            } else {
-                None
-            }
-        }
-        "handle_operator" => reference_name(node, source),
         "identifier" => {
             // `[h, a] = legend;`: a call without parentheses, with several outputs.
             let parent = node.parent()?;
@@ -481,7 +460,7 @@ fn extract_func_name<'a>(node: tree_sitter::Node<'a>, source: &'a str) -> Option
                 _ => false,
             };
             if is_value {
-                reference_name(node, source)
+                callee::reference_name(node, source)
             } else {
                 None
             }
@@ -489,26 +468,6 @@ fn extract_func_name<'a>(node: tree_sitter::Node<'a>, source: &'a str) -> Option
         _ => None,
     }
 }
-
-/// The name of a function reference that is not called: `f` in `@f` and
-/// `pkg.f` in a bare `pkg.f` statement. Anything that is not a plain or dotted
-/// identifier (a call, an index) gives `None`.
-pub(crate) fn reference_name<'a>(node: tree_sitter::Node<'a>, source: &'a str) -> Option<&'a str> {
-    let text = source.get(node.start_byte()..node.end_byte())?;
-    let name = match node.kind() {
-        "handle_operator" => text.strip_prefix('@')?.trim_start(),
-        _ => text,
-    };
-    let is_identifier = |part: &str| {
-        let mut chars = part.chars();
-        chars
-            .next()
-            .is_some_and(|c| c.is_ascii_alphabetic() || c == '_')
-            && chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
-    };
-    (!name.is_empty() && name.split('.').all(is_identifier)).then_some(name)
-}
-
 /// Whether the data file lists `id` under MATLAB's low-reliability messages,
 /// which are off by default. The generic checks honour the same switch.
 fn is_low_reliability(id: &str) -> bool {
@@ -524,22 +483,6 @@ fn root_of(node: tree_sitter::Node) -> tree_sitter::Node {
         root = parent;
     }
     root
-}
-
-/// Whether a call's name is shadowed where it is used: a variable of that name
-/// in its scope, or a local function. MATLAB then calls that variable or
-/// function, not the removed one.
-fn is_shadowed(table: &SymbolTable, node: tree_sitter::Node, name: &str) -> bool {
-    if name.contains('.') {
-        return false;
-    }
-    table
-        .scope_at(node.start_byte())
-        .is_some_and(|scope| scope.is_defined(name))
-        || table.function_scopes().iter().any(|scope| {
-            matches!(scope.kind, ScopeKind::Function | ScopeKind::LocalFunction)
-                && scope.name == name
-        })
 }
 
 /// The arguments of a `function_call` or `command` node, without comments.

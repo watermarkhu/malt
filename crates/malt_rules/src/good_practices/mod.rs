@@ -203,7 +203,7 @@ use tree_sitter::Node;
 
 use self::check_parfor_reduction::overwritten_before_read;
 use crate::analysis::control_flow::in_unreachable_code;
-use crate::analysis::metadata::{ClassMeta, FileMeta};
+use crate::analysis::metadata::{attributes_of, AttrForms, Attributes, ClassMeta, FileMeta};
 use crate::analysis::reaching::resolved_values;
 use crate::analysis::symbols::SymbolTable;
 
@@ -917,15 +917,7 @@ pub(crate) fn call_has_empty_string_arg(node: Node, source: &str) -> bool {
 
 /// Extract the command name from a `command` node.
 pub(crate) fn get_command_name<'a>(node: Node<'a>, source: &'a str) -> Option<&'a str> {
-    if node.kind() != "command" {
-        return None;
-    }
-    let first = node.child(0)?;
-    if first.kind() == "command_name" {
-        Some(node_text(first, source))
-    } else {
-        None
-    }
+    crate::analysis::command::Command::from_node(node, source).map(|cmd| cmd.name)
 }
 
 /// Get the full arguments text from a function_call node.
@@ -2210,30 +2202,6 @@ fn assigns_loop_variable(left: Node, var_name: &str, source: &str) -> bool {
         }
         _ => false,
     }
-}
-
-/// Find the `attribute` node with the given name inside a node that has an
-/// `attributes` child (e.g., `class_definition` or a `properties` block).
-pub(crate) fn find_attribute_node<'a>(
-    node: Node<'a>,
-    name: &str,
-    source: &'a str,
-) -> Option<Node<'a>> {
-    let attrs = find_child_of_kind(node, "attributes")?;
-    let count = attrs.child_count();
-    for i in 0..count {
-        let child = attrs.child(i)?;
-        if child.kind() != "attribute" {
-            continue;
-        }
-        if find_child_of_kind(child, "identifier")
-            .map(|id| node_text(id, source) == name)
-            .unwrap_or(false)
-        {
-            return Some(child);
-        }
-    }
-    None
 }
 
 /// Compute a diagnostic position for the `index`-th `properties` block of a

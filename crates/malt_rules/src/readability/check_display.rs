@@ -19,7 +19,7 @@ impl ReadabilityEngine {
         let args = call_args(node);
         if args.len() == 1
             && args[0].kind() == "function_call"
-            && call_name(args[0], source) == Some("sprintf")
+            && call_path(args[0], source, Dotted::Skip) == Some("sprintf")
         {
             results.push(self.diag(
                 "DSPSY",

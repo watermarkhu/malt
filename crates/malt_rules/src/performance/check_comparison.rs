@@ -66,7 +66,7 @@ impl PerformanceEngine {
 /// Pushes ISMT for each `length(...)` call in a boolean position of `node`.
 fn collect_truth_length(node: tree_sitter::Node, source: &str, diags: &mut Vec<Diagnostic>) {
     match node.kind() {
-        "function_call" if extract_func_name(node, source) == Some("length") => {
+        "function_call" if call_path(node, source, Dotted::Skip) == Some("length") => {
             diags.push(make_diag("ISMT", node));
         }
         "parenthesis" => {
@@ -96,7 +96,7 @@ fn collect_truth_length(node: tree_sitter::Node, source: &str, diags: &mut Vec<D
             };
             let logical_op = logical.child(1).map(|o| node_text(o, source));
             if left.kind() == "function_call"
-                && extract_func_name(left, source) == Some("length")
+                && call_path(left, source, Dotted::Skip) == Some("length")
                 && matches!(node_text(op, source), "==" | "~=" | ">")
                 && node_text(zero, source).trim() == "0"
                 && matches!(logical_op, Some("&" | "|"))
@@ -128,7 +128,7 @@ fn is_length_greater_than_zero(node: tree_sitter::Node, source: &str) -> bool {
     };
     node_text(op, source) == ">"
         && left.kind() == "function_call"
-        && extract_func_name(left, source) == Some("length")
+        && call_path(left, source, Dotted::Skip) == Some("length")
         && node_text(right, source).trim() == "0"
 }
 

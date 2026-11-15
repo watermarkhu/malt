@@ -1,7 +1,8 @@
 use super::*;
 
 use crate::analysis::control_flow::{analyze_definite_assignment, DefiniteAssignment};
-use crate::analysis::symbols::ScopeKind;
+use crate::analysis::maybe_defined::analyze_may_defined;
+use crate::analysis::symbols::{DefKind, ScopeKind};
 
 impl UnsetVariablesEngine {
     /// Run definite-assignment analysis on function scopes and emit diagnostics.
@@ -13,7 +14,6 @@ impl UnsetVariablesEngine {
     ) -> Vec<Diagnostic> {
         let mut diagnostics = Vec::new();
         let mut functions = None;
-        let dead = crate::unused::dead_regions(tree, source);
 
         for scope in &symbol_table.scopes {
             // Only process function-like scopes.
@@ -108,10 +108,110 @@ impl UnsetVariablesEngine {
                 &mut diagnostics,
             );
 
+            // NODEF and SVNODEF: reads that no definition can reach. A nested function
+            // reading a parent variable is SVNODEF when no parent definition is live
+            // (probed: `if false, a = 1; end` in the parent, then `v = a` in the child).
+            let may = analyze_may_defined(func_node, source);
+            let mut outer_names: HashSet<String> = HashSet::new();
+            let mut outer_live: HashSet<String> = HashSet::new();
+            if scope.kind == ScopeKind::NestedFunction {
+                let mut parent = scope.parent;
+                while let Some(idx) = parent {
+                    let p = &symbol_table.scopes[idx];
+                    outer_names.extend(
+                        p.defs
+                            .iter()
+                            .filter(|d| d.kind != DefKind::NestedFunction)
+                            .map(|d| d.name.clone()),
+                    );
+                    if let Some(&outer_node) =
+                        functions.get(&(p.byte_range.start, p.byte_range.end))
+                    {
+                        let outer = analyze_may_defined(outer_node, source);
+                        outer_live.extend(outer.defined);
+                        outer_live.extend(outer.arguments);
+                    }
+                    parent = p.parent;
+                }
+            }
+            // A name that is only a nested function (`@report`) is not a variable.
+            let mut reads = may.undefined_reads;
+            reads.retain(|u| {
+                scope
+                    .defs
+                    .iter()
+                    .any(|d| d.name == u.name && d.kind != DefKind::NestedFunction)
+                    || outer_names.contains(&u.name)
+            });
+            // A use inside a nested function body shares the parent's workspace, so it
+            // is the nested function's to report.
+            reads.retain(|u| {
+                !scope.children.iter().any(|&c| {
+                    let child = &symbol_table.scopes[c];
+                    child.kind == ScopeKind::NestedFunction
+                        && child.byte_range.contains(&u.use_byte_range.start)
+                })
+            });
+            // A `global` or `persistent` name is a workspace variable (see below).
+            reads.retain(|u| {
+                !scope.defs.iter().any(|d| {
+                    d.name == u.name && matches!(d.kind, DefKind::Global | DefKind::Persistent)
+                })
+            });
+            // MATLAB reports one NODEF or SVNODEF per name, at its first such read.
+            let mut reported: HashSet<String> = HashSet::new();
+            for read in &reads {
+                let name = read.name.as_str();
+                if self.is_ignored(name) || reported.contains(name) {
+                    continue;
+                }
+                // A nested function shares its parent's variables, even when it also
+                // assigns them (probed: `calls = calls + 1` in a nested function).
+                let (rule_id, message) = if outer_names.contains(name) {
+                    if outer_live.contains(name) {
+                        continue;
+                    }
+                    (
+                        "SVNODEF",
+                        format!(
+                            "Variable '{name}' might not have a value, because variable definition may not be executed."
+                        ),
+                    )
+                } else {
+                    (
+                        "NODEF",
+                        format!("Variable '{name}' might be used before it is defined."),
+                    )
+                };
+                // A parfor input cleared before the loop is PFIIN, not NODEF (probed).
+                if cleared_input(name, read.use_byte_range.start) {
+                    continue;
+                }
+                reported.insert(read.name.clone());
+                diagnostics.push(Diagnostic {
+                    rule_id,
+                    message,
+                    severity: Severity::Warning,
+                    byte_range: read.use_byte_range.clone(),
+                    line: read.use_line,
+                    column: read.use_column,
+                    fix: None,
+                });
+            }
+
             // Check output arguments: STOUT. A classdef constructor returns the
             // object itself, so its unassigned output is not reported (probed).
             if !Self::is_classdef_constructor(func_node, source, &scope.name) {
-                self.check_output_args(scope, &da, &dead, &mut diagnostics);
+                // An output that is also an input is defined on entry.
+                let mut defined = may.defined.clone();
+                defined.extend(
+                    scope
+                        .defs
+                        .iter()
+                        .filter(|d| d.kind == DefKind::InputArg)
+                        .map(|d| d.name.clone()),
+                );
+                self.check_output_args(scope, &defined, &mut diagnostics);
             }
         }
 
@@ -195,7 +295,8 @@ impl UnsetVariablesEngine {
         false
     }
 
-    /// Emit diagnostics for possibly-unset variables from definite-assignment results.
+    /// Emit USENS for possibly-unset variables from definite-assignment results.
+    /// NODEF and SVNODEF come from the reaching-definition analysis instead.
     fn emit_possibly_unset_diagnostics(
         &self,
         da: &DefiniteAssignment,
@@ -203,60 +304,34 @@ impl UnsetVariablesEngine {
         cleared_input: impl Fn(&str, usize) -> bool,
         diagnostics: &mut Vec<Diagnostic>,
     ) {
+        // USENS is off under the `mathworks` preset: MATLAB never reported it
+        // in the probes or the fixtures.
+        if !self.usens_on {
+            return;
+        }
         // Track which variable names have already been reported to avoid duplicates.
         let mut reported: HashSet<String> = HashSet::new();
 
         for unset_var in &da.possibly_unset {
-            if self.is_ignored(&unset_var.name) {
+            if self.is_ignored(&unset_var.name) || reported.contains(&unset_var.name) {
                 continue;
             }
-            if reported.contains(&unset_var.name) {
-                continue;
-            }
-            // A parfor input cleared before the loop is PFIIN, not NODEF (probed).
             if cleared_input(&unset_var.name, unset_var.use_byte_range.start) {
                 continue;
             }
-            reported.insert(unset_var.name.clone());
-
-            // If the variable is in the definitely-assigned set at function end
-            // but was used before that point, it's USENS (used but not set in
-            // all paths). Otherwise it's NODEF (never defined at all on some paths).
+            // Used but set on some paths only, and not a use before every assignment.
             if !da.definitely_assigned.contains(&unset_var.name)
-                && !nodef_applies(&unset_var.name, unset_var.use_byte_range.start)
+                || nodef_applies(&unset_var.name, unset_var.use_byte_range.start)
             {
                 continue;
             }
-            // Use before every assignment is NODEF (probed: `disp(u)`, then `u = 1`).
-            let (rule_id, message) = if da.definitely_assigned.contains(&unset_var.name)
-                && !nodef_applies(&unset_var.name, unset_var.use_byte_range.start)
-            {
-                (
-                    "USENS",
-                    format!(
-                        "Explicitly initialize variable '{}' to avoid a potential uninitialized variable, or use a valid syntax for function call on line {}.",
-                        unset_var.name, unset_var.use_line
-                    ),
-                )
-            } else {
-                (
-                    "NODEF",
-                    format!(
-                        "Variable '{}' might be used before it is defined.",
-                        unset_var.name
-                    ),
-                )
-            };
-
-            // USENS is off under the `mathworks` preset: MATLAB never reported it
-            // in the probes or the fixtures.
-            if rule_id == "USENS" && !self.usens_on {
-                continue;
-            }
-
+            reported.insert(unset_var.name.clone());
             diagnostics.push(Diagnostic {
-                rule_id,
-                message,
+                rule_id: "USENS",
+                message: format!(
+                    "Explicitly initialize variable '{}' to avoid a potential uninitialized variable, or use a valid syntax for function call on line {}.",
+                    unset_var.name, unset_var.use_line
+                ),
                 severity: Severity::Warning,
                 byte_range: unset_var.use_byte_range.clone(),
                 line: unset_var.use_line,
@@ -523,5 +598,164 @@ end
         );
         // Probe (v11): with no assignment, `ans` is NOANS only.
         assert!(nodef_lines("function f()\ny = ans;\nend\n").is_empty());
+    }
+
+    /// The NODEF, SVNODEF and STOUT findings of `src`, with their lines.
+    fn undefined_lines(src: &str) -> Vec<(&'static str, usize)> {
+        lint_file(&*engine(), src)
+            .iter()
+            .filter(|d| matches!(d.rule_id, "NODEF" | "SVNODEF" | "STOUT"))
+            .map(|d| (d.rule_id, d.line))
+            .collect()
+    }
+
+    #[test]
+    fn parfor_names_are_not_available_after_the_loop() {
+        // Probe (yc_f14, yc_f15, yc_u14, yc_u23): the body's temporary and the loop
+        // variable have no definition after the loop.
+        let src = "function r = f(n)\nr = 0;\nparfor k = 1:n, t = k; end\nr = t + k;\nend\n";
+        assert_eq!(undefined_lines(src), vec![("NODEF", 4), ("NODEF", 4)]);
+        let src = "function r = f(n)\nparfor k = 1:n\n    t = k;\nend\np = t;\nr = p;\nend\n";
+        assert_eq!(undefined_lines(src), vec![("NODEF", 5)]);
+    }
+
+    #[test]
+    fn parfor_body_reads_are_not_nodef() {
+        // Probe (yc_p01, yc_p04): a read inside the body is PFIIN, never NODEF.
+        let src = "function r = f(n)\nr = 0;\nparfor k = 1:n\n    r = r + q;\nend\nq = 1;\nend\n";
+        assert!(
+            undefined_lines(src).is_empty(),
+            "{:?}",
+            undefined_lines(src)
+        );
+    }
+
+    #[test]
+    fn parfor_sliced_assignment_is_available_after_the_loop() {
+        // Probe (yc_u20): `x(k) = k` in a parfor body leaves `x` available.
+        let src = "function r = f(n)\nparfor k = 1:n\n    x(k) = k;\nend\nr = x;\nend\n";
+        assert!(undefined_lines(src).is_empty());
+    }
+
+    #[test]
+    fn dead_constant_branch_defines_nothing() {
+        // Probes (yc_f24, yc_u01, yc_u02): `if false`, `if 0` and `while false` bodies
+        // never run, so the read after them is NODEF.
+        for src in [
+            "function r = f(c)\nif false, a = 1; end\nr = a;\nend\n",
+            "function r = f(c)\nif 0, a = 1; end\nr = a;\nend\n",
+            "function r = f(c)\nwhile false, a = 1; end\nr = a;\nend\n",
+        ] {
+            assert_eq!(undefined_lines(src), vec![("NODEF", 3)], "{src}");
+        }
+        // Probe (yc_f23): a constant-true `if` always runs its body.
+        assert!(
+            undefined_lines("function r = f(c)\nif true, a = 1; end\nr = a;\nend\n").is_empty()
+        );
+    }
+
+    #[test]
+    fn conditional_definition_and_for_loop_are_silent() {
+        // Probes (yc_f01, yc_f16): MATLAB is silent when a definition may run.
+        assert!(undefined_lines("function r = f(c)\nif c, a = 1; end\nr = a;\nend\n").is_empty());
+        assert!(
+            undefined_lines("function r = f(n)\nfor k = 1:n, t = k; end\nr = t;\nend\n").is_empty()
+        );
+    }
+
+    #[test]
+    fn clear_removes_the_value_unless_a_later_definition_may_run() {
+        // Probes (yc_u26, yc_u25): a plain `clear` leaves the read unset; a conditional
+        // definition after it is silent.
+        assert_eq!(
+            undefined_lines("function r = f(c)\na = 1;\nclear a\nr = a;\nend\n"),
+            vec![("NODEF", 4)]
+        );
+        let src = "function r = f(c)\nif c, a = 1; end\nclear a\nif c, a = 2; end\nr = a;\nend\n";
+        assert!(undefined_lines(src).is_empty());
+    }
+
+    #[test]
+    fn nested_read_of_a_dead_parent_definition_is_svnodef() {
+        // Probes (yc_n03, yc_n13): the parent's only definition never runs.
+        let src = "function r = f(c)\nif false, a = 1; end\nr = g();\n    function v = g()\n        v = a;\n    end\nend\n";
+        assert_eq!(undefined_lines(src), vec![("SVNODEF", 5)]);
+        let src = "function r = f(c)\ntry\n    error('x')\n    a = 1;\ncatch\nend\nr = g();\n    function v = g()\n        v = a;\n    end\nend\n";
+        assert_eq!(undefined_lines(src), vec![("SVNODEF", 9)]);
+    }
+
+    #[test]
+    fn nested_read_of_a_live_parent_definition_is_silent() {
+        // Probes (yc_u44, yc_n04, yc_n02): a live definition, before or after the call
+        // or cleared again, makes the parent variable silent in the nested function.
+        let src = "function r = f(c)\nif c, a = 1; end\nr = g();\n    function v = g()\n        v = a;\n    end\nend\n";
+        assert!(undefined_lines(src).is_empty());
+        let src = "function r = f(c)\nr = g();\na = 1;\n    function v = g()\n        v = a;\n    end\nend\n";
+        assert!(undefined_lines(src).is_empty());
+    }
+
+    #[test]
+    fn nested_function_own_dead_definition_is_nodef() {
+        // Probe (yc_u40): the nested function's own dead definition gives NODEF.
+        let src = "function r = f(c)\nr = g(c);\n    function v = g(c)\n        if false, a = 1; end\n        v = a;\n    end\nend\n";
+        assert_eq!(undefined_lines(src), vec![("NODEF", 5)]);
+    }
+
+    #[test]
+    fn nested_function_assigning_the_parent_variable_is_silent() {
+        // Probes (fix/unused__t3, corpus3/i/i_functional_style): the parent's `v` is
+        // live before the nested function's `v = v + 1`.
+        let src =
+            "function t3()\n    v = 1;\n    function inner()\n        v = v + 1;\n    end\nend\n";
+        assert!(undefined_lines(src).is_empty());
+    }
+
+    #[test]
+    fn handle_to_a_nested_function_is_not_a_variable() {
+        // Probe (corpus1/a/a_nested_funs): `@report` names a nested function.
+        let src =
+            "function f()\n    h = @report;\n    disp(h);\n    function report()\n    end\nend\n";
+        assert!(undefined_lines(src).is_empty());
+    }
+
+    #[test]
+    fn syms_and_named_load_define_variables_but_eval_does_not() {
+        // Probes (corpus3/h/h_symbolic_math, yc_e04, yc_e07, fix/gp-a__t10): `syms`
+        // and `load(file, 'x')` define; `eval` does not (MATLAB reports the read).
+        assert!(
+            undefined_lines("function f()\nsyms m k\nassume(m > 0)\nd = m + k;\nend\n").is_empty()
+        );
+        assert!(undefined_lines("function f()\nload('a.mat', 'q');\nr = q;\nend\n").is_empty());
+        assert_eq!(
+            undefined_lines("function f()\neval('q = 1;');\nr = q;\nq = 2;\nend\n"),
+            vec![("NODEF", 3)]
+        );
+    }
+
+    #[test]
+    fn output_defined_by_a_multi_output_list_or_an_input_is_not_stout() {
+        // Probes (corpus1/b/b_app_callbacks, corpus2/f/f_overload_ops,
+        // skills-catalog/describeFeatures): `[varargout{1:n}] = ...` and an output that is
+        // also an input.
+        let src =
+            "function varargout = f(varargin)\n[varargout{1:nargout}] = g(varargin{:});\nend\n";
+        assert!(undefined_lines(src).iter().all(|(id, _)| *id != "STOUT"));
+        let src = "function d = f(d)\nif ~istable(d)\n    error('x');\nend\nend\n";
+        assert!(undefined_lines(src).iter().all(|(id, _)| *id != "STOUT"));
+    }
+
+    #[test]
+    fn output_after_a_leading_return_is_stout() {
+        // Probe (yc_u33): code after `return` never assigns the output.
+        let src = "function r = f(c)\nreturn\na = 1;\nr = a;\nend\n";
+        assert_eq!(undefined_lines(src), vec![("STOUT", 1)]);
+    }
+
+    #[test]
+    fn spmd_body_runs_in_sequence() {
+        // Probe (yc_u22): a definition in an spmd body is defined after it.
+        assert!(
+            undefined_lines("function r = f(n)\nspmd\n    t = 1;\nend\nr = t;\nend\n").is_empty()
+        );
     }
 }

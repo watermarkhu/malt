@@ -18,14 +18,9 @@ fn call_args<'a>(node: Node<'a>) -> Vec<Node<'a>> {
     }
 }
 
-/// Function name when `node` is a `function_call`.
-fn call_name<'a>(node: Node<'a>, source: &'a str) -> Option<&'a str> {
-    extract_func_name(node, source)
-}
-
 /// If `node` is a call to `name`, return its arguments.
 fn call_to<'a>(node: Node<'a>, source: &'a str, name: &str) -> Option<Vec<Node<'a>>> {
-    (node.kind() == "function_call" && call_name(node, source) == Some(name))
+    (node.kind() == "function_call" && call_path(node, source, Dotted::Skip) == Some(name))
         .then(|| call_args(node))
 }
 
@@ -96,7 +91,7 @@ fn brace_indexed_in_file(root: Node, source: &str, name: &str) -> bool {
     let mut stack = vec![root];
     while let Some(n) = stack.pop() {
         if n.kind() == "function_call"
-            && call_name(n, source) == Some(name)
+            && call_path(n, source, Dotted::Skip) == Some(name)
             && is_brace_index(n, source)
         {
             return true;
@@ -204,7 +199,7 @@ impl PerformanceEngine {
     ) -> Vec<Diagnostic> {
         let mut diags = Vec::new();
 
-        let func_name = match call_name(node, source) {
+        let func_name = match call_path(node, source, Dotted::Skip) {
             Some(n) => n,
             None => return diags,
         };
@@ -285,7 +280,7 @@ impl PerformanceEngine {
                     Some(p)
                 }
             });
-            if let Some(name) = parent_call.and_then(|c| call_name(c, source)) {
+            if let Some(name) = parent_call.and_then(|c| call_path(c, source, Dotted::Skip)) {
                 if is_known_variable(node, source, name) {
                     diags.push(make_diag("FNDSB", node));
                 }
@@ -428,7 +423,7 @@ impl PerformanceEngine {
             })
             && !args.iter().take(2).any(|a| {
                 a.kind() == "function_call"
-                    && matches!(call_name(*a, source), Some("lower" | "upper"))
+                    && matches!(call_path(*a, source, Dotted::Skip), Some("lower" | "upper"))
             })
         {
             diags.push(make_diag("STCCS", node));
@@ -447,14 +442,18 @@ impl PerformanceEngine {
                 None
             }
         }) {
-            if matches!(call_name(parent, source), Some("deblank" | "fliplr")) {
+            if matches!(
+                call_path(parent, source, Dotted::Skip),
+                Some("deblank" | "fliplr")
+            ) {
                 return;
             }
         }
         let mut names = Vec::new();
         let mut cur = node;
         let mut innermost = None;
-        while let Some(name) = call_name(cur, source).filter(|n| matches!(*n, "deblank" | "fliplr"))
+        while let Some(name) =
+            call_path(cur, source, Dotted::Skip).filter(|n| matches!(*n, "deblank" | "fliplr"))
         {
             let a = call_args(cur);
             if a.len() != 1 {

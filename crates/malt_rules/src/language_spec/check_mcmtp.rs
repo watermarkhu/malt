@@ -25,10 +25,7 @@ impl LanguageSpecEngine {
                 .any(|a| a.name == "TestParameterDefinition" && !a.negated);
             // Static is set by a bare name, `true` or `1`; MATLAB reads other values
             // (`TRUE`, `0`) as not static.
-            let is_static = mb
-                .attributes
-                .iter()
-                .any(|a| a.name == "Static" && a.is_literal_set());
+            let is_static = Attributes(&mb.attributes).is_true("Static");
             if is_test_parameter && !is_static {
                 diagnostics.push(Diagnostic {
                     rule_id: "MCMTP",

@@ -145,6 +145,7 @@ mod check_unnecessary_brackets;
 use malt_core::{Category, Config, Diagnostic, FileContext, Fix, NodeContext, Rule, Severity};
 use serde::Deserialize;
 
+use crate::analysis::callee::{call_path, Dotted};
 use crate::analysis::control_flow::in_unreachable_code;
 use crate::analysis::symbols::{DefKind, SymbolTable};
 
@@ -403,15 +404,6 @@ impl Rule for ReadabilityEngine {
 pub(crate) fn find_arguments(node: tree_sitter::Node) -> Option<tree_sitter::Node> {
     node.named_children(&mut node.walk())
         .find(|c| c.kind() == "arguments")
-}
-
-/// The callee name of a `function_call` node, when it is a bare identifier.
-pub(crate) fn call_name<'a>(node: tree_sitter::Node, source: &'a str) -> Option<&'a str> {
-    if crate::analysis::symbols::is_qualified_call(node) {
-        return None;
-    }
-    let name = node.child_by_field_name("name")?;
-    (name.kind() == "identifier").then(|| &source[name.start_byte()..name.end_byte()])
 }
 
 /// The argument nodes of a `function_call` node.

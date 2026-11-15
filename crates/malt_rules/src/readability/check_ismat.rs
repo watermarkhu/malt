@@ -27,7 +27,7 @@ impl ReadabilityEngine {
             if args.len() != 1 {
                 continue;
             }
-            let operand = match call_name(call, source) {
+            let operand = match call_path(call, source, Dotted::Skip) {
                 Some("ndims") => Some(&source[args[0].start_byte()..args[0].end_byte()]),
                 Some("length" | "numel") => size_operand(args[0], source),
                 _ => None,
@@ -50,7 +50,7 @@ impl ReadabilityEngine {
 
 /// The operand of a one-argument `size(x)` call.
 fn size_operand<'a>(n: tree_sitter::Node, source: &'a str) -> Option<&'a str> {
-    if n.kind() != "function_call" || call_name(n, source) != Some("size") {
+    if n.kind() != "function_call" || call_path(n, source, Dotted::Skip) != Some("size") {
         return None;
     }
     let args = call_args(n);

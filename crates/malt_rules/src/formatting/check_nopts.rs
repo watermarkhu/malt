@@ -81,10 +81,14 @@ pub(crate) fn is_expression_statement(
         "identifier" => names.is_variable(node, text_of(node, source), true),
         // A bare word such as `x` parses as a command; it is a variable statement
         // when the word names one (probed: `x` in a function, with `x` an input).
+        // The word must be the whole command: no arguments, no continuation.
         "command" => {
-            let word = text_of(node, source).trim();
-            word.chars().all(|c| c.is_alphanumeric() || c == '_')
-                && names.is_variable(node, word, true)
+            crate::analysis::command::Command::from_node(node, source).is_some_and(|cmd| {
+                let word = text_of(node, source).trim();
+                word == cmd.name
+                    && word.chars().all(|c| c.is_alphanumeric() || c == '_')
+                    && names.is_variable(node, word, true)
+            })
         }
         // Probed: `f(1)` after `f = @(v) v;` or `f = @sin;` is silent (a call of a
         // function handle); after `f = 3;` it echoes like indexing. Indexing is

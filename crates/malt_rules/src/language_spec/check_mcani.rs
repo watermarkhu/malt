@@ -6,10 +6,7 @@ impl LanguageSpecEngine {
     /// MCANI: Abstract property must not have a default value.
     pub(crate) fn check_mcani(&self, class: &ClassMeta, diagnostics: &mut Vec<Diagnostic>) {
         for pb in &class.properties_blocks {
-            let is_abstract = pb
-                .attributes
-                .iter()
-                .any(|a| a.name == "Abstract" && a.is_literal_set());
+            let is_abstract = Attributes(&pb.attributes).is_true("Abstract");
             if is_abstract {
                 for prop in &pb.properties {
                     if prop.has_default {

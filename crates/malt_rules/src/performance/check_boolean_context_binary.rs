@@ -1,9 +1,8 @@
 //! Node-level check for elementwise `&` / `|` in boolean contexts: AND2 and OR2.
 
 use super::*;
-use crate::analysis::elementwise::{
-    call_name, elementwise_operands, is_known_logical, operator_token,
-};
+use crate::analysis::callee::{call_path, Dotted};
+use crate::analysis::elementwise::{elementwise_operands, is_known_logical, operator_token};
 
 impl PerformanceEngine {
     /// Check `binary_operator` for AND2/OR2 patterns.
@@ -143,7 +142,8 @@ fn or2_applies(node: tree_sitter::Node, source: &str) -> bool {
             .iter()
             .all(|operand| match operand.leaves.as_slice() {
                 [leaf] if leaf.kind() == "function_call" => {
-                    call_name(*leaf, source).is_some_and(|name| OR2_CALLS.contains(&name))
+                    call_path(*leaf, source, Dotted::Trailing)
+                        .is_some_and(|name| OR2_CALLS.contains(&name))
                 }
                 _ => true,
             })

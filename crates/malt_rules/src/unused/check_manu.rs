@@ -25,27 +25,12 @@ pub(crate) fn sole_input(scope: &Scope, source: &str) -> bool {
 /// `Static = true` or `Static = 1`. MATLAB reads other values (`0`, `FALSE`,
 /// `TRUE`) as not static, and reports their inputs as MANU (probed).
 fn methods_block_is_static(block: tree_sitter::Node, source: &str) -> bool {
-    let mut cursor = block.walk();
-    let Some(attributes) = block
-        .children(&mut cursor)
-        .find(|child| child.kind() == "attributes")
-    else {
-        return false;
-    };
-    let mut cursor = attributes.walk();
-    let attrs: Vec<tree_sitter::Node> = attributes.children(&mut cursor).collect();
-    attrs
-        .into_iter()
-        .filter(|attr| attr.kind() == "attribute")
-        .any(|attr| {
-            let text = source[attr.byte_range()].trim();
-            match text.split_once('=') {
-                None => text == "Static",
-                Some((name, value)) => {
-                    name.trim() == "Static" && matches!(value.trim(), "true" | "1")
-                }
-            }
-        })
+    let attrs = crate::analysis::metadata::attributes_of(
+        block,
+        source,
+        crate::analysis::metadata::AttrForms::Named,
+    );
+    crate::analysis::metadata::Attributes(&attrs).is_true("Static")
 }
 
 /// Whether MANU, rather than INUSD, reports the sole input of a method. A `Static`

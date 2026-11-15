@@ -38,7 +38,7 @@ impl DeploymentEngine {
     ) -> Vec<Diagnostic> {
         let mut diags = Vec::new();
 
-        let Some(func_name) = extract_func_name(node, source) else {
+        let Some(func_name) = call_path(node, source, Dotted::Trailing) else {
             return diags;
         };
         let args = call_args(node);

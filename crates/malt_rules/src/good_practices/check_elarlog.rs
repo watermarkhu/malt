@@ -1,5 +1,6 @@
 use super::*;
-use crate::readability::{call_name, find_arguments};
+use crate::analysis::callee::{call_path, Dotted};
+use crate::readability::find_arguments;
 
 /// Functions whose single comparison argument MATLAB reports (ELARLOG). Probed in
 /// R2026b: `abs`, `numel`, `length`, `floor` and `round` are reported; `sqrt`,
@@ -13,7 +14,7 @@ impl GoodPracticesEngine {
         if !self.is_check_enabled("ELARLOG") || node.kind() != "function_call" {
             return Vec::new();
         }
-        let Some(name) = call_name(node, source) else {
+        let Some(name) = call_path(node, source, Dotted::Skip) else {
             return Vec::new();
         };
         if !ELARLOG_FUNCTIONS.contains(&name) {

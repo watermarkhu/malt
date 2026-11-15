@@ -47,6 +47,7 @@ use std::ops::Range;
 
 use tree_sitter::{Node, Tree};
 
+use super::callee::{callee_word, Dotted};
 use super::control_flow::call_argument_nodes;
 use super::reaching::resolved_values;
 use super::symbols::{is_qualified_call, DefKind, FileKey, Scope, ScopeKind, SymbolTable};
@@ -554,7 +555,9 @@ fn calls_any(node: Node, source: &str, names: &[&str]) -> bool {
     }
     // `obj.save(1)` calls a method, not the function `save`.
     let qualified = node.kind() == "function_call" && is_qualified_call(node);
-    if !qualified && callee_name(node, source).is_some_and(|name| names.contains(&name)) {
+    if !qualified
+        && callee_word(node, source, Dotted::Trailing).is_some_and(|name| names.contains(&name))
+    {
         return true;
     }
     children(node)
@@ -562,22 +565,14 @@ fn calls_any(node: Node, source: &str, names: &[&str]) -> bool {
         .any(|child| calls_any(child, source, names))
 }
 
-/// The name of the function a `function_call` or `command` node calls.
-fn callee_name<'a>(node: Node, source: &'a str) -> Option<&'a str> {
-    match node.kind() {
-        "function_call" => node
-            .child_by_field_name("name")
-            .map(|n| &source[n.byte_range()]),
-        "command" => source[node.byte_range()].split_whitespace().next(),
-        _ => None,
-    }
-}
-
 /// A statement that calls `error` or `rethrow`. MATLAB treats it as the end of
 /// the flow: values stored before it are dead and the statements after it cannot
 /// run (probed: `rethrow(err)` in a catch block reports the same stores as `error`).
 fn is_error_call(node: Node, source: &str) -> bool {
-    matches!(callee_name(node, source), Some("error" | "rethrow"))
+    matches!(
+        callee_word(node, source, Dotted::Trailing),
+        Some("error" | "rethrow")
+    )
 }
 
 /// The variables named by a plain `clear a b` statement.

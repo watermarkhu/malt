@@ -1,15 +1,14 @@
 use super::*;
 
-use crate::analysis::control_flow::DefiniteAssignment;
 use crate::analysis::symbols::DefKind;
 
 impl UnsetVariablesEngine {
-    /// Check that all output arguments are definitely assigned (STOUT).
+    /// Check that all output arguments are definitely assigned (STOUT). `defined`
+    /// holds the names with a definition on a reachable path (see `maybe_defined`).
     pub(crate) fn check_output_args(
         &self,
         scope: &crate::analysis::symbols::Scope,
-        _da: &DefiniteAssignment,
-        dead: &[std::ops::Range<usize>],
+        defined: &HashSet<String>,
         diagnostics: &mut Vec<Diagnostic>,
     ) {
         for def in &scope.defs {
@@ -22,11 +21,8 @@ impl UnsetVariablesEngine {
                 continue;
             }
 
-            // The output arg name is pre-added to the assigned set by
-            // collect_function_args, so we need to check if there is an actual
-            // definition (not just the output declaration itself) that can run.
-            // Definitions in dead code do not count (probed).
-            if !self.has_live_non_output_def(scope, &def.name, dead) {
+            // Only a definition that can run counts: one in dead code does not (probed).
+            if !defined.contains(&def.name) {
                 diagnostics.push(Diagnostic {
                     rule_id: "STOUT",
                     message: "Function return value might be unset.".to_string(),
@@ -38,20 +34,6 @@ impl UnsetVariablesEngine {
                 });
             }
         }
-    }
-
-    /// Whether a variable has a non-OutputArg definition outside the dead regions.
-    fn has_live_non_output_def(
-        &self,
-        scope: &crate::analysis::symbols::Scope,
-        name: &str,
-        dead: &[std::ops::Range<usize>],
-    ) -> bool {
-        scope.defs.iter().any(|d| {
-            d.name == name
-                && d.kind != DefKind::OutputArg
-                && !dead.iter().any(|r| r.contains(&d.byte_range.start))
-        })
     }
 }
 

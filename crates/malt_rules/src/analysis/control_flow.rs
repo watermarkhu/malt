@@ -112,13 +112,13 @@ pub struct PossiblyUnsetVar {
 // ---------------------------------------------------------------------------
 
 /// Extract the source text covered by a node.
-fn node_text<'a>(node: Node, source: &'a str) -> &'a str {
+pub(crate) fn node_text<'a>(node: Node, source: &'a str) -> &'a str {
     &source[node.start_byte()..node.end_byte()]
 }
 
 /// Returns the termination cause string for a terminating statement node kind.
 /// The name of a command that is only a name (`q;`), if `node` is one.
-fn bare_command_name(node: Node) -> Option<Node> {
+pub(crate) fn bare_command_name(node: Node) -> Option<Node> {
     if node.kind() != "command" || node.named_child_count() != 1 {
         return None;
     }
@@ -160,7 +160,7 @@ fn block_never_falls_through(block: Node, source: &str) -> bool {
 }
 
 /// Iterate the named children of a node.
-fn named_children(node: Node) -> Vec<Node> {
+pub(crate) fn named_children(node: Node) -> Vec<Node> {
     let mut children = Vec::new();
     let mut cursor = node.walk();
     for child in node.named_children(&mut cursor) {
@@ -270,7 +270,7 @@ pub fn is_split_statement_continuation(node: Node, source: &str) -> bool {
 
 /// `true` for `while true ... end` without a `break` that leaves that loop:
 /// the statements after it can never run.
-fn is_endless_loop(node: Node, source: &str) -> bool {
+pub(crate) fn is_endless_loop(node: Node, source: &str) -> bool {
     node.kind() == "while_statement"
         && node
             .child_by_field_name("condition")
@@ -581,7 +581,7 @@ fn if_terminates(if_node: Node, source: &str) -> bool {
 }
 
 /// The truth of an `if` or `elseif` clause whose condition is a literal.
-fn literal_condition(clause: Node, source: &str) -> Option<bool> {
+pub(crate) fn literal_condition(clause: Node, source: &str) -> Option<bool> {
     clause
         .child_by_field_name("condition")
         .and_then(|condition| literal_text_truth(node_text(condition, source).trim()))
@@ -671,7 +671,7 @@ pub fn analyze_definite_assignment(func_node: Node, source: &str) -> DefiniteAss
 
 /// Collect input and output argument names from a `function_definition` node
 /// into the `assigned` set.
-fn collect_function_args(func_node: Node, source: &str, assigned: &mut HashSet<String>) {
+pub(crate) fn collect_function_args(func_node: Node, source: &str, assigned: &mut HashSet<String>) {
     let mut cursor = func_node.walk();
     for child in func_node.children(&mut cursor) {
         match child.kind() {
@@ -1129,7 +1129,7 @@ fn walk_try_statement(
 /// Skips identifiers that appear in non-use positions:
 /// - Function name in `function_call` (could be a built-in or an external function).
 /// - Field name in `field_expression` (not a standalone variable).
-fn collect_uses_in_expr(
+pub(crate) fn collect_uses_in_expr(
     node: Node,
     source: &str,
     assigned: &HashSet<String>,
@@ -1227,7 +1227,7 @@ fn is_variable_use(node: Node) -> bool {
 /// For indexed assignment (`function_call` or `field_expression`), checks
 /// the expression for uses but does NOT add new variables (the base
 /// variable must already exist).
-fn collect_assignment_targets(
+pub(crate) fn collect_assignment_targets(
     lhs: Node,
     source: &str,
     assigned: &mut HashSet<String>,
@@ -1285,7 +1285,7 @@ fn collect_assignment_targets(
 }
 
 /// The variable a partial assignment target is rooted at (`x` in `x.y(3).z`).
-fn partial_root(mut node: Node) -> Option<Node> {
+pub(crate) fn partial_root(mut node: Node) -> Option<Node> {
     loop {
         node = match node.kind() {
             "identifier" => return Some(node),

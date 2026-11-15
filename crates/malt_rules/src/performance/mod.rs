@@ -123,6 +123,7 @@
 //! skip_checks = ["AGROW", "ST2NM"]
 //! ```
 
+use crate::analysis::callee::{call_path, command_path, Dotted};
 use malt_core::{Category, Config, Diagnostic, FileContext, Fix, NodeContext, Rule, Severity};
 use serde::Deserialize;
 
@@ -430,7 +431,10 @@ impl PerformanceEngine {
             if lhs.kind() == "identifier" {
                 let name = node_text(lhs, source);
                 let is_sparse = rhs.kind() == "function_call"
-                    && matches!(extract_func_name(rhs, source), Some("sparse" | "spalloc"));
+                    && matches!(
+                        call_path(rhs, source, Dotted::Skip),
+                        Some("sparse" | "spalloc")
+                    );
                 if is_sparse {
                     if !sparse_vars.contains(&name) {
                         sparse_vars.push(name);
@@ -439,7 +443,7 @@ impl PerformanceEngine {
                     sparse_vars.retain(|v| *v != name);
                 }
             } else if lhs.kind() == "function_call" {
-                if let Some(name) = extract_func_name(lhs, source) {
+                if let Some(name) = call_path(lhs, source, Dotted::Skip) {
                     if sparse_vars.contains(&name) {
                         diags.push(make_diag("SPRIX", a));
                     }
@@ -992,34 +996,6 @@ pub(crate) fn node_text<'a>(node: tree_sitter::Node<'a>, source: &'a str) -> &'a
     &source[node.start_byte()..node.end_byte()]
 }
 
-/// Extract function name from a `function_call` node.
-pub(crate) fn extract_func_name<'a>(
-    node: tree_sitter::Node<'a>,
-    source: &'a str,
-) -> Option<&'a str> {
-    if node.kind() != "function_call" || crate::analysis::symbols::is_qualified_call(node) {
-        return None;
-    }
-    let name_node = node.child_by_field_name("name")?;
-    Some(&source[name_node.start_byte()..name_node.end_byte()])
-}
-
-/// Extract command name from a `command` node.
-pub(crate) fn extract_command_name<'a>(
-    node: tree_sitter::Node<'a>,
-    source: &'a str,
-) -> Option<&'a str> {
-    if node.kind() != "command" {
-        return None;
-    }
-    let name_node = node.child(0)?;
-    if name_node.kind() == "command_name" {
-        Some(&source[name_node.start_byte()..name_node.end_byte()])
-    } else {
-        None
-    }
-}
-
 /// Extract command arguments as a list of text fragments.
 pub(crate) fn extract_command_args<'a>(
     node: tree_sitter::Node<'a>,
@@ -1155,7 +1131,7 @@ pub(crate) fn is_descendant_of(needle: tree_sitter::Node, haystack: tree_sitter:
 pub(crate) fn has_inv_operand(node: tree_sitter::Node, source: &str) -> bool {
     for child in crate::analysis::symbols::children_of(node) {
         if child.kind() == "function_call" {
-            if let Some(name) = extract_func_name(child, source) {
+            if let Some(name) = call_path(child, source, Dotted::Skip) {
                 if name == "inv" {
                     return true;
                 }
@@ -1199,7 +1175,7 @@ pub(crate) fn extract_length_comparison<'a>(
 
     // Check if left is a function_call to length/numel/size.
     if left.kind() == "function_call" {
-        if let Some(name) = extract_func_name(left, source) {
+        if let Some(name) = call_path(left, source, Dotted::Skip) {
             if name == "length" || name == "numel" {
                 return Some((name, node_text(right, source).trim()));
             }
@@ -1208,7 +1184,7 @@ pub(crate) fn extract_length_comparison<'a>(
 
     // Also check reversed: 0 == length(x)
     if right.kind() == "function_call" {
-        if let Some(name) = extract_func_name(right, source) {
+        if let Some(name) = call_path(right, source, Dotted::Skip) {
             if name == "length" || name == "numel" {
                 return Some((name, node_text(left, source).trim()));
             }

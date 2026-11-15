@@ -9,7 +9,7 @@ impl DeploymentEngine {
         node: tree_sitter::Node<'a>,
         source: &'a str,
     ) -> Vec<Diagnostic> {
-        let Some(cmd_name) = extract_command_name(node, source) else {
+        let Some(cmd_name) = command_path(node, source) else {
             return Vec::new();
         };
         let id = match cmd_name {

@@ -37,7 +37,7 @@ const CLASS_CHECKS: &[(&str, &str, &str, &str)] = &[
 
 /// The argument text of `class(x)`, or `None` when `n` is not such a call.
 fn class_operand<'a>(n: tree_sitter::Node, source: &'a str) -> Option<&'a str> {
-    if n.kind() != "function_call" || call_name(n, source) != Some("class") {
+    if n.kind() != "function_call" || call_path(n, source, Dotted::Skip) != Some("class") {
         return None;
     }
     let args = call_args(n);

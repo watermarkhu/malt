@@ -14,6 +14,7 @@
 
 use tree_sitter::Node;
 
+use super::callee::{call_path, Dotted};
 use super::reaching::{is_constant, reaching, Binding};
 
 /// Nesting limit for following assignments through other variables.
@@ -184,12 +185,6 @@ pub(crate) fn elementwise_operands<'a>(
     Some((operand(&toks[lo..at])?, operand(&toks[at + 1..hi])?))
 }
 
-/// The name of a call, when the callee is a plain identifier.
-pub(crate) fn call_name<'s>(call: Node, source: &'s str) -> Option<&'s str> {
-    let name = call.child_by_field_name("name")?;
-    (name.kind() == "identifier").then(|| text(name, source))
-}
-
 /// Whether an operand is a value MATLAB knows to be logical. A single leaf is
 /// logical when it is `true`/`false`, a comparison or `|`/`&` of known values,
 /// `isempty`/`ischar`/`strcmp`, or a variable that holds one of these. A chain
@@ -234,7 +229,9 @@ fn logical_value(node: Node, source: &str, depth: usize) -> bool {
             !r.indexed_since
                 && matches!(r.binding, Binding::Value(rhs) if logical_value(rhs, source, depth + 1))
         }
-        "function_call" => call_name(node, source).is_some_and(|n| LOGICAL_CALLS.contains(&n)),
+        "function_call" => {
+            call_path(node, source, Dotted::Trailing).is_some_and(|n| LOGICAL_CALLS.contains(&n))
+        }
         _ => false,
     }
 }
@@ -257,7 +254,9 @@ fn numeric_value(node: Node, source: &str, depth: usize) -> bool {
             !r.indexed_since
                 && matches!(r.binding, Binding::Value(rhs) if class_known(rhs, source, depth + 1))
         }
-        "function_call" => call_name(node, source).is_some_and(|n| NUMERIC_CALLS.contains(&n)),
+        "function_call" => {
+            call_path(node, source, Dotted::Trailing).is_some_and(|n| NUMERIC_CALLS.contains(&n))
+        }
         _ => false,
     }
 }

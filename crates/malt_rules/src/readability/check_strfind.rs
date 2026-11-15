@@ -9,7 +9,7 @@ use super::*;
 
 /// The (text, text) arguments of a two-argument `strfind(s, p)` call.
 fn strfind_operands<'a>(n: tree_sitter::Node, source: &'a str) -> Option<(&'a str, &'a str)> {
-    if n.kind() != "function_call" || call_name(n, source) != Some("strfind") {
+    if n.kind() != "function_call" || call_path(n, source, Dotted::Skip) != Some("strfind") {
         return None;
     }
     let args = call_args(n);

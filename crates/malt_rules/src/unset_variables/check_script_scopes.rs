@@ -56,8 +56,9 @@ impl UnsetVariablesEngine {
 
                 match earliest_def {
                     // Used but defined nowhere: a function, a package or a variable
-                    // of the base workspace. SVNODEF proper (defined only on some
-                    // paths) needs flow analysis of scripts and is not reported yet.
+                    // of the base workspace. MATLAB reports no SVNODEF in a script
+                    // (probed: conditional, loop, switch, try and parfor definitions
+                    // read after them, and unknown calls in between), so none is made.
                     None => {}
                     Some(def)
                         if self.script_checks_on && var_use.byte_range.start < def.effect_start =>

@@ -13,7 +13,7 @@
 
 use tree_sitter::Node;
 
-use super::elementwise::call_name;
+use super::callee::{call_path, Dotted};
 use super::reaching::{reaching, Binding};
 
 /// How a `strcmp` or `strncmp` call compares case.
@@ -45,7 +45,10 @@ pub(crate) fn strcmp_case(call: Node, source: &str) -> Option<StrcmpCase> {
     if call.kind() != "function_call" {
         return None;
     }
-    if !matches!(call_name(call, source), Some("strcmp" | "strncmp")) {
+    if !matches!(
+        call_path(call, source, Dotted::Trailing),
+        Some("strcmp" | "strncmp")
+    ) {
         return None;
     }
     let args = call_args(call);
@@ -122,7 +125,7 @@ fn conflicts(s: &str, upper: bool) -> bool {
 /// Classifies one argument of the comparison.
 fn side<'s>(arg: Node, source: &'s str) -> Side<'s> {
     match arg.kind() {
-        "function_call" => match call_name(arg, source) {
+        "function_call" => match call_path(arg, source, Dotted::Trailing) {
             Some("lower") => Side::Call(false, call_text_arg(arg, source)),
             Some("upper") => Side::Call(true, call_text_arg(arg, source)),
             _ => Side::Unknown,
@@ -136,7 +139,7 @@ fn side<'s>(arg: Node, source: &'s str) -> Side<'s> {
             }
             match r.binding {
                 Binding::Value(rhs) => match rhs.kind() {
-                    "function_call" => match call_name(rhs, source) {
+                    "function_call" => match call_path(rhs, source, Dotted::Trailing) {
                         Some("lower") => Side::Var(false),
                         Some("upper") => Side::Var(true),
                         _ => Side::Unknown,

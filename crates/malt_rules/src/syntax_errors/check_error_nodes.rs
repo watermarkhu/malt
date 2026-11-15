@@ -120,16 +120,9 @@ impl SyntaxErrorsEngine {
     /// command whose name is the first identifier and whose first argument is the rest of the
     /// dotted name, glued to it.
     fn walk_dotted_commands(node: Node, source: &str, diagnostics: &mut Vec<Diagnostic>) {
-        if node.kind() == "command" {
-            let mut cursor = node.walk();
-            let mut parts = node.children(&mut cursor);
-            let name = parts.next().filter(|n| n.kind() == "command_name");
-            let dotted = parts.next().filter(|a| {
-                a.kind() == "command_argument"
-                    && name.is_some_and(|n| n.end_byte() == a.start_byte())
-                    && source[a.start_byte()..].starts_with('.')
-            });
-            if let (Some(_), Some(_), Some(word)) = (name, dotted, parts.next()) {
+        if let Some(cmd) = crate::analysis::command::Command::from_node(node, source) {
+            // The syntax error is at the child after the glued dotted part.
+            if let (true, Some(word)) = (cmd.is_dotted_misread(), node.child(2)) {
                 diagnostics.push(Self::syner_at(source, word.start_byte()));
             }
         }

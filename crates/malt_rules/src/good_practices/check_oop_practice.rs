@@ -125,10 +125,7 @@ impl GoodPracticesEngine {
                             .find(|i| *i != "~")
                             .is_some_and(|first| m.outputs.contains(first)),
                         is_setter: m.is_setter,
-                        is_static: m
-                            .method_attributes
-                            .iter()
-                            .any(|a| a.name == "Static" && a.is_literal_set()),
+                        is_static: Attributes(&m.method_attributes).is_true("Static"),
                     },
                 )
             })
@@ -268,24 +265,9 @@ fn collect_constant_properties(
         if child.kind() != "properties" {
             continue;
         }
-        let is_constant = find_child_of_kind(child, "attributes")
-            .map(|attrs| {
-                let mut c = attrs.walk();
-                let mut found = false;
-                for attr in attrs.children(&mut c) {
-                    if attr.kind() == "attribute"
-                        && !node_text(attr, source).trim_start().starts_with('~')
-                        && find_child_of_kind(attr, "identifier")
-                            .map(|id| node_text(id, source) == "Constant")
-                            .unwrap_or(false)
-                    {
-                        found = true;
-                        break;
-                    }
-                }
-                found
-            })
-            .unwrap_or(false);
+        let is_constant = attributes_of(child, source, AttrForms::Named)
+            .iter()
+            .any(|attr| attr.name == "Constant" && !attr.negated);
         if !is_constant {
             continue;
         }
