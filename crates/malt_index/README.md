@@ -2,8 +2,8 @@
 
 A native index of the MATLAB path: the functions, classes, scripts, packages (`+pkg`),
 class folders (`@cls`) and `private/` folders that MATLAB resolves names against. It is
-the Rust core of the replacement for the Python library maxx. No Python bindings and no
-linter integration yet.
+the Rust core of the replacement for the Python library maxx. The Python module is
+`crates/malt_py` (distribution `malt-index`). No linter integration yet.
 
 The crate does not depend on the linter crates. It is `publish = false` for now.
 
@@ -25,6 +25,8 @@ let all = index.members()?;                               // every top-level ent
 index.addpath("lib", false, /* recursive */ true)?;      // front of the path
 index.rmpath("lib", true);                                // with the folders below it
 let file = parse_file(Path::new("src/x.m"), &ParserConfig::default())?;
+let chain = index.mro(&class)?;                            // C3 order, the class first
+let inherited = index.inherited_members(&class)?;          // not the class's own members
 ```
 
 - `Index::scan(paths, config)` lists the folders up front (no file is read). Paths that
@@ -144,6 +146,15 @@ methods of a class folder as `cls.method`.
   functions (in a function body) are members of the function. Scripts' local functions are
   members of the script.
 
+### Class hierarchy
+
+- `mro(class)` is the C3 order of the class and its bases, each as `Ancestor { name,
+  entity }`. A base is resolved from the class file's folder, then the path (as `get_from`).
+  A base that is not on the path keeps its name and has no entity. A cycle stops at the
+  repeated class. An inconsistent hierarchy (no C3 order) takes the first base left.
+- `inherited_members(class)` lists the members of the bases in that order, as `Inherited
+  { from, name, entity }`. A name the class declares, or an earlier base gave, is skipped.
+
 ### Docstrings
 
 - A comment block next to a declaration: the run of comments on adjacent lines (a blank
@@ -213,5 +224,9 @@ list its paths (for a recursive scan: the root and its plain subfolders, not `+`
   then review the diff.
 - `tests/paths.rs`: the path configuration on temporary projects (the `[index]` table, each
   glob rule, missing folders, deduplication, order, and config parse errors).
+- `tests/hierarchy.rs`: C3 order (a diamond), unresolved bases, inherited members with
+  overrides, class folders, and cycles.
+
+The Python tests of the bindings are in `crates/malt_py/python/tests`.
 
 The sample project under `tests/project` is written for these tests.

@@ -4,6 +4,7 @@ members = [
     "crates/malt_cli",
     "crates/malt_core",
     "crates/malt_index",
+    "crates/malt_py",
     "crates/malt_rules",
     "crates/malt_wasm",
 ]
@@ -25,6 +26,8 @@ categories = ["development-tools", "command-line-utilities"]
 # `malt-cli` (the bare `malt` crate name belongs to an unrelated project).
 malt-core = { path = "crates/malt_core", version = "0.0.0" }
 malt-rules = { path = "crates/malt_rules", version = "0.0.0" }
+# The native MATLAB path index (no crates.io release: `publish = false`).
+malt-index = { path = "crates/malt_index" }
 tree-sitter = "0.25"
 tree-sitter-language = "0.1"
 tree-sitter-matlab = { git = "https://github.com/watermarkhu/tree-sitter-matlab", rev = "d377bdf40f7256c388893160d5087285c497b598" }
@@ -36,6 +39,7 @@ anyhow = "1"
 clap = { version = "4", features = ["derive"] }
 inventory = "0.3"
 regex = "1"
+pyo3 = { version = "0.30", features = ["abi3-py310"] }
 
 [profile.release]
 # Thin LTO: 5-9% faster linting on large files for about a second more build

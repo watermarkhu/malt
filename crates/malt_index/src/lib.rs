@@ -13,6 +13,7 @@ pub mod comments;
 pub mod config;
 pub mod dump;
 pub mod error;
+pub mod hierarchy;
 pub mod index;
 pub mod model;
 pub mod parse;
@@ -20,6 +21,7 @@ pub mod paths;
 
 pub use config::ParserConfig;
 pub use error::IndexError;
+pub use hierarchy::{Ancestor, Inherited};
 pub use index::{EntryId, Index};
 pub use model::{
     Argument, ArgumentKind, Detail, Docstring, Entity, FunctionDetail, Kind, PropertyDetail,
