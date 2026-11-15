@@ -131,5 +131,15 @@
     "field": "kind",
     "detail": "enumeration",
     "reason": "maxx's Kind enum defines ENUMERATION = 'class', an alias of CLASS, so enumeration members dump as kind 'class'; the index dumps 'enumeration'."
+  },
+  {
+    "project": "live-text",
+    "field": "sections.*",
+    "reason": "maxx's plain-text reader treats a whole %% cell as text when all its lines are comments, so a cell that mixes %[text] paragraphs with code becomes one text section, and it keeps the %[text] markers in the text. malt follows the R2025a format: a cell is split into runs (text paragraphs, code lines), a text paragraph loses its %[text] marker and its attributes, outputs (%[output...] and their % lines) are not sections, and the appendix ends the content."
+  },
+  {
+    "project": "live-text",
+    "field": "sections.count",
+    "reason": "The section count follows from the split above: one maxx cell is one or more malt runs."
   }
 ]

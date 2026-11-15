@@ -3,7 +3,7 @@
 
 use std::path::Path;
 
-use malt_index::{parse_source, Argument, ArgumentKind, Detail, Entity, Kind, ParserConfig};
+use malt_index::{parse_source, Argument, ArgumentKind, Entity, Kind, ParserConfig};
 
 fn parse(src: &str) -> Entity {
     parse_source(
@@ -245,10 +245,10 @@ fn enumeration_members_take_the_comment_after_them_by_default() {
     );
     assert!(e.members["Green"].docstring.is_none());
     assert_eq!(
-        e.members["Red"].detail,
-        Detail::Enumeration {
-            value: Some("1".into())
-        }
+        e.members["Red"]
+            .enumeration_value()
+            .map(|v| v.text.as_str()),
+        Some("1")
     );
 }
 

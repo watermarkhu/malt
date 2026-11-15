@@ -63,6 +63,21 @@ pub fn entity_json(entity: &Entity, root: &Path) -> Value {
         out.insert("validators".into(), json!(property.validators));
         out.insert("default".into(), json!(property.default));
     }
+    if entity.kind == Kind::LiveScript {
+        let sections: Vec<Value> = entity
+            .sections()
+            .iter()
+            .map(|s| {
+                json!({
+                    "kind": s.kind.as_str(),
+                    "content": s.content,
+                    "lineno": s.lineno,
+                    "endlineno": s.endlineno,
+                })
+            })
+            .collect();
+        out.insert("sections".into(), Value::Array(sections));
+    }
     let members: Map<String, Value> = entity
         .members
         .iter()

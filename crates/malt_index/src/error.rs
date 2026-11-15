@@ -1,5 +1,6 @@
-//! Errors of the index. Parsing never fails on MATLAB syntax errors: tree-sitter
-//! recovers and the parts that are not understood are skipped.
+//! Errors of the index. Parsing MATLAB syntax never fails: tree-sitter recovers and the
+//! parts that are not understood are skipped. A file that is not a readable live script
+//! (a `.mlx` that is not a zip archive, or has no document) is a [`IndexError::Format`].
 
 use std::path::PathBuf;
 
@@ -16,9 +17,21 @@ pub enum IndexError {
         /// The underlying error, as text (keeps the error cloneable for the cache).
         message: String,
     },
+    /// A file's contents are not in the format its extension promises (a `.mlx` that is
+    /// not a zip archive, or one without `matlab/document.xml`).
+    #[error("{path}: {message}")]
+    Format {
+        /// The file.
+        path: PathBuf,
+        /// What is wrong with it.
+        message: String,
+    },
     /// The identifier has an empty part (`pkg..fn` or an empty string).
     #[error("invalid identifier {0:?}")]
     InvalidIdentifier(String),
+    /// The superclasses of a class lead back to the class (`A < B`, `B < A`).
+    #[error("cyclic superclasses: {0}")]
+    CyclicBase(String),
     /// The parser could not be set up (the grammar version does not match).
     #[error("tree-sitter could not load the MATLAB grammar: {0}")]
     Grammar(String),

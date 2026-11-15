@@ -13,6 +13,8 @@ use tree_sitter::{Node, Parser, Tree};
 use crate::comments::{comment_docstring, node_text};
 use crate::config::ParserConfig;
 use crate::error::IndexError;
+use crate::expr::Expr;
+use crate::live::is_mlx;
 use crate::model::{
     Argument, ArgumentKind, Detail, Docstring, Entity, FunctionDetail, Kind, PropertyDetail,
 };
@@ -22,8 +24,14 @@ thread_local! {
 }
 
 /// Parse a file from disk. The text is decoded lossily; a UTF-8 BOM is ignored.
+///
+/// A `.mlx` file is a live script and is read by [`crate::live`].
 pub fn parse_file(path: &Path, config: &ParserConfig) -> Result<Entity, IndexError> {
+    if is_mlx(path) {
+        return crate::live::parse_live_file(path);
+    }
     let bytes = std::fs::read(path).map_err(|e| IndexError::io(path, &e))?;
+    log::debug!("parsing {}", path.display());
     parse_source(path, &bytes, config)
 }
 
@@ -47,6 +55,9 @@ pub fn parse_source(
         &transcoded
     };
     let tree = parse_tree(src)?;
+    if tree.root_node().has_error() {
+        log::warn!("{}: syntax errors were recovered", path.display());
+    }
     let ctx = Ctx {
         src,
         path,
@@ -179,12 +190,12 @@ impl Ctx<'_> {
     fn class(&self, node: Node) -> Entity {
         let children = named(node);
         let name = self.stem.clone();
-        let bases: Vec<String> = children
+        let bases: Vec<Expr> = children
             .iter()
             .filter(|c| c.kind() == "superclasses")
             .flat_map(|s| named(*s))
             .filter(|c| c.kind() == "property_name")
-            .map(|c| self.text(c))
+            .filter_map(|c| Expr::from_nodes(self.src, &[c]))
             .collect();
         let mut attributes = std::collections::BTreeSet::new();
         for attrs in children.iter().filter(|c| c.kind() == "attributes") {
@@ -395,26 +406,24 @@ impl Ctx<'_> {
         // The type is every identifier after the name (maxx joins them: `uint8 scalar`
         // is read as `uint8scalar`), up to the validators and the default.
         let mut detail = PropertyDetail::default();
-        let mut type_parts: Vec<String> = Vec::new();
+        let mut type_parts: Vec<Node> = Vec::new();
         for child in named(node) {
             if name_node.is_some_and(|n| n.id() == child.id()) {
                 continue;
             }
             match child.kind() {
                 "dimensions" => detail.dimensions = Some(self.dimensions(child)),
-                "validation_functions" => detail.validators = Some(self.text(child)),
-                "default_value" => detail.default = Some(self.default_text(child)),
+                "validation_functions" => detail.validators = Expr::from_nodes(self.src, &[child]),
+                "default_value" => detail.default = self.default_expr(child),
                 "identifier" | "property_name"
                     if detail.default.is_none() && detail.validators.is_none() =>
                 {
-                    type_parts.push(self.text(child));
+                    type_parts.push(child);
                 }
                 _ => {}
             }
         }
-        if !type_parts.is_empty() {
-            detail.type_ = Some(type_parts.concat());
-        }
+        detail.type_ = Expr::from_nodes(self.src, &type_parts);
         (name, detail)
     }
 
@@ -428,13 +437,9 @@ impl Ctx<'_> {
     }
 
     /// The default value as written: the nodes after `=`, joined.
-    fn default_text(&self, node: Node) -> String {
-        all(node)
-            .into_iter()
-            .filter(|c| c.kind() != "=")
-            .map(|c| self.text(c))
-            .collect::<Vec<_>>()
-            .join("")
+    fn default_expr(&self, node: Node) -> Option<Expr> {
+        let value: Vec<Node> = all(node).into_iter().filter(|c| c.kind() != "=").collect();
+        Expr::from_nodes(self.src, &value)
     }
 
     /// The enumeration members of an `enumeration` block.
@@ -478,9 +483,8 @@ impl Ctx<'_> {
                 entity.endlineno = Some(endlineno);
                 entity.path = Some(self.path.to_path_buf());
                 entity.docstring = comment_docstring(self.src, comments);
-                let value: String = values.iter().map(|v| self.text(*v)).collect();
                 entity.detail = Detail::Enumeration {
-                    value: if values.is_empty() { None } else { Some(value) },
+                    value: Expr::from_nodes(self.src, values),
                 };
                 members.push(entity);
             }
@@ -662,7 +666,7 @@ impl Ctx<'_> {
                         continue;
                     }
                     let mut arg = Argument::new(opts.trim(), ArgumentKind::KeywordOnly);
-                    arg.type_ = Some(class_path.to_string());
+                    arg.type_ = Some(Expr::from_node_text(self.src, item, class_path));
                     if before_mode {
                         arg.docstring = pending.take();
                     }

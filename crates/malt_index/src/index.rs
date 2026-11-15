@@ -116,6 +116,20 @@ fn m_stem(name: &str) -> Option<&str> {
     }
 }
 
+/// The stem of a file that a folder lists: a `.m` file, or a `.mlx` when live scripts
+/// are on (`live`).
+fn source_stem(name: &str, live: bool) -> Option<&str> {
+    if let Some(stem) = m_stem(name) {
+        return Some(stem);
+    }
+    let stem = name.strip_suffix(".mlx")?;
+    if live && !stem.is_empty() {
+        Some(stem)
+    } else {
+        None
+    }
+}
+
 impl Index {
     /// An empty search path.
     pub fn new(config: ParserConfig) -> Self {
@@ -136,6 +150,7 @@ impl Index {
         let mut index = Index::new(*config);
         for path in paths {
             if let Err(err) = index.addpath(path, true, false) {
+                log::warn!("{err}");
                 index.errors.push(err);
             }
         }
@@ -533,7 +548,7 @@ impl Index {
                 }
                 continue;
             }
-            if let Some(stem) = m_stem(&item.name) {
+            if let Some(stem) = source_stem(&item.name, self.config.parse_live_scripts) {
                 let id = self.push_file(item.path, stem.to_string());
                 root.files.push(id);
                 root.top.push(id);
@@ -570,7 +585,7 @@ impl Index {
                         .to_string();
                     children.entry(key).or_default().push(id);
                 }
-            } else if let Some(stem) = m_stem(&item.name) {
+            } else if let Some(stem) = source_stem(&item.name, self.config.parse_live_scripts) {
                 let id = self.push_file(item.path, stem.to_string());
                 root.files.push(id);
                 children.entry(stem.to_string()).or_default().push(id);
@@ -655,7 +670,7 @@ impl Index {
 }
 
 /// The docstring of a folder: the `Contents.m` header, else its `README.md` text.
-fn folder_docstring(dir: &Path) -> Result<Option<Docstring>, IndexError> {
+pub(crate) fn folder_docstring(dir: &Path) -> Result<Option<Docstring>, IndexError> {
     let contents = dir.join("Contents.m");
     if contents.is_file() {
         if let Some(doc) = parse_file(&contents, &ParserConfig::default())?.docstring {

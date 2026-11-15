@@ -1,19 +1,24 @@
 //! The data model: what the index knows about a MATLAB path entry.
 //!
-//! An [`Entity`] is a function, class, property, enumeration, script, package
-//! (`+pkg`), class folder (`@cls`) or plain folder. Entities form a tree through
-//! [`Entity::members`]. Every field is a fact read from the source: nothing is
-//! evaluated, and docstrings are the comment block as text (see [`Docstring`]).
+//! An [`Entity`] is a function, class, property, enumeration, script, live script,
+//! package (`+pkg`), class folder (`@cls`) or plain folder. Entities form a tree
+//! through [`Entity::members`]. Every field is a fact read from the source: nothing
+//! is evaluated. Types, defaults, validators and bases are [`Expr`]s (raw text with
+//! its span), and docstrings are the comment block as text (see [`Docstring`]).
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
+pub use crate::expr::Expr;
+
 /// The kind of an entity. Names follow the MATLAB concepts, not maxx's `Kind` enum.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Kind {
+    /// A plain folder on the path (or below one), with its files and folders.
+    Folder,
     /// A package, a folder named `+pkg`.
     Namespace,
     /// A class folder, a folder named `@cls`, with the class file and methods.
@@ -26,19 +31,23 @@ pub enum Kind {
     Function,
     /// A script file (one without a leading function or classdef).
     Script,
+    /// A live script: a `.mlx` file, or a plain-text live code `.m` file.
+    LiveScript,
     /// A property of a class.
     Property,
 }
 
 impl Kind {
-    /// The kind name used in the dump (the schema of `maxx_dump.py`).
+    /// The kind name used in the dump and by the Python objects.
     pub fn as_str(self) -> &'static str {
         match self {
+            Kind::Folder => "folder",
             Kind::Namespace => "namespace",
             Kind::ClassFolder | Kind::Class => "class",
             Kind::Enumeration => "enumeration",
             Kind::Function => "function",
             Kind::Script => "script",
+            Kind::LiveScript => "live_script",
             Kind::Property => "property",
         }
     }
@@ -100,13 +109,13 @@ pub struct Argument {
     pub kind: ArgumentKind,
     /// The declared class, as written (`double`, `Other.Prop` for `opts.?Other.Prop`).
     #[serde(rename = "type")]
-    pub type_: Option<String>,
+    pub type_: Option<Expr>,
     /// The dimensions as written: numbers and `:` (spread operators).
     pub dimensions: Option<Vec<String>>,
     /// The validation functions as written, for example `{mustBePositive}`.
-    pub validators: Option<String>,
+    pub validators: Option<Expr>,
     /// The default value as written.
-    pub default: Option<String>,
+    pub default: Option<Expr>,
     /// The comment block next to the argument.
     pub docstring: Option<Docstring>,
 }
@@ -144,17 +153,51 @@ pub struct FunctionDetail {
 pub struct PropertyDetail {
     /// The declared class, as written.
     #[serde(rename = "type")]
-    pub type_: Option<String>,
+    pub type_: Option<Expr>,
     /// The dimensions as written.
     pub dimensions: Option<Vec<String>>,
     /// The validation functions as written.
-    pub validators: Option<String>,
+    pub validators: Option<Expr>,
     /// The default value as written.
-    pub default: Option<String>,
+    pub default: Option<Expr>,
     /// The `get.Name` method of the property, if declared in the class.
     pub getter: Option<Box<Entity>>,
     /// The `set.Name` method of the property, if declared in the class.
     pub setter: Option<Box<Entity>>,
+}
+
+/// The kind of a live script section: prose, or code (with its outputs left out).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SectionKind {
+    /// Formatted text (a `%[text]` paragraph, or a paragraph in a `.mlx`).
+    Text,
+    /// Code.
+    Code,
+}
+
+impl SectionKind {
+    /// The kind name used by the Python objects: `text` or `code`.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            SectionKind::Text => "text",
+            SectionKind::Code => "code",
+        }
+    }
+}
+
+/// One run of a live script: consecutive text paragraphs, or consecutive code lines.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LiveSection {
+    /// Text or code.
+    pub kind: SectionKind,
+    /// The text of the run: the paragraphs' text joined by newlines (markers removed),
+    /// or the code lines as written.
+    pub content: String,
+    /// First line (1-based). `None` for a `.mlx`, whose paragraphs have no lines.
+    pub lineno: Option<usize>,
+    /// Last line (1-based, inclusive). `None` for a `.mlx`.
+    pub endlineno: Option<usize>,
 }
 
 /// What an entity is, beyond its common fields.
@@ -165,7 +208,7 @@ pub enum Detail {
     /// A classdef class: its superclasses, as written.
     Class {
         /// The superclasses, in order.
-        bases: Vec<String>,
+        bases: Vec<Expr>,
     },
     /// A function or method.
     Function(FunctionDetail),
@@ -174,7 +217,12 @@ pub enum Detail {
     /// An enumeration member: its value as written.
     Enumeration {
         /// The value expression, as written (`(1)` gives `1`).
-        value: Option<String>,
+        value: Option<Expr>,
+    },
+    /// A live script: its sections, in order.
+    LiveScript {
+        /// The runs of text and code, in the order of the file.
+        sections: Vec<LiveSection>,
     },
 }
 
@@ -185,8 +233,8 @@ pub struct Entity {
     pub kind: Kind,
     /// The name: the file stem for files, the method or property name for members.
     pub name: String,
-    /// The file that declares the entity (the folder for packages and class folders).
-    /// Members inherit the file of their class.
+    /// The file that declares the entity (the folder for packages, class folders and
+    /// plain folders). Members inherit the file of their class.
     pub path: Option<PathBuf>,
     /// First line (1-based). `None` when the entity has no span (maxx's convention for
     /// folders, packages, class folders and scripts).
@@ -200,7 +248,7 @@ pub struct Entity {
     /// The kind-specific fields.
     pub detail: Detail,
     /// The members: properties, methods, enumeration members, local functions, and
-    /// for packages and class folders their files and sub-packages.
+    /// for packages, class folders and plain folders their files and sub-packages.
     pub members: BTreeMap<String, Entity>,
 }
 
@@ -237,10 +285,26 @@ impl Entity {
     }
 
     /// The superclasses, if this entity is a class.
-    pub fn bases(&self) -> &[String] {
+    pub fn bases(&self) -> &[Expr] {
         match &self.detail {
             Detail::Class { bases } => bases,
             _ => &[],
+        }
+    }
+
+    /// The sections, if this entity is a live script.
+    pub fn sections(&self) -> &[LiveSection] {
+        match &self.detail {
+            Detail::LiveScript { sections } => sections,
+            _ => &[],
+        }
+    }
+
+    /// The enumeration value, if this entity is an enumeration member with one.
+    pub fn enumeration_value(&self) -> Option<&Expr> {
+        match &self.detail {
+            Detail::Enumeration { value } => value.as_ref(),
+            _ => None,
         }
     }
 }

@@ -5,7 +5,7 @@
 use std::fs;
 use std::path::PathBuf;
 
-use malt_index::{Index, ParserConfig};
+use malt_index::{Index, IndexError, ParserConfig};
 
 /// A fresh project folder with the given files, each written with `source`.
 fn project(name: &str, files: &[(&str, &str)]) -> PathBuf {
@@ -93,15 +93,22 @@ fn class_folder_and_function_have_no_bases() {
 }
 
 #[test]
-fn cycle_stops_at_the_repeated_class() {
+fn cycle_is_an_error() {
     let root = project(
         "cycle",
         &[
             ("P.m", "classdef P < Q\nend\n"),
             ("Q.m", "classdef Q < P\nend\n"),
+            ("S.m", "classdef S < S\nend\n"),
         ],
     );
     let index = Index::scan(std::slice::from_ref(&root), &ParserConfig::default());
     let p = index.get("P").unwrap().unwrap();
-    assert_eq!(names(&index.mro(&p).unwrap()), ["P", "Q"]);
+    let err = index.mro(&p).unwrap_err();
+    assert_eq!(err, IndexError::CyclicBase("P -> Q -> P".into()));
+    let s = index.get("S").unwrap().unwrap();
+    assert_eq!(
+        index.inherited_members(&s).unwrap_err(),
+        IndexError::CyclicBase("S -> S".into())
+    );
 }

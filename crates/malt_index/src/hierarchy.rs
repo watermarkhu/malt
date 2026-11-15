@@ -70,7 +70,7 @@ impl Index {
     }
 
     /// The linearisation of `node`, whose bases are resolved from `dir`. `stack` holds
-    /// the names being linearised, so a cycle stops at the repeated class.
+    /// the names being linearised: a base already on it is a cycle, an error.
     fn linearize(
         &self,
         node: Ancestor,
@@ -87,20 +87,19 @@ impl Index {
         stack.push(node.name.clone());
         let mut sequences = Vec::new();
         for base in &bases {
-            if stack.contains(&base.name) {
-                sequences.push(vec![base.clone()]);
-            } else {
-                let base_dir = base.entity.as_ref().and_then(folder_of);
-                sequences.push(self.linearize(base.clone(), base_dir, stack)?);
+            if let Some(at) = stack.iter().position(|name| *name == base.name) {
+                let mut chain: Vec<&str> = stack[at..].iter().map(String::as_str).collect();
+                chain.push(&base.name);
+                return Err(IndexError::CyclicBase(chain.join(" -> ")));
             }
+            let base_dir = base.entity.as_ref().and_then(folder_of);
+            sequences.push(self.linearize(base.clone(), base_dir, stack)?);
         }
         stack.pop();
         sequences.push(bases);
 
-        // A cycle can bring the node back through a base: it is listed once, first.
-        let merged = c3_merge(sequences);
-        let mut out = vec![node.clone()];
-        out.extend(merged.into_iter().filter(|a| a.name != node.name));
+        let mut out = vec![node];
+        out.extend(c3_merge(sequences));
         Ok(out)
     }
 

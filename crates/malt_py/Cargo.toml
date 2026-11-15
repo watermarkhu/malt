@@ -26,3 +26,4 @@ extension-module = ["pyo3/extension-module"]
 [dependencies]
 malt-index.workspace = true
 pyo3.workspace = true
+log = "0.4"

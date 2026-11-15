@@ -18,10 +18,10 @@ from malt_index import (
     FilePathError,
     Function,
     NameResolutionError,
-    Object,
     ParserConfig,
     PathsCollection,
     Property,
+    Script,
 )
 
 HERE = Path(__file__).resolve().parent
@@ -58,7 +58,7 @@ def test_kinds_and_python_types(paths: PathsCollection) -> None:
     assert isinstance(paths["shapes.Shape"], Class)
     assert paths["Money"].kind == "class"
     assert paths["notes"].kind == "script"
-    assert type(paths["notes"]) is Object
+    assert type(paths["notes"]) is Script
     assert paths.members["+shapes"].kind == "namespace"
     assert isinstance(paths["shapes.Shape"].members["Name"], Property)
 

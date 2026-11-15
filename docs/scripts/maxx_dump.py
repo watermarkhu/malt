@@ -82,6 +82,8 @@ def entity(obj, root: Path) -> dict:
         out["dimensions"] = None if dims is None else [str(d) for d in dims]
         out["validators"] = text(getattr(obj, "validators", None))
         out["default"] = text(getattr(obj, "default", None))
+    if obj.kind.value == "live_script":
+        out["sections"] = [{"kind": s.kind, "content": s.content} for s in obj.sections]
     members = {}
     for name, member in sorted(getattr(obj, "members", {}).items()):
         if getattr(member, "is_alias", False):
@@ -91,15 +93,40 @@ def entity(obj, root: Path) -> dict:
     return out
 
 
+def plaintext_members(folder: Path) -> dict:
+    """The `.m` files of a folder, each read as plain-text live code, keyed by stem."""
+    from maxx.livescript import LiveScriptParser
+
+    members = {}
+    for file in sorted(folder.glob("*.m")):
+        if file.is_file():
+            live = LiveScriptParser(file).parse_plaintext()
+            members[file.stem] = entity(live, folder)
+    return {"root": str(folder), "members": members}
+
+
 def main(argv: list[str]) -> int:
     from maxx.collection import PathsCollection
 
+    live = bool(argv) and argv[0] == "--live"
+    if live:
+        argv = argv[1:]
+    if argv and argv[0] == "--plaintext":
+        if len(argv) != 2:
+            print("usage: maxx_dump.py --plaintext DIR", file=sys.stderr)
+            return 2
+        result = plaintext_members(Path(argv[1]).resolve())
+        json.dump(result, sys.stdout, indent=2, sort_keys=True)
+        sys.stdout.write("\n")
+        return 0
+
     paths = [Path(p).resolve() for p in argv]
     if not paths:
-        print("usage: maxx_dump.py PATH [PATH ...]", file=sys.stderr)
+        usage = "usage: maxx_dump.py [--live | --plaintext DIR] PATH [PATH ...]"
+        print(usage, file=sys.stderr)
         return 2
     root = paths[0]
-    collection = PathsCollection(paths)
+    collection = PathsCollection(paths, parse_live_scripts=live)
     result = {
         "root": str(root),
         "members": {

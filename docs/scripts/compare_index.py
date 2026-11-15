@@ -59,6 +59,7 @@ SCALAR_FIELDS = (
     "default",
 )
 ARGUMENT_FIELDS = ("kind", "type", "dimensions", "validators", "default", "docstring")
+SECTION_FIELDS = ("kind", "content")
 ABSENT = "<absent>"
 
 
@@ -125,6 +126,25 @@ def compare_arguments(out: list[Difference], entity: str, context: str, field: s
             )
 
 
+def compare_sections(out: list[Difference], entity: str, context: str, a: list, b: list) -> None:
+    """Live script sections, in order. Line numbers are not compared: maxx has none."""
+    if len(a) != len(b):
+        out.append(
+            Difference(entity, "sections.count", len(a), len(b), context, "live_script")
+        )
+    for index, (x, y) in enumerate(zip(a, b, strict=False)):
+        for sub in SECTION_FIELDS:
+            compare_values(
+                out,
+                entity,
+                f"sections.{sub}",
+                x.get(sub),
+                y.get(sub),
+                f"{context}; section {index}",
+                "live_script",
+            )
+
+
 def compare_entity(out: list[Difference], entity: str, a: dict | None, b: dict | None) -> None:
     """Compare two entities (maxx side a, Rust side b) and recurse into their members."""
     context = describe(a if a is not None else b)
@@ -145,6 +165,8 @@ def compare_entity(out: list[Difference], entity: str, a: dict | None, b: dict |
         compare_arguments(out, entity, context, "arguments", a.get("arguments", []), b.get("arguments", []))
     if "returns" in a or "returns" in b:
         compare_arguments(out, entity, context, "returns", a.get("returns", []), b.get("returns", []))
+    if "sections" in a or "sections" in b:
+        compare_sections(out, entity, context, a.get("sections", []), b.get("sections", []))
     compare_members(out, entity, a.get("members", {}), b.get("members", {}), a.get("kind", ""))
 
 
