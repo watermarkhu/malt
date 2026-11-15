@@ -22,6 +22,9 @@ pub enum IndexError {
     /// The parser could not be set up (the grammar version does not match).
     #[error("tree-sitter could not load the MATLAB grammar: {0}")]
     Grammar(String),
+    /// The `.malt.toml` is not valid TOML, or its `[index]` table is not valid.
+    #[error("invalid .malt.toml: {0}")]
+    Config(String),
 }
 
 impl IndexError {

@@ -27,6 +27,7 @@ use crate::config::ParserConfig;
 use crate::error::IndexError;
 use crate::model::{Docstring, Entity, Kind};
 use crate::parse::parse_file;
+use crate::paths::{resolve_paths, PathConfig};
 
 /// The index of one entry: a file, a package, or a class folder.
 pub type EntryId = usize;
@@ -139,6 +140,22 @@ impl Index {
             }
         }
         index
+    }
+
+    /// The index of the search path that [`resolve_paths`] gives for `config`, the
+    /// working directory `cwd`, the linted `file` and `extra_dirs`. The returned
+    /// warnings are those of the resolution and of the folders that could not be read.
+    pub fn from_config(
+        config: &PathConfig,
+        cwd: &Path,
+        file: Option<&Path>,
+        extra_dirs: &[PathBuf],
+        parser: &ParserConfig,
+    ) -> (Index, Vec<String>) {
+        let (dirs, mut warnings) = resolve_paths(config, cwd, file, extra_dirs);
+        let index = Index::scan(&dirs, parser);
+        warnings.extend(index.errors().iter().map(ToString::to_string));
+        (index, warnings)
     }
 
     /// The paths that could not be read by [`Index::scan`].

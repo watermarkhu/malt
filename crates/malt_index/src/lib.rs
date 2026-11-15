@@ -16,6 +16,7 @@ pub mod error;
 pub mod index;
 pub mod model;
 pub mod parse;
+pub mod paths;
 
 pub use config::ParserConfig;
 pub use error::IndexError;
@@ -24,3 +25,4 @@ pub use model::{
     Argument, ArgumentKind, Detail, Docstring, Entity, FunctionDetail, Kind, PropertyDetail,
 };
 pub use parse::{parse_file, parse_source};
+pub use paths::{resolve_paths, PathConfig};

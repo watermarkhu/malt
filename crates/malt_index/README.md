@@ -2,8 +2,8 @@
 
 A native index of the MATLAB path: the functions, classes, scripts, packages (`+pkg`),
 class folders (`@cls`) and `private/` folders that MATLAB resolves names against. It is
-the Rust core of the replacement for the Python library maxx. Stage 1: the core only. No
-Python bindings, no linter integration, no path configuration (`.malt.toml` `paths`).
+the Rust core of the replacement for the Python library maxx. No Python bindings and no
+linter integration yet.
 
 The crate does not depend on the linter crates. It is `publish = false` for now.
 
@@ -32,6 +32,33 @@ let file = parse_file(Path::new("src/x.m"), &ParserConfig::default())?;
 - Files are parsed on first use and the result is cached (`OnceLock`), so a lookup costs
   one parse per file it needs. `members()` and the dump parse everything.
 - An `Index` is `Send + Sync`: share it with `Arc`.
+
+## Path configuration
+
+The search path can be built from `.malt.toml` rather than listed by hand:
+
+```rust
+use malt_index::{Index, ParserConfig, PathConfig, resolve_paths};
+
+let config = PathConfig::load(&cwd)?;                     // [index] paths, or empty
+let (dirs, warnings) = resolve_paths(&config, &cwd, Some(file), &[]);
+let (index, warnings) = Index::from_config(&config, &cwd, Some(file), &[], &ParserConfig::default());
+```
+
+- The default path is the working directory. `paths` (in the `[index]` table of the
+  working directory's `.malt.toml`) replaces it. The linted file's folder and the extra
+  folders always come first.
+- `lib/**` is genpath: the folder and its plain subfolders, recursively. Other patterns
+  (`lib`, `src/*`, `lib?`, `[ab]x`, `lib/**/deeper`) match folders without recursion.
+  Relative patterns resolve against the working directory.
+- `+pkg`, `@cls`, `private` and hidden folders are never on the path, nor anything below
+  them. Naming one explicitly is a warning.
+- The result is deduplicated and sorted (the file's folder, the extra folders in the
+  order given, then the configured folders by path). Missing folders and unmatched patterns
+  are warnings in the returned `Vec<String>`; they never panic. A `.malt.toml` that is not
+  valid TOML, or an invalid `[index]` table, is `IndexError::Config`.
+- Globs are matched without the `globset` or `walkdir` crates (neither is a dependency).
+  Symbolic links are followed when a pattern names them, but not while recursing.
 
 ## Entities
 
@@ -184,5 +211,7 @@ list its paths (for a recursive scan: the root and its plain subfolders, not `+`
   `private/`, precedence, addpath/rmpath, recursion), and the golden snapshot
   `tests/golden/project.json`. To update it: `MALT_INDEX_UPDATE_GOLDEN=1 cargo test -p malt-index`,
   then review the diff.
+- `tests/paths.rs`: the path configuration on temporary projects (the `[index]` table, each
+  glob rule, missing folders, deduplication, order, and config parse errors).
 
 The sample project under `tests/project` is written for these tests.

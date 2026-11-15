@@ -211,6 +211,22 @@ warning: .malt.toml: unknown parameter 'max_variable_nam_length' for rule 'GOOD_
 
 Add `--strict-config` to turn the warnings into an error: malt then prints the warnings and exits with code `2` without linting. Use it in CI to keep typos out of the configuration. Without it, the exit code does not depend on the warnings.
 
+## `[index]` Section
+
+`[index] paths` lists the folders the MATLAB search path is made of. It is read by the path index (`malt-index`), not by the linter, so it has no effect on the diagnostics yet. Other tables are not affected by it, and `--strict-config` does not warn about it.
+
+```toml title=".malt.toml"
+[index]
+paths = [".", "lib/**", "src/*", "tools/helper"]
+```
+
+- Without `paths`, the search path is the working directory. With `paths`, the listed folders replace it; add `"."` to keep it.
+- Relative patterns resolve against the working directory. The folder of the linted file and any extra folders always come first.
+- `lib/**` adds `lib` and its plain subfolders, recursively, as MATLAB's `genpath` does. `+pkg`, `@cls`, `private` and hidden folders are never added, nor anything below them.
+- Any other pattern adds only the folders it matches, not recursively. `*`, `?` and `[...]` match within one folder name; `**` in the middle matches any number of levels (`lib/**/deeper`).
+- The result is deduplicated and sorted by path. A folder that does not exist, or a pattern that matches nothing, is a warning, and the rest of the path is used.
+- An invalid `[index]` table (an unknown key, or `paths` not a list of strings) or a `.malt.toml` that is not TOML is an error.
+
 ## Default Behavior
 
 When no `.malt.toml` is present:
