@@ -306,6 +306,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "malt-index"
+version = "0.0.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "thiserror",
+ "tree-sitter",
+ "tree-sitter-matlab",
+]
+
+[[package]]
 name = "malt-rules"
 version = "0.0.0"
 dependencies = [

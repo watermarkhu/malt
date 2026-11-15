@@ -1,0 +1,22 @@
+[package]
+name = "malt-index"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+keywords.workspace = true
+categories.workspace = true
+publish = false
+description = "Native index of the MATLAB path (functions, classes, packages, class folders): the Rust core that replaces maxx"
+
+[lib]
+name = "malt_index"
+
+[dependencies]
+tree-sitter.workspace = true
+tree-sitter-matlab.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true

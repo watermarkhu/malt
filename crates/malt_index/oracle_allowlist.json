@@ -1,0 +1,135 @@
+[
+  {
+    "field": "arguments.kind",
+    "detail": "varargin",
+    "reason": "maxx records the varargin input as positional-only (its code never sets ArgumentKind.varargin); the index records the kind varargin, as the stage's schema asks."
+  },
+  {
+    "field": "arguments.presence",
+    "detail": "~",
+    "reason": "maxx drops an ignored input '~' (its signature query captures identifiers only), which also shifts self-removal and the arguments of methods with '~'; the index keeps '~' as an input, as MATLAB counts it."
+  },
+  {
+    "field": "returns.presence",
+    "detail": "~",
+    "reason": "maxx drops an ignored output '~' for the same reason; the index keeps it as an output."
+  },
+  {
+    "field": "arguments.presence",
+    "detail": "*",
+    "reason": "maxx's function query reads only the first match of the whole function node (matches(node)[0]): inputs of a function that has a nested function, or whose arguments block names an input in a later match, are dropped or taken from the nested function (checked on a_nested_funs, c2__s1, custom__a, t__Cls). The index reads the signature and its arguments blocks directly."
+  },
+  {
+    "field": "returns.presence",
+    "detail": "*",
+    "reason": "maxx's function query reads only the first match of the whole function node: outputs after the first in '[a, b] = f' are dropped, and outputs of a nested function are taken as the function's own (checked on b_coder_kernel, b_ode_solver, a_nested_funs). The index reads every output of the signature."
+  },
+  {
+    "entity": "a_nested_funs",
+    "field": "docstring",
+    "reason": "maxx takes the docstring from the first match, which is the nested function's comment ('Apply STEP ...'); the index takes the file function's own comment block."
+  },
+  {
+    "entity": "f_gui_app",
+    "field": "docstring",
+    "reason": "maxx's first-match capture finds no comment for a function that has nested functions; the index takes the comment block after the signature."
+  },
+  {
+    "field": "presence",
+    "detail": "function>function",
+    "reason": "maxx does not record local functions (functions after the file's main function); the index records them as members of the file's function, as MATLAB resolves them to the file."
+  },
+  {
+    "field": "presence",
+    "detail": "script>function",
+    "reason": "maxx does not record local functions of scripts; the index records them as members of the script."
+  },
+  {
+    "field": "presence",
+    "detail": "root>script",
+    "entity": "class?classbody",
+    "reason": "maxx joins a class folder's member names without a dot ('class2classbody'): the Folder join rule applies to a class folder that has no class file. The index lists the script as 'class2.classbody', the identifier MATLAB uses."
+  },
+  {
+    "field": "presence",
+    "detail": "root>script",
+    "entity": "class?classstatic",
+    "reason": "maxx joins a class folder's member names without a dot ('class2classstatic'); the index uses 'class2.classstatic' (see above)."
+  },
+  {
+    "field": "presence",
+    "detail": "class>function",
+    "entity": "ClassFolder.ClassFolder",
+    "reason": "maxx removes the class constructor from the class folder's members: it pops the key of the class file, which is also the name of the constructor method. The index keeps the constructor as a member of the class folder."
+  },
+  {
+    "field": "presence",
+    "detail": "class>function",
+    "entity": "*Logger.Logger",
+    "reason": "maxx removes the class constructor from the class folder's members (see ClassFolder.ClassFolder). The index keeps it."
+  },
+  {
+    "field": "presence",
+    "detail": "root>function",
+    "entity": "inv",
+    "reason": "maxx lists a method of a class folder that has no class file (@double/inv.m) under its bare name 'inv', because the method's path is not yet qualified when it is listed. The index lists it under 'double.inv', the identifier of that method; the bare name is not a MATLAB identifier for it."
+  },
+  {
+    "field": "presence",
+    "detail": "root>function",
+    "entity": "double.inv",
+    "reason": "the counterpart of 'inv' above: the index lists the class-folder method under its qualified name."
+  },
+  {
+    "field": "attributes",
+    "detail": "class:*",
+    "reason": "maxx records no attributes for classes (its Class object keeps Abstract, Hidden and Sealed as plain fields, not in the attribute set); the index records them from the classdef block."
+  },
+  {
+    "field": "attributes",
+    "detail": "property:Dependent",
+    "reason": "maxx drops the property attribute Dependent: its list checks the misspelling 'Dependant', so Dependent is never recorded; the index records 'Dependent' as MATLAB spells it."
+  },
+  {
+    "field": "presence",
+    "detail": "root>script",
+    "entity": "class?.classbody",
+    "reason": "the dotted form of the entry above: the index lists the class-folder script as 'class2.classbody' (see class2classbody)."
+  },
+  {
+    "field": "presence",
+    "detail": "root>script",
+    "entity": "class?.classstatic",
+    "reason": "the dotted form of the entry above: 'class2.classstatic' (see class2classstatic)."
+  },
+  {
+    "entity": "c_idx1*",
+    "field": "*",
+    "reason": "maxx classifies c_idx1.m as a script although its first statement is 'classdef c_idx1' (its file query does not match this file: the classdef contains the parse error '[1 2 3](end)'). The index reads the classdef, as MATLAB does."
+  },
+  {
+    "field": "lineno",
+    "detail": "property",
+    "reason": "maxx records no line span for properties (null); the index records the declaration's span."
+  },
+  {
+    "field": "endlineno",
+    "detail": "property",
+    "reason": "maxx records no line span for properties (null); the index records the declaration's span."
+  },
+  {
+    "field": "lineno",
+    "detail": "enumeration",
+    "reason": "maxx records no line span for enumeration members (null); the index records the member's span."
+  },
+  {
+    "field": "endlineno",
+    "detail": "enumeration",
+    "reason": "maxx records no line span for enumeration members (null); the index records the member's span."
+  },
+  {
+    "field": "kind",
+    "detail": "enumeration",
+    "reason": "maxx's Kind enum defines ENUMERATION = 'class', an alias of CLASS, so enumeration members dump as kind 'class'; the index dumps 'enumeration'."
+  }
+]

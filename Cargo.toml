@@ -3,6 +3,7 @@ resolver = "2"
 members = [
     "crates/malt_cli",
     "crates/malt_core",
+    "crates/malt_index",
     "crates/malt_rules",
     "crates/malt_wasm",
 ]
@@ -30,6 +31,7 @@ tree-sitter-matlab = { git = "https://github.com/watermarkhu/tree-sitter-matlab"
 serde = { version = "1", features = ["derive"] }
 toml = "0.8"
 thiserror = "2"
+serde_json = "1"
 anyhow = "1"
 clap = { version = "4", features = ["derive"] }
 inventory = "0.3"

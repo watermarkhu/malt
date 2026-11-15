@@ -1,0 +1,188 @@
+# malt-index
+
+A native index of the MATLAB path: the functions, classes, scripts, packages (`+pkg`),
+class folders (`@cls`) and `private/` folders that MATLAB resolves names against. It is
+the Rust core of the replacement for the Python library maxx. Stage 1: the core only. No
+Python bindings, no linter integration, no path configuration (`.malt.toml` `paths`).
+
+The crate does not depend on the linter crates. It is `publish = false` for now.
+
+Licence: maxx is GPL-3.0 and malt is MIT. The behaviour was read from maxx's sources; the
+code here is written from scratch. No maxx code, tests, files or submodules are in this
+repository.
+
+## API
+
+```rust
+use malt_index::{Index, ParserConfig, parse_file, Entity};
+
+let index = Index::scan(&[PathBuf::from("src")], &ParserConfig::default());
+let fun: Option<Entity> = index.get("pkg.sub.fn")?;      // functions, classes, `+pkg.Cls`
+let method = index.get("ClassFolder.method")?;            // class folder methods
+let local = index.get_from("helper", Path::new("src"))?;  // siblings and private/ first
+let names = index.member_names();                         // top-level names
+let all = index.members()?;                               // every top-level entity
+index.addpath("lib", false, /* recursive */ true)?;      // front of the path
+index.rmpath("lib", true);                                // with the folders below it
+let file = parse_file(Path::new("src/x.m"), &ParserConfig::default())?;
+```
+
+- `Index::scan(paths, config)` lists the folders up front (no file is read). Paths that
+  cannot be read are skipped and listed by `index.errors()`.
+- Files are parsed on first use and the result is cached (`OnceLock`), so a lookup costs
+  one parse per file it needs. `members()` and the dump parse everything.
+- An `Index` is `Send + Sync`: share it with `Arc`.
+
+## Entities
+
+`Entity` has `kind`, `name`, `path`, `lineno`, `endlineno`, `docstring`, `attributes`
+(a sorted set), `detail` (kind-specific) and `members` (a `BTreeMap`).
+
+| Kind | Name | Detail | Members |
+|---|---|---|---|
+| `Function` | file stem (the file's own function), or the identifier (methods, local and nested functions, getters/setters) | `Function(FunctionDetail { arguments, returns, is_getter, is_setter })` | local and nested functions |
+| `Class` | file stem | `Class { bases }` | properties, methods, enumeration members |
+| `Property` | identifier | `Property(PropertyDetail { type, dimensions, validators, default, getter, setter })` | none |
+| `Enumeration` | identifier | `Enumeration { value }` | none |
+| `Script` | file stem | `None` | local functions |
+| `Namespace` | `pkg` (the `+` is in the top-level key) | `None` | files and sub-packages |
+| `ClassFolder` | `cls` | `None` | the class file's members and the folder's methods |
+
+`Argument { name, kind, type, dimensions, validators, default, docstring }`, with `kind`
+one of `positional-only`, `optional`, `keyword-only`, `varargin`.
+
+## The dump (schema)
+
+`cargo run -p malt-index --example dump -- PATH...` prints JSON in the schema of
+`docs/scripts/maxx_dump.py`: keys sorted, indent 2. The root is `{ "root", "members" }`.
+Every entity has `kind`, `name`, `lineno`, `endlineno`, `docstring` (a string or null),
+`attributes` (a list), `members`, and `path` when the entity has a file (relative to the
+first PATH, absolute outside it). Extra keys only by kind:
+
+- `class`: `bases`.
+- `function`: `arguments`, `returns` (each `{name, kind, type, dimensions, validators,
+  default, docstring}`), `is_getter`, `is_setter`.
+- `property`: `type`, `dimensions`, `validators`, `default`.
+
+`docstring` is the comment text (see below), not parsed.
+
+## Behaviour
+
+### Folders on the path
+
+- A folder contributes its `.m` files, except `Contents.m`, which documents the folder.
+- `+pkg`: a package. Its files and sub-packages are its members (`pkg.fn`, `pkg.sub.fn`).
+  Class folders inside a package work too.
+- `@cls`: a class folder. `cls.m` is the class file (a classdef, or an old-style constructor
+  function); the other `.m` files are methods, named after their file.
+- `private/`: visible only to the files of its parent folder (`get_from(name, dir)`).
+  Never on the path itself. Private folders of subfolders are not on the path with recursion.
+- `recursive`: plain subfolders are scanned too and their files join the top level, as
+  MATLAB's `genpath` does. Their `+` and `@` folders join the top level as well.
+
+### Precedence
+
+The first path (the front of the search path) wins a name. Within one path, names are
+taken in sorted order. `get_from` looks at the folder's own files and its `private/` first.
+When several paths define one package, the package is the union of its members, the
+earlier path winning a name clash.
+
+### Top-level names (`members()`)
+
+As maxx's collection lists them: each top-level name (`fn`, `Cls`, `+pkg`, `cls`), and the
+members of a package under dotted identifiers (`pkg.fn`, `pkg.Cls`, `+pkg.sub`) and the
+methods of a class folder as `cls.method`.
+
+### Parsing
+
+- A file whose first statement is `function` is a function file: its entity is named after
+  the file. A `classdef` file is a class. Anything else is a script.
+- Syntax errors never stop the parse: tree-sitter recovers and the rest is read. A UTF-8
+  BOM is ignored. CRLF is read as usual. Text that is not UTF-8 is read as Latin-1.
+- Arguments: the signature's inputs and outputs, then each `arguments` block. Only names of
+  the signature are updated (maxx's rule). `opts.Name` and `opts.?Cls.prop` are keyword
+  arguments. `arguments (Output)` puts its names into `returns`. `varargin` has the kind
+  `varargin`. `~` is an argument named `~`.
+- Methods: the first input (the object) is removed unless the method is `Static` or is the
+  constructor (named after the file).
+- Getters and setters (`get.X`, `set.X`) attach to the property `X` of the class; without a
+  property, they are members named `X` with `is_getter`/`is_setter` set.
+- Attributes: `Access`, `GetAccess`, `SetAccess` (not `public` ones) as `Access=private`
+  etc.; the boolean attributes (`Abstract`, `Hidden`, `Sealed`, `Static`, `Constant`,
+  `Dependent`, `Transient`, ...) as their names. A class's `Abstract`, `Hidden` and `Sealed`
+  are its attributes too.
+- Enumerations: the members of each `enumeration` block, with their values as written.
+- `events` blocks are not entities (maxx does not record them either).
+- Local functions (after the file's own function) are members of that function; nested
+  functions (in a function body) are members of the function. Scripts' local functions are
+  members of the script.
+
+### Docstrings
+
+- A comment block next to a declaration: the run of comments on adjacent lines (a blank
+  line ends the block), with the comment markers removed. `%%` lines are cell titles, `%{ %}`
+  block comments are kept, `%#` pragmas and `--8<--` lines are dropped. The text is then
+  normalised as `inspect.cleandoc` does, with trailing whitespace removed (as maxx and
+  griffe keep it).
+- Placement: a comment after a property, argument or enumeration member documents the one
+  before it (maxx's default). The `docstring_before_properties`, `_arguments` and
+  `_enumerations` options of `ParserConfig` make the block before it document it.
+- A function's docstring is the comment block after its signature (before the arguments
+  block). A class's is the block after `classdef`. A file's header comments (before its first
+  statement) document the file's entity when it has none.
+- `docstring.raw` keeps the exact source text and `lineno`/`endlineno` its span. There is no
+  section parsing (Google or NumPy style is for the consumer).
+- A folder's docstring is its `Contents.m` header, else its `README.md` text. A class folder
+  uses its class file's docstring first.
+
+## Differences from maxx
+
+Each difference is listed in `oracle_allowlist.json` with its reason, and the oracle
+reports it as accepted. The main groups:
+
+1. **Bugs in maxx, not replicated**: the function query reads the first match only, so
+   inputs and outputs of a function with several outputs or a nested function are dropped
+   or taken from the nested function; `~` is dropped; the docstring of a function with nested
+   functions is lost; the `Dependant` misspelling drops `Dependent`; class attributes are not
+   in `attributes`; the constructor of a class folder is popped from its members; a class
+   folder's script members are joined without a dot (`class2classbody`); a classdef with a
+   parse error (`[1 2 3](end)`) is read as a script.
+2. **Records maxx does not**: local and nested functions; line spans of properties and
+   enumeration members (maxx gives null); the varargin kind; the `~` arguments.
+3. **Bare names**: maxx lists the methods of a class folder without a class file under the
+   bare name (`inv`, for `@double/inv.m`). The index lists them as `double.inv`.
+4. **Enumeration kind**: maxx's `Kind.ENUMERATION` equals `CLASS` (`"class"`); the index
+   says `enumeration`.
+5. **Encoding**: maxx detects the encoding with charset-normalizer; the index uses UTF-8
+   and falls back to Latin-1 (correct for the Western files in the corpus).
+
+## Oracle workflow
+
+Compare with maxx on the same paths (read-only inputs, never copied):
+
+```sh
+cd ../maxx && uv run python ../malt/docs/scripts/maxx_dump.py PATH... > /tmp/maxx.json
+cd ../malt && cargo run -q -p malt-index --example dump -- PATH... > /tmp/rust.json
+python3 -I docs/scripts/compare_index.py --maxx /tmp/maxx.json --rust /tmp/rust.json \
+    --project NAME      # exit 1 when a difference is not in the allowlist
+```
+
+The report groups every difference by field, with the entity, its kind, span, attributes,
+bases, arguments and docstring, and a summary table. The allowlist entries match on
+`project`, `entity`, `field` and `detail` (globs); each has a `reason`. To add a project,
+list its paths (for a recursive scan: the root and its plain subfolders, not `+`, `@` or
+`private` folders) in the same way the dump takes them.
+
+## Tests
+
+`cargo test -p malt-index`:
+
+- `src/comments.rs`: the docstring text rules.
+- `tests/parse.rs`: the parser on small samples (every kind, argument forms, attributes,
+  enumerations, placement, block comments, nested functions, BOM/CRLF/Latin-1, malformed input).
+- `tests/index.rs`: scanning and lookup on `tests/project` (packages, class folders,
+  `private/`, precedence, addpath/rmpath, recursion), and the golden snapshot
+  `tests/golden/project.json`. To update it: `MALT_INDEX_UPDATE_GOLDEN=1 cargo test -p malt-index`,
+  then review the diff.
+
+The sample project under `tests/project` is written for these tests.
