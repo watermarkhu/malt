@@ -24,7 +24,7 @@ use super::super::CompatibilityEngine;
 use malt_core::{Diagnostic, Severity};
 use tree_sitter::Node;
 
-use crate::analysis::callee::name_field;
+use crate::analysis::callee::{call_path, Dotted};
 
 /// PTCLO: changing axes LineStyleOrder/ColorOrder now affects existing charts.
 const MSG_PTCLO: &str = "Changing the axes LineStyleOrder or ColorOrder properties of an existing chart now affects the chart immediately. To revert to the old behavior, set either the axes LineStyleOrderIndex or ColorOrderIndex to any value (such as its current value) before changing LineStyleOrder or ColorOrder.";
@@ -90,8 +90,10 @@ impl CompatibilityEngine {
     pub(crate) fn check_smthg(&self, node: Node, source: &str, diagnostics: &mut Vec<Diagnostic>) {
         // `set` and `get` are reported on a figure only: `set(ax, ...)` with an axes
         // or an unknown handle is silent in MATLAB.
-        if matches!(name_field(node, source), Some("set") | Some("get"))
-            && !first_arg_is_figure(node, source)
+        if matches!(
+            call_path(node, source, Dotted::Trailing),
+            Some("set") | Some("get")
+        ) && !first_arg_is_figure(node, source)
         {
             return;
         }
@@ -226,7 +228,7 @@ impl CompatibilityEngine {
     /// PTCLO: `'LineStyleOrder'`/`'ColorOrder'` name-value args on `set`,
     /// `axes`, or chart-creation functions.
     pub(crate) fn check_ptclo(&self, node: Node, source: &str, diagnostics: &mut Vec<Diagnostic>) {
-        if !is_ptclo_func(name_field(node, source)) {
+        if !is_ptclo_func(call_path(node, source, Dotted::Trailing)) {
             return;
         }
         let args = named_args(node);
@@ -321,7 +323,7 @@ fn is_axes_variable(node: Node, name: &str, source: &str) -> bool {
     }
     let is_axes = |value: Node| match value.kind() {
         "identifier" => &source[value.byte_range()] == "gca",
-        "function_call" => name_field(value, source) == Some("gca"),
+        "function_call" => call_path(value, source, Dotted::Trailing) == Some("gca"),
         _ => false,
     };
     let mut found = false;
@@ -351,7 +353,10 @@ fn first_arg_is_figure(call: Node, source: &str) -> bool {
     };
     let is_figure = |value: Node| match value.kind() {
         "identifier" => &source[value.byte_range()] == "gcf",
-        "function_call" => matches!(name_field(value, source), Some("gcf") | Some("figure")),
+        "function_call" => matches!(
+            call_path(value, source, Dotted::Trailing),
+            Some("gcf") | Some("figure")
+        ),
         _ => false,
     };
     if arg.kind() == "identifier" && &source[arg.byte_range()] != "gcf" {
@@ -452,7 +457,7 @@ fn scan_name_args(
     message: &'static str,
     diagnostics: &mut Vec<Diagnostic>,
 ) {
-    let func_name = name_field(call, source);
+    let func_name = call_path(call, source, Dotted::Trailing);
     let args = named_args(call);
     let total = args.len();
     for (index, (arg, is_positional)) in args.iter().enumerate() {

@@ -25,6 +25,7 @@ pub mod analysis;
 pub mod bugs;
 pub mod codegen;
 pub mod compatibility;
+pub mod config_check;
 pub mod custom_checks;
 pub mod deployment;
 pub mod formatting;

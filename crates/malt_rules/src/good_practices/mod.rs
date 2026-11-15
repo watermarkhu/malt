@@ -496,6 +496,7 @@ impl GoodPracticesEngine {
         let any_enabled = self.is_check_enabled("PFIIN")
             || self.is_check_enabled("PFOUS")
             || self.is_check_enabled("PFTUSW")
+            || self.is_check_enabled("PFTUSE")
             || self.is_check_enabled("PFUIXW");
         if !any_enabled {
             return Vec::new();
@@ -524,8 +525,13 @@ impl GoodPracticesEngine {
                         // Probed: only names that are variables of the function count (not
                         // builtins, unknown calls or names from `load`), and a loop in the body
                         // that iterates over the name assigns it.
-                        if !sym.scopes.iter().any(|s| s.is_defined(&name))
-                            || is_for_iterator_in(body_node, &name, source)
+                        // A call of a nested function (`helper(x(k))`) is not a variable.
+                        if !sym.scopes.iter().any(|s| {
+                            s.defs.iter().any(|d| {
+                                d.name == name
+                                    && d.kind != crate::analysis::symbols::DefKind::NestedFunction
+                            })
+                        }) || is_for_iterator_in(body_node, &name, source)
                             || collect_indexed_lhs_assignments(body_node, source)
                                 .iter()
                                 .any(|(n, _)| *n == name)
@@ -617,8 +623,9 @@ impl GoodPracticesEngine {
 
             // PFTUSW: simple-identifier assignments in the body and whether the
             // variable is used after the loop.
-            let need_assignments =
-                self.is_check_enabled("PFOUS") || self.is_check_enabled("PFTUSW");
+            let need_assignments = self.is_check_enabled("PFOUS")
+                || self.is_check_enabled("PFTUSW")
+                || self.is_check_enabled("PFTUSE");
             if need_assignments {
                 if let Some(body_node) = body {
                     let assigned = collect_simple_lhs_assignments(body_node, source);
@@ -629,8 +636,15 @@ impl GoodPracticesEngine {
                         let uses =
                             uses_after_parfor(&sym, &name, parfor.end_byte(), tree, source, false);
                         // A function output assigned whole in the body is returned after the
-                        // loop, so MATLAB reports PFTUSW on the function's line (probed).
-                        if self.is_check_enabled("PFTUSW")
+                        // loop, so MATLAB reports PFTUSW on the function's line when the
+                        // variable had a value before the loop and PFTUSE when it had none
+                        // (probed).
+                        // A value before the loop is an assignment, not a parameter or an output.
+                        let pre_set = collect_simple_lhs_assignments(root_node_of(*parfor), source)
+                            .iter()
+                            .any(|(n, l)| *n == name && l.end_byte() <= parfor.start_byte());
+                        let rule_id = if pre_set { "PFTUSW" } else { "PFTUSE" };
+                        if self.is_check_enabled(rule_id)
                             && uses.is_empty()
                             && is_output_of_enclosing_function(&sym, parfor.start_byte(), &name)
                             && !collect_indexed_lhs_assignments(body_node, source)
@@ -641,11 +655,18 @@ impl GoodPracticesEngine {
                         {
                             let header = enclosing_function_line(*parfor);
                             let pos = lhs_node.start_position();
+                            let message = if pre_set {
+                                format!(
+                                    "The temporary variable '{name}' might be used after the PARFOR loop on line {header}. The value set on this line is not available after the loop."
+                                )
+                            } else {
+                                format!(
+                                    "The temporary variable '{name}' is used after the PARFOR loop on line {header}, but its value is not available after the loop."
+                                )
+                            };
                             diagnostics.push(Diagnostic {
-                                rule_id: "PFTUSW",
-                                message: format!(
-                                    "The temporary variable {name} might be used after the PARFOR loop on line {header}. The value set on this line is not available after the loop."
-                                ),
+                                rule_id,
+                                message,
                                 severity: Severity::Warning,
                                 byte_range: lhs_node.start_byte()..lhs_node.end_byte(),
                                 line: pos.row + 1,
@@ -891,11 +912,7 @@ pub(crate) fn is_statement_level(node: Node) -> bool {
 
 /// Extract the function name from a `function_call` node.
 pub(crate) fn get_function_call_name<'a>(node: Node<'a>, source: &'a str) -> Option<&'a str> {
-    if node.kind() != "function_call" || crate::analysis::symbols::is_qualified_call(node) {
-        return None;
-    }
-    let name_node = node.child_by_field_name("name")?;
-    Some(node_text(name_node, source))
+    crate::analysis::callee::call_path(node, source, crate::analysis::callee::Dotted::Skip)
 }
 
 /// Check whether a function call's first argument is an empty string literal
@@ -1759,14 +1776,9 @@ pub(crate) fn collect_parfor_body_reads<'a>(
         }
         if let Some(parent) = id.parent() {
             match parent.kind() {
-                "function_call"
-                    if parent
-                        .child_by_field_name("name")
-                        .map(|n| n.id() == id.id())
-                        .unwrap_or(false) =>
-                {
-                    continue;
-                }
+                // An indexed read `v(k)` names the variable `v` (probed: PFIIN for
+                // `a(k) = v(k)` with `v` set after the loop); the caller keeps only names
+                // that are variables of the function.
                 "assignment"
                     if parent
                         .child_by_field_name("left")
@@ -3046,5 +3058,53 @@ z = f(eval(x + y));\nonCleanup(@f);\n[~] = onCleanup(@f);\nc = computer('arch');
         for child in node.children(&mut cursor) {
             collect_diagnostics(eng, child, source, ids);
         }
+    }
+
+    #[test]
+    fn test_pfiin_fires_on_indexed_read_of_later_variable() {
+        // Probed (xcp19, xcv02): `a(k) = v(k)` reads `v`, which is set only after the loop.
+        let source = "function f(n)\na = zeros(1, n);\nparfor k = 1:n\n    a(k) = v(k);\nend\nv = 1:n;\nend\n";
+        let tree = parse(source);
+        assert_eq!(
+            g2_file_ids_with(&engine(), &tree, source, "PFIIN"),
+            vec!["PFIIN"]
+        );
+    }
+
+    #[test]
+    fn test_pfiin_silent_on_indexed_read_of_variable_set_before_loop() {
+        // Probed (xcp19 with `v` set first): an input-like read is silent once `v` has a value.
+        let source = "function f(n)\nv = 1:n;\na = zeros(1, n);\nparfor k = 1:n\n    a(k) = v(k);\nend\nend\n";
+        let tree = parse(source);
+        assert!(g2_file_ids_with(&engine(), &tree, source, "PFIIN").is_empty());
+    }
+
+    #[test]
+    fn test_pftuse_output_without_value_before_loop_reports_function_line() {
+        // Probed (xcp37, xcw02): an output set in the body and returned is PFTUSE at the set,
+        // naming the function's line. A value set before the loop gives PFTUSW (xcp07).
+        let source = "function r = f(n)\nparfor k = 1:n\n    r = k;\nend\nend\n";
+        let tree = parse(source);
+        let diags = engine().check_parfor_file_level(&tree, source);
+        let d = diags
+            .iter()
+            .find(|d| d.rule_id == "PFTUSE")
+            .expect("PFTUSE");
+        assert!(d.message.contains("on line 1"), "got: {}", d.message);
+        assert!(
+            !diags.iter().any(|d| d.rule_id == "PFTUSW"),
+            "got: {diags:?}"
+        );
+        let source = "function r = f(n)\nt = 0;\nparfor k = 1:n\n    t = k;\nend\ndisp(t)\nend\n";
+        let tree = parse(source);
+        let diags = engine().check_parfor_file_level(&tree, source);
+        assert!(
+            diags.iter().any(|d| d.rule_id == "PFTUSW"),
+            "got: {diags:?}"
+        );
+        assert!(
+            !diags.iter().any(|d| d.rule_id == "PFTUSE"),
+            "got: {diags:?}"
+        );
     }
 }

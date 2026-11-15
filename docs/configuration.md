@@ -195,6 +195,22 @@ The `severity` key is always optional in a full table. If omitted, the rule uses
 
 All other keys in the table are rule-specific parameters (see **Per-Engine Parameters**).
 
+### Validation
+
+malt checks the rule keys and the parameter names when it loads the file. Each problem is one warning on stderr, and the run goes on with the valid part of the configuration:
+
+```text
+warning: .malt.toml: unknown rule ID 'NOSMI' in [lint.rules] (did you mean 'NOSEMI'?)
+warning: .malt.toml: unknown parameter 'max_variable_nam_length' for rule 'GOOD_PRACTICES_ENGINE' (did you mean 'max_variable_name_length'?)
+```
+
+- **Rule keys** must be a rule ID malt knows, spelled exactly: an engine ID (`GOOD_PRACTICES_ENGINE`), a check ID (`NOSEMI`, `FVINR`), or a `naming.<entity>.<check>` ID. Rule keys are case-sensitive, so `nosemi` is a problem. A rule that the preset leaves off is still a valid key.
+- **Parameter names** are checked for the engines that take parameters (see **Per-Engine Parameters**), including the parameters of an engine that is turned off. `severity` is always allowed in a table. An engine without parameters, such as `NOSEMI`, reports every key other than `severity`. Keys of check IDs that are not engines are not checked.
+- **Dotted IDs must be quoted.** `[lint.rules.naming.class.casing]` is read as the rule `naming` with nested tables, and malt reports it. Write `[lint.rules."naming.class.casing"]`.
+- **Presets and categories** are not warnings. An unknown `[lint] preset` or `[lint.categories]` key is an error (exit code `2`), as before.
+
+Add `--strict-config` to turn the warnings into an error: malt then prints the warnings and exits with code `2` without linting. Use it in CI to keep typos out of the configuration. Without it, the exit code does not depend on the warnings.
+
 ## Default Behavior
 
 When no `.malt.toml` is present:
@@ -250,7 +266,7 @@ disabled_checks = ["PFEVC", "PFANSLP"]   # Turn off specific checks
 | `LANGUAGE_SPEC_ENGINE` | language-specification | `disabled_checks` |
 | `BUGS_ENGINE` | bugs | `debug_functions`, `higher_order_functions` (extra function names to treat as debug/higher-order) |
 | `CUSTOM_CHECKS` | custom-checks | `max_function_inputs`, `max_function_outputs`, `max_function_lines`, `max_line_length`, `max_nesting_depth`, `max_cyclomatic_complexity`, `max_script_cyclomatic_complexity`, `max_anonymous_cyclomatic_complexity`, `disallow_bang`, `disallow_try_catch`, `disallow_persistent`, `disallow_continue`, `disallow_break`, `disallow_return`, `disallow_script`, `disallow_nested_functions`, `disallow_command_syntax`, `disallow_anonymous_functions`, `disallow_char_vectors`, `disallow_cellstr`, `disallow_varargin`, `disallow_varargout` |
-| `NAMING_ENGINE` | naming | `max`, `min`, `pattern`, `prefix`, `phrase`, `suffix`, `style` — per-entity check config via `[lint.rules.naming.<entity>.<check>]` |
+| `NAMING_ENGINE` | naming | `max`, `min`, `pattern`, `prefix`, `phrase`, `suffix`, `style` — per-entity check config via `[lint.rules."naming.<entity>.<check>"]` (quoted, see **Validation**) |
 | `COMPAT` | compatibility | *(data-driven lookup; no params)* |
 | `GOOD_PRACTICES_ENGINE` | good-practices | `disabled_checks`, `max_variable_name_length` |
 | `UNSET_VARIABLES_ENGINE` | unset-variables | `ignore` (variable names to ignore) |

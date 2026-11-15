@@ -689,6 +689,15 @@ impl<'a> Builder<'a> {
             {
                 self.record_syms_stores(node);
             }
+            // `save f x y` (command syntax) reads the names after the file name, as
+            // `save('f', 'x', 'y')` does (probed: MATLAB reports no store before it).
+            "command"
+                if node
+                    .named_child(0)
+                    .is_some_and(|c| c.kind() == "command_name" && self.node_text(c) == "save") =>
+            {
+                self.record_save_command_reads(node);
+            }
             // `a;` is a command with one `command_name` in this grammar: a read of `a`.
             "command" if node.named_child_count() == 1 => {
                 if let Some(name) = node
@@ -1527,6 +1536,61 @@ impl<'a> Builder<'a> {
             self.add_use(VarUse {
                 name: name.to_string(),
                 byte_range: arg.byte_range(),
+                line: pos.row + 1,
+                column: pos.column + 1,
+                is_call_target: false,
+            });
+        }
+    }
+
+    /// Records the variables that a `save f x y` command reads: the words after the
+    /// file name. Options (`-append`) name nothing; with `-struct s` only the
+    /// structure `s` is read, its fields are not variables.
+    fn record_save_command_reads(&mut self, node: tree_sitter::Node<'a>) {
+        let mut cursor = node.walk();
+        let words: Vec<tree_sitter::Node<'a>> = node.named_children(&mut cursor).skip(2).collect();
+        // Options that only change the file format: every other word is a variable name. Any
+        // other option (`-regexp`, an unknown one such as `-fromstruct`) changes what the
+        // words mean, so nothing is read then.
+        const FORMAT_OPTIONS: &[&str] = &[
+            "-append",
+            "-mat",
+            "-ascii",
+            "-v4",
+            "-v6",
+            "-v7",
+            "-v7.3",
+            "-double",
+            "-tabs",
+            "-nocompression",
+        ];
+        if words.iter().any(|w| {
+            let text = self.node_text(*w);
+            text.starts_with('-') && text != "-struct" && !FORMAT_OPTIONS.contains(&text)
+        }) {
+            return;
+        }
+        let struct_form = words.iter().any(|w| self.node_text(*w) == "-struct");
+        let reads: Vec<tree_sitter::Node<'a>> = if struct_form {
+            words
+                .iter()
+                .skip_while(|w| self.node_text(**w) != "-struct")
+                .skip(1)
+                .take(1)
+                .copied()
+                .collect()
+        } else {
+            words
+        };
+        for word in reads {
+            let name = self.node_text(word);
+            if !is_plain_name(name) {
+                continue;
+            }
+            let pos = word.start_position();
+            self.add_use(VarUse {
+                name: name.to_string(),
+                byte_range: word.byte_range(),
                 line: pos.row + 1,
                 column: pos.column + 1,
                 is_call_target: false,

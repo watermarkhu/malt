@@ -10,11 +10,7 @@ impl LanguageSpecEngine {
         }
         for pb in &class.properties_blocks {
             // Probed: a Constant property whose default builds the class is silent.
-            if pb
-                .attributes
-                .iter()
-                .any(|a| a.name == "Constant" && a.is_set())
-            {
+            if Attributes(&pb.attributes).is_set("Constant") {
                 continue;
             }
             for prop in &pb.properties {

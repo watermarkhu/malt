@@ -1,4 +1,5 @@
 use super::*;
+use crate::analysis::metadata::attributes_text_contains;
 use std::collections::{HashMap, HashSet};
 use std::ops::Range;
 
@@ -222,10 +223,8 @@ fn is_static_method(tree: &tree_sitter::Tree, source: &str, start: usize) -> boo
     let mut current = tree.root_node().descendant_for_byte_range(start, start);
     while let Some(node) = current {
         if node.kind() == "methods" {
-            let mut cursor = node.walk();
-            return node
-                .children(&mut cursor)
-                .any(|c| c.kind() == "attributes" && source[c.byte_range()].contains("Static"));
+            // A substring of the attribute text (`methods (Access = Static)` counts).
+            return attributes_text_contains(node, source, "Static");
         }
         current = node.parent();
     }

@@ -39,6 +39,23 @@ fn later_use<'a>(parfor: Node<'a>, name: &str, source: &str) -> Option<Node<'a>>
         {
             break;
         }
+        // A bare `t` is a command with one command word in this grammar: a read of
+        // `t`. `clear t` ends the value (probed: no PFTUSE, the later read is NODEF).
+        if stmt.kind() == "command" {
+            if crate::analysis::liveness::clear_names(node_text(stmt, source))
+                .is_some_and(|names| names.iter().any(|n| n == name))
+            {
+                return None;
+            }
+            if stmt.named_child_count() == 1 {
+                if let Some(word) = stmt
+                    .named_child(0)
+                    .filter(|w| w.kind() == "command_name" && node_text(*w, source).trim() == name)
+                {
+                    return Some(word);
+                }
+            }
+        }
         let assigned = stmt.kind() == "assignment"
             && stmt.child_by_field_name("left").is_some_and(|l| {
                 // `name = ...`, or `[a, name] = ...`: a whole target is a write (probed:
@@ -61,11 +78,18 @@ fn later_use<'a>(parfor: Node<'a>, name: &str, source: &str) -> Option<Node<'a>>
                         found
                     })
             });
-        // For `name = ...` only the right-hand side can read the variable.
-        let scope = if assigned {
-            stmt.child_by_field_name("right").unwrap_or(stmt)
-        } else {
-            stmt
+        // Only the right-hand side of an assignment reads a variable: `name(2) = 5` is not
+        // a read, but a field store `name.f = 1` is (probed: PFTUSE for the latter only).
+        let scope = match stmt.kind() {
+            "assignment"
+                if stmt
+                    .child_by_field_name("left")
+                    .is_some_and(|l| l.kind() == "field_expression") =>
+            {
+                stmt
+            }
+            "assignment" => stmt.child_by_field_name("right").unwrap_or(stmt),
+            _ => stmt,
         };
         let mut found = None;
         visit(scope, &mut |n| {
@@ -176,9 +200,8 @@ impl BugsEngine {
 
     fn check_parfor(parfor: Node, source: &str, diagnostics: &mut Vec<Diagnostic>) {
         let loop_var = extract_for_variable(parfor, source);
-        let Some(body) = find_block_child(parfor) else {
-            return;
-        };
+        // An empty loop (`parfor k=1:n, end`) has no block but still has an index (probed).
+        let body = find_block_child(parfor);
 
         // PFUIXE: the loop index is unavailable after the loop. MATLAB reports it at the
         // loop header, not at the later use (probed), and names the use's line.
@@ -194,6 +217,10 @@ impl BugsEngine {
             }
         }
 
+        let Some(body) = body else {
+            return;
+        };
+
         let mut temps: Vec<String> = Vec::new();
         let mut temp_sites: HashMap<String, Node> = HashMap::new();
         let mut reductions: Vec<String> = Vec::new();
@@ -202,6 +229,21 @@ impl BugsEngine {
         let mut calls: Vec<Diagnostic> = Vec::new();
 
         visit(body, &mut |node| match node.kind() {
+            // A nested `for j` sets `j` in the body; MATLAB reports PFTUSE at its header
+            // (the iterator), not at the later use (probed).
+            "for_statement" if !node_text(node, source).starts_with("parfor") => {
+                let mut cursor = node.walk();
+                let iterator = node
+                    .children(&mut cursor)
+                    .find(|c| c.kind() == "iterator")
+                    .and_then(|it| it.named_child(0));
+                if let (Some(id), Some(var)) = (iterator, extract_for_variable(node, source)) {
+                    if !temps.contains(&var) {
+                        temp_sites.insert(var.clone(), id);
+                        temps.push(var);
+                    }
+                }
+            }
             "function_call" => {
                 let Some(name) = extract_call_name(node, source) else {
                     return;
@@ -517,5 +559,66 @@ mod tests {
             d.message,
             "Parfor reduction variable 'x' must be used in the same position in each assignment statement when using non-commutative reduction operations '*', '[,]', or '[;]'."
         );
+    }
+
+    #[test]
+    fn pfuixe_fires_on_index_read_after_empty_loop() {
+        // Probed (xcq01, xcx02): an empty `parfor` still has an index, and a later read is PFUIXE.
+        let diags = file_diags("function r = f(n)\nparfor k = 1:n\nend\nr = k + 1;\nend\n");
+        assert!(has_id(&diags, "PFUIXE"), "got: {diags:?}");
+    }
+
+    #[test]
+    fn pfuixe_silent_when_index_is_reassigned_after_empty_loop() {
+        // Probed (xcq10): `k = 3` before the read makes the read a new value.
+        let diags = file_diags("function r = f(n)\nparfor k = 1:n\nend\nk = 3;\nr = k;\nend\n");
+        assert!(!has_id(&diags, "PFUIXE"), "got: {diags:?}");
+    }
+
+    #[test]
+    fn pftuse_fires_on_bare_temporary_read_after_loop() {
+        // Probed (xcp11, xct01): a bare `t` statement is a command in this grammar, and it is a
+        // read of `t`. MATLAB reports PFTUSE at the assignment and names the read's line.
+        let diags = file_diags("function r = f(n)\nparfor k = 1:n\n    t = k;\nend\nt\nend\n");
+        let d = diags
+            .iter()
+            .find(|d| d.rule_id == "PFTUSE")
+            .expect("PFTUSE");
+        assert_eq!(d.line, 3);
+        assert!(d.message.contains("line 5"), "got: {}", d.message);
+    }
+
+    #[test]
+    fn pftuse_silent_after_clear_or_indexed_store() {
+        // Probed (xcp40, xct20): `clear t` ends the value; `t(2) = 5` is not a read of `t`.
+        let diags = file_diags(
+            "function r = f(n)\nparfor k = 1:n\n    t = k;\nend\nclear t\nr = t;\nend\n",
+        );
+        assert!(!has_id(&diags, "PFTUSE"), "got: {diags:?}");
+        let diags =
+            file_diags("function r = f(n)\nparfor k = 1:n\n    t = k;\nend\nt(2) = 5;\nend\n");
+        assert!(!has_id(&diags, "PFTUSE"), "got: {diags:?}");
+    }
+
+    #[test]
+    fn pftuse_fires_on_field_store_after_loop() {
+        // Probed (xct19): `t.x = 1` reads `t`.
+        let diags =
+            file_diags("function r = f(n)\nparfor k = 1:n\n    t = k;\nend\nt.x = 1;\nend\n");
+        assert!(has_id(&diags, "PFTUSE"), "got: {diags:?}");
+    }
+
+    #[test]
+    fn pftuse_for_nested_loop_variable_at_iterator() {
+        // Probed (xcp17, xct05): a nested `for j` sets `j` in the body. PFTUSE is reported at
+        // the iterator (line 3, column 7), not at the later read.
+        let diags = file_diags(
+            "function r = f(n)\nparfor k = 1:n\n  for j = 1:2\n    a(k) = j;\n  end\nend\nr = j;\nend\n",
+        );
+        let d = diags
+            .iter()
+            .find(|d| d.rule_id == "PFTUSE")
+            .expect("PFTUSE");
+        assert_eq!((d.line, d.column), (3, 7));
     }
 }

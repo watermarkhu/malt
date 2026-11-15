@@ -568,11 +568,32 @@ fn calls_any(node: Node, source: &str, names: &[&str]) -> bool {
 /// A statement that calls `error` or `rethrow`. MATLAB treats it as the end of
 /// the flow: values stored before it are dead and the statements after it cannot
 /// run (probed: `rethrow(err)` in a catch block reports the same stores as `error`).
+/// `error` ends the flow unless its first argument is a variable or a field of one:
+/// with `error(msg)`, `error(ME)` or `error(ME.message)` MATLAB keeps the values
+/// live and reports no UNRCH after it (probed; `error('a')`, `error(['a' 'b'])` and
+/// `error(sprintf('b'))` end the flow).
 fn is_error_call(node: Node, source: &str) -> bool {
-    matches!(
-        callee_word(node, source, Dotted::Trailing),
-        Some("error" | "rethrow")
-    )
+    match callee_word(node, source, Dotted::Trailing) {
+        Some("rethrow") => true,
+        Some("error") => !first_argument_is_name(node, source),
+        _ => false,
+    }
+}
+
+/// Whether the first argument of a call or command is a plain name or a field.
+fn first_argument_is_name(node: Node, source: &str) -> bool {
+    if node.kind() == "function_call" {
+        let mut cursor = node.walk();
+        return node
+            .children(&mut cursor)
+            .filter(|c| c.kind() == "arguments")
+            .find_map(|args| args.named_child(0))
+            .is_some_and(|first| matches!(first.kind(), "identifier" | "field_expression"));
+    }
+    source[node.byte_range()]
+        .split_whitespace()
+        .nth(1)
+        .is_some_and(is_identifier)
 }
 
 /// The variables named by a plain `clear a b` statement.

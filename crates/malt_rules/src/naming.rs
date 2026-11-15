@@ -207,7 +207,7 @@ fn rule_id_for(entity: NamingEntity, check_type: NamingCheckType) -> &'static st
 }
 
 /// Iterator over all (id, entity, check_type) combinations.
-fn all_naming_combinations() -> Vec<(&'static str, NamingEntity, NamingCheckType)> {
+pub(crate) fn all_naming_combinations() -> Vec<(&'static str, NamingEntity, NamingCheckType)> {
     let mut combos = Vec::with_capacity(81);
     for &entity in NamingEntity::ALL {
         for &check_type in NamingCheckType::ALL {

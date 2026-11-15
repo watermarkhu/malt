@@ -7,10 +7,7 @@ impl LanguageSpecEngine {
     pub(crate) fn check_mcasc(&self, class: &ClassMeta, diagnostics: &mut Vec<Diagnostic>) {
         if class.is_sealed() {
             for pb in &class.properties_blocks {
-                let is_abstract = pb
-                    .attributes
-                    .iter()
-                    .any(|a| a.name == "Abstract" && a.is_set());
+                let is_abstract = Attributes(&pb.attributes).is_set("Abstract");
                 if is_abstract {
                     for prop in &pb.properties {
                         diagnostics.push(Diagnostic {

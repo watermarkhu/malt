@@ -9,10 +9,7 @@ impl LanguageSpecEngine {
             return;
         }
         for mb in &class.methods_blocks {
-            let is_abstract = mb
-                .attributes
-                .iter()
-                .any(|a| a.name == "Abstract" && !a.negated);
+            let is_abstract = Attributes(&mb.attributes).is_present("Abstract");
             let is_private = mb.attributes.iter().any(|a| {
                 a.name == "Access"
                     && !a.negated

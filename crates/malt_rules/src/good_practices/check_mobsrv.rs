@@ -17,10 +17,7 @@ impl GoodPracticesEngine {
         let mut diagnostics = Vec::new();
 
         for (block_idx, block) in class.properties_blocks.iter().enumerate() {
-            let has_constant = block
-                .attributes
-                .iter()
-                .any(|a| a.name == "Constant" && !a.negated);
+            let has_constant = Attributes(&block.attributes).is_present("Constant");
             let has_observable = block.attributes.iter().any(|a| {
                 !a.negated
                     && (a.name == "SetObservable" || a.name == "GetObservable")

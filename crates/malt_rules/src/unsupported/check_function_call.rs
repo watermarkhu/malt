@@ -9,6 +9,7 @@
 //! * `MCADE`: a `Description` class-member attribute.
 
 use super::*;
+use crate::analysis::metadata::{attribute_entry, AttrForms};
 
 impl UnsupportedEngine {
     /// Check a `function_call` node for unsupported function usage.
@@ -76,13 +77,9 @@ impl UnsupportedEngine {
         node: tree_sitter::Node<'a>,
         source: &'a str,
     ) -> Vec<Diagnostic> {
-        let Some(first) = node.named_child(0) else {
-            return Vec::new();
-        };
-        if self.is_enabled("MCADE")
-            && first.kind() == "identifier"
-            && node_text(first, source) == "Description"
-        {
+        let is_description = attribute_entry(node, source, AttrForms::Named)
+            .is_some_and(|a| a.name == "Description");
+        if self.is_enabled("MCADE") && is_description {
             vec![make_diag("MCADE", node)]
         } else {
             Vec::new()

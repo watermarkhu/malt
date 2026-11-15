@@ -144,6 +144,18 @@ impl<'a> Attributes<'a> {
         self.get(name).is_some()
     }
 
+    /// Whether an entry named `name` is set (see [`AttributeMeta::is_set`]).
+    pub fn is_set(&self, name: &str) -> bool {
+        self.0.iter().any(|a| a.name == name && a.is_set())
+    }
+
+    /// Whether an entry named `name` is present and not negated, whatever its
+    /// value: `Name` and `Name = false` both count (MTAGS3 and the MCPO-family gates
+    /// read it this way).
+    pub fn is_present(&self, name: &str) -> bool {
+        self.0.iter().any(|a| a.name == name && !a.negated)
+    }
+
     /// Whether an entry named `name` is set by a literal (see
     /// [`AttributeMeta::is_literal_set`]): `Name`, `Name = true` or `Name = 1`.
     pub fn is_true(&self, name: &str) -> bool {
@@ -316,6 +328,19 @@ pub fn attributes_of(parent: Node, source: &str, forms: AttrForms) -> Vec<Attrib
         .unwrap_or_default()
 }
 
+/// Whether an `attributes` child of `parent` contains `needle` anywhere in its source
+/// text.
+///
+/// This is a substring match, not an entry-name match, and it stays a separate
+/// function on purpose: it changes what is reported on inputs such as
+/// `arguments (Input = "Output")` (FVINR) and `methods (Access = Static)` (the
+/// static-method exemption of the property checks). Use [`Attributes`] for name matches.
+pub fn attributes_text_contains(parent: Node, source: &str, needle: &str) -> bool {
+    crate::analysis::symbols::children_of(parent)
+        .into_iter()
+        .any(|child| child.kind() == "attributes" && node_text(child, source).contains(needle))
+}
+
 /// Build the entry for a node: its name, value, negation and position.
 fn entry(name: String, value: Option<String>, negated: bool, node: Node) -> AttributeMeta {
     let pos = node.start_position();
@@ -329,8 +354,9 @@ fn entry(name: String, value: Option<String>, negated: bool, node: Node) -> Attr
     }
 }
 
-/// An `attribute` child: `Name`, `Name = value`, or (for `Written`) `~Name`.
-fn attribute_entry(child: Node, source: &str, forms: AttrForms) -> Option<AttributeMeta> {
+/// The entry for one `attribute` node: `Name`, `Name = value`, or (for `Written`)
+/// `~Name`. `None` when the node has no name identifier.
+pub fn attribute_entry(child: Node, source: &str, forms: AttrForms) -> Option<AttributeMeta> {
     let text = node_text(child, source).trim();
     let negated = text.starts_with('~');
 

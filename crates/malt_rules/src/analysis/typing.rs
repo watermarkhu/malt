@@ -1,17 +1,22 @@
 //! Lightweight type inference for lint rules.
 //!
 //! MATLAB is dynamically typed, so full type inference is impossible. This
-//! module provides a deliberately conservative, one-pass approximation that
-//! records *provable* facts about variables: the kind of value they hold
-//! (logical, numeric, char, string, cell, struct, handle, function handle) and
-//! whether they are known to be scalar. Anything that cannot be proven stays
-//! [`TypeInfo::Unknown`], and rules using this module only fire on provable
-//! cases — the same "might" semantics MATLAB's Code Analyzer uses.
+//! module is a deliberately conservative, one-pass approximation that records
+//! only *provable* facts: the kind of value a variable holds (logical, numeric,
+//! char, string, cell, struct, handle, function handle).
+//!
+//! Confidence is explicit. A variable is either known to hold a [`TypeKind`]
+//! or it has no entry at all, and [`TypeEnv::known_kind`] returns `None` for
+//! the latter. A consumer must not fire on `None`: that is the "might" semantics
+//! MATLAB's Code Analyzer uses. There is no "unknown" kind, so a guessed kind
+//! can never be mistaken for a proven one.
 //!
 //! The [`TypeEnv`] is built with a single tree-sitter DFS in
-//! [`TypeEnv::build`]. It is consumed by the Good Practices logical-usage
-//! checks (BDLGI, BDLOG1, BDLOG2, BDSCA, BDSCI) and the handle-default checks
-//! (MCHDP, MCHDT).
+//! [`TypeEnv::build`]. Its only consumer is the handle-default check MCHDT
+//! (`good_practices/check_handle_defaults.rs`). The map is file-wide and
+//! last-assignment-wins, on purpose: MCHDT resolves a property default through
+//! an assignment made in a method, which a reaching-definitions walk over the
+//! property block would not see.
 
 use std::collections::HashMap;
 
@@ -19,12 +24,12 @@ use tree_sitter::{Node, Tree};
 
 use crate::analysis::metadata::FileMeta;
 
-/// The inferred kind of a value.
+/// The kind of value a variable is known to hold.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TypeKind {
     /// `true` / `false` or the result of a comparison / boolean operator.
     Logical,
-    /// A numeric literal or arithmetic result.
+    /// A numeric literal, a matrix or range, or an arithmetic result.
     Numeric,
     /// A single-quoted character vector (`'abc'`).
     Char,
@@ -34,81 +39,38 @@ pub enum TypeKind {
     Cell,
     /// A struct or struct-array literal.
     Struct,
-    /// An instance of a handle class (or a handle-valued default).
+    /// An instance of a handle class (or a handle-valued builtin).
     Handle,
     /// An anonymous function (`@(...) ...`).
     FunctionHandle,
-    /// Not determinable from the source.
-    Unknown,
 }
 
-/// The inferred type of a variable.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct TypeInfo {
-    /// The value kind.
-    pub kind: TypeKind,
-    /// Whether the value is known to be scalar (size `1x1`).
-    pub scalar: bool,
-}
-
-impl TypeInfo {
-    /// A logical scalar (`true` / `false`).
-    pub fn logical_scalar() -> Self {
-        Self {
-            kind: TypeKind::Logical,
-            scalar: true,
-        }
-    }
-
-    /// A value of the given kind whose scalar-ness is unknown.
-    pub fn of(kind: TypeKind) -> Self {
-        Self {
-            kind,
-            scalar: false,
-        }
-    }
-}
-
-/// The result of `TypeEnv::build`: a map from variable name to its inferred
-/// type. The map is file-wide and last-assignment-wins; cross-scope nuance is
-/// intentionally ignored for these conservative checks.
+/// The result of [`TypeEnv::build`]: the variables whose kind is known.
 #[derive(Debug, Clone, Default)]
 pub struct TypeEnv {
-    /// Variable name → inferred type.
-    pub types: HashMap<String, TypeInfo>,
+    /// Variable name → the kind it is known to hold. Absent when not known.
+    kinds: HashMap<String, TypeKind>,
 }
 
 impl TypeEnv {
     /// Build a type environment by walking the tree once.
     pub fn build(tree: &Tree, source: &str) -> Self {
         let meta = FileMeta::build(tree, source);
-        let mut env = Self::default();
         let mut walker = Walker {
             source,
-            env: &mut env,
+            kinds: HashMap::new(),
             meta: &meta,
         };
         walker.walk(tree.root_node());
-        env
+        Self {
+            kinds: walker.kinds,
+        }
     }
 
-    /// The inferred type of `name`, or [`TypeInfo::of(TypeKind::Unknown)`].
-    pub fn type_of(&self, name: &str) -> TypeInfo {
-        self.types
-            .get(name)
-            .copied()
-            .unwrap_or_else(|| TypeInfo::of(TypeKind::Unknown))
-    }
-
-    /// Whether `name` is known to be a logical scalar.
-    pub fn is_logical_scalar(&self, name: &str) -> bool {
-        let t = self.type_of(name);
-        t.kind == TypeKind::Logical && t.scalar
-    }
-
-    /// Whether `name` is known to be logical (scalar or not).
-    pub fn is_logical(&self, name: &str) -> bool {
-        self.type_of(name).kind == TypeKind::Logical
+    /// The kind `name` is known to hold, or `None` when it is not known. A
+    /// consumer must not fire on `None`.
+    pub fn known_kind(&self, name: &str) -> Option<TypeKind> {
+        self.kinds.get(name).copied()
     }
 }
 
@@ -118,7 +80,7 @@ impl TypeEnv {
 
 struct Walker<'a> {
     source: &'a str,
-    env: &'a mut TypeEnv,
+    kinds: HashMap<String, TypeKind>,
     meta: &'a FileMeta,
 }
 
@@ -127,220 +89,152 @@ impl<'a> Walker<'a> {
         &self.source[node.start_byte()..node.end_byte()]
     }
 
-    /// Infer the type of an expression node (best effort).
-    fn infer_expr(&self, node: Node) -> Option<TypeInfo> {
+    /// The kind of an expression, or `None` when the source does not prove it.
+    fn infer_expr(&self, node: Node) -> Option<TypeKind> {
         match node.kind() {
-            "true" => Some(TypeInfo::logical_scalar()),
-            "false" => Some(TypeInfo::logical_scalar()),
-            "number" => Some(TypeInfo::of(TypeKind::Numeric)),
+            "true" | "false" => Some(TypeKind::Logical),
+            "number" => Some(TypeKind::Numeric),
             "string" => {
-                let t = self.text(node);
-                if t.starts_with('"') {
-                    Some(TypeInfo::of(TypeKind::String))
+                if self.text(node).starts_with('"') {
+                    Some(TypeKind::String)
                 } else {
-                    Some(TypeInfo::of(TypeKind::Char))
+                    Some(TypeKind::Char)
                 }
             }
-            "cell" => Some(TypeInfo::of(TypeKind::Cell)),
-            "matrix" => Some(TypeInfo::of(TypeKind::Numeric)), // could be char, but conservative
-            "identifier" => {
-                let name = self.text(node);
-                match name {
-                    "true" | "false" => Some(TypeInfo::logical_scalar()),
-                    "pi" | "Inf" | "inf" | "NaN" | "nan" | "eps" | "i" | "j" => {
-                        Some(TypeInfo::of(TypeKind::Numeric))
-                    }
-                    _ => Some(self.env.type_of(name)),
-                }
+            "cell" => Some(TypeKind::Cell),
+            // A matrix could be char; it is taken as numeric, as before.
+            "matrix" => Some(TypeKind::Numeric),
+            "identifier" => match self.text(node) {
+                "true" | "false" => Some(TypeKind::Logical),
+                "pi" | "Inf" | "inf" | "NaN" | "nan" | "eps" | "i" | "j" => Some(TypeKind::Numeric),
+                name => self.kinds.get(name).copied(),
+            },
+            "lambda" => Some(TypeKind::FunctionHandle),
+            "metaclass_operator" => Some(TypeKind::Handle),
+            "range" => Some(TypeKind::Numeric),
+            "parenthesis" => {
+                // A parenthesized expression has the kind of its first named child.
+                let mut cursor = node.walk();
+                let first = node.children(&mut cursor).find(|c| c.is_named());
+                first.and_then(|child| self.infer_expr(child))
             }
-            "lambda" => Some(TypeInfo::of(TypeKind::FunctionHandle)),
-            "metaclass_operator" => Some(TypeInfo::of(TypeKind::Handle)),
             "binary_operator"
             | "comparison_operator"
             | "boolean_operator"
             | "boolean_operator_short"
             | "unary_operator"
             | "postfix_operator" => self.infer_operator(node),
-            "parenthesis" | "range" => {
-                // A parenthesized expression inherits its child's type; a range
-                // is numeric.
-                if node.kind() == "range" {
-                    return Some(TypeInfo::of(TypeKind::Numeric));
-                }
-                let mut cursor = node.walk();
-                for child in node.children(&mut cursor) {
-                    if child.is_named() {
-                        return self.infer_expr(child);
-                    }
-                }
-                None
-            }
             "function_call" | "command" => self.infer_call(node),
             _ => None,
         }
     }
 
-    /// Infer the type produced by an operator expression.
-    fn infer_operator(&self, node: Node) -> Option<TypeInfo> {
-        let mut operands: Vec<TypeInfo> = Vec::new();
-        let mut scalar = true;
-        let mut cursor = node.walk();
-        for child in node.children(&mut cursor) {
-            if !child.is_named() {
-                continue;
+    /// The kind an operator expression produces. Comparisons and boolean operators
+    /// are logical, `~x` is logical, and arithmetic is numeric. A transpose has the
+    /// kind of its operand.
+    fn infer_operator(&self, node: Node) -> Option<TypeKind> {
+        match node.kind() {
+            "comparison_operator" | "boolean_operator" | "boolean_operator_short" => {
+                Some(TypeKind::Logical)
             }
-            match child.kind() {
-                "=" | "~=" | "<" | ">" | "<=" | ">=" | "==" => {}
-                _ => {}
-            }
-            if child.kind() == "=" {
-                continue;
-            }
-            if let Some(t) = self.infer_expr(child) {
-                scalar = scalar && t.scalar;
-                operands.push(t);
+            "unary_operator" => Some(if self.text(node).contains('~') {
+                TypeKind::Logical
             } else {
-                scalar = false;
+                TypeKind::Numeric
+            }),
+            "postfix_operator" => {
+                let mut cursor = node.walk();
+                let operand = node
+                    .named_children(&mut cursor)
+                    .find_map(|child| self.infer_expr(child));
+                operand
             }
-        }
-        let kind = match node.kind() {
-            "comparison_operator" => TypeKind::Logical,
-            "boolean_operator" | "boolean_operator_short" => TypeKind::Logical,
-            "unary_operator" => {
-                // `~x` is logical; `-x`/`+x` are numeric.
-                if self.text(node).contains('~') {
-                    TypeKind::Logical
-                } else {
-                    TypeKind::Numeric
-                }
-            }
-            "postfix_operator" => operands
-                .first()
-                .map(|o| o.kind)
-                .unwrap_or(TypeKind::Numeric),
             _ => {
-                // Arithmetic `+ - * / ^ .* ./ .^ \` are numeric.
+                // Arithmetic `+ - * / ^ .* ./ .^ \` is numeric.
                 let txt = self.text(node);
                 let op = txt
                     .chars()
                     .find(|c| "+-*/^\\&|<>=~.@".contains(*c))
                     .unwrap_or('+');
                 match op {
-                    '&' | '|' | '<' | '>' | '~' | '=' => TypeKind::Logical,
-                    _ => TypeKind::Numeric,
+                    '&' | '|' | '<' | '>' | '~' | '=' => Some(TypeKind::Logical),
+                    _ => Some(TypeKind::Numeric),
                 }
             }
-        };
-        Some(TypeInfo { kind, scalar })
+        }
     }
 
-    /// Infer the type of a function call, using metadata where the call
-    /// resolves to a known class/function.
-    fn infer_call(&self, node: Node) -> Option<TypeInfo> {
-        // Extract the callee name.
+    /// The kind a function call produces, for a builtin with a known result kind or
+    /// the file's own handle class.
+    fn infer_call(&self, node: Node) -> Option<TypeKind> {
         let name = match node.kind() {
-            "function_call" => {
-                let name_node = node.child_by_field_name("name")?;
-                Some(self.text(name_node))
-            }
+            "function_call" => self.text(node.child_by_field_name("name")?),
             "command" => {
                 let name_node = node.child(0)?;
-                if name_node.kind() == "command_name" {
-                    Some(self.text(name_node))
-                } else {
-                    None
+                if name_node.kind() != "command_name" {
+                    return None;
                 }
+                self.text(name_node)
             }
-            _ => None,
-        }?;
+            _ => return None,
+        };
 
-        // Known value-returning builtins.
         match name {
             "zeros" | "ones" | "eye" | "rand" | "randn" | "randi" | "linspace" | "logspace"
             | "nan" | "inf" | "abs" | "ceil" | "floor" | "round" | "fix" | "mod" | "rem"
             | "sqrt" | "exp" | "log" | "log10" | "sin" | "cos" | "tan" | "sum" | "mean"
             | "median" | "std" | "var" | "min" | "max" | "prod" | "numel" | "length" | "size"
             | "ndims" | "rank" | "det" | "norm" | "reshape" | "repmat" | "sort" => {
-                return Some(TypeInfo::of(TypeKind::Numeric));
+                Some(TypeKind::Numeric)
             }
             "isempty" | "isequal" | "isnan" | "isinf" | "islogical" | "isnumeric" | "ischar"
             | "isstring" | "iscell" | "isstruct" | "isscalar" | "isvector" | "ismatrix"
             | "isrow" | "iscolumn" | "isreal" | "isa" | "isfinite" | "strcmp" | "strcmpi"
-            | "any" | "all" | "exist" | "isvalid" | "isprop" => {
-                return Some(TypeInfo::logical_scalar());
-            }
+            | "any" | "all" | "exist" | "isvalid" | "isprop" => Some(TypeKind::Logical),
             "char" | "sprintf" | "num2str" | "int2str" | "mat2str" | "lower" | "upper"
-            | "strtrim" | "deblank" | "strcat" | "strjoin" => {
-                return Some(TypeInfo::of(TypeKind::Char));
-            }
-            "string" | "string2" | "convertCharsToStrings" => {
-                return Some(TypeInfo::of(TypeKind::String));
-            }
-            "struct" | "struct2cell" => return Some(TypeInfo::of(TypeKind::Struct)),
-            "cell" => return Some(TypeInfo::of(TypeKind::Cell)),
-            "handle" | "onCleanup" => return Some(TypeInfo::of(TypeKind::Handle)),
-            _ => {}
+            | "strtrim" | "deblank" | "strcat" | "strjoin" => Some(TypeKind::Char),
+            "string" | "string2" | "convertCharsToStrings" => Some(TypeKind::String),
+            "struct" | "struct2cell" => Some(TypeKind::Struct),
+            "cell" => Some(TypeKind::Cell),
+            "handle" | "onCleanup" => Some(TypeKind::Handle),
+            // A call to the file's own class is a handle when the class is one. For a
+            // value class the kind is not known.
+            _ => self
+                .meta
+                .class
+                .as_ref()
+                .filter(|class| class.name == name && class.is_handle())
+                .map(|_| TypeKind::Handle),
         }
-
-        // A call whose callee is a class name → handle (if the class is a
-        // handle) or a method on a handle object.
-        // A call whose callee is the file's own class name → handle if the
-        // class is a handle.
-        if let Some(class) = self.meta.class.as_ref() {
-            if class.name == name {
-                return if class.is_handle() {
-                    Some(TypeInfo::of(TypeKind::Handle))
-                } else {
-                    Some(TypeInfo::of(TypeKind::Unknown))
-                };
-            }
-        }
-        if name.contains('.') {
-            // `obj.method(...)` — treat as unknown unless we track object vars.
-            return None;
-        }
-
-        None
     }
 
-    /// Record the type of the target of an assignment.
+    /// Record the kind of the target of `lhs = rhs`. An assignment whose right side
+    /// is not known removes the variable, so a later unknown value is not hidden by
+    /// an earlier known one.
     fn record_assignment(&mut self, node: Node) {
-        // `lhs = rhs`
-        let lhs = match node.child_by_field_name("left") {
-            Some(l) => l,
-            None => return,
+        let (Some(lhs), Some(rhs)) = (
+            node.child_by_field_name("left"),
+            node.child_by_field_name("right"),
+        ) else {
+            return;
         };
-        let rhs = match node.child_by_field_name("right") {
-            Some(r) => r,
-            None => return,
-        };
-        // Only track simple identifiers on the LHS.
+        // Only plain identifiers on the left are tracked.
         if lhs.kind() != "identifier" {
             return;
         }
         let name = self.text(lhs).to_string();
-        let info = self
-            .infer_expr(rhs)
-            .unwrap_or_else(|| TypeInfo::of(TypeKind::Unknown));
-        self.env.types.insert(name, info);
+        match self.infer_expr(rhs) {
+            Some(kind) => self.kinds.insert(name, kind),
+            None => self.kinds.remove(&name),
+        };
     }
 
     fn walk(&mut self, node: Node) {
-        match node.kind() {
-            "assignment" => self.record_assignment(node),
-            "global" | "persistent" => {
-                // `global x` — treat as unknown so we never over-fire.
-                let mut cursor = node.walk();
-                for child in node.children(&mut cursor) {
-                    if child.kind() == "identifier" {
-                        self.env.types.insert(
-                            self.text(child).to_string(),
-                            TypeInfo::of(TypeKind::Unknown),
-                        );
-                    }
-                }
-            }
-            _ => {}
+        // `global x` and `persistent x` are not handled: the grammar names them
+        // `global_operator` and `persistent_operator`, and handling them would change
+        // MCHDT on a `global` default, so that is left for a decision.
+        if node.kind() == "assignment" {
+            self.record_assignment(node);
         }
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
@@ -362,59 +256,70 @@ mod tests {
     #[test]
     fn infers_logical_from_literal() {
         let e = env("x = true;\ny = false;\n");
-        assert_eq!(e.type_of("x").kind, TypeKind::Logical);
-        assert!(e.type_of("x").scalar);
-        assert_eq!(e.type_of("y").kind, TypeKind::Logical);
+        assert_eq!(e.known_kind("x"), Some(TypeKind::Logical));
+        assert_eq!(e.known_kind("y"), Some(TypeKind::Logical));
     }
 
     #[test]
     fn infers_numeric_from_literal() {
-        let e = env("x = 42;\n");
-        assert_eq!(e.type_of("x").kind, TypeKind::Numeric);
+        assert_eq!(env("x = 42;\n").known_kind("x"), Some(TypeKind::Numeric));
     }
 
     #[test]
     fn infers_char_from_single_quotes() {
-        let e = env("x = 'hello';\n");
-        assert_eq!(e.type_of("x").kind, TypeKind::Char);
+        assert_eq!(env("x = 'hello';\n").known_kind("x"), Some(TypeKind::Char));
     }
 
     #[test]
     fn infers_string_from_double_quotes() {
-        let e = env("x = \"hello\";\n");
-        assert_eq!(e.type_of("x").kind, TypeKind::String);
+        assert_eq!(
+            env("x = \"hello\";\n").known_kind("x"),
+            Some(TypeKind::String)
+        );
     }
 
     #[test]
     fn infers_logical_from_comparison() {
-        let e = env("x = a > b;\n");
-        assert_eq!(e.type_of("x").kind, TypeKind::Logical);
+        assert_eq!(env("x = a > b;\n").known_kind("x"), Some(TypeKind::Logical));
     }
 
     #[test]
     fn infers_numeric_from_arithmetic() {
-        let e = env("x = a + b;\n");
-        assert_eq!(e.type_of("x").kind, TypeKind::Numeric);
+        assert_eq!(env("x = a + b;\n").known_kind("x"), Some(TypeKind::Numeric));
     }
 
     #[test]
     fn infers_handle_from_builtin() {
-        let e = env("x = handle();\n");
-        assert_eq!(e.type_of("x").kind, TypeKind::Handle);
+        assert_eq!(
+            env("x = handle();\n").known_kind("x"),
+            Some(TypeKind::Handle)
+        );
     }
 
     #[test]
-    fn unknown_stays_unknown() {
-        let e = env("x = someMysteryFn();\n");
-        assert_eq!(e.type_of("x").kind, TypeKind::Unknown);
+    fn unknown_has_no_kind() {
+        assert_eq!(env("x = someMysteryFn();\n").known_kind("x"), None);
+        assert_eq!(env("x = y;\n").known_kind("x"), None);
     }
 
     #[test]
-    fn logical_helpers() {
+    fn later_unknown_assignment_hides_earlier_kind() {
+        let e = env("x = handle();\nx = someMysteryFn();\n");
+        assert_eq!(e.known_kind("x"), None);
+    }
+
+    #[test]
+    fn transpose_keeps_operand_kind_and_unknown_operand_stays_unknown() {
+        let e = env("h = handle();\nt = h';\nu = someFn()';\n");
+        assert_eq!(e.known_kind("t"), Some(TypeKind::Handle));
+        assert_eq!(e.known_kind("u"), None);
+    }
+
+    #[test]
+    fn logical_and_matrix_kinds() {
         let e = env("a = true;\nb = a > 3;\nc = [1 2 3];\n");
-        assert!(e.is_logical_scalar("a"));
-        assert!(e.is_logical("b"));
-        assert!(!e.is_logical("c"));
-        assert!(!e.is_logical_scalar("c"));
+        assert_eq!(e.known_kind("a"), Some(TypeKind::Logical));
+        assert_eq!(e.known_kind("b"), Some(TypeKind::Logical));
+        assert_eq!(e.known_kind("c"), Some(TypeKind::Numeric));
     }
 }

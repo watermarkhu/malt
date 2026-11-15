@@ -47,11 +47,7 @@ impl GoodPracticesEngine {
             .map(|c| {
                 c.properties_blocks
                     .iter()
-                    .filter(|pb| {
-                        pb.attributes
-                            .iter()
-                            .any(|a| a.name == "Constant" && !a.negated)
-                    })
+                    .filter(|pb| Attributes(&pb.attributes).is_present("Constant"))
                     .flat_map(|pb| pb.properties.iter().map(|p| p.name.as_str()))
                     .collect()
             })
@@ -88,7 +84,7 @@ impl GoodPracticesEngine {
             // MCHDT: the default is an identifier that resolves to a handle.
             if self.is_check_enabled("MCHDT")
                 && is_simple_identifier(text)
-                && env.type_of(text).kind == TypeKind::Handle
+                && env.known_kind(text) == Some(TypeKind::Handle)
             {
                 diagnostics.push(Diagnostic {
                     rule_id: "MCHDT",

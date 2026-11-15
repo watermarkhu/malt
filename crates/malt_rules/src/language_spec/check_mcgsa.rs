@@ -11,11 +11,7 @@ impl LanguageSpecEngine {
         let abstract_props: Vec<&str> = class
             .properties_blocks
             .iter()
-            .filter(|pb| {
-                pb.attributes
-                    .iter()
-                    .any(|a| a.name == "Abstract" && !a.negated)
-            })
+            .filter(|pb| Attributes(&pb.attributes).is_present("Abstract"))
             .flat_map(|pb| pb.properties.iter().map(|p| p.name.as_str()))
             .collect();
         if abstract_props.is_empty() {

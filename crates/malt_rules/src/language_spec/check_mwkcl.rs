@@ -13,10 +13,7 @@ impl LanguageSpecEngine {
             return;
         }
         for pb in &class.properties_blocks {
-            let is_weak = pb
-                .attributes
-                .iter()
-                .any(|a| a.name == "WeakHandle" && a.is_set());
+            let is_weak = Attributes(&pb.attributes).is_set("WeakHandle");
             if !is_weak {
                 continue;
             }

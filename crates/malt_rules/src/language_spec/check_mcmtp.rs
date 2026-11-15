@@ -19,10 +19,8 @@ impl LanguageSpecEngine {
             return;
         }
         for mb in &class.methods_blocks {
-            let is_test_parameter = mb
-                .attributes
-                .iter()
-                .any(|a| a.name == "TestParameterDefinition" && !a.negated);
+            let is_test_parameter =
+                Attributes(&mb.attributes).is_present("TestParameterDefinition");
             // Static is set by a bare name, `true` or `1`; MATLAB reads other values
             // (`TRUE`, `0`) as not static.
             let is_static = Attributes(&mb.attributes).is_true("Static");

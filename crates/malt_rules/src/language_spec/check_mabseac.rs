@@ -9,10 +9,7 @@ impl LanguageSpecEngine {
             return;
         }
         for pb in &class.properties_blocks {
-            let is_constant = pb
-                .attributes
-                .iter()
-                .any(|a| a.name == "Constant" && !a.negated);
+            let is_constant = Attributes(&pb.attributes).is_present("Constant");
             if is_constant {
                 continue;
             }

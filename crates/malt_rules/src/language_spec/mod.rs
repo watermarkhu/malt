@@ -1845,17 +1845,28 @@ impl LanguageSpecEngine {
         // PFUTMP: temporary variable used before it is set in the body
         let mut pfutmp_vars: Vec<String> = Vec::new();
         for (var, set_starts) in &analysis.temp_assigns {
-            if predefined.contains(var) {
+            // Probed: a read before the first set is PFUTMP even when the variable had a value
+            // before the loop, and an indexed read (`x = u(1)`) counts. A read inside an `if`,
+            // loop, `switch` or `try` is not reported. A variable with a self-update
+            // (`u = u + 1`) is PFUTVR instead (probed).
+            if analysis.reductions.contains_key(var) {
+                continue;
+            }
+            // A function input read in the body is an input (PFIIN), not a temporary.
+            let is_predefined = predefined.contains(var);
+            if is_predefined && !assigned_before_text(source, parfor_node.start_byte(), var) {
                 continue;
             }
             let first_set = set_starts.iter().min().copied();
-            let mut read_starts: Vec<usize> = Vec::new();
-            if let Some(rs) = analysis.whole_reads.get(var) {
-                read_starts.extend(rs.iter().copied());
-            }
+            let mut all_reads: Vec<usize> =
+                analysis.whole_reads.get(var).cloned().unwrap_or_default();
             if let Some(rs) = analysis.indexed_reads.get(var) {
-                read_starts.extend(rs.iter().map(|(_, s, _, _)| *s));
+                all_reads.extend(rs.iter().map(|(_, s, _, _)| *s));
             }
+            let read_starts: Vec<usize> = all_reads
+                .into_iter()
+                .filter(|&s| top_level_read(parfor_node, s, var, source))
+                .collect();
             if let (Some(fs), Some(fr)) = (first_set, read_starts.into_iter().min()) {
                 if fr < fs {
                     pfutmp_vars.push(var.clone());
@@ -1864,13 +1875,13 @@ impl LanguageSpecEngine {
                         fr,
                         fr + 1,
                         "PFUTMP",
-                        &format!("Temporary variable {var} must be set inside the parfor loop before it is used."),
+                        &format!("Temporary variable '{var}' must be set inside the parfor loop before it is used."),
                         diagnostics,
                     );
                 }
             }
             // `k = k(i) + 1`: the indexed read on the right of a whole-variable set comes first.
-            if let Some(fs) = first_set {
+            if let (Some(fs), false) = (first_set, is_predefined) {
                 let same_statement_read = analysis.indexed_reads.get(var).and_then(|rs| {
                     rs.iter()
                         .map(|(_, s, _, _)| *s)
@@ -1884,7 +1895,7 @@ impl LanguageSpecEngine {
                         fr,
                         fr + 1,
                         "PFUTMP",
-                        &format!("Temporary variable {var} must be set inside the parfor loop before it is used."),
+                        &format!("Temporary variable '{var}' must be set inside the parfor loop before it is used."),
                         diagnostics,
                     );
                 }
@@ -2087,7 +2098,7 @@ impl LanguageSpecEngine {
                 start,
                 start + 1,
                 "PFUNK",
-                &format!("Unable to classify variable {var} in the body of the parfor loop."),
+                &format!("Unable to classify variable '{var}' in the body of the parfor loop."),
                 diagnostics,
             );
         }
@@ -2133,7 +2144,7 @@ impl LanguageSpecEngine {
                 start,
                 start + 1,
                 "PFUNK",
-                &format!("Unable to classify variable {var} in the body of the parfor loop."),
+                &format!("Unable to classify variable '{var}' in the body of the parfor loop."),
                 diagnostics,
             );
         }
@@ -2142,6 +2153,65 @@ impl LanguageSpecEngine {
         // whole. Probed: MATLAB is silent for `a(i) = i; a = 3` and for `q = zeros(3,1);
         // q(i) = 1`, and reports PFUNK only for less common shapes such as a sliced
         // variable indexed by a temporary (`k = i; v(k) = 1`).
+
+        // PFUNK: a sliced write subscripted by an inner loop variable (`for j=1:3, y(j) = i;
+        // end`), whether or not `y` had a value before the loop (probed). A variable that
+        // is also indexed by the loop variable is classified and stays silent.
+        let mut inner_loop_vars: HashSet<String> = HashSet::new();
+        let mut walk_loops = vec![parfor_node];
+        while let Some(m) = walk_loops.pop() {
+            if m.kind() == "for_statement"
+                && m.id() != parfor_node.id()
+                && !node_text(m, source).starts_with("parfor")
+            {
+                if let Some(var) = self.extract_for_variable(m, source) {
+                    inner_loop_vars.insert(var);
+                }
+            }
+            let mut c = m.walk();
+            walk_loops.extend(m.children(&mut c));
+        }
+        if !inner_loop_vars.is_empty() {
+            let tokens = |args: &str| -> Vec<String> {
+                args.split(|c: char| !(c.is_alphanumeric() || c == '_'))
+                    .map(str::to_string)
+                    .collect()
+            };
+            for (var, writes) in &analysis.sliced_lhs {
+                let loop_indexed = |args: &str| tokens(args).contains(&parfor_var);
+                if analysis.temp_assigns.contains_key(var)
+                    || writes
+                        .iter()
+                        .any(|(args, _, _, _)| loop_indexed(args.as_str()))
+                    || analysis.indexed_reads.get(var).is_some_and(|rs| {
+                        rs.iter().any(|(args, _, _, _)| loop_indexed(args.as_str()))
+                    })
+                {
+                    continue;
+                }
+                let first = writes
+                    .iter()
+                    .filter(|(args, _, _, _)| {
+                        tokens(args.as_str())
+                            .iter()
+                            .any(|t| inner_loop_vars.contains(t))
+                    })
+                    .map(|(_, start, _, _)| *start)
+                    .min();
+                if let Some(start) = first {
+                    self.push_diag_bytes(
+                        source,
+                        start,
+                        start + 1,
+                        "PFUNK",
+                        &format!(
+                            "Unable to classify variable '{var}' in the body of the parfor loop."
+                        ),
+                        diagnostics,
+                    );
+                }
+            }
+        }
 
         // PFUNK: a sliced write whose subscript is a temporary of the body, as in
         // `k = i; v(k) = 1`. Probed: MATLAB reports it whatever the temporary's value
@@ -2182,7 +2252,7 @@ impl LanguageSpecEngine {
                     start,
                     start + 1,
                     "PFUNK",
-                    &format!("Unable to classify variable {var} in the body of the parfor loop."),
+                    &format!("Unable to classify variable '{var}' in the body of the parfor loop."),
                     diagnostics,
                 );
             }
@@ -2769,6 +2839,41 @@ fn assigned_before_text(source: &str, before: usize, name: &str) -> bool {
 /// Variables named by a `save` in a parfor body, as `save('f.mat', 'v')` or
 /// `save f v` (probed: both read the whole value, PFSLRD). The first argument is the
 /// file, so it is not a variable.
+/// Whether the read of `var` that starts at byte `start` is a statement of the body of
+/// `parfor`: no `if`, loop, `switch`, `try` or anonymous function lies between them
+/// (probed: MATLAB reports PFUTMP for a top-level read only).
+fn top_level_read(parfor: tree_sitter::Node, start: usize, var: &str, source: &str) -> bool {
+    let Some(mut node) = parfor.descendant_for_byte_range(start, start + 1) else {
+        return false;
+    };
+    while let Some(parent) = node.parent() {
+        if parent.kind() == "block" && parent.parent().is_some_and(|p| p.id() == parfor.id()) {
+            // `var = var + i` reads `var` before its own store: it is a reduction, not a read
+            // before the first set (probed: no PFUTMP for `s = s + i; s = 2 * s`).
+            let self_update = node.kind() == "assignment"
+                && node
+                    .child_by_field_name("left")
+                    .is_some_and(|l| &source[l.byte_range()] == var);
+            return !self_update;
+        }
+        if parent.id() == parfor.id()
+            || matches!(
+                parent.kind(),
+                "if_statement"
+                    | "for_statement"
+                    | "while_statement"
+                    | "switch_statement"
+                    | "try_statement"
+                    | "lambda"
+            )
+        {
+            return false;
+        }
+        node = parent;
+    }
+    false
+}
+
 fn save_named_vars(parfor_node: tree_sitter::Node, source: &str) -> HashSet<String> {
     let mut names = HashSet::new();
     let mut walk = vec![parfor_node];
@@ -3548,16 +3653,9 @@ const BANNED_ARGUMENTS_FUNCTIONS: &[&str] = &[
 // logical classes in the probes.
 const NON_SUBCLASSABLE_BUILTINS: &[&str] = &["char", "cell", "struct", "function_handle"];
 
-/// Get the callee name of a `function_call` node.
+/// Get the callee name of a `function_call` node: `f` for `f(x)` and `s.f(x)`.
 pub(crate) fn callee_name(node: tree_sitter::Node, source: &str) -> Option<String> {
-    callee_node(node).map(|n| node_text(n, source).to_string())
-}
-
-/// Get the callee identifier node of a `function_call`.
-pub(crate) fn callee_node(node: tree_sitter::Node) -> Option<tree_sitter::Node> {
-    node.child_by_field_name("name")
-        .or_else(|| node.child(0))
-        .filter(|n| n.kind() == "identifier")
+    crate::analysis::callee::call_identifier(node, source).map(str::to_string)
 }
 
 /// Get the named argument nodes of a `function_call` (excluding commas).
@@ -5624,5 +5722,51 @@ mod r8_recovery_tests {
         let diags = check_source(source, "f.m");
         assert!(filter_by_id(&diags, "FVDAN").is_empty());
         assert!(filter_by_id(&diags, "FVORDN").is_empty());
+    }
+
+    #[test]
+    fn test_pfutmp_fires_on_indexed_read_before_set() {
+        // Probed (xcv23, xcv24): `x = u(1)` reads `u` before its first set in the body.
+        let source = "function f(n)\nparfor k = 1:n\n    x = u(1);\n    u = k;\nend\nend\n";
+        assert!(!filter_by_id(&check_source(source, "f.m"), "PFUTMP").is_empty());
+    }
+
+    #[test]
+    fn test_pfutmp_fires_when_variable_was_set_before_loop() {
+        // Probed (xcv10, xcp39): a value set before the loop does not make the read a set.
+        let source = "function f(n)\nu = 0;\nparfor k = 1:n\n    w = u;\n    u = k;\nend\nend\n";
+        assert!(!filter_by_id(&check_source(source, "f.m"), "PFUTMP").is_empty());
+    }
+
+    #[test]
+    fn test_pfutmp_silent_on_conditional_read_or_self_update() {
+        // Probed (xcv22, xcv20): a read under `if` is not reported; `u = u + 1` in the body makes
+        // the variable PFUTVR instead.
+        let source =
+            "function f(n)\nparfor k = 1:n\n    if k > 1, w = u; end\n    u = k;\nend\nend\n";
+        assert!(filter_by_id(&check_source(source, "f.m"), "PFUTMP").is_empty());
+        let source =
+            "function f(n)\nparfor k = 1:n\n    w = u;\n    u = k;\n    u = u + 1;\nend\nend\n";
+        assert!(filter_by_id(&check_source(source, "f.m"), "PFUTMP").is_empty());
+    }
+
+    #[test]
+    fn test_pfunk_fires_on_sliced_write_by_inner_loop_variable() {
+        // Probed (xcu01, xcu02, xcu08): `y(j) = i` in a nested `for j` is not classified, with or
+        // without an earlier value of `y`.
+        let source = "function f(n)\ny = zeros(1, 3);\nparfor i = 1:n\n    for j = 1:3\n        y(j) = i;\n    end\nend\nend\n";
+        assert!(!filter_by_id(&check_source(source, "f.m"), "PFUNK").is_empty());
+        let source = "function f(n)\nparfor i = 1:n\n    for j = 1:3\n        y(j) = 1;\n    end\nend\nend\n";
+        assert!(!filter_by_id(&check_source(source, "f.m"), "PFUNK").is_empty());
+    }
+
+    #[test]
+    fn test_pfunk_silent_when_loop_variable_also_indexes_or_body_assigns() {
+        // Probed (xcu14, xcp29): `y(i) = 1` classifies `y`; a whole assignment of `y` in the body
+        // does too.
+        let source = "function f(n)\ny = zeros(1, 3);\nparfor i = 1:n\n    for j = 1:3\n        y(j) = i;\n        y(i) = 1;\n    end\nend\nend\n";
+        assert!(filter_by_id(&check_source(source, "f.m"), "PFUNK").is_empty());
+        let source = "function f(n)\nparfor i = 1:n\n    y = zeros(1, 3);\n    for j = 1:3\n        y(j) = i;\n    end\nend\nend\n";
+        assert!(filter_by_id(&check_source(source, "f.m"), "PFUNK").is_empty());
     }
 }

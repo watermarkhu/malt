@@ -156,6 +156,35 @@ pub struct Config {
     pub inline_suppression: bool,
 }
 
+/// The candidate closest to `name` (ignoring case), when it is close enough to be a
+/// typo: at most two edits, or a third of the name's length for longer names. A tie
+/// goes to the first candidate.
+pub fn suggest<'a>(name: &str, candidates: impl IntoIterator<Item = &'a str>) -> Option<&'a str> {
+    let name = name.to_ascii_lowercase();
+    let limit = (name.len() / 3).max(2);
+    candidates
+        .into_iter()
+        .map(|c| (edit_distance(&name, &c.to_ascii_lowercase()), c))
+        .filter(|(d, _)| *d <= limit)
+        .min_by_key(|(d, _)| *d)
+        .map(|(_, c)| c)
+}
+
+/// The Levenshtein distance between two ASCII strings.
+fn edit_distance(a: &str, b: &str) -> usize {
+    let b: Vec<u8> = b.bytes().collect();
+    let mut prev: Vec<usize> = (0..=b.len()).collect();
+    for (i, ca) in a.bytes().enumerate() {
+        let mut cur = vec![i + 1];
+        for (j, cb) in b.iter().enumerate() {
+            let cost = usize::from(ca != *cb);
+            cur.push((prev[j] + cost).min(prev[j + 1] + 1).min(cur[j] + 1));
+        }
+        prev = cur;
+    }
+    prev[b.len()]
+}
+
 impl Default for Config {
     fn default() -> Self {
         Self {
@@ -198,12 +227,18 @@ impl Config {
                         let (enabled, sev) = parse_severity_string(s)?;
                         if !enabled {
                             // Rule is disabled — record it and continue to the next rule.
+                            // The parameters are kept so that they can still be validated.
+                            let params = table
+                                .iter()
+                                .filter(|(k, _)| k.as_str() != "severity")
+                                .map(|(k, v)| (k.clone(), v.clone()))
+                                .collect();
                             rules.insert(
                                 rule_id,
                                 RuleConfig {
                                     enabled: false,
                                     severity: None,
-                                    params: toml::Table::new(),
+                                    params,
                                 },
                             );
                             continue;

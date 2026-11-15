@@ -66,7 +66,7 @@ impl LanguageSpecEngine {
     ) {
         match node.kind() {
             "function_call" => {
-                if let Some(callee) = callee_node(node) {
+                if let Some(callee) = crate::analysis::callee::call_name_node(node) {
                     starts.insert(callee.start_byte());
                 }
             }

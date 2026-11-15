@@ -56,9 +56,7 @@ impl LanguageSpecEngine {
         if node.kind() == "assignment" {
             if let Some(prop_name) = assignment_field_property(node, source) {
                 let is_constant = class.properties_blocks.iter().any(|pb| {
-                    pb.attributes
-                        .iter()
-                        .any(|a| a.name == "Constant" && !a.negated)
+                    Attributes(&pb.attributes).is_present("Constant")
                         && pb.properties.iter().any(|p| p.name == prop_name)
                 });
                 // Only an assignment through the object is MCCSOP. `ClassName.K = v`

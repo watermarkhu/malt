@@ -24,6 +24,7 @@ use std::collections::HashSet;
 
 use tree_sitter::Node;
 
+use super::callee::{self, Dotted};
 use super::control_flow::{
     bare_command_name, call_argument_nodes, collect_assignment_targets, collect_function_args,
     collect_uses_in_expr, error_call_always_throws, is_endless_loop, literal_condition,
@@ -473,12 +474,11 @@ fn join(exit: &mut State, other: State) {
 
 /// The function name of a call or the command word of a command.
 fn callee_name<'s>(call: Node, source: &'s str) -> Option<&'s str> {
-    let callee = match call.kind() {
-        "function_call" => call.child_by_field_name("name"),
-        "command" => call.named_child(0),
+    match call.kind() {
+        "function_call" => callee::call_path(call, source, Dotted::Trailing),
+        "command" => callee::command_path(call, source),
         _ => None,
-    };
-    callee.map(|c| node_text(c, source))
+    }
 }
 
 /// Whether a call ends control flow: `error` with a message that always throws,

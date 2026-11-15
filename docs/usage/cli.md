@@ -24,6 +24,7 @@ malt [OPTIONS] <FILES>...
 | `--unsafe-fixes`      | With `--fix`: also apply fixes that may change behaviour |
 | `--config <PATH>`     | Path to config file (default: `.malt.toml` in CWD) |
 | `--preset <PRESET>`   | Preset to use (`all`, `mathworks`, `recommended`); overrides `[lint] preset` |
+| `--strict-config`     | Exit with code `2` when the config file has an unknown rule ID or parameter (each is a warning on stderr otherwise) |
 | `-v`, `--verbose`     | Report on stderr which files are linted and the total time; `-vv` adds the time and the number of findings of each file |
 | `-h`, `--help`        | Print help information                           |
 | `-V`, `--version`     | Print version information                        |
@@ -106,7 +107,7 @@ malt -vv src/*.m
 | ---- | ------------------------------------ |
 | `0`  | No diagnostics found (with `--fix`: none remain after fixing) |
 | `1`  | One or more diagnostics found (with `--fix`: some could not be fixed) |
-| `2`  | Runtime error (file not found, parse failure, bad config) |
+| `2`  | Runtime error (file not found, parse failure, bad config; with `--strict-config`, also any unknown rule ID or parameter in the config) |
 
 ## Shell Glob Expansion
 

@@ -9,14 +9,8 @@ impl LanguageSpecEngine {
             return;
         }
         for mb in &class.methods_blocks {
-            let is_abstract = mb
-                .attributes
-                .iter()
-                .any(|a| a.name == "Abstract" && !a.negated);
-            let is_sealed = mb
-                .attributes
-                .iter()
-                .any(|a| a.name == "Sealed" && !a.negated);
+            let is_abstract = Attributes(&mb.attributes).is_present("Abstract");
+            let is_sealed = Attributes(&mb.attributes).is_present("Sealed");
             if is_abstract && is_sealed {
                 for method in &mb.methods {
                     diagnostics.push(Diagnostic {

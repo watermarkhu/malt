@@ -910,28 +910,8 @@ pub(crate) fn find_case_value(case_node: Node) -> Option<Node> {
 
 /// Extract the function name from a `function_call` node.
 pub(crate) fn extract_call_name<'a>(node: Node<'a>, source: &'a str) -> Option<&'a str> {
-    if node.kind() != "function_call" {
-        return None;
-    }
-
-    // Try the `name` field first.
-    if let Some(name_node) = node.child_by_field_name("name") {
-        if name_node.kind() == "identifier" {
-            return Some(&source[name_node.start_byte()..name_node.end_byte()]);
-        }
-        // For field_expression (e.g., obj.method), return the full text.
-        return Some(&source[name_node.start_byte()..name_node.end_byte()]);
-    }
-
-    // Fallback: first identifier child.
-    let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        if child.kind() == "identifier" {
-            return Some(&source[child.start_byte()..child.end_byte()]);
-        }
-    }
-
-    None
+    // The grammar requires the `name` field, so the trailing member is the name.
+    crate::analysis::callee::call_path(node, source, crate::analysis::callee::Dotted::Trailing)
 }
 
 /// Collect arguments from a `function_call` node as text strings.

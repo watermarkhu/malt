@@ -144,13 +144,21 @@ pub(crate) fn callee_word<'a>(node: Node, source: &'a str, dotted: Dotted) -> Op
     }
 }
 
-/// The text of the `name` field of any node, whatever its kind. Only the
-/// behaviour-property checks read it this way: they run on every node the
-/// traversal visits, so a `function_definition` named `set` reads as a call to
-/// `set` there. [`call_path`] is the reader for calls and does not do this.
-pub(crate) fn name_field<'a>(node: Node, source: &'a str) -> Option<&'a str> {
-    let name = node.child_by_field_name("name")?;
-    Some(&source[name.start_byte()..name.end_byte()])
+/// The identifier node that names a `function_call`: `f` in `f(x)` and `s.f(x)`.
+/// `None` when the name is an expression (`f(1)` in `f(1)(2)`, or a field
+/// expression), which a call of a plain function never has.
+pub(crate) fn call_name_node(node: Node) -> Option<Node> {
+    if node.kind() != "function_call" {
+        return None;
+    }
+    node.child_by_field_name("name")
+        .filter(|n| n.kind() == "identifier")
+}
+
+/// The plain identifier that names a `function_call`, as [`call_name_node`] reads
+/// it: `f` for `f(x)` and `s.f(x)`, `None` for a name that is an expression.
+pub(crate) fn call_identifier<'a>(node: Node, source: &'a str) -> Option<&'a str> {
+    call_name_node(node).map(|name| &source[name.byte_range()])
 }
 
 /// The function a `handle_operator` refers to: `f` in `@f`, `pkg.f` in `@pkg.f`.

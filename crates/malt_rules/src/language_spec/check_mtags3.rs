@@ -28,8 +28,9 @@ impl LanguageSpecEngine {
 
     /// Whether an attribute list contains Access together with SetAccess or GetAccess.
     pub(crate) fn block_has_access_conflict(attrs: &[AttributeMeta]) -> bool {
-        let has = |name: &str| attrs.iter().any(|a| a.name == name && !a.negated);
-        has("Access") && (has("SetAccess") || has("GetAccess"))
+        let attrs = Attributes(attrs);
+        attrs.is_present("Access")
+            && (attrs.is_present("SetAccess") || attrs.is_present("GetAccess"))
     }
 }
 

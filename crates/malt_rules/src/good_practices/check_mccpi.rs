@@ -17,14 +17,8 @@ impl GoodPracticesEngine {
 
         let mut diagnostics = Vec::new();
         for block in &class.properties_blocks {
-            let has_constant = block
-                .attributes
-                .iter()
-                .any(|a| a.name == "Constant" && !a.negated);
-            let block_abstract = block
-                .attributes
-                .iter()
-                .any(|a| a.name == "Abstract" && !a.negated);
+            let has_constant = Attributes(&block.attributes).is_present("Constant");
+            let block_abstract = Attributes(&block.attributes).is_present("Abstract");
             if !has_constant || block_abstract {
                 continue;
             }

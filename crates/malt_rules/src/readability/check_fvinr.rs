@@ -4,13 +4,12 @@
 //! `(Output)` attribute and inserts `(Input)` for readability.
 
 use super::*;
+use crate::analysis::metadata::attributes_text_contains;
 
-/// Whether an `arguments` block carries an `(Output)` attribute.
+/// Whether an `arguments` block carries an `(Output)` attribute. A substring of the
+/// attribute text, as before: `(Input = "Output")` counts too.
 fn has_output_attribute(block: tree_sitter::Node, source: &str) -> bool {
-    block.named_children(&mut block.walk()).any(|child| {
-        child.kind() == "attributes"
-            && source[child.start_byte()..child.end_byte()].contains("Output")
-    })
+    attributes_text_contains(block, source, "Output")
 }
 
 /// Whether another `arguments` block with an `(Output)` attribute sits in the

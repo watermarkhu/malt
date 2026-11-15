@@ -954,4 +954,36 @@ mod clear_and_load_tests {
         assert!(nasgu("f = 'a.mat';\nx = 1;\nload(f, 'x');\ndisp(x)\n"));
         assert!(!nasgu("x = 1;\ndisp(x)\n"));
     }
+
+    /// NASGU lines of `source`, for the tests appended below.
+    fn nasgu_at(source: &str) -> Vec<usize> {
+        let rule = UnusedEngine::from_config(&malt_core::Config::default());
+        lint_file(&*rule, source)
+            .iter()
+            .filter(|d| d.rule_id == "NASGU")
+            .map(|d| d.line)
+            .collect()
+    }
+
+    #[test]
+    fn nasgu_silent_on_save_command_reading_variable() {
+        // Probed (xce10, xcn05): `save f q` reads `q` in command syntax, as `save('f', 'q')` does.
+        assert!(nasgu_at("function f()\nq = 1;\nsave f q\nq = 2;\ndisp(q)\nend\n").is_empty());
+    }
+
+    #[test]
+    fn nasgu_error_with_variable_argument_does_not_end_flow() {
+        // Probed (xcn38, xcz05): `error(ME.message)` in a catch block does not end the flow, so
+        // the try body's store of `x` stays live. `error('b')` ends it.
+        assert!(nasgu_at(
+            "function r = f(msg)\nx = 1;\ntry\n    x = 2;\ncatch ME\n    error(ME.message);\nend\nr = x;\nend\n"
+        )
+        .is_empty());
+        assert_eq!(
+            nasgu_at(
+                "function r = f()\nx = 1;\ntry\n    x = 2;\ncatch ME\n    error('b');\nend\nr = x;\nend\n"
+            ),
+            vec![2]
+        );
+    }
 }

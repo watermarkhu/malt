@@ -158,7 +158,10 @@ mod wasm {
     /// string (host-testable; the `#[wasm_bindgen]` wrapper maps it to `JsValue`).
     fn from_toml_str(toml: &str) -> Result<Linter, String> {
         let malt_config = Config::from_toml(toml).map_err(|e| format!("Invalid config: {e}"))?;
-        Ok(build_linter(malt_config))
+        let warnings = malt_rules::config_check::config_warnings(&malt_config);
+        let mut linter = build_linter(malt_config);
+        linter.config_warnings = warnings;
+        Ok(linter)
     }
 
     /// Mark a rule ID as disabled in the config.
@@ -292,6 +295,19 @@ mod wasm {
 
         fn linter() -> Linter {
             from_config(LinterConfig::default())
+        }
+
+        #[test]
+        fn from_toml_keeps_rule_key_warnings() {
+            let l = from_toml_str("[lint.rules]\nNOSMI = \"off\"\n").expect("valid TOML");
+            let warnings: Vec<String> = serde_json::from_str(&l.get_config_warnings()).unwrap();
+            assert_eq!(warnings.len(), 1, "{warnings:?}");
+            assert!(
+                warnings[0].contains("did you mean 'NOSEMI'?"),
+                "{warnings:?}"
+            );
+            let clean = from_toml_str("[lint.rules]\nNOSEMI = \"warn\"\n").expect("valid TOML");
+            assert_eq!(clean.get_config_warnings(), "[]");
         }
 
         #[test]

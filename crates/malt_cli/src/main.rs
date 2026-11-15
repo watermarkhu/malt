@@ -37,6 +37,11 @@ struct Cli {
     #[arg(long, value_name = "PRESET")]
     preset: Option<String>,
 
+    /// Exit with an error (code 2) when the config file has a problem: an unknown
+    /// rule ID or parameter. Without it, each problem is a warning on stderr.
+    #[arg(long)]
+    strict_config: bool,
+
     /// Report on stderr which files are linted (`-v`), with the time and the
     /// number of findings of each file (`-vv`). The diagnostics on stdout do
     /// not change.
@@ -72,7 +77,7 @@ fn main() {
 
 fn run(cli: Cli) -> Result<()> {
     // Load configuration from .malt.toml (or --config path).
-    let mut config = load_config(cli.config.as_deref())?;
+    let mut config = load_config(cli.config.as_deref(), cli.strict_config)?;
 
     // A --preset override takes priority over the config file's `[lint] preset`.
     if let Some(name) = &cli.preset {
@@ -387,7 +392,10 @@ fn print_diagnostic(file_path: &Path, diag: &Diagnostic) {
 /// Priority:
 /// 1. Explicit `--config` path (error if not found).
 /// 2. `.malt.toml` in the current working directory (silent default if missing).
-fn load_config(explicit_path: Option<&std::path::Path>) -> Result<Config> {
+///
+/// Rule and parameter problems are reported on stderr. With `strict`, any problem is
+/// an error instead.
+fn load_config(explicit_path: Option<&std::path::Path>, strict: bool) -> Result<Config> {
     let config_path = if let Some(path) = explicit_path {
         if !path.exists() {
             anyhow::bail!("config file not found: {}", path.display());
@@ -406,8 +414,20 @@ fn load_config(explicit_path: Option<&std::path::Path>) -> Result<Config> {
         Some(path) => {
             let content = fs::read_to_string(&path)
                 .with_context(|| format!("failed to read config: {}", path.display()))?;
-            Config::from_toml(&content)
-                .with_context(|| format!("failed to parse config: {}", path.display()))
+            let config = Config::from_toml(&content)
+                .with_context(|| format!("failed to parse config: {}", path.display()))?;
+            let warnings = malt_rules::config_check::config_warnings(&config);
+            for warning in &warnings {
+                eprintln!("warning: {}: {warning}", path.display());
+            }
+            if strict && !warnings.is_empty() {
+                anyhow::bail!(
+                    "{} problem(s) in {} (--strict-config)",
+                    warnings.len(),
+                    path.display()
+                );
+            }
+            Ok(config)
         }
         None => Ok(Config::default()),
     }
