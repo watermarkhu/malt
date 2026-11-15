@@ -1,7 +1,7 @@
 //! BDSCA1: an `if` or `while` condition that is itself a non-scalar literal,
-//! such as `if [1 0]`, `while [1 2 3]` or `if 1:3`. Probed: all fire at the
-//! start of the literal. Silent: a parenthesised literal, `[1]`, a variable
-//! condition, and `[1 2] && true` (which reports BDSCA2 instead).
+//! such as `if [1 0]`, `while [1 2 3]`, `if []` or `if 1:3`. Probed: all fire at
+//! the start of the literal. Silent: a parenthesised literal, `[1]`, a variable
+//! condition, `x = []; if x`, `if ~[]`, `if [] & true` and `if zeros(0, 1)`.
 
 use super::check_iseq::{condition_of, single_row_len};
 use super::*;
@@ -10,7 +10,7 @@ const BDSCA1_MSG: &str = "Unexpected use of non-scalar value in a context which 
 
 impl GoodPracticesEngine {
     /// BDSCA1: an `if` or `while` condition that is a range or a matrix literal
-    /// with two or more elements.
+    /// with zero or two or more elements (`[]` is probed as non-scalar).
     pub(crate) fn check_bdsca1(&self, node: Node, _source: &str) -> Vec<Diagnostic> {
         if !self.is_check_enabled("BDSCA1") {
             return Vec::new();
@@ -28,7 +28,7 @@ impl GoodPracticesEngine {
         };
         let non_scalar = match condition.kind() {
             "range" => true,
-            "matrix" => single_row_len(condition).is_some_and(|n| n >= 2),
+            "matrix" => single_row_len(condition).is_some_and(|n| n != 1),
             _ => false,
         };
         if !non_scalar {
@@ -77,6 +77,12 @@ mod tests {
         assert_eq!((diags[0].line, diags[0].column), (1, 7));
 
         assert!(has_id(&bdsca1_diags("if 1:3\nend\n"), "BDSCA1"));
+
+        // Probed: an empty matrix literal is non-scalar in `if` and `while`.
+        let diags = bdsca1_diags("if []\n    disp(1);\nend\n");
+        assert_eq!((diags[0].line, diags[0].column), (1, 4));
+        let diags = bdsca1_diags("while []\n    disp(1);\nend\n");
+        assert_eq!((diags[0].line, diags[0].column), (1, 7));
     }
 
     #[test]
@@ -87,6 +93,10 @@ mod tests {
             "a = [1 2 3];\nif a\nend\n",
             "if [1 2] && true\nend\n",
             "if rand(3)\nend\n",
+            "if ~[]\nend\n",
+            "if [] & true\nend\n",
+            "x = [];\nif x\nend\n",
+            "if zeros(0, 1)\nend\n",
         ] {
             assert!(!has_id(&bdsca1_diags(src), "BDSCA1"), "{src}");
         }

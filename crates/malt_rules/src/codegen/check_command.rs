@@ -35,8 +35,8 @@ impl CodegenEngine {
 
 #[cfg(test)]
 mod tests {
+    use super::test_util::{has_id, lint_nodes};
     use super::*;
-    use crate::test_util::{has_id, lint_nodes};
 
     // -- EMIMP ----------------------------------------------------------------
 
@@ -57,8 +57,8 @@ mod tests {
 
 #[cfg(test)]
 mod load_tests {
+    use super::test_util::{has_id, lint_nodes};
     use super::*;
-    use crate::test_util::{has_id, lint_nodes};
 
     #[test]
     fn emload_fires_on_command_syntax_load() {

@@ -263,13 +263,13 @@ impl CodegenEngine {
     // ---------------------------------------------------------------------------
 
     /// File-level checks: EMNST (nested functions) and EMSCR (scripts).
-    fn check_file_level(&self, tree: &tree_sitter::Tree, _source: &str) -> Vec<Diagnostic> {
+    fn check_file_level(&self, tree: &tree_sitter::Tree, source: &str) -> Vec<Diagnostic> {
         let mut diags = Vec::new();
         let root = tree.root_node();
 
         // EMSCR: Script detection — a file whose first meaningful statement is
         // not a `function_definition` or `class_definition`.
-        if self.is_enabled("EMSCR") && is_script_file(&root) {
+        if self.is_enabled("EMSCR") && is_script_file(source) {
             let start = root.start_position();
             diags.push(Diagnostic {
                 rule_id: "EMSCR",
@@ -338,7 +338,7 @@ impl Rule for CodegenEngine {
     }
 
     fn check(&self, ctx: &NodeContext) -> Vec<Diagnostic> {
-        match ctx.node.kind() {
+        let diags = match ctx.node.kind() {
             "function_call" => self.check_function_call(ctx.node, ctx.source),
             "command" => self.check_command(ctx.node, ctx.source),
             "try_statement" => self.check_try_statement(ctx.node),
@@ -347,10 +347,19 @@ impl Rule for CodegenEngine {
             "cell" => self.check_cell(ctx.node),
             "arguments_statement" => self.check_arguments_statement(ctx.node, ctx.source),
             _ => Vec::new(),
+        };
+        // Scanned only when a finding is about to be reported.
+        if diags.is_empty() || has_codegen_directive(ctx.source) {
+            diags
+        } else {
+            Vec::new()
         }
     }
 
     fn check_file(&self, ctx: &FileContext) -> Vec<Diagnostic> {
+        if !has_codegen_directive(ctx.source) {
+            return Vec::new();
+        }
         self.check_file_level(ctx.tree, ctx.source)
     }
 }
@@ -358,6 +367,14 @@ impl Rule for CodegenEngine {
 // ---------------------------------------------------------------------------
 // Helper: diagnostic construction
 // ---------------------------------------------------------------------------
+
+/// Whether the file has a `%#codegen` directive. MATLAB reports the code generation
+/// messages only in such a file (probed: EMSCR, EMTC and EMIMP are silent without it).
+pub(crate) fn has_codegen_directive(source: &str) -> bool {
+    source
+        .lines()
+        .any(|line| line.trim_start().starts_with("%#codegen"))
+}
 
 /// Build a diagnostic from a check ID and node.
 pub(crate) fn make_diag(check_id: &'static str, node: tree_sitter::Node) -> Diagnostic {
@@ -448,20 +465,26 @@ pub(crate) fn matrix_contains_var(node: tree_sitter::Node, source: &str, var_nam
 
 /// Returns `true` if a `source_file` is a script (top-level statements that are
 /// not a `function_definition` or `class_definition`).
-fn is_script_file(root: &tree_sitter::Node) -> bool {
-    let count = root.child_count();
-    for i in 0..count {
-        let Some(child) = root.child(i) else {
-            continue;
-        };
-        match child.kind() {
-            "comment" | "line_continuation" => continue,
-            "function_definition" | "class_definition" => return false,
-            // Any other top-level statement means the file is a script.
-            _ => return true,
+fn is_script_file(source: &str) -> bool {
+    // The first statement decides: leading comments (`%`, `%{ ... %}`) and blank lines
+    // are skipped, as MATLAB does (a help comment before `function` is not a script).
+    let mut rest = source;
+    loop {
+        let trimmed = rest.trim_start();
+        if let Some(block) = trimmed.strip_prefix("%{") {
+            rest = block.find("%}").map_or("", |end| &block[end + 2..]);
+        } else if let Some(line) = trimmed.strip_prefix('%') {
+            rest = line.find('\n').map_or("", |end| &line[end + 1..]);
+        } else {
+            rest = trimmed;
+            break;
         }
     }
-    false
+    let is_keyword = |word: &str| {
+        rest.strip_prefix(word)
+            .is_some_and(|after| !after.starts_with(|c: char| c.is_alphanumeric() || c == '_'))
+    };
+    !(is_keyword("function") || is_keyword("classdef"))
 }
 
 /// Check if the next statement after a node is a for_statement.
@@ -567,8 +590,8 @@ pub(crate) fn engine() -> Box<dyn Rule> {
 
 #[cfg(test)]
 mod tests {
+    use super::test_util::{has_id, lint_file, lint_nodes};
     use super::*;
-    use crate::test_util::{has_id, lint_file, lint_nodes};
     use malt_core::Config;
 
     // -- EMSCR (file-level) -----------------------------------------------------
@@ -584,6 +607,22 @@ mod tests {
     fn emscr_not_fire_on_function_file() {
         let src = "function f()\n    x = 1;\nend\n";
         let diags = lint_file(&*engine(), src);
+        assert!(!has_id(&diags, "EMSCR"), "got: {diags:?}");
+    }
+
+    #[test]
+    fn codegen_messages_need_the_directive() {
+        // MATLAB reports EMSCR only in a file with `%#codegen` (probed).
+        let raw = crate::test_util::lint_file(&*engine(), "x = 1;\n");
+        assert!(!has_id(&raw, "EMSCR"), "got: {raw:?}");
+        let with = crate::test_util::lint_file(&*engine(), "%#codegen\nx = 1;\n");
+        assert!(has_id(&with, "EMSCR"), "got: {with:?}");
+    }
+
+    #[test]
+    fn leading_help_comment_keeps_a_function_file() {
+        let src = "%#codegen\n% help text\nfunction f()\nend\n";
+        let diags = crate::test_util::lint_file(&*engine(), src);
         assert!(!has_id(&diags, "EMSCR"), "got: {diags:?}");
     }
 
@@ -637,5 +676,22 @@ skip_checks = ["EMSCR", "EMFCN"]
         let src = "try\n    x = 1;\ncatch\n    y = 2;\nend\n";
         let diags = lint_nodes(&*rule, src);
         assert!(has_id(&diags, "EMTC"), "got: {diags:?}");
+    }
+}
+
+/// Test helpers that lint with a `%#codegen` directive in front of the source: the
+/// code generation messages need it (see `has_codegen_directive`). The directive
+/// takes the first line, so reported line numbers are one more than the source's.
+#[cfg(test)]
+pub(crate) mod test_util {
+    pub(crate) use crate::test_util::has_id;
+    use malt_core::{Diagnostic, Rule};
+
+    pub(crate) fn lint_nodes(rule: &dyn Rule, source: &str) -> Vec<Diagnostic> {
+        crate::test_util::lint_nodes(rule, &format!("%#codegen\n{source}"))
+    }
+
+    pub(crate) fn lint_file(rule: &dyn Rule, source: &str) -> Vec<Diagnostic> {
+        crate::test_util::lint_file(rule, &format!("%#codegen\n{source}"))
     }
 }

@@ -9,6 +9,72 @@ impl SyntaxErrorsEngine {
         diagnostics
     }
 
+    /// LHROW for a statement that starts with a bracket holding a row separator and is then
+    /// assigned to (`[a;b;c] = size(x)`). The grammar makes it an error node, so the line is
+    /// found in the text. Returns the byte span of each such line with its diagnostic: the
+    /// caller drops the parse errors on that span. MATLAB reports the first token after the
+    /// `;` (`[a;b] = f()` is column 4).
+    pub(crate) fn check_row_separated_lhs(&self, source: &str) -> Vec<(Range<usize>, Diagnostic)> {
+        let mut found = Vec::new();
+        if !self.is_check_enabled("LHROW") {
+            return found;
+        }
+        let mut line_start = 0;
+        for line in source.split_inclusive('\n') {
+            let at = line_start;
+            line_start += line.len();
+            let code = line.trim_end_matches(['\n', '\r']);
+            let indent = code.len() - code.trim_start().len();
+            let code = code.trim_start();
+            if !code.starts_with('[') {
+                continue;
+            }
+            // The `;` directly inside the opening bracket, and the bracket's close on this line.
+            let mut depth = 0;
+            let mut semi = None;
+            let mut close = None;
+            for (i, b) in code.bytes().enumerate() {
+                match b {
+                    b'[' | b'(' | b'{' => depth += 1,
+                    b']' | b')' | b'}' => {
+                        depth -= 1;
+                        if depth == 0 {
+                            close = Some(i);
+                            break;
+                        }
+                    }
+                    b';' if depth == 1 && semi.is_none() => semi = Some(i),
+                    // Strings and comments are not scanned: such a line is left alone.
+                    b'\'' | b'"' | b'%' => break,
+                    _ => {}
+                }
+            }
+            let (Some(semi), Some(close)) = (semi, close) else {
+                continue;
+            };
+            let after = code[close + 1..].trim_start();
+            if !after.starts_with('=') || after.starts_with("==") {
+                continue;
+            }
+            let rest = &code[semi + 1..];
+            let token = semi + 1 + (rest.len() - rest.trim_start_matches([' ', '\t']).len());
+            let token_at = at + indent + token;
+            let (line_no, column) = line_col(source, token_at);
+            let diagnostic = Diagnostic {
+                rule_id: "LHROW",
+                message: "The left side of an assignment cannot have multiple rows (';')."
+                    .to_string(),
+                severity: Severity::Error,
+                byte_range: token_at..token_at + 1,
+                line: line_no,
+                column,
+                fix: None,
+            };
+            found.push((at..at + line.len(), diagnostic));
+        }
+        found
+    }
+
     pub(crate) fn walk_assignment_lhs(
         &self,
         node: Node,

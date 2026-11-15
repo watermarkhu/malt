@@ -384,14 +384,12 @@ impl GoodPracticesEngine {
             .extend(crate::off_under_mathworks(
                 config,
                 &[
-                    "ERTAG", "WNTAG", "CTCH", "BDLOG2", "CTOINW", "GTARG", "LTARG", "SIMPT",
-                    "STRSZ", "ELARLOG",
+                    "ERTAG", "WNTAG", "CTCH", "CTOINW", "GTARG", "LTARG", "SIMPT",
                     // Never reported by MATLAB in the probes or the fixtures.
                     "ITERS",
                     // ADAPPREF: silent in three probes, with and without an app argument.
                     // MIPC1: silent for computer('arch') in four probes.
-                    // VTFIN: silent in three validator probes and c4__m1.
-                    "ADAPPREF", "MIPC1", "VTFIN",
+                    "ADAPPREF", "MIPC1",
                     // MCCPE: never reported by MATLAB in 8 probes (a call of a property is CPROP there,
                     // and `%#ok<MCCPE>` gives MSNU, so it is not generated).
                     "MCCPE",
@@ -597,7 +595,8 @@ impl GoodPracticesEngine {
                         let overwritten = overwritten_before_read(*parfor, &name, source);
                         let is_output =
                             is_output_of_enclosing_function(&sym, parfor.start_byte(), &name);
-                        let uses = uses_after_parfor(&sym, &name, parfor.end_byte(), tree, false);
+                        let uses =
+                            uses_after_parfor(&sym, &name, parfor.end_byte(), tree, source, false);
                         if overwritten || (uses.is_empty() && !is_output) {
                             let pos = lhs_node.start_position();
                             diagnostics.push(Diagnostic {
@@ -627,7 +626,8 @@ impl GoodPracticesEngine {
                         if idx_var.as_deref() == Some(name.as_str()) {
                             continue;
                         }
-                        let uses = uses_after_parfor(&sym, &name, parfor.end_byte(), tree, false);
+                        let uses =
+                            uses_after_parfor(&sym, &name, parfor.end_byte(), tree, source, false);
                         // A function output assigned whole in the body is returned after the
                         // loop, so MATLAB reports PFTUSW on the function's line (probed).
                         if self.is_check_enabled("PFTUSW")
@@ -1231,47 +1231,6 @@ pub(crate) fn args_has_case_conversion(args_node: Node, source: &str) -> bool {
         }
     }
     false
-}
-
-/// Find element-wise boolean operators (`&`, `|`) in if/while conditions.
-pub(crate) fn find_element_wise_boolean_in_condition(
-    node: Node,
-    source: &str,
-    diagnostics: &mut Vec<Diagnostic>,
-) {
-    // The condition of if/while is typically the first expression child.
-    let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        if child.kind() == "boolean_operator" {
-            let text = node_text(child, source);
-            // Single `&` or `|` (not `&&` or `||`)
-            let has_element_wise = (text.contains('&') && !text.contains("&&"))
-                || (text.contains('|') && !text.contains("||"));
-            if has_element_wise {
-                let pos = child.start_position();
-                let op = if text.contains('&') { "&" } else { "|" };
-                diagnostics.push(Diagnostic {
-                    rule_id: "ELARLOG",
-                    message: format!(
-                        "The {op} operator in the expression {op}(A {op} B) is unexpected. Should this be {op}(A) {op} B?"
-                    ),
-                    severity: Severity::Warning,
-                    byte_range: child.start_byte()..child.end_byte(),
-                    line: pos.row + 1,
-                    column: pos.column + 1,
-                    fix: None,
-                });
-            }
-        }
-        // Don't recurse into nested if/while/for/blocks — just check immediate condition.
-        if child.kind() == "block"
-            || child.kind() == "elseif_clause"
-            || child.kind() == "else_clause"
-        {
-            continue;
-        }
-        find_element_wise_boolean_in_condition(child, source, diagnostics);
-    }
 }
 
 /// Find `end` used as an index argument (FNCOLND).
@@ -2058,17 +2017,42 @@ pub(crate) fn is_defined_before_parfor(sym: &SymbolTable, name: &str, parfor_sta
 ///
 /// When `exclude_loops` is true, uses inside any enclosing `for_statement`
 /// are ignored (the variable is re-bound by a subsequent loop).
+/// Whether a use at `range` is inside the arguments of a `save` call.
+fn is_save_argument(tree: &tree_sitter::Tree, range: std::ops::Range<usize>, source: &str) -> bool {
+    let Some(mut n) = tree
+        .root_node()
+        .descendant_for_byte_range(range.start, range.end)
+    else {
+        return false;
+    };
+    while let Some(p) = n.parent() {
+        if p.kind() == "function_call" {
+            return p
+                .child_by_field_name("name")
+                .is_some_and(|c| &source[c.byte_range()] == "save");
+        }
+        n = p;
+    }
+    false
+}
+
 pub(crate) fn uses_after_parfor(
     sym: &SymbolTable,
     name: &str,
     after: usize,
     tree: &tree_sitter::Tree,
+    source: &str,
     exclude_loops: bool,
 ) -> Vec<usize> {
     let mut lines = Vec::new();
     for scope in &sym.scopes {
         for u in &scope.uses {
             if u.name != name || u.byte_range.start < after {
+                continue;
+            }
+            // MATLAB does not count a variable named in `save` as a use after the loop
+            // (probed: PFOUS and PFTUSW are still reported for `save(f, 'a')`).
+            if is_save_argument(tree, u.byte_range.clone(), source) {
                 continue;
             }
             if exclude_loops {
@@ -2497,7 +2481,6 @@ mod tests {
     fn test_never_emitted_ids_off_under_mathworks() {
         // Probed: MATLAB reports none of these forms by default (GTARG/LTARG with
         // a local function and builtins, SIMPT for an `import` after other code,
-        // STRSZ for `'abc' == 'abcd'`, ELARLOG for `if (x & ok) || r, r = 2; end`).
         // Each sample fires under `all` and is silent under `mathworks`.
         use crate::test_util::{has_id, lint_file, lint_nodes};
         let cases = [
@@ -2510,11 +2493,6 @@ mod tests {
                 "function f()\n y = helper();\nend\nfunction r = helper(a)\n r = a;\nend\n",
             ),
             ("SIMPT", "function f()\n x = 1;\n import a.b.*\nend\n"),
-            ("STRSZ", "function f(s)\n if 'abc' == 'abcd', end\nend\n"),
-            (
-                "ELARLOG",
-                "function f(x, ok, r)\n if (x & ok) || r, r = 2; end\nend\n",
-            ),
         ];
         let engine_for = |preset: &str| {
             GoodPracticesEngine::from_config(

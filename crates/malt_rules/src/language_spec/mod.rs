@@ -380,9 +380,7 @@ impl LanguageSpecEngine {
             .disabled_checks
             .extend(crate::off_under_mathworks(
                 config,
-                &[
-                    "FVNIV", "USESWNS", "PFUTVR", "VTPEAL", "VTPIN", "VTPCON", "GPNES", "FVORDO",
-                ],
+                &["USESWNS", "PFUTVR", "GPNES", "FVORDO"],
             ));
         Box::new(Self {
             config: rule_config,
@@ -1354,6 +1352,21 @@ impl LanguageSpecEngine {
                         }
                     }
                 }
+                "matrix" => {
+                    // `s = [s i]`: a reduction by concatenation (probed: PFINCR next to `s = s + i`).
+                    let first = rhs_node.named_child(0).map(|r| {
+                        if r.kind() == "row" {
+                            r.named_child(0).unwrap_or(r)
+                        } else {
+                            r
+                        }
+                    });
+                    if first.is_some_and(|a| {
+                        a.kind() == "identifier" && node_text(a, source) == lhs_name
+                    }) {
+                        reduction_op = Some("[]".to_string());
+                    }
+                }
                 "function_call" => {
                     let first = argument_nodes(rhs_node).first().copied();
                     if let Some(a) = first {
@@ -1753,7 +1766,18 @@ impl LanguageSpecEngine {
         let mut reported_utvr = HashSet::new();
 
         // PFINCR: different reduction functions with the same reduction variable
-        for (var, ops) in &analysis.reductions {
+        // A variable reduced only by functions (`s = max(s, i); s = min(s, i)`) has no
+        // operator entry, so the keys of both maps are visited (probed: PFINCR).
+        let mut reduced: Vec<&String> = analysis
+            .reductions
+            .keys()
+            .chain(analysis.func_reductions.keys())
+            .collect();
+        reduced.sort();
+        reduced.dedup();
+        for var in reduced {
+            let empty = Vec::new();
+            let ops = analysis.reductions.get(var).unwrap_or(&empty);
             let mut fns: Vec<String> = ops.iter().map(|(op, _)| op.clone()).collect();
             if let Some(frs) = analysis.func_reductions.get(var) {
                 fns.extend(frs.iter().map(|(c, _)| c.clone()));
@@ -3407,6 +3431,8 @@ enum CallReference {
 pub(crate) struct ValidatorCall {
     /// References to arguments made inside the call.
     references: Vec<CallReference>,
+    /// Whether the call has no argument list, `{mustBeText()}` (VTPEAL, not FVVIN).
+    pub(crate) no_arguments: bool,
 }
 
 /// Extract all validation function calls from a property.
@@ -3433,7 +3459,10 @@ pub(crate) fn extract_validator_call(
 ) -> Option<ValidatorCall> {
     let mut references = Vec::new();
     collect_validator_references(call_node, source, &mut references);
-    Some(ValidatorCall { references })
+    Some(ValidatorCall {
+        references,
+        no_arguments: crate::readability::find_arguments(call_node).is_none(),
+    })
 }
 
 /// Collect the references made by the arguments of a validation call, descending into nested calls.

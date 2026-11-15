@@ -109,10 +109,18 @@ impl UnusedEngine {
                 {
                     continue;
                 }
-                let unread = !scope.is_used(name)
-                    || entry_reads
-                        .as_ref()
-                        .is_some_and(|reads| !reads.contains(name));
+                // A read in a nested function counts (probed: a parent argument read by
+                // an inner function is not INUSD), though the entry-value analysis of
+                // this scope does not follow it.
+                let read_in_nested = scope
+                    .children
+                    .iter()
+                    .any(|&child| is_read_in(table, child, name, &blocks));
+                let unread = !read_in_nested
+                    && (!scope.is_used(name)
+                        || entry_reads
+                            .as_ref()
+                            .is_some_and(|reads| !reads.contains(name)));
                 if unread && !super::check_manu::returned_input(scope, name) {
                     diagnostics.push(Diagnostic {
                         rule_id: "INUSD",
@@ -244,6 +252,18 @@ mod tests {
     }
 
     // -- INUSA / INUSD: unused input arguments ----------------------
+
+    #[test]
+    fn inusd_silent_when_a_nested_function_reads_the_parent_argument() {
+        // Probed (zn_2, zn_3, zn_5, zr_nf7): MATLAB reports nothing for `a`; with no
+        // read anywhere, `a` is INUSD (zn_7).
+        let read =
+            "function outer(a)\n    function inner()\n        disp(a)\n    end\ninner();\nend\n";
+        assert!(!lines_of(&lint_file(&*engine(), read), "INUSD").contains(&1));
+        let unread =
+            "function outer(a)\n    function inner()\n        disp(1)\n    end\ninner();\nend\n";
+        assert!(lines_of(&lint_file(&*engine(), unread), "INUSD").contains(&1));
+    }
 
     #[test]
     fn signature_inputs_are_inusd_not_inusa() {

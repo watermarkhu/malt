@@ -22,20 +22,8 @@ impl LanguageSpecEngine {
                 });
             }
         }
-        for mb in &class.methods_blocks {
-            if Self::block_has_access_conflict(&mb.attributes) {
-                diagnostics.push(Diagnostic {
-                    rule_id: "MTAGS3",
-                    message: "Cannot use the Access attribute when using the SetAccess or GetAccess attribute."
-                        .to_string(),
-                    severity: Severity::Error,
-                    byte_range: class.byte_range.clone(),
-                    line: class.line,
-                    column: 1,
-                    fix: None,
-                });
-            }
-        }
+        // Methods blocks have no SetAccess/GetAccess: MATLAB reports ATUNK there, not MTAGS3
+        // (probed: `methods (Access = public, SetAccess = private)` gives ATUNK at SetAccess).
     }
 
     /// Whether an attribute list contains Access together with SetAccess or GetAccess.

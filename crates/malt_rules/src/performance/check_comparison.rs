@@ -34,6 +34,93 @@ impl PerformanceEngine {
     }
 }
 
+impl PerformanceEngine {
+    /// ISMT for a `length(x)` call used as the truth value of an `if`, `while` or
+    /// `elseif` condition, directly or as an operand of `&`, `|`, `&&`, `||` or `~`.
+    /// Probed (MATLAB R2026b): `if length(a)`, `if length(a) & b`, `while ~length(a) | b`
+    /// are ISMT; `x = length(a) & b`, `length(a) > 1` and `numel(a) & b` are not.
+    pub(crate) fn check_condition_length<'a>(
+        &self,
+        node: tree_sitter::Node<'a>,
+        source: &'a str,
+    ) -> Vec<Diagnostic> {
+        if !self.is_enabled("ISMT") {
+            return Vec::new();
+        }
+        let condition = (0..node.named_child_count())
+            .filter_map(|i| node.named_child(i))
+            .find(|c| {
+                !matches!(
+                    c.kind(),
+                    "block" | "comment" | "else_clause" | "elseif_clause"
+                )
+            });
+        let mut diags = Vec::new();
+        if let Some(condition) = condition {
+            collect_truth_length(condition, source, &mut diags);
+        }
+        diags
+    }
+}
+
+/// Pushes ISMT for each `length(...)` call in a boolean position of `node`.
+fn collect_truth_length(node: tree_sitter::Node, source: &str, diags: &mut Vec<Diagnostic>) {
+    match node.kind() {
+        "function_call" if extract_func_name(node, source) == Some("length") => {
+            diags.push(make_diag("ISMT", node));
+        }
+        "parenthesis" => {
+            if let Some(inner) = node.named_child(0) {
+                collect_truth_length(inner, source, diags);
+            }
+        }
+        "not_operator" => {
+            if let Some(operand) = node.named_child(0) {
+                collect_truth_length(operand, source, diags);
+            }
+        }
+        // The grammar binds `&` and `|` tighter than comparisons, so `length(a) == 0 & b`
+        // is `length(a) == (0 & b)`; MATLAB reads it as `(length(a) == 0) & b` (probed).
+        "comparison_operator" => {
+            let right = node.child(2);
+            let Some(logical) = right.filter(|r| r.kind() == "binary_operator") else {
+                return;
+            };
+            let (Some(left), Some(op), Some(zero), Some(rest)) = (
+                node.child(0),
+                node.child(1),
+                logical.child(0),
+                logical.child(2),
+            ) else {
+                return;
+            };
+            let logical_op = logical.child(1).map(|o| node_text(o, source));
+            if left.kind() == "function_call"
+                && extract_func_name(left, source) == Some("length")
+                && matches!(node_text(op, source), "==" | "~=" | ">")
+                && node_text(zero, source).trim() == "0"
+                && matches!(logical_op, Some("&" | "|"))
+            {
+                diags.push(make_diag("ISMT", node));
+            }
+            collect_truth_length(rest, source, diags);
+        }
+        "boolean_operator" | "binary_operator" => {
+            let is_logical = node
+                .child(1)
+                .is_some_and(|op| matches!(node_text(op, source), "&" | "|" | "&&" | "||"));
+            if is_logical {
+                for i in [0, 2] {
+                    if let Some(operand) = node.child(i) {
+                        collect_truth_length(operand, source, diags);
+                    }
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
 /// `length(x) > 0`, with the call on the left.
 fn is_length_greater_than_zero(node: tree_sitter::Node, source: &str) -> bool {
     let (Some(left), Some(op), Some(right)) = (node.child(0), node.child(1), node.child(2)) else {
@@ -129,6 +216,44 @@ mod ismt_greater_tests {
             "y = (length(x) < 1);\n",
             "y = (0 < length(x));\n",
             "y = (numel(x) > 0);\n",
+        ] {
+            let diags = lint_nodes(&*engine(), src);
+            assert!(!has_id(&diags, "ISMT"), "{src}: got: {diags:?}");
+        }
+    }
+}
+
+#[cfg(test)]
+mod ismt_condition_tests {
+    use super::super::test_support::engine;
+    use crate::test_util::{has_id, lint_nodes};
+
+    #[test]
+    fn ismt_fires_on_length_as_a_condition_truth_value() {
+        // Probed (si1, si2, si3, si5, si6, si7, si12, zf_ismt1): reported at `length`.
+        for src in [
+            "if length(a)\n    disp(1);\nend\n",
+            "if length(a) && b\n    disp(1);\nend\n",
+            "if length(a) | b\n    disp(1);\nend\n",
+            "while length(a) & b\n    disp(1);\nend\n",
+            "if ~length(a) & b\n    disp(1);\nend\n",
+            "if (length(a)) & b\n    disp(1);\nend\n",
+            "if length(a) & a\n    disp(1);\nend\n",
+        ] {
+            let diags = lint_nodes(&*engine(), src);
+            assert!(has_id(&diags, "ISMT"), "{src}: got: {diags:?}");
+        }
+    }
+
+    #[test]
+    fn ismt_silent_on_length_outside_a_condition_or_in_other_comparisons() {
+        // Probed silent (si10, si11, si13, zf_ismt2, zf_ismt4): not a condition, numel,
+        // comparison with 1.
+        for src in [
+            "x = length(a) & b;\n",
+            "c = length(a) & b;\nif c\n    disp(1);\nend\n",
+            "if numel(a) & b\n    disp(1);\nend\n",
+            "if length(a) > 1 & b\n    disp(1);\nend\n",
         ] {
             let diags = lint_nodes(&*engine(), src);
             assert!(!has_id(&diags, "ISMT"), "{src}: got: {diags:?}");

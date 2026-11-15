@@ -354,6 +354,9 @@ const TARGET_NODES: &[&str] = &[
     "binary_operator",
     "boolean_operator",
     "comparison_operator",
+    "if_statement",
+    "while_statement",
+    "elseif_clause",
     "cell",
 ];
 
@@ -552,10 +555,12 @@ impl PerformanceEngine {
 
         // Pattern 2: x = [x, val] or x = [x; val] (or the cell equivalent). MATLAB
         // reports concatenation as AGROW in scripts too (probed). A field target
-        // such as `s.g = [s.g, i]` is not reported.
+        // such as `s.g = [s.g, i]` is not reported, nor is concatenation in a parfor
+        // loop (probed; `s(end + 1) = i` is still reported there).
         if lhs.kind() == "identifier"
             && (rhs.kind() == "matrix" || rhs.kind() == "cell")
             && matrix_contains_var(rhs, source, lhs_text)
+            && !inside_parfor(node, source)
             && self.is_enabled("AGROW")
         {
             diags.push(make_diag("AGROW", node));
@@ -902,6 +907,9 @@ impl Rule for PerformanceEngine {
                 Vec::new()
             }
             "comparison_operator" => self.check_comparison(ctx.node, ctx.source),
+            "if_statement" | "while_statement" | "elseif_clause" => {
+                self.check_condition_length(ctx.node, ctx.source)
+            }
             "cell" => self.check_cell(ctx.node, ctx.source),
             _ => Vec::new(),
         }
@@ -1491,4 +1499,18 @@ mod active_check_tests {
         assert!(!active.contains(&"PFBNS"));
         assert!(active.contains(&"LAXES"));
     }
+}
+
+/// Whether `node` is in the body of a `parfor` loop. MATLAB reports no AGROW there (probed).
+fn inside_parfor(node: tree_sitter::Node, source: &str) -> bool {
+    let mut current = node.parent();
+    while let Some(p) = current {
+        // The grammar parses `parfor` as a `for_statement`.
+        if p.kind() == "for_statement" && source[p.byte_range()].trim_start().starts_with("parfor")
+        {
+            return true;
+        }
+        current = p.parent();
+    }
+    false
 }

@@ -435,8 +435,30 @@ fn collect_object_assignments<'a>(
 fn object_read_after(body: Node, write: Node, obj: &str, source: &str) -> bool {
     let mut uses = Vec::new();
     collect_identifiers(body, obj, source, &mut uses);
-    uses.into_iter()
-        .any(|u| u.start_byte() >= write.end_byte() && !in_sibling_branch(u, write))
+    // A read in a loop that holds the write runs again after it, in the next iteration
+    // (probed: `for k, disp(obj), obj.x = v; end` is silent). The write's own `obj` is not a read.
+    let loops = enclosing_loops(write, body);
+    uses.into_iter().any(|u| {
+        !contains(write, u)
+            && !in_sibling_branch(u, write)
+            && (u.start_byte() >= write.end_byte() || loops.iter().any(|l| contains(*l, u)))
+    })
+}
+
+/// The loops that hold `node` within `body`, innermost first.
+fn enclosing_loops<'a>(node: Node<'a>, body: Node<'a>) -> Vec<Node<'a>> {
+    let mut loops = Vec::new();
+    let mut ancestor = node.parent();
+    while let Some(a) = ancestor {
+        if a.id() == body.id() {
+            break;
+        }
+        if matches!(a.kind(), "for_statement" | "while_statement") {
+            loops.push(a);
+        }
+        ancestor = a.parent();
+    }
+    loops
 }
 
 /// Every identifier named `name` under `node`, in source order.

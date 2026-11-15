@@ -84,6 +84,38 @@ impl GoodPracticesEngine {
     }
 }
 
+/// Whether an identifier is an operand of a binary operator (`helper + 1`).
+fn is_binary_operand(node: Node) -> bool {
+    node.parent().is_some_and(|p| p.kind() == "binary_operator")
+}
+
+/// Whether the function holding `node` assigns `name` itself (a local variable of that name).
+fn assigned_in_function(node: Node, name: &str, source: &str) -> bool {
+    let mut ancestor = node.parent();
+    while let Some(a) = ancestor {
+        if a.kind() == "function_definition" {
+            return assigns_name(a, name, source);
+        }
+        ancestor = a.parent();
+    }
+    false
+}
+
+fn assigns_name(node: Node, name: &str, source: &str) -> bool {
+    if node.kind() == "assignment"
+        && node
+            .child_by_field_name("left")
+            .is_some_and(|l| l.kind() == "identifier" && node_text(l, source) == name)
+    {
+        return true;
+    }
+    let mut cursor = node.walk();
+    let children: Vec<Node> = node.children(&mut cursor).collect();
+    children
+        .into_iter()
+        .any(|child| assigns_name(child, name, source))
+}
+
 /// Whether an identifier is a value rather than a call: the body of an anonymous
 /// function (`@() helper`) or the right-hand side of an assignment (`m = helper`).
 fn is_bare_value(node: Node) -> bool {
@@ -112,11 +144,14 @@ fn collect_admthdinv(
     if node.kind() == "function_definition" || node.kind() == "class_definition" {
         return;
     }
-    // Probed: a method named as a value, `@() helper` or `m = helper`, is reported too.
-    if node.kind() == "identifier" && is_bare_value(node) {
+    // Probed: a method named as a value, `@() helper` or `m = helper`, is reported too, and so
+    // is an operand of an operator (`@() helper + 1`, `r = helper + 1`) unless the method
+    // assigns the name itself (`helper = 2; r = helper + 1` is silent).
+    if node.kind() == "identifier" && (is_bare_value(node) || is_binary_operand(node)) {
         let name = node_text(node, source);
         let qualified = source[..node.start_byte()].trim_end().ends_with('.');
-        if methods.contains(name) && !qualified {
+        let shadowed = is_binary_operand(node) && assigned_in_function(node, name, source);
+        if methods.contains(name) && !qualified && !shadowed {
             let pos = node.start_position();
             diagnostics.push(Diagnostic {
                 rule_id: "ADMTHDINV",

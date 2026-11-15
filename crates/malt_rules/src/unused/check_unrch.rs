@@ -194,18 +194,13 @@ fn collect_empty_try(
 ) {
     if node.kind() == "try_statement" {
         let children = named_children(node);
-        let first_statement = children
+        let body: Vec<Node> = children
             .iter()
             .filter(|c| c.kind() == "block")
             .flat_map(|block| named_children(*block))
-            .find(|c| c.kind() != "comment");
-        let body_cannot_throw = first_statement.is_none_or(|c| {
-            matches!(
-                c.kind(),
-                "return_statement" | "break_statement" | "continue_statement"
-            )
-        });
-        if body_cannot_throw {
+            .filter(|c| c.kind() != "comment")
+            .collect();
+        if statements_cannot_throw(&body) {
             if let Some(catch) = children.iter().find(|c| c.kind() == "catch_clause") {
                 let pos = catch.start_position();
                 emit_unrch(
@@ -221,6 +216,44 @@ fn collect_empty_try(
     for child in named_children(node) {
         collect_empty_try(child, seen, diagnostics);
     }
+}
+
+/// Whether a statement list cannot throw before it leaves. The first statement
+/// decides: nothing, or a `return`, `break` or `continue`, or a nested `try` whose
+/// `catch` cannot throw (the errors of its body never leave it), followed by
+/// statements that cannot throw either. Probed (MATLAB R2026b): the outer `catch`
+/// of `try, try, x = 1, catch, end, catch, end` is unreachable, but a `disp(3)`
+/// after the inner `try` keeps it reachable, and so does a `disp(1)` in the inner
+/// `catch`.
+fn statements_cannot_throw(statements: &[Node]) -> bool {
+    let Some((first, rest)) = statements.split_first() else {
+        return true;
+    };
+    match first.kind() {
+        "return_statement" | "break_statement" | "continue_statement" => true,
+        "try_statement" => {
+            let catch_body = catch_statements(*first);
+            catch_body.is_some_and(|body| statements_cannot_throw(&body))
+                && statements_cannot_throw(rest)
+        }
+        _ => false,
+    }
+}
+
+/// The statements of a `try` statement's `catch` clause, or `None` when it has no
+/// `catch` (then the errors of its body leave it).
+fn catch_statements(try_statement: Node) -> Option<Vec<Node>> {
+    let catch = named_children(try_statement)
+        .into_iter()
+        .find(|c| c.kind() == "catch_clause")?;
+    Some(
+        named_children(catch)
+            .into_iter()
+            .filter(|b| b.kind() == "block")
+            .flat_map(named_children)
+            .filter(|c| c.kind() != "comment")
+            .collect(),
+    )
 }
 
 /// Collect named children of a node.
@@ -896,6 +929,34 @@ mod literal_condition_tests {
             "function f()\ntry\n    disp(1);\ncatch\n    error('x');\nend\ndisp(2);\nend\n"
         )
         .is_empty());
+    }
+
+    #[test]
+    fn unrch_at_catch_of_try_whose_body_is_a_nested_try_with_empty_catch() {
+        // Probed (u_d2, u_d3, u_e3, u_k3): the outer `catch` is unreachable; the inner
+        // `catch` is reachable when its body can throw (u_e3 line 6 is silent).
+        assert_eq!(
+            unrch(
+                "function f()\ntry\n    try\n        x = 1;\n    catch\n    end\ncatch\nend\nend\n"
+            ),
+            vec![(7, 1)]
+        );
+        assert_eq!(
+            unrch("function f()\ntry\n    try\n        error('a');\n    catch\n    end\ncatch\nend\nend\n"),
+            vec![(7, 1)]
+        );
+    }
+
+    #[test]
+    fn unrch_silent_when_a_statement_or_catch_body_can_throw_after_nested_try() {
+        // Probed (u_g2, u_h2, u_f2): a throwing statement after the inner try, or a
+        // throwing inner `catch`, keeps the outer `catch` reachable.
+        for src in [
+            "function f()\ntry\n    try\n        x = 1;\n    catch\n    end\n    disp(3);\ncatch\nend\nend\n",
+            "function f()\ntry\n    try\n        x = 1;\n    catch\n        disp(1);\n    end\ncatch\nend\nend\n",
+        ] {
+            assert!(unrch(src).iter().all(|&(l, _)| l != 7), "{src}: {:?}", unrch(src));
+        }
     }
 
     #[test]

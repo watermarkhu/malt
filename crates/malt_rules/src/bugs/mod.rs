@@ -1317,6 +1317,34 @@ a = 1 + 2 + ...
     }
 
     #[test]
+    fn noprc_fires_across_a_trailing_comment() {
+        // Probed: `x = 1 %c` then `-x` gives NOPRC at the `=`, and no NOPTS on that line.
+        let diags = file_diags("x = 1 %c\n-x\n");
+        assert!(
+            diags
+                .iter()
+                .any(|d| d.rule_id == "NOPRC" && d.line == 1 && d.column == 3),
+            "got: {diags:?}"
+        );
+        assert!(
+            !diags.iter().any(|d| d.rule_id == "NOPTS" && d.line == 1),
+            "got: {diags:?}"
+        );
+    }
+
+    #[test]
+    fn noprc_fires_on_a_binary_operation_led_by_a_sign() {
+        // Probed: `x = 1` then `-x + 2` gives NOPRC at the `=`.
+        let diags = file_diags("x = 1\n-x + 2\n");
+        assert!(
+            diags
+                .iter()
+                .any(|d| d.rule_id == "NOPRC" && d.line == 1 && d.column == 3),
+            "got: {diags:?}"
+        );
+    }
+
+    #[test]
     fn noprc_no_fire_on_switch_without_otherwise() {
         let src = "\
 switch x

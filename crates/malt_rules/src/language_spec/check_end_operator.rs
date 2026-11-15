@@ -77,8 +77,13 @@ impl LanguageSpecEngine {
                         })
                         .unwrap_or(false);
 
-                // `[end]`, `{end}` and `[end + 1]` are RESWD in MATLAB, not IDXCOLND.
-                if !is_block_end && !in_control_header(node) && !in_brackets(node) {
+                // `[end]`, `{end}` and `[end + 1]` are RESWD in MATLAB, not IDXCOLND. In a
+                // property default (`e = [1 2 3](end)`) MATLAB reports MCPLD only.
+                if !is_block_end
+                    && !in_control_header(node)
+                    && !in_brackets(node)
+                    && !in_property_block(node)
+                {
                     diagnostics.push(Diagnostic {
                         rule_id: "IDXCOLND",
                         message: "The END operator must be used within an array index expression."
@@ -104,6 +109,18 @@ impl LanguageSpecEngine {
 /// Whether an `end` sits in the header of an `if`, `elseif`, `while`, `for` or `switch`
 /// statement, where the parse fails. MATLAB reports that as SYNER, not as IDXCOLND
 /// (probed: `if end > 1`).
+/// True for an `end` inside a property block (a property default value).
+fn in_property_block(node: tree_sitter::Node) -> bool {
+    let mut ancestor = node.parent();
+    while let Some(a) = ancestor {
+        if matches!(a.kind(), "property" | "properties") {
+            return true;
+        }
+        ancestor = a.parent();
+    }
+    false
+}
+
 /// True for an `end` inside `[ ]` or `{ }` with no index around it: MATLAB gives RESWD
 /// there, not IDXCOLND (probed: `z = [end]`, `z = {end}`, `y = [end + 1]`). Stops at the
 /// statement, so an index around the brackets does not count.

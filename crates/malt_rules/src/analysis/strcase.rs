@@ -27,8 +27,9 @@ pub(crate) enum StrcmpCase {
 
 /// What one argument of the comparison is known to be.
 enum Side<'s> {
-    /// A direct `lower(...)` (`false`) or `upper(...)` (`true`) call.
-    Call(bool),
+    /// A direct `lower(...)` (`false`) or `upper(...)` (`true`) call, with the
+    /// literal it converts when its argument is a known string.
+    Call(bool, Option<&'s str>),
     /// A variable whose value is a `lower` or `upper` call.
     Var(bool),
     /// A single-quoted string literal, without its quotes.
@@ -51,12 +52,14 @@ pub(crate) fn strcmp_case(call: Node, source: &str) -> Option<StrcmpCase> {
     let (first, second) = (args.first()?, args.get(1)?);
     let (a, b) = (side(*first, source), side(*second, source));
     match (a, b) {
-        (Side::Call(p), Side::Call(q)) => Some(if p == q {
+        (Side::Call(p, _), Side::Call(q, _)) => Some(if p == q {
             StrcmpCase::Insensitive
         } else {
             StrcmpCase::Mismatch
         }),
-        (Side::Call(upper), Side::Literal(s)) | (Side::Literal(s), Side::Call(upper)) => {
+        (Side::Call(upper, Some(value)), Side::Literal(s))
+        | (Side::Literal(s), Side::Call(upper, Some(value))) => known_verdict(value, s, upper),
+        (Side::Call(upper, _), Side::Literal(s)) | (Side::Literal(s), Side::Call(upper, _)) => {
             if !s.chars().any(char::is_alphabetic) {
                 None
             } else if conflicts(s, upper) {
@@ -68,10 +71,41 @@ pub(crate) fn strcmp_case(call: Node, source: &str) -> Option<StrcmpCase> {
         (Side::Var(upper), Side::Literal(s)) | (Side::Literal(s), Side::Var(upper)) => {
             conflicts(s, upper).then_some(StrcmpCase::Mismatch)
         }
-        (Side::Call(_), Side::Unknown) | (Side::Unknown, Side::Call(_)) => {
+        (Side::Call(_, _), Side::Unknown) | (Side::Unknown, Side::Call(_, _)) => {
             Some(StrcmpCase::Insensitive)
         }
         _ => None,
+    }
+}
+
+/// The verdict for a conversion of a known string against a literal (probed, MATLAB
+/// R2026b). A conversion that changes nothing and matches the literal is silent
+/// (`b = 'x'; strcmp(lower(b), 'x')`). A conversion that changes the value into the
+/// literal is STCI. A literal that differs from the unchanged value only in case is
+/// STCUL, but silent when the conversion changed the value.
+fn known_verdict(value: &str, literal: &str, upper: bool) -> Option<StrcmpCase> {
+    if !literal.chars().any(char::is_alphabetic) {
+        return None;
+    }
+    let converted = if upper {
+        value.to_uppercase()
+    } else {
+        value.to_lowercase()
+    };
+    if converted == value {
+        if converted == literal {
+            None
+        } else if converted.eq_ignore_ascii_case(literal) {
+            Some(StrcmpCase::Mismatch)
+        } else {
+            Some(StrcmpCase::Insensitive)
+        }
+    } else if converted == literal {
+        Some(StrcmpCase::Insensitive)
+    } else if converted.eq_ignore_ascii_case(literal) {
+        None
+    } else {
+        Some(StrcmpCase::Insensitive)
     }
 }
 
@@ -89,8 +123,8 @@ fn conflicts(s: &str, upper: bool) -> bool {
 fn side<'s>(arg: Node, source: &'s str) -> Side<'s> {
     match arg.kind() {
         "function_call" => match call_name(arg, source) {
-            Some("lower") => Side::Call(false),
-            Some("upper") => Side::Call(true),
+            Some("lower") => Side::Call(false, call_text_arg(arg, source)),
+            Some("upper") => Side::Call(true, call_text_arg(arg, source)),
             _ => Side::Unknown,
         },
         "string" => literal(arg, source).map_or(Side::Unknown, Side::Literal),
@@ -114,6 +148,26 @@ fn side<'s>(arg: Node, source: &'s str) -> Side<'s> {
             }
         }
         _ => Side::Unknown,
+    }
+}
+
+/// The known string a `lower` or `upper` call converts: its first argument, a
+/// single-quoted literal or a variable whose only reaching value is one.
+fn call_text_arg<'s>(call: Node, source: &'s str) -> Option<&'s str> {
+    let first = *call_args(call).first()?;
+    match first.kind() {
+        "string" => literal(first, source),
+        "identifier" => {
+            let r = reaching(first, source, &source[first.byte_range()]);
+            if r.indexed_since {
+                return None;
+            }
+            match r.binding {
+                Binding::Value(rhs) if rhs.kind() == "string" => literal(rhs, source),
+                _ => None,
+            }
+        }
+        _ => None,
     }
 }
 

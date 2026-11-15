@@ -36,7 +36,7 @@ impl GoodPracticesEngine {
                     severity: Severity::Warning,
                     byte_range: func.byte_range.clone(),
                     line: func.line,
-                    column: 1,
+                    column: name_column(source, func.line, &func.name),
                     fix: None,
                 });
             }
@@ -46,7 +46,31 @@ impl GoodPracticesEngine {
     }
 }
 
-/// Whether a methods block's attributes make it `Static`: a bare `Static`,
+/// The column of a method's name on its `function` line (MATLAB points at the name, as in
+/// `function r = f()`, column 22). Falls back to column 1 when the name is not found.
+fn name_column(source: &str, line: usize, name: &str) -> usize {
+    let text = source.lines().nth(line.saturating_sub(1)).unwrap_or("");
+    let bytes = text.as_bytes();
+    let is_word = |b: u8| b.is_ascii_alphanumeric() || b == b'_';
+    let mut from = text.find("function").map_or(0, |i| i + "function".len());
+    while let Some(i) = text
+        .get(from..)
+        .and_then(|t| t.find(name))
+        .map(|i| i + from)
+    {
+        let end = i + name.len();
+        let word_start = i == 0 || !is_word(bytes[i - 1]);
+        let word_end = end >= bytes.len() || !is_word(bytes[end]);
+        let rest = text[end..].trim_start();
+        if word_start && word_end && (rest.is_empty() || rest.starts_with(['(', '%'])) {
+            return i + 1;
+        }
+        from = i + 1;
+    }
+    1
+}
+
+/// Whether a methods block's attributes make it `Static`: a bare `Static,
 /// `Static = true` or `Static = 1`. MATLAB does not evaluate other values
 /// (`FALSE`, `0`, `TRUE`) and treats the block as not static (probed).
 fn is_static(attributes: &[AttributeMeta]) -> bool {

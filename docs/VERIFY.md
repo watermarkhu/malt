@@ -33,17 +33,26 @@ the repository (`~/.local/share/malt-reference/`: `matlab-allmsg.txt` from
 - The `mathworks` preset mirrors MATLAB's factory configuration. Checks MATLAB's default
   analysis never reports are off under it and on under `--preset all` (or with an explicit
   rule or category setting):
-  - bugs: STCUL, SHOCIRF, MOCUP
-  - good_practices: ERTAG, WNTAG, CTCH, BDLOG2, CTOINW, GTARG,
-    LTARG, SIMPT, STRSZ, ELARLOG, ITERS, ADAPPREF, MIPC1, VTFIN, MCCPE (MATLAB never
-    generates the last two)
-  - language_spec: FVNIV, FVORDO, USESWNS, PFUTVR, VTPEAL, VTPIN, VTPCON, GPNES
-  - readability: LOGSUM, MFAMB; performance: GRIDD; unused: VANUS, NOEFF, PUSE;
+  - bugs: SHOCIRF, MOCUP
+  - good_practices: ERTAG, WNTAG, CTCH, CTOINW, GTARG, LTARG, SIMPT, ITERS, ADAPPREF, MIPC1,
+    MCCPE (MATLAB never generates it)
+  - language_spec: FVORDO, USESWNS, PFUTVR, GPNES
+  - readability: LOGSUM, MFAMB, ISROW, ISCOL; performance: GRIDD; unused: VANUS, NOEFF;
     unset_variables: SUSENS, USENS
   - compatibility: IDISVARHIGH, the forward-compatibility gates (FCLEN, FCCPV, FCDQS, FCFAV,
     FCHBL, FCLFS, FCNVA) and the 897 entries MATLAB lists as "low reliability"
     (`low_reliability = true` in `data/compatibility.toml`; also on with the
     `behavior-changes` category)
+  - codegen: the whole category is off; EMSCR, EMTC and EMIMP are reported only in a file
+    with `%#codegen`, and the engine is gated on that directive. Deployment, system-object
+    and fixed-point checks were silent in 13 shapes.
+  - Verified in the Phase 2 close-out (738 probe files, plain `checkcode -id`): every entry
+    above was probed in at least 4 shapes and MATLAB reported it in fewer than 3 (the
+    thresholds: LTARG 2, SIMPT 1, LOGSUM 1; all others 0), and 60 low-reliability entries
+    in 3 shapes each gave no report. `checkcode(..., '-allmsg')` returns the message
+    catalogue and adds no reports. Taken off the list by that verification (MATLAB reports
+    them by default): BDLOG2, VTPEAL, VTPIN, VTPCON, VTFIN, STRSZ, FVNIV, ELARLOG, and
+    earlier BDLGI, BDSCA2, COMPNOT, COMPNOP, DUALC, PUSE, MCCSPS, STCUL.
 - The suggested-improvements engine is on by default, as in MATLAB.
 - Severities follow MathWorks' documentation index. For RHSFN (error) and PFRNI (warning)
   the numeric levels of `checkcode -allmsg` say otherwise and `checkcode` exposes no
@@ -262,33 +271,25 @@ Closed in the flow wave: a shared constant resolver (`reaching_values`/`resolved
 
 Open: `c = true; if c ... else ... end` (MATLAB folds the dead branch: ERTXT `cd_er06`, RHSFN `cd_rh09`); UNRCH after `error(x)` with a variable argument and inside `while false`; `[end + 1]` and friends: MATLAB also reports NOPTS on the statement (its recovery echoes despite the `;`) and no NBRAK2, malt reports NBRAK2 and no NOPTS; CFALSE for functions other than any/isequal/isreal, STLOW for a letterless literal, the AND2/OR2 bare-call list, the UNRPWR column, PFTUSE/PFUIXE lines, `year(-5)`; DEFNU after an unclosed `arguments` block and with `localfunctions`.
 
-## Phase 2 completion (2026-11-15)
+## Phase 2 close-out (2026-11-15)
 
-The parfor, limits/naming/docs and flow-leftover agents finished (the first two had stopped at the session limit). Closed:
+Phase 2 is closed: every engine was audited with systematic probes, the open items of each audit were worked through, and the `mathworks` off-list was re-verified (see 'Policy'). What follows is what is still open, none of it blocking.
 
-- Flow: dead branches fold through `strcmp`, `strcmpi`, `ischar` and a copy of their result (not through `==` or `isempty`, which MATLAB leaves live); OR2 reports `size`; the UNRPWR column is at the power operator before the sign; `year(-5)` and the signed number kind for the date entries; STRQUOT for a variable with exactly one reaching text value, in a function only (silent on a parameter and in a script); NOPRT on `[end + 1]` in functions. Already matching, no change: UNRCH after `error(x)` and in `while false`, CFALSE, STLOW, SMTHG on one line, the DEFNU cases.
-- BDLOG2 (found while integrating): MATLAB reports it only for an arithmetic operator (`+ - * / \ ^`) at the root of a condition or `&&`/`||`/`&`/`|` operand, at the operator (`if z + 1` column 6, `if (z + 1) * 2` at the `*`); `if 1`, `if x` with `x = 5` and `if t` give nothing, and the elementwise `.* ./ .^` give BDLOG1. malt had a "bare scalar value" rule that MATLAB does not have.
-- Parfor: PFBNS (65 probes: `M(i, i)` and `data(i + k)`, handles are calls), PFUNK, PFRUS for `s = [s i]`, PFOUS (earlier reads are uses, struct-array field writes are outputs), PFIIN after `clear k`, PFSLO/PFSLRD at the first mention in the body, SPBFN for `run`, PFTUSW for function outputs. A sliced output in a lambda: `x(i)` is PFANON at the `x` inside the lambda; `x(1)`, `x(i - 1)`, `x(t)` give PFSLO and a whole read PFSLRD, both at the first mention. PFUIXW is no longer emitted (MATLAB reports a read after the loop as PFUIXE).
-- Limits: a top-level function weighs 5 units for NOSPC (247 `if`s silent, 248 fire); TMMSG weights NOPTS, FNDEF, INUSD at 3 units and NASGU, UNRCH, AGROW, ALIGN, COMPNOT, COMPNOP at 1; MDEEP, anonymous-function NOSPC and DEEPN match.
-- Naming: functions in a script are `localFunction`; requiredPrefix/requiredSuffix arrays are any-of. MATLAB's configuration uses the top-level key `naming` with the entities inside and `requiredPrefix`/`requiredSuffix` (`entities`, `checks`, `prefix` and `suffix` are rejected by `validateConfiguration`).
+Closed in the last pass:
+
+- BDLOG2: MATLAB reports it only for an arithmetic operator (`+ - * / \\ ^`) at the root of a condition or `&&`/`||`/`&`/`|` operand, at the operator; the elementwise operators give BDLOG1. On the list taken off with VTPEAL, VTPIN, VTPCON, VTFIN, STRSZ (silent in `if`/`while` conditions; misses for variables and an `&` operand), FVNIV (the default names a variable assigned later) and ELARLOG (`abs`, `numel`, `length`, `floor`, `round` of one comparison).
+- Parfor: PFOUS/PFTUSW ignore `save(...)` arguments, PFINCR for `max`/`min` reductions and `s = [s i]`, AGROW in a parfor (`s(end+1) = i` reported, `s = [s i]` silent); sliced outputs in lambdas (`x(i)` is PFANON at the `x`; `x(1)`, `x(i - 1)`, `x(t)` give PFSLO and a whole read PFSLRD, at the first mention).
+- Flow: STCI/STCUL follow the known value that `lower`/`upper` converts; ISMT on `length(a) & b` in conditions; BDSCA1 on `if []`/`while []`; UNRCH for a catch after a nested try (depths 1 to 5); INUSD for a parent argument read in a nested function.
+- Syntax and class: `f('Bad Name' = 1)` is FVAMI alone; a multi-line `"..."` is DOUQT; DEFNU is not reported for duplicated local functions; NOPRC for `x = 1 %c` and `-x + 2`; IDXCOLND is not reported in a property block (MCPLD only) or inside brackets; MCVM models loops; ADMTHDINV for `@() helper + 1`; MTAGS3 is not reported for methods blocks (ATUNK); the NOIN column for `methods (Static = TRUE)`.
+- Codegen: EMSCR, EMTC, EMIMP only with `%#codegen`; a leading help comment no longer makes a function file a script.
+- Formatting: NOPRT, NCOMMA, NOCOMMA, NO4LP, NOPTS and ALIGN match MATLAB on 142 shapes under `--preset all` (CTCH aside, which is off for good reason).
 
 Open:
 
-- Flow: STCI on `strcmp(lower(b), 'x')` with `b = 'x'` (malt reports, MATLAB is silent, other single-letter cases report); in function files `[end + 1]` also has SYNER at `]`, NOPAR and DEFNU in MATLAB; ISMT on `length(a) & b` and BDSCA1 on `if []`/`while []` are MATLAB-only.
-- Parfor: `save(file, 'a')` after the loop is not a use for MATLAB; PFINCR misses `s = max(s, i); s = min(s, i)` and `s = s + i; s = [s i]`; PFTUSE for a nested `for j`; `data` first defined after the loop (PFBNS and PFIIN); 14 NODEF reports on reads after the loop of a variable assigned only inside it; PFUTVR stays off (`checkcode -id` emits it; enabling it needs two false positives, `uv01`/`uv02`, fixed and 16 misses closed).
-- Limits: TMMSG keeps messages in generation order in MATLAB, not line order; a `switch` with 20,000 cases takes 52 s in release (per-case `parent()` walks); UNRCH on `catch` clauses after nested `try/catch/end` (1,194 misses); SETNU in nested-function bodies and INUSD for a parent argument read in a nested function (malt extras); MDEEP columns not re-checked.
-- Formatting `--preset all`: only 29 script shapes probed (15 NOPTS and 4 ALIGN match); NOPRT, NCOMMA, NOCOMMA and NO4LP are unprobed under `all`.
-- Still deferred by design: MSNU for the other engines (needs reliable detection per ID), the 166 object compatibility entries (path index, plan stage 3.P5), `codeAnalyzerConfiguration.json` compatibility (plan step 5.8).
-
-## Neighbouring files and the path (plan stage 3.P1, probed 2026-11-15)
-
-Question: does the Code Analyzer depend on files next to the analysed file, or on the MATLAB path? Method: each scenario linted with its neighbouring files present (A) and absent (B), through both entry points (`checkcode(file, '-id')` and the editor's `codeIssues(file)`), in three environments: the folder not on the path with another current folder (E0), the folder on the path (E1), the folder as the current folder (E2). About 150 comparisons over 20 scenarios, with real findings in the compared files (NOPTS, NOPRT, DWVRD, FSTR, NODEF). Result: **no difference in any comparison.**
-
-Scenarios: a sibling function shadowing a deprecated function (`findstr`) and a removed one (`wavread`, also on the path and as the current folder: still DWVRD); a sibling function called with the wrong number of inputs or outputs, with `[~, b] =`, with `varargout`; a bare undefined name `y = und;` (no NODEF in either case: MATLAB treats it as a possible call); statement-level calls of sibling functions with and without outputs, with and without a semicolon, in scripts and functions (NOPTS/NOPRT identical); sibling scripts; `private/`, `+pkg` and `@class` folders; static methods and handles of a sibling class; command-syntax calls; a variable named like a sibling function; a subclass of a sibling handle class and of a sibling value class, reading and writing an inherited property and a property that exists nowhere (`obj.Missing`): MATLAB reports nothing in any variant.
-
-Conclusions:
-
-- The checks probed are file-local. Neighbouring files, the path, the current folder and the installed toolboxes do not change what MATLAB reports (only MATLAB, Fixed-Point Designer, Coder, Compiler, Copilot and Parallel Computing Toolbox are installed here, yet the DSP and Communications entries are reported by name).
-- Class checks are silent whenever a superclass is listed, whether or not the superclass is visible next to the file. Resolving superclasses through a path index would produce findings MATLAB never reports, so the planned "handle-ness through project classes" consumer (3.P4) must not change the default output.
-- So the path index is not needed for `checkcode` parity. Its value is elsewhere: the Python module that replaces maxx (3.P6), opt-in analyses beyond MATLAB (unresolved calls, project-wide symbols), and editor features. The 166 object compatibility entries need local type inference (`g = gcf; g.Prop`), not a path index.
-- Not probed: MATLAB Projects (`.prj`) and `resources/` project configuration, `checkcode` with `-config`, other releases.
+- NODEF after a parfor: MATLAB reports any read after the loop of a name defined only inside it (also `i`, and `save('x')` at the string); PFTUSE for a nested `for j` header and for a bare `t`; NODEF extras `zp_bns3`/`zp_bns5`; PFIIN for indexed reads of a later-defined variable; PFRUS on `s = s + i; s = s - 1` with no use; PFUNK on `y(j) = i` in a nested loop; PFUTVR stays off (MATLAB reports nothing in 10 shapes under plain `checkcode`; `--preset all` was not compared again).
+- Syntax: ENDCT2 after an unclosed `if` before a `while` (the "after line N" rule is undetermined; malt gives a false SYNER at 1:1); `enumeration (Foo)` with one `end` (ENDCT2 missing, false SYNER on the classdef line); `[end + 1]` in a function file (MATLAB also gives NOPAR and SYNER); `[a;b;c] = size(x)` NOPTS and ASGLU (not emitted); the primary function of a file with broken `[end + 1]` syntax lost its MATLAB DEFNU; MATLAB reports SYNER on the SECOND `catch` of a try with two, malt on the first.
+- Columns (not compared by the strict test): ATTF and MTAGS3.
+- Class checks: USESWNS not reproduced in two shapes; GPNES for `global x` in a nested function whose outer function uses `x` (a miss; both stay off).
+- Limits: a `switch` with 8,000 cases takes 5.9 s and 20,000 cases 52 s in release (with all categories off 0.06 s; no single engine is the cause, suspected per-node `parent()` walks across many engines: a per-file parent map or context passed down the walk is the fix); TMMSG keeps messages in generation order in MATLAB and in line order in malt (no per-engine generation-order probes yet); the MDEEP/NOSPC/MXASET/DEEPN columns were not probed; SETNU extras in nested-function bodies did not reproduce.
+- Flow: NODEF in 7 default cases malt misses (`fvniv_07`, `useswns_07`, `mfamb_*`); FNCOLND 1 miss; ASGLU not emitted.
+- Deferred by design: MSNU for engines other than performance and unused (needs reliable detection per ID); the 166 object compatibility entries (local type inference, plan 3.P5); `codeAnalyzerConfiguration.json` compatibility (plan step 5.8).

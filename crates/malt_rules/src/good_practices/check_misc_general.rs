@@ -1,14 +1,13 @@
 use super::*;
 
 impl GoodPracticesEngine {
-    /// SUBSINDEX / VTFIN / CTOINW / FXUP: miscellaneous general practice checks.
+    /// SUBSINDEX / CTOINW / FXUP: miscellaneous general practice checks.
     pub(crate) fn check_misc_general(
         &self,
         tree: &tree_sitter::Tree,
         source: &str,
     ) -> Vec<Diagnostic> {
         let any_enabled = self.is_check_enabled("SUBSINDEX")
-            || self.is_check_enabled("VTFIN")
             || self.is_check_enabled("CTOINW")
             || self.is_check_enabled("FXUP");
         if !any_enabled {
@@ -19,9 +18,6 @@ impl GoodPracticesEngine {
 
         if self.is_check_enabled("SUBSINDEX") {
             collect_subsindex(tree, source, &mut diagnostics);
-        }
-        if self.is_check_enabled("VTFIN") {
-            collect_vtfin(tree, source, &mut diagnostics);
         }
         if self.is_check_enabled("CTOINW") {
             collect_ctoinw(tree, source, &mut diagnostics);
@@ -63,41 +59,6 @@ fn collect_subsindex(tree: &tree_sitter::Tree, source: &str, diagnostics: &mut V
                 fix: None,
             });
         }
-    }
-}
-
-/// VTFIN: a `validate*` function whose body validates a value that is not its
-/// first input argument.
-fn collect_vtfin(tree: &tree_sitter::Tree, source: &str, diagnostics: &mut Vec<Diagnostic>) {
-    let mut functions = Vec::new();
-    collect_nodes_of_kind(tree.root_node(), "function_definition", &mut functions);
-    for f in functions {
-        let name = f
-            .child_by_field_name("name")
-            .map(|n| node_text(n, source))
-            .unwrap_or("");
-        if !name.starts_with("validate") || name == "validateattributes" {
-            continue;
-        }
-        let Some(first_input) = first_input_arg(f, source) else {
-            continue;
-        };
-        let Some(value) = validated_value(f, source) else {
-            continue;
-        };
-        if value == first_input {
-            continue;
-        }
-        let pos = f.start_position();
-        diagnostics.push(Diagnostic {
-            rule_id: "VTFIN",
-            message: format!("{value} should be the first input argument to the {name} function."),
-            severity: Severity::Warning,
-            byte_range: f.start_byte()..f.end_byte(),
-            line: pos.row + 1,
-            column: pos.column + 1,
-            fix: None,
-        });
     }
 }
 
@@ -204,48 +165,6 @@ fn collect_fxup(tree: &tree_sitter::Tree, source: &str, diagnostics: &mut Vec<Di
             });
         }
     }
-}
-
-/// Get the first non-ignored input argument name of a function.
-fn first_input_arg(func: Node, source: &str) -> Option<String> {
-    let args = find_child_of_kind(func, "function_arguments")?;
-    let mut cursor = args.walk();
-    for child in args.children(&mut cursor) {
-        match child.kind() {
-            "identifier" => return Some(node_text(child, source).to_string()),
-            "ignored_argument" => continue,
-            _ => {}
-        }
-    }
-    None
-}
-
-/// Find the value that a `validate*` function validates: the first argument of
-/// a `validateattributes(...)` or `mustBe*(...)` call in its body. Returns the
-/// value's name only when it is a plain identifier.
-fn validated_value(func: Node, source: &str) -> Option<String> {
-    let block = find_child_of_kind(func, "block")?;
-    let mut calls = Vec::new();
-    collect_nodes_of_kind(block, "function_call", &mut calls);
-    for call in calls {
-        let Some(call_name) = get_function_call_name(call, source) else {
-            continue;
-        };
-        if call_name != "validateattributes" && !call_name.starts_with("mustBe") {
-            continue;
-        }
-        let Some(args) = find_child_of_kind(call, "arguments") else {
-            continue;
-        };
-        let Some(first) = first_named_child(args) else {
-            continue;
-        };
-        if first.kind() != "identifier" {
-            return None;
-        }
-        return Some(node_text(first, source).to_string());
-    }
-    None
 }
 
 /// Collect the index variables of `for` loops in a function's own body,
@@ -361,38 +280,6 @@ mod tests {
     }
 
     #[test]
-    fn test_vtfin_fires_when_validated_value_not_first_input() {
-        let source = "function validateFoo(name, value)\n    validateattributes(value, {'numeric'}, {'scalar'});\nend\n";
-        let ids = misc_ids_for(source, "VTFIN");
-        assert_eq!(ids.len(), 1, "got: {:?}", misc_ids(source));
-        let tree = parse(source);
-        let eng = engine();
-        let diag = eng
-            .check_misc_general(&tree, source)
-            .into_iter()
-            .find(|d| d.rule_id == "VTFIN")
-            .unwrap();
-        assert!(diag.message.contains("value"), "got: {}", diag.message);
-        assert!(
-            diag.message.contains("validateFoo"),
-            "got: {}",
-            diag.message
-        );
-    }
-
-    #[test]
-    fn test_vtfin_silent_when_validated_value_is_first_input() {
-        let source = "function validateFoo(value, name)\n    validateattributes(value, {'numeric'}, {'scalar'});\nend\n";
-        assert!(misc_ids_for(source, "VTFIN").is_empty());
-    }
-
-    #[test]
-    fn test_vtfin_silent_for_non_validator_function() {
-        let source = "function helper(name, value)\n    validateattributes(value, {'numeric'}, {'scalar'});\nend\n";
-        assert!(misc_ids_for(source, "VTFIN").is_empty());
-    }
-
-    #[test]
     fn test_ctoinw_fires_on_constructor_wrapping() {
         let source = "classdef Foo\n    methods\n        function y = ctor(x)\n            y = Foo(Foo(x));\n        end\n    end\nend\n";
         let ids = misc_ids_for(source, "CTOINW");
@@ -465,7 +352,6 @@ mod tests {
                 max_variable_name_length: 63,
                 disabled_checks: vec![
                     "SUBSINDEX".to_string(),
-                    "VTFIN".to_string(),
                     "CTOINW".to_string(),
                     "FXUP".to_string(),
                 ],

@@ -227,17 +227,28 @@ fn is_flow_root(node: Node) -> bool {
 /// follows a completed statement. MATLAB reads the line break before it as the
 /// end of the previous statement, which is then reported by NOPRC.
 pub fn is_split_statement_continuation(node: Node, source: &str) -> bool {
-    if node.kind() != "unary_operator" {
-        return false;
-    }
+    // `-x + 2` is a binary operation whose left operand is the unary: the grammar
+    // groups it that way, MATLAB starts the statement at the sign.
+    let unary = match node.kind() {
+        "unary_operator" => node,
+        "binary_operator" => match node.child_by_field_name("left") {
+            Some(left)
+                if left.kind() == "unary_operator" && left.start_byte() == node.start_byte() =>
+            {
+                left
+            }
+            _ => return false,
+        },
+        _ => return false,
+    };
     if !node
         .parent()
         .is_some_and(|p| matches!(p.kind(), "source_file" | "block"))
     {
         return false;
     }
-    let op = node_text(node, source).trim();
-    let is_incr_decr = node
+    let op = node_text(unary, source).trim();
+    let is_incr_decr = unary
         .child_by_field_name("operand")
         .and_then(|o| {
             (o.kind() == "unary_operator")
@@ -245,9 +256,15 @@ pub fn is_split_statement_continuation(node: Node, source: &str) -> bool {
                 .flatten()
         })
         .is_some_and(|o| o.kind() == "identifier");
-    let follows_statement = node
-        .prev_named_sibling()
-        .is_some_and(|p| p.kind() != "comment");
+    // A comment that trails the previous statement (`x = 1 %c`) does not end the line:
+    // the line break after it still ends that statement. A comment line does.
+    let follows_statement = match node.prev_named_sibling() {
+        Some(p) if p.kind() == "comment" => p.prev_named_sibling().is_some_and(|q| {
+            q.kind() != "comment" && q.end_position().row == p.start_position().row
+        }),
+        Some(_) => true,
+        None => false,
+    };
     (op.starts_with('+') || op.starts_with('-')) && !is_incr_decr && follows_statement
 }
 

@@ -70,10 +70,15 @@ impl UnusedEngine {
             // Probes: MATLAB reports no DEFNU for a script function whose name the
             // script assigned first (`scr = 1; function scr()`, with FCONF and
             // REDEF), nor for a local function named like its function file.
-            // Probe ls-b__t6: a second `function t6()` is REDEF, not DEFNU.
+            // Probe ls-b__t6: a second `function t6()` is REDEF, not DEFNU. Probes s10f,
+            // s12f and d_dup_script: MATLAB reports neither definition of a name defined twice.
             let duplicate = table.scopes[..position].iter().any(|s| {
                 matches!(s.kind, ScopeKind::Function | ScopeKind::LocalFunction) && s.name == *name
-            });
+            }) || (name != file_stem
+                && table.scopes[position + 1..].iter().any(|s| {
+                    matches!(s.kind, ScopeKind::Function | ScopeKind::LocalFunction)
+                        && s.name == *name
+                }));
             let shadowed = duplicate
                 || if in_script {
                     !table.root_scope().defs_of(name).is_empty()

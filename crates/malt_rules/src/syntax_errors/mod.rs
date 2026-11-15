@@ -902,6 +902,17 @@ impl Rule for SyntaxErrorsEngine {
 
         // 11. Assignment LHS validation (UNSET, LHROW).
         diagnostics.extend(self.check_assignment_lhs(root, source));
+        // A row-separated LHS (`[a;b;c] = f(x)`) is an error statement for the grammar: its
+        // parse errors, on the line or in the error node that reaches it, are the cascade.
+        let row_lhs = self.check_row_separated_lhs(source);
+        let row_spans: Vec<Range<usize>> = row_lhs.iter().map(|(span, _)| span.clone()).collect();
+        diagnostics.retain(|d| {
+            !(matches!(d.rule_id, "SYNER" | "NOPAR2")
+                && row_spans
+                    .iter()
+                    .any(|r| d.byte_range.start < r.end && r.start < d.byte_range.end))
+        });
+        diagnostics.extend(row_lhs.into_iter().map(|(_, d)| d));
 
         // 12. Reserved words and invalid ~ usage (RESWD, SYNEND, MCPLD,
         //     BADNOT, BADNOTLHS).
@@ -909,6 +920,15 @@ impl Rule for SyntaxErrorsEngine {
 
         // 13. Call/argument syntax (SBTMP, FVACI, FVACS, FVAMI).
         diagnostics.extend(self.check_call_syntax(root, source));
+        // MATLAB reports the bad name of `f('Bad Name' = 1)` alone: the parse error and the
+        // unclosed bracket that tree-sitter puts on the same line are its cascade.
+        let bad_names: Vec<usize> = diagnostics
+            .iter()
+            .filter(|d| d.rule_id == "FVAMI")
+            .map(|d| d.line)
+            .collect();
+        diagnostics
+            .retain(|d| !(matches!(d.rule_id, "SYNER" | "NOPAR2") && bad_names.contains(&d.line)));
 
         // 14. Argument validation order (FVSYN, and MCPLD in properties).
         diagnostics.extend(self.check_validation_order(root, source));

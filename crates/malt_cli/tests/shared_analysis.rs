@@ -36,8 +36,8 @@ fn report(linter: &mut Linter, source: &str) -> Report {
 const SCRIPT: &str = "unusedA = 1;\nq = 2;\ndisp(w);\nfor k = 1:3\n  s(k) = k;\nend\n";
 /// A function file with an unused local and an unused input.
 const FUNCTION: &str = "function r = f(a, b)\n  c = a;\n  r = a + 1;\nend\n";
-/// A script that preallocates, grows and reads one array.
-const OTHER: &str = "x = zeros(1, 3);\nfor i = 1:3\n  x(i) = i;\nend\ny = x;\n";
+/// A script that grows and reads one array (MATLAB reports no growth after `zeros`).
+const OTHER: &str = "x = [];\nfor i = 1:3\n  x(i) = i;\nend\ny = x;\n";
 /// Checks that read the binding reaching a use: constant conditions, a value
 /// that shadows a function, a fixed-point variable assigned directly.
 const REACHING: &str = "k = 0;\nif k || true\n  disp(1);\nend\nmax = 3;\n[~, idx] = max(1);\ny = fi(0, 1, 16);\ny = 2;\n";
@@ -147,7 +147,7 @@ fn file_checks_on_several_threads_match_one_thread() {
     // The linter only spreads the file checks of trees this large.
     assert!(nodes >= 20_000, "{nodes} nodes");
     let expected = report(&mut linter(), &source);
-    assert!(expected.len() > 1_000, "got {} diagnostics", expected.len());
+    assert!(expected.len() > 500, "got {} diagnostics", expected.len());
 
     let mut parallel = linter();
     parallel.set_file_check_threads(4, 64 * 1024 * 1024);

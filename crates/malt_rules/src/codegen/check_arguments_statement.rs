@@ -33,8 +33,8 @@ impl CodegenEngine {
 
 #[cfg(test)]
 mod tests {
+    use super::test_util::{has_id, lint_nodes};
     use super::*;
-    use crate::test_util::{has_id, lint_nodes};
 
     // -- EMRIFAV ---------------------------------------------------------------
 

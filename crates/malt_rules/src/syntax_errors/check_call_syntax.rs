@@ -227,6 +227,17 @@ mod tests {
         assert!(!has_id(&diags, "FVACS"), "got: {diags:?}");
     }
 
+    #[test]
+    fn fvami_alone_on_a_statement_with_a_bad_name() {
+        // Probed: `f('Bad Name' = 1)` without a semicolon gives FVAMI only, no SYNER or NOPAR2.
+        let diags = lint_file(&*engine(), "f('Bad Name' = 1)\n");
+        assert!(has_id(&diags, "FVAMI"), "got: {diags:?}");
+        assert!(
+            !has_id(&diags, "SYNER") && !has_id(&diags, "NOPAR2"),
+            "got: {diags:?}"
+        );
+    }
+
     // -- FVAMI: name not a valid identifier in name=value -------------------
 
     #[test]

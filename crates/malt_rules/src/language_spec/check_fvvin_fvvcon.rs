@@ -48,6 +48,10 @@ impl LanguageSpecEngine {
             let previously_declared: Vec<&String> =
                 input_props[..index].iter().map(|(_, n)| n).collect();
             for call in &calls {
+                // A validator without arguments is VTPEAL in MATLAB, not FVVIN (probed).
+                if call.no_arguments {
+                    continue;
+                }
                 let uses_arg = call.references.iter().any(|r| {
                     matches!(
                         r,

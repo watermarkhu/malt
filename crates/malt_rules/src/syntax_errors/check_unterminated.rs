@@ -78,9 +78,11 @@ impl SyntaxErrorsEngine {
             let mut cursor = node.walk();
             let closer = node
                 .children(&mut cursor)
-                .find(|c| c.is_error() && source[c.start_byte()..].starts_with('"'));
+                .find(|c| c.is_error() && source[c.start_byte()..].starts_with('"'))
+                .map(|c| c.start_byte())
+                .or_else(|| Self::quote_after_line_break(node, source));
             if let Some(closer) = closer {
-                for at in [node.start_byte(), closer.start_byte()] {
+                for at in [node.start_byte(), closer] {
                     if reported.insert(at) {
                         let (line, column) = line_col(source, at);
                         diagnostics.push(Diagnostic {
@@ -101,6 +103,16 @@ impl SyntaxErrorsEngine {
         for child in node.children(&mut cursor) {
             Self::walk_unterminated_strings(child, source, diagnostics, reported);
         }
+    }
+
+    /// The `"` that closes a double-quoted string which a line break splits (`"abc` newline
+    /// `def";`): the first `"` after the break, in the string's text. Probed: MATLAB reports
+    /// DOUQT at both quotes (1:5 and 2:4).
+    fn quote_after_line_break(node: Node, source: &str) -> Option<usize> {
+        let text = &source[node.start_byte()..node.end_byte().min(source.len())];
+        let after = text.find('\n')? + 1;
+        let quote = text[after..].find('"')?;
+        Some(node.start_byte() + after + quote)
     }
 
     /// The openers of the character vectors left unterminated, from the single quotes of one
@@ -303,9 +315,16 @@ mod tests {
     }
 
     #[test]
-    fn douqt_ok_on_multiline_string() {
+    fn douqt_on_multiline_string_at_both_quotes() {
+        // Probed: `x = "abc` newline `def";` gives DOUQT at 1:5 and 2:4, and no SYNER.
         let diags = lint_file(&*engine(), "x = \"multi\nline\";\n");
-        assert!(!has_id(&diags, "DOUQT"), "got: {diags:?}");
+        let douqt: Vec<(usize, usize)> = diags
+            .iter()
+            .filter(|d| d.rule_id == "DOUQT")
+            .map(|d| (d.line, d.column))
+            .collect();
+        assert_eq!(douqt, vec![(1, 5), (2, 5)], "got: {diags:?}");
+        assert!(!has_id(&diags, "SYNER"), "got: {diags:?}");
     }
 
     #[test]
