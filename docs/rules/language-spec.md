@@ -37,6 +37,11 @@ The checks are grouped into families:
   `ROWLN`, `FCNANS`, `CLANS`, `BRKFOR`, `CONTFOR`, `IDXCOLND`, `ERTXT`,
   `WTXT`, `MHERIT`, `NCHKOS`, `CTOINE`, `CTORO`, `USESWNS`.
 
+With the opt-in path index (`[index] enabled = true`, or `--index`), MCEB is
+also reported for a class whose superclasses are all value classes found on
+the search path: MATLAB refuses to load such a class when it declares events.
+The Code Analyzer itself stays silent for any superclass.
+
 ## Check IDs
 
 ### PFPF

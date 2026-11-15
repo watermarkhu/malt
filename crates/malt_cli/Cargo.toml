@@ -18,6 +18,7 @@ path = "src/main.rs"
 [dependencies]
 malt-core.workspace = true
 malt-rules.workspace = true
+malt-index.workspace = true
 clap.workspace = true
 anyhow.workspace = true
 

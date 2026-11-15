@@ -159,14 +159,32 @@ impl<'a> NodeContext<'a> {
     }
 }
 
+/// What a host knows about the MATLAB search path beyond the file being linted.
+///
+/// MATLAB's Code Analyzer reads one file at a time, so by default no rule asks
+/// for this. A host supplies an implementation only when the user turns the path
+/// index on (`[index] enabled`), and then a rule may report what the other files
+/// on the path show. Rules must give the same result as before without one.
+pub trait ProjectIndex: Send + Sync {
+    /// Whether the class `name`, named as a superclass by a classdef in the file
+    /// `from`, is a handle class. `Some(true)`: `handle`, or a class that derives
+    /// from it. `Some(false)`: a class whose whole hierarchy is known and has no
+    /// `handle` in it. `None`: unknown, because the name or one of its bases is
+    /// not on the path.
+    fn is_handle_class(&self, name: &str, from: &Path) -> Option<bool>;
+}
+
 /// Context passed to [`Rule::check_file`] after the full traversal completes.
 ///
 /// Provides the parsed tree (for rules that need their own traversal strategy),
-/// the full source text, and the file path.
+/// the full source text, the file path, and the search path when the host
+/// enabled it (see [`ProjectIndex`]).
 pub struct FileContext<'a> {
     pub tree: &'a Tree,
     pub source: &'a str,
     pub file_path: &'a Path,
+    /// The search path of the run, `None` unless the host enabled the path index.
+    pub project: Option<&'a dyn ProjectIndex>,
 }
 
 // ---------------------------------------------------------------------------

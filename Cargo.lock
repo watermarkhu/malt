@@ -344,6 +344,7 @@ dependencies = [
  "anyhow",
  "clap",
  "malt-core",
+ "malt-index",
  "malt-rules",
  "tempfile",
  "tree-sitter",

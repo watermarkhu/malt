@@ -25,6 +25,8 @@ malt [OPTIONS] <FILES>...
 | `--config <PATH>`     | Path to config file (default: `.malt.toml` in CWD) |
 | `--preset <PRESET>`   | Preset to use (`all`, `mathworks`, `recommended`); overrides `[lint] preset` |
 | `--strict-config`     | Exit with code `2` when the config file has an unknown rule ID or parameter (each is a warning on stderr otherwise) |
+| `--index`             | Use the path index: checks that read the classes on the search path (MCEB, MCPO) also report value-class cases MATLAB does not. Overrides `[index] enabled` |
+| `--no-index`          | Do not use the path index, even when `[index] enabled = true` |
 | `-v`, `--verbose`     | Report on stderr which files are linted and the total time; `-vv` adds the time and the number of findings of each file |
 | `-h`, `--help`        | Print help information                           |
 | `-V`, `--version`     | Print version information                        |
@@ -89,6 +91,14 @@ malt --config configs/strict.toml src/**/*.m
 ```
 
 If `--config` is specified and the file does not exist, malt exits with an error. If no `--config` is given and `.malt.toml` is not found, malt uses the `mathworks` preset (see [Configuration](../configuration.md#presets)).
+
+### Path index
+
+`--index` lets some checks use the classes on the MATLAB search path (the working directory, or the `[index] paths` folders, plus the linted file's own folder). Without it, a file is linted on its own, as MATLAB's Code Analyzer does. The folders are read from `[index]` in `--config`, or in `.malt.toml`; see [Configuration](../configuration.md#path-index).
+
+```bash
+malt --index src/**/*.m
+```
 
 ### Verbose output
 

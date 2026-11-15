@@ -26,4 +26,4 @@ pub use fix::{apply_fixes, apply_fixes_with, fix_source, position_of, FixMode, F
 pub use linter::{note_parse, parse_epoch, LintError, Linter, DEFAULT_MAX_TREE_DEPTH};
 pub use preset::{PresetDef, DEFAULT_PRESET, PRESETS};
 pub use registry::RuleRegistry;
-pub use rule::{Category, FileContext, NodeContext, Rule};
+pub use rule::{Category, FileContext, NodeContext, ProjectIndex, Rule};

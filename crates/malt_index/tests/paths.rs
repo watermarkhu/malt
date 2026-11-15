@@ -25,6 +25,7 @@ fn project(name: &str, files: &[&str]) -> PathBuf {
 fn config(paths: &[&str]) -> PathConfig {
     PathConfig {
         paths: paths.iter().map(|p| p.to_string()).collect(),
+        ..PathConfig::default()
     }
 }
 

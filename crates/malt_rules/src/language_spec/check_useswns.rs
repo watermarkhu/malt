@@ -104,6 +104,7 @@ mod tests {
             tree: &tree,
             source,
             file_path: Path::new("myscript.m"),
+            project: None,
         };
         rule.check_file(&ctx)
     }

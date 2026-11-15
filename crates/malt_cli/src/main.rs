@@ -10,7 +10,11 @@ use std::time::{Duration, Instant};
 use anyhow::{Context, Result};
 use clap::{ArgAction, Parser};
 
-use malt_core::{fix_source, Config, Diagnostic, FixMode, Linter, RuleRegistry, Severity};
+use malt_core::{
+    fix_source, Config, Diagnostic, FixMode, Linter, ProjectIndex, RuleRegistry, Severity,
+};
+
+mod path_index;
 
 /// malt — An ultra-fast, extensible linter for MATLAB.
 #[derive(Parser, Debug)]
@@ -47,6 +51,15 @@ struct Cli {
     /// not change.
     #[arg(short, long, action = ArgAction::Count)]
     verbose: u8,
+
+    /// Use the path index: the classes on the MATLAB search path (`[index]` of the
+    /// config file) let some checks report more. Off by default (see the docs).
+    #[arg(long, conflicts_with = "no_index")]
+    index: bool,
+
+    /// Do not use the path index, even when `[index] enabled = true`.
+    #[arg(long, conflicts_with = "index")]
+    no_index: bool,
 }
 
 /// Stack size of the thread that lints. Many rules walk the syntax tree
@@ -94,10 +107,12 @@ fn run(cli: Cli) -> Result<()> {
     // Build rule registry from configuration (only enabled rules).
     let rules = malt_rules::active_rules(&config);
     let registry = Arc::new(RuleRegistry::new(rules, &config));
+    let project = project_index(&cli)?;
     let cores = std::thread::available_parallelism().map_or(1, |n| n.get());
     let new_linter = || {
         let mut linter = Linter::shared(registry.clone());
         linter.set_inline_suppression(config.inline_suppression);
+        linter.set_project_index(project.clone());
         // A large file also spreads its own checks over the cores.
         linter.set_file_check_threads(cores, LINT_STACK_BYTES);
         linter
@@ -385,6 +400,28 @@ fn print_diagnostic(file_path: &Path, diag: &Diagnostic) {
         diag.rule_id,
         diag.message,
     );
+}
+
+/// The search path of this run as a [`ProjectIndex`], when it is on: `--index`, or
+/// `[index] enabled` unless `--no-index` says otherwise. Its warnings go to stderr.
+/// The `[index]` table is read (and must be valid) even when the index is off.
+fn project_index(cli: &Cli) -> Result<Option<Arc<dyn ProjectIndex>>> {
+    let settings = path_index::load_settings(cli.config.as_deref())?;
+    let on = if cli.index {
+        true
+    } else if cli.no_index {
+        false
+    } else {
+        settings.enabled
+    };
+    if !on {
+        return Ok(None);
+    }
+    let (index, warnings) = path_index::open(settings)?;
+    for warning in &warnings {
+        eprintln!("warning: index: {warning}");
+    }
+    Ok(Some(Arc::new(index)))
 }
 
 /// Discover and load the configuration file.

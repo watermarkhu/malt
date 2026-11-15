@@ -786,6 +786,7 @@ end
             tree: &tree,
             source,
             file_path: path,
+            project: None,
         };
         let diags = engine.check_file(&ctx);
         assert!(

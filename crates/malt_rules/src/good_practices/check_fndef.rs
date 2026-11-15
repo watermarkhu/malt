@@ -151,6 +151,7 @@ mod tests {
             tree: &tree,
             source: src,
             file_path: Path::new(file),
+            project: None,
         };
         engine.check_file(&ctx)
     }

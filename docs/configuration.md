@@ -213,19 +213,30 @@ Add `--strict-config` to turn the warnings into an error: malt then prints the w
 
 ## `[index]` Section
 
-`[index] paths` lists the folders the MATLAB search path is made of. It is read by the path index (`malt-index`), not by the linter, so it has no effect on the diagnostics yet. Other tables are not affected by it, and `--strict-config` does not warn about it.
+`[index]` configures the path index: the folders the MATLAB search path is made of, and whether the linter uses them. The index is off by default, so malt's output does not depend on the folders around a file. Other tables are not affected by it, and `--strict-config` does not warn about it. An invalid `[index]` table is an error even while the index is off.
 
 ```toml title=".malt.toml"
 [index]
+enabled = true
 paths = [".", "lib/**", "src/*", "tools/helper"]
 ```
 
+- `enabled` (default `false`) turns the index on for the linter. `malt --index` turns it on and `malt --no-index` turns it off, whatever the file says. See [Path index](#path-index) below for what changes.
 - Without `paths`, the search path is the working directory. With `paths`, the listed folders replace it; add `"."` to keep it.
 - Relative patterns resolve against the working directory. The folder of the linted file and any extra folders always come first.
 - `lib/**` adds `lib` and its plain subfolders, recursively, as MATLAB's `genpath` does. `+pkg`, `@cls`, `private` and hidden folders are never added, nor anything below them.
 - Any other pattern adds only the folders it matches, not recursively. `*`, `?` and `[...]` match within one folder name; `**` in the middle matches any number of levels (`lib/**/deeper`).
 - The result is deduplicated and sorted by path. A folder that does not exist, or a pattern that matches nothing, is a warning, and the rest of the path is used.
 - An invalid `[index]` table (an unknown key, or `paths` not a list of strings) or a `.malt.toml` that is not TOML is an error.
+
+## Path index
+
+With the index on, malt reads the classes that a class file's superclasses name on the search path (its own folder first, then `paths`), and two checks report more than MATLAB's Code Analyzer does:
+
+- **MCEB** (events in a class that is not a handle class) is also reported for a class whose superclasses are all value classes on the path. MATLAB refuses to load such a class.
+- **MCPO** (`SetObservable` or `GetObservable` in a value class) is also reported for a subclass of a value class on the path. Property events are not available there.
+
+A superclass that is not on the path, or whose own bases are not, is unknown, and nothing is reported for it. Nothing else changes: with the index off, the diagnostics are the Code Analyzer's, whatever folders surround the file. These extra findings are malt's, not MATLAB's; the evidence is in `docs/VERIFY.md`, section 'Path index, stage 3.4'.
 
 ## Default Behavior
 

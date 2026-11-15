@@ -281,6 +281,7 @@ mod tests {
             tree: &tree,
             source,
             file_path: std::path::Path::new("test.m"),
+            project: None,
         };
         engine().check_file(&ctx)
     }
@@ -332,6 +333,7 @@ end
             tree: &tree,
             source,
             file_path: std::path::Path::new("test.m"),
+            project: None,
         };
         let diags = engine.check_file(&ctx);
         assert!(

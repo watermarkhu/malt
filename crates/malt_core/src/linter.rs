@@ -10,7 +10,7 @@ use tree_sitter::Parser;
 
 use crate::diagnostic::Diagnostic;
 use crate::registry::RuleRegistry;
-use crate::rule::{FileContext, NodeContext};
+use crate::rule::{FileContext, NodeContext, ProjectIndex};
 use crate::suppression;
 use crate::Severity;
 
@@ -214,6 +214,9 @@ pub struct Linter {
     file_check_threads: usize,
     /// Stack size of each of those threads.
     file_check_stack: usize,
+    /// The search path, when the host enabled the path index. See
+    /// [`Linter::set_project_index`].
+    project: Option<Arc<dyn ProjectIndex>>,
 }
 
 /// Trees with fewer nodes than this run their file checks on one thread even
@@ -289,7 +292,15 @@ impl Linter {
             max_tree_depth: DEFAULT_MAX_TREE_DEPTH,
             file_check_threads: 1,
             file_check_stack: 0,
+            project: None,
         }
+    }
+
+    /// Give the rules the search path of the run (`None` to take it away, the
+    /// default). Off, a file is linted on its own, as MATLAB does; on, rules
+    /// that use it may report more (see [`ProjectIndex`]).
+    pub fn set_project_index(&mut self, index: Option<Arc<dyn ProjectIndex>>) {
+        self.project = index;
     }
 
     /// Run the file-level checks of a large file on up to `threads` threads
@@ -371,6 +382,7 @@ impl Linter {
                 tree: &tree,
                 source,
                 file_path,
+                project: self.project.as_deref(),
             };
             let threads = self
                 .file_check_threads

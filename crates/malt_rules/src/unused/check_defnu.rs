@@ -285,6 +285,7 @@ mod tests {
             tree: &tree,
             source,
             file_path: std::path::Path::new("fconfB.m"),
+            project: None,
         };
         let diags = engine().check_file(&ctx);
         assert!(!has_id(&diags, "DEFNU"), "got: {diags:?}");

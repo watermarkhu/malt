@@ -414,6 +414,7 @@ mod tests {
             tree: &tree,
             source,
             file_path: std::path::Path::new("test.m"),
+            project: None,
         };
         rule.check_file(&ctx)
     }

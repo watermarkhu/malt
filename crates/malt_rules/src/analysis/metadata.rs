@@ -33,7 +33,9 @@
 //! }
 //! ```
 
+use malt_core::ProjectIndex;
 use std::ops::Range;
+use std::path::Path;
 use tree_sitter::{Node, Tree};
 
 // ---------------------------------------------------------------------------
@@ -1133,6 +1135,21 @@ impl ClassMeta {
     /// Check if the class inherits from `handle`.
     pub fn is_handle(&self) -> bool {
         self.superclasses.iter().any(|s| s == "handle")
+    }
+
+    /// Whether every superclass is a value class on the search path: the host's
+    /// path index (`project`, see [`ProjectIndex`]) knows each one, and none is a
+    /// handle class. Always `false` without an index, and for a class with no
+    /// superclass (its handle-ness is then known from the file alone).
+    pub fn has_only_value_bases(&self, project: Option<&dyn ProjectIndex>, file: &Path) -> bool {
+        let Some(project) = project else {
+            return false;
+        };
+        !self.superclasses.is_empty()
+            && self
+                .superclasses
+                .iter()
+                .all(|base| project.is_handle_class(base, file) == Some(false))
     }
 }
 

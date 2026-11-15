@@ -57,6 +57,7 @@ mod tests {
             tree: &tree,
             source,
             file_path: std::path::Path::new("test.m"),
+            project: None,
         };
         let diags: Vec<_> = engine
             .check_file(&ctx)

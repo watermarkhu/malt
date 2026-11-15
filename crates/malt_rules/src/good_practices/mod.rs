@@ -30,6 +30,10 @@
 //! class properties, logical-usage patterns, shared variables, arity, and App
 //! Designer methods.
 //!
+//! With the opt-in path index (`[index] enabled = true`, or `--index`), MCPO
+//! is also reported for a subclass of a value class found on the search path.
+//! The Code Analyzer itself stays silent for any superclass.
+//!
 //! ## Check IDs
 //!
 //! | Check ID | Severity | Fix | Description |
@@ -838,7 +842,7 @@ impl Rule for GoodPracticesEngine {
 
         // OOP / class / property checks.
         diagnostics.extend(self.check_attf_attof(ctx.tree, ctx.source));
-        diagnostics.extend(self.check_mcpo(ctx.tree, ctx.source));
+        diagnostics.extend(self.check_mcpo(ctx.tree, ctx.source, ctx.project, ctx.file_path));
         diagnostics.extend(self.check_mcsac(ctx.tree, ctx.source));
         diagnostics.extend(self.check_mobsrv(ctx.tree, ctx.source));
         diagnostics.extend(self.check_mdepin(ctx.tree, ctx.source));
@@ -2379,6 +2383,7 @@ mod tests {
             tree,
             source,
             file_path: std::path::Path::new("test.m"),
+            project: None,
         };
         ids.extend(eng.check_file(&fc).iter().map(|d| d.rule_id));
         ids
@@ -2624,6 +2629,7 @@ mod tests {
             tree: &tree,
             source,
             file_path: std::path::Path::new("test.m"),
+            project: None,
         };
         let ids: Vec<&str> = eng.check_file(&ctx).iter().map(|d| d.rule_id).collect();
         for expected in ["MCPO", "MCSAC", "MOBSRV", "MCCPI", "MDEPIN", "MGMD"] {
@@ -2646,6 +2652,7 @@ mod tests {
             tree: &tree,
             source,
             file_path: std::path::Path::new("test.m"),
+            project: None,
         };
         ids.extend(eng.check_file(&ctx).iter().map(|d| d.rule_id));
 

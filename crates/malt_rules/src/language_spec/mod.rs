@@ -37,6 +37,11 @@
 //!   `ROWLN`, `FCNANS`, `CLANS`, `BRKFOR`, `CONTFOR`, `IDXCOLND`, `ERTXT`,
 //!   `WTXT`, `MHERIT`, `NCHKOS`, `CTOINE`, `CTORO`, `USESWNS`.
 //!
+//! With the opt-in path index (`[index] enabled = true`, or `--index`), MCEB is
+//! also reported for a class whose superclasses are all value classes found on
+//! the search path: MATLAB refuses to load such a class when it declares events.
+//! The Code Analyzer itself stays silent for any superclass.
+//!
 //! ## Check IDs
 //!
 //! | Check ID | Severity | Fix | Description |
@@ -2487,7 +2492,8 @@ impl LanguageSpecEngine {
         self.check_mcred(class, diagnostics);
         self.check_mccbd(class, meta, ctx, diagnostics);
         self.check_setter_getter_signatures(class, meta, diagnostics);
-        self.check_mceb(class, diagnostics);
+        let value_bases = class.has_only_value_bases(ctx.project, ctx.file_path);
+        self.check_mceb(class, value_bases, diagnostics);
         self.check_mcani(class, diagnostics);
         self.check_mcasc(class, diagnostics);
         self.check_mcsga(class, meta, diagnostics);
@@ -3877,6 +3883,25 @@ mod tests {
             tree: &tree,
             source,
             file_path: path,
+            project: None,
+        };
+        rule.check_file(&ctx)
+    }
+
+    /// Like `check_source`, with a search path (the path index turned on).
+    pub(crate) fn check_source_with_project(
+        source: &str,
+        file_path: &str,
+        project: &dyn malt_core::ProjectIndex,
+    ) -> Vec<Diagnostic> {
+        let rule = LanguageSpecEngine::from_config(&Config::default());
+        let tree = parse_matlab(source);
+        let path = Path::new(file_path);
+        let ctx = FileContext {
+            tree: &tree,
+            source,
+            file_path: path,
+            project: Some(project),
         };
         rule.check_file(&ctx)
     }
@@ -3995,6 +4020,7 @@ end
             tree: &tree,
             source,
             file_path: path,
+            project: None,
         };
         let diags = engine.check_file(&ctx);
         assert!(
@@ -4391,6 +4417,7 @@ end
             tree: &tree,
             source,
             file_path: path,
+            project: None,
         };
         let diags = engine.check_file(&ctx);
         let hits = filter_by_id(&diags, "MABSEAC");
@@ -5684,6 +5711,7 @@ end
             tree: &tree,
             source,
             file_path: path,
+            project: None,
         };
         let diags = engine.check_file(&ctx);
         assert!(

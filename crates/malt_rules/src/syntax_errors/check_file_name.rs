@@ -49,6 +49,7 @@ mod tests {
             tree: &tree,
             source,
             file_path: &path,
+            project: None,
         };
         let engine = SyntaxErrorsEngine {
             disabled: Default::default(),

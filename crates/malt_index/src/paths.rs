@@ -33,6 +33,9 @@ pub const CONFIG_FILE: &str = ".malt.toml";
 #[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct PathConfig {
+    /// Whether the linter uses the index (default: no). The index only adds
+    /// findings that MATLAB's Code Analyzer does not make; this crate ignores it.
+    pub enabled: bool,
     /// Folders to search: plain folders or glob patterns (see the module docs).
     /// Empty means the working directory alone.
     pub paths: Vec<String>,

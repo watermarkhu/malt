@@ -3,7 +3,7 @@
 A native index of the MATLAB path: the functions, classes, scripts, live scripts, packages
 (`+pkg`), class folders (`@cls`), plain folders and `private/` folders that MATLAB resolves
 names against. It is the Rust core of the replacement for the Python library maxx. The Python
-module is `crates/malt_py` (distribution `malt-index`). No linter integration yet.
+module is `crates/malt_py` (distribution `malt-index`). The linter uses the index only when `[index] enabled = true` or `--index` is given (off by default): see `docs/VERIFY.md`, 'Path index, stage 3.4', and `docs/configuration.md`.
 
 The crate does not depend on the linter crates. It is `publish = false` for now.
 
@@ -42,7 +42,7 @@ let inherited = index.inherited_members(&class)?;          // not the class's ow
 
 ## Path configuration
 
-The search path can be built from `.malt.toml` rather than listed by hand:
+The search path can be built from `.malt.toml` rather than listed by hand. `enabled` in the same `[index]` table turns the index on for the linter (default: off; see `docs/VERIFY.md`, 'Path index, stage 3.4'):
 
 ```rust
 use malt_index::{Index, ParserConfig, PathConfig, resolve_paths};

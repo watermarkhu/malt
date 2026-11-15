@@ -1,9 +1,21 @@
 use super::*;
+use malt_core::ProjectIndex;
+use std::path::Path;
 
 impl GoodPracticesEngine {
     /// MCPO: `SetObservable`/`GetObservable`/`AbortSet` have no effect on
     /// properties of a value class.
-    pub(crate) fn check_mcpo(&self, tree: &tree_sitter::Tree, source: &str) -> Vec<Diagnostic> {
+    ///
+    /// `project` is the path index when the user turned it on, and `file` the
+    /// linted file. With it, a class whose superclasses are all value classes on
+    /// the path is a value class too, and is reported as one with no superclass.
+    pub(crate) fn check_mcpo(
+        &self,
+        tree: &tree_sitter::Tree,
+        source: &str,
+        project: Option<&dyn ProjectIndex>,
+        file: &Path,
+    ) -> Vec<Diagnostic> {
         if !self.is_check_enabled("MCPO") {
             return Vec::new();
         }
@@ -14,8 +26,10 @@ impl GoodPracticesEngine {
         };
         // Probed: silent with any superclass (`handle`, `matlab.mixin.Copyable`,
         // a value superclass, `handle & matlab.mixin.SetGet`), so only a class
-        // with no superclass at all is reported.
-        if !class.superclasses.is_empty() {
+        // with no superclass at all is reported. The path index, when on, adds
+        // the subclasses of value classes (MATLAB loads them without a warning,
+        // and the property has no more effect there than in its base).
+        if !class.superclasses.is_empty() && !class.has_only_value_bases(project, file) {
             return Vec::new();
         }
 
@@ -61,7 +75,7 @@ mod tests {
             "classdef ValClass\n    properties (SetObservable)\n        Data\n    end\nend\n";
         let tree = parse(source);
         let eng = engine();
-        let diags = eng.check_mcpo(&tree, source);
+        let diags = eng.check_mcpo(&tree, source, None, Path::new("t.m"));
         assert_eq!(diags.len(), 1);
         assert_eq!(diags[0].rule_id, "MCPO");
     }
@@ -71,7 +85,7 @@ mod tests {
         // Probed: `GetObservable` is reported like `SetObservable`.
         let source =
             "classdef ValClass\n    properties (GetObservable)\n        Data\n    end\nend\n";
-        let diags = engine().check_mcpo(&parse(source), source);
+        let diags = engine().check_mcpo(&parse(source), source, None, Path::new("t.m"));
         assert_eq!(diags.len(), 1);
         assert_eq!(
             diags[0].message,
@@ -83,7 +97,9 @@ mod tests {
     fn test_mcpo_silent_on_abort_set_in_value_class() {
         // Probed: `AbortSet` is never reported, with or without a superclass.
         let source = "classdef ValClass\n    properties (AbortSet)\n        Data\n    end\nend\n";
-        assert!(engine().check_mcpo(&parse(source), source).is_empty());
+        assert!(engine()
+            .check_mcpo(&parse(source), source, None, Path::new("t.m"))
+            .is_empty());
     }
 
     #[test]
@@ -99,7 +115,9 @@ mod tests {
             let source =
                 format!("{header}\n    properties (SetObservable)\n        Data\n    end\nend\n");
             assert!(
-                engine().check_mcpo(&parse(&source), &source).is_empty(),
+                engine()
+                    .check_mcpo(&parse(&source), &source, None, Path::new("t.m"))
+                    .is_empty(),
                 "{header}: reported"
             );
         }
@@ -110,7 +128,9 @@ mod tests {
         let source = "classdef HClass < handle\n    properties (SetObservable)\n        Data\n    end\nend\n";
         let tree = parse(source);
         let eng = engine();
-        assert!(eng.check_mcpo(&tree, source).is_empty());
+        assert!(eng
+            .check_mcpo(&tree, source, None, Path::new("t.m"))
+            .is_empty());
     }
 
     #[test]
@@ -124,7 +144,46 @@ mod tests {
         let source =
             "classdef ValClass\n    properties (SetObservable)\n        Data\n    end\nend\n";
         let tree = parse(source);
-        assert!(eng.check_mcpo(&tree, source).is_empty());
+        assert!(eng
+            .check_mcpo(&tree, source, None, Path::new("t.m"))
+            .is_empty());
+    }
+
+    /// The MCPO diagnostics of `source` with the search path `project`.
+    fn mcpo_count(source: &str, project: &crate::test_util::StubProject) -> usize {
+        let tree = parse(source);
+        engine()
+            .check_mcpo(&tree, source, Some(project), Path::new("sub.m"))
+            .len()
+    }
+
+    #[test]
+    fn test_mcpo_index_reports_observable_in_a_subclass_of_a_value_class() {
+        // The subclass of a value class is a value class too (no effect, same message).
+        let source = "classdef obs_v < base_v\n    properties (SetObservable)\n        y = 2;\n    end\nend\n";
+        let project = crate::test_util::StubProject(vec![("base_v", false)]);
+        assert_eq!(mcpo_count(source, &project), 1);
+    }
+
+    #[test]
+    fn test_mcpo_index_silent_for_a_handle_base() {
+        let source = "classdef obs_h < base_h\n    properties (SetObservable)\n        y = 2;\n    end\nend\n";
+        let project = crate::test_util::StubProject(vec![("base_h", true)]);
+        assert_eq!(mcpo_count(source, &project), 0);
+    }
+
+    #[test]
+    fn test_mcpo_index_silent_for_an_unknown_base_and_without_the_index() {
+        let source = "classdef obs_m < no_such_base\n    properties (SetObservable)\n        y = 2;\n    end\nend\n";
+        let project = crate::test_util::StubProject(vec![("base_v", false)]);
+        assert_eq!(mcpo_count(source, &project), 0);
+        let tree = parse(source);
+        assert_eq!(
+            engine()
+                .check_mcpo(&tree, source, None, Path::new("sub.m"))
+                .len(),
+            0
+        );
     }
 }
 
