@@ -19,7 +19,10 @@ the limits at which the analysis stops being reliable. Too many messages
 (DEEPN), block comments nested too deeply (DEEPC), statements nested too
 deeply (NOSPC), and an expression with too many nested operators (MXASET).
 The thresholds are MATLAB's, measured with `checkcode` (R2026b) on generated
-files. They cannot be disabled by the user.
+files. They cannot be disabled by the user. MXASET, NOSPC, MDEEP and DEEPN
+stop the analysis: MATLAB reports only them for the file, so malt does too.
+MDEEP and DEEPN are measured before malt's own depth guard, so a file nested
+more deeply than malt walks still gets MATLAB's message.
 
 Some MATLAB checks of this category were never reported in the probes, so
 malt does not emit them: MBIG (no report up to 16 MB), TEXTL (no report for

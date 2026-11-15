@@ -197,7 +197,7 @@ type Known = HashMap<String, bool>;
 /// follow. A scope that uses one is not analysed. Probed: `eval`, `evalc`,
 /// `evalin`, `assignin`, `save`, `who` and `whos` are not in this list, MATLAB
 /// reports the stores around them (see the module docs).
-const DYNAMIC_CALLS: &[&str] = &["clearvars", "run", "throw", "throwAsCaller", "exit", "quit"];
+const DYNAMIC_CALLS: &[&str] = &["run", "throw", "throwAsCaller", "exit", "quit"];
 
 /// Calls that may set variables by name. They do not stop the analysis, but
 /// the truth values known before them are forgotten.
@@ -588,7 +588,7 @@ pub(crate) fn clear_names(text: &str) -> Option<Vec<String>> {
     let mut words = text
         .split(|c: char| c.is_whitespace() || c == ';')
         .filter(|w| !w.is_empty());
-    if words.next()? != "clear" {
+    if !matches!(words.next()?, "clear" | "clearvars") {
         return None;
     }
     let names: Vec<String> = words.map(str::to_string).collect();
@@ -672,8 +672,14 @@ pub(crate) struct Clause<'t> {
 /// condition, before any `elseif` or `else`, belong to the first clause.
 pub(crate) fn if_clauses(node: Node) -> Vec<Clause> {
     let mut clauses: Vec<Clause> = Vec::new();
+    // Looked up once: `is_condition` scans the children of `node`, which made a long
+    // `elseif` chain quadratic.
+    let conditions = fields(node, "condition");
     for child in named(node) {
-        if is_condition(node, child) {
+        if conditions
+            .iter()
+            .any(|condition| condition.id() == child.id())
+        {
             clauses.push(Clause {
                 node,
                 condition: Some(child),
@@ -1282,7 +1288,9 @@ impl ConstPass<'_> {
         if calls_any(node, source, ASSIGNING_CALLS) {
             env.clear();
         }
-        if clear_names(text).is_none() && text.split_whitespace().next() == Some("clear") {
+        if clear_names(text).is_none()
+            && matches!(text.split_whitespace().next(), Some("clear" | "clearvars"))
+        {
             env.clear();
         }
         if let Some(names) = clear_names(text) {

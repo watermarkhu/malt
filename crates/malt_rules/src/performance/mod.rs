@@ -582,9 +582,27 @@ fn defined_before(root: tree_sitter::Node, source: &str, name: &str, before: usi
     false
 }
 
-/// PFBNS: a variable indexed with different expressions inside a `parfor`
-/// body (and never assigned there) is a broadcast variable.
+/// One variable read in a parfor body: its name, the distinct access keys, whether any
+/// access is a broadcast one, the first access and the first unsliced access.
+type ParforAccess<'a> = (
+    &'a str,
+    Vec<String>,
+    bool,
+    tree_sitter::Node<'a>,
+    Option<tree_sitter::Node<'a>>,
+);
+
+/// PFBNS: a variable defined before a `parfor` loop and read in its body as a
+/// broadcast variable. Probed on R2026b: a variable is reported when one of its
+/// accesses is not sliced, or when it is accessed in two different ways (two
+/// subscript lists, a field and an index, ...). An access `v(...)` is sliced when
+/// a subscript is the loop index or the index plus or minus a constant (`v(i)`,
+/// `v(i + 1)`, `v(i, 1)`, `v(1:3, i)`). `v(end)`, `v(:)`, `v(2)`, `v([1 2])`,
+/// `v(1:i)`, `v(i/2)`, `v.f` and `v{k}` are not sliced. A constant range on its own
+/// is neutral (`v(1:3)`, `v(1, 1:3)`). Whole reads (`numel(v)`, `r(i) = v`,
+/// `disp(v)`) never count, nor do variables assigned in the loop.
 fn check_broadcast_variables(root: tree_sitter::Node, source: &str, diags: &mut Vec<Diagnostic>) {
+    let sym = crate::analysis::symbols::SymbolTable::shared(|| root, source);
     let mut stack = vec![root];
     while let Some(n) = stack.pop() {
         let mut c = n.walk();
@@ -594,38 +612,39 @@ fn check_broadcast_variables(root: tree_sitter::Node, source: &str, diags: &mut 
         if n.kind() != "for_statement" || !node_text(n, source).trim_start().starts_with("parfor") {
             continue;
         }
-        // Collect indexed uses (name -> (distinct index texts, first node)) and assigned names.
-        let mut uses: Vec<(&str, Vec<String>, tree_sitter::Node)> = Vec::new();
+        let index = crate::good_practices::extract_parfor_index_var(n, source).unwrap_or_default();
+        // Accesses per variable (see `ParforAccess`).
+        let mut accesses: Vec<ParforAccess> = Vec::new();
+        // Variables assigned in the loop, through any target shape.
         let mut assigned: Vec<&str> = Vec::new();
         let mut inner = vec![n];
         while let Some(m) = inner.pop() {
             if m.kind() == "assignment" {
-                if let Some(l) = m.child_by_field_name("left") {
-                    let base = if l.kind() == "function_call" {
-                        extract_func_name(l, source)
-                    } else {
-                        Some(node_text(l, source))
-                    };
-                    if let Some(b) = base {
-                        assigned.push(b);
-                    }
+                if let Some(base) = m
+                    .child_by_field_name("left")
+                    .and_then(|l| lhs_base(l, source))
+                {
+                    assigned.push(base);
                 }
             }
-            if m.kind() == "function_call" {
-                if let (Some(name), Some(args)) = (extract_func_name(m, source), find_arguments(m))
-                {
-                    let idx = node_text(args, source)
-                        .chars()
-                        .filter(|c| !c.is_whitespace())
-                        .collect::<String>();
-                    match uses.iter_mut().find(|(u, _, _)| *u == name) {
-                        Some((_, v, _)) => {
-                            if !v.contains(&idx) {
-                                v.push(idx);
+            if let Some((name, key, broadcast, sliced)) = broadcast_access(m, &index, source) {
+                let unsliced = (!sliced).then_some(m);
+                match accesses.iter_mut().find(|(u, _, _, _, _)| *u == name) {
+                    Some((_, keys, any_broadcast, first, first_unsliced)) => {
+                        if !keys.contains(&key) {
+                            keys.push(key);
+                        }
+                        *any_broadcast |= broadcast;
+                        if m.start_byte() < first.start_byte() {
+                            *first = m;
+                        }
+                        if let Some(u) = unsliced {
+                            if first_unsliced.is_none_or(|f| u.start_byte() < f.start_byte()) {
+                                *first_unsliced = Some(u);
                             }
                         }
-                        None => uses.push((name, vec![idx], m)),
                     }
+                    None => accesses.push((name, vec![key], broadcast, m, unsliced)),
                 }
             }
             let mut c = m.walk();
@@ -633,17 +652,141 @@ fn check_broadcast_variables(root: tree_sitter::Node, source: &str, diags: &mut 
                 inner.push(ch);
             }
         }
-        for (name, idxs, first) in uses {
+        // MATLAB reports at the first access that is not sliced (probed: `x = data(i)`
+        // then `r(i) = x + data(2:5)` is reported on the second line).
+        for (name, keys, broadcast, first, first_unsliced) in accesses {
             // Only variables defined before the loop (not function calls), never
-            // assigned inside it, indexed in at least two different ways.
-            if idxs.len() >= 2
+            // assigned inside it, and either broadcast or accessed in two ways.
+            if (broadcast || keys.len() >= 2)
                 && !assigned.contains(&name)
-                && defined_before(root, source, name, n.start_byte())
+                && (defined_before(root, source, name, n.start_byte())
+                    || crate::good_practices::is_defined_before_parfor(&sym, name, n.start_byte()))
+                && !is_pool_constant(name, &source[..n.start_byte()])
             {
-                diags.push(make_diag_named("PFBNS", first, name));
+                diags.push(make_diag_named(
+                    "PFBNS",
+                    first_unsliced.unwrap_or(first),
+                    name,
+                ));
             }
         }
     }
+}
+
+/// The variable at the root of an assignment target: `v`, `v(...)`, `v{...}`,
+/// `v.f` or `v(i).f`.
+fn lhs_base<'a>(node: tree_sitter::Node<'a>, source: &'a str) -> Option<&'a str> {
+    let mut current = node;
+    loop {
+        match current.kind() {
+            "identifier" => return Some(node_text(current, source)),
+            "function_call" | "cell_index" | "field_expression" => {
+                current = current.named_child(0)?;
+            }
+            _ => return None,
+        }
+    }
+}
+
+/// A PFBNS access of a variable in a `parfor` body: `(name, key, broadcast, sliced)`.
+/// The key separates access shapes (the subscript list, or the field). `broadcast`
+/// is true for an access that is not sliced and not a constant range.
+fn broadcast_access<'a>(
+    node: tree_sitter::Node<'a>,
+    index: &str,
+    source: &'a str,
+) -> Option<(&'a str, String, bool, bool)> {
+    match node.kind() {
+        "function_call" | "cell_index" => {
+            let base = node.named_child(0)?;
+            let subs: Vec<tree_sitter::Node> = match find_arguments(node) {
+                Some(args) => args.named_children(&mut args.walk()).collect(),
+                None => node.named_children(&mut node.walk()).skip(1).collect(),
+            };
+            if subs.is_empty() {
+                return None;
+            }
+            match base.kind() {
+                "identifier" => {
+                    let texts: Vec<String> = subs
+                        .iter()
+                        .map(|s| {
+                            node_text(*s, source)
+                                .chars()
+                                .filter(|c| !c.is_whitespace())
+                                .collect()
+                        })
+                        .collect();
+                    let sliced = texts.iter().any(|t| is_sliced_subscript(t, index));
+                    let neutral = texts.iter().any(|t| is_constant_range(t));
+                    Some((
+                        node_text(base, source),
+                        texts.join(","),
+                        !sliced && !neutral,
+                        sliced,
+                    ))
+                }
+                "field_expression" => {
+                    let object = base.named_child(0)?;
+                    (object.kind() == "identifier").then(|| {
+                        (
+                            node_text(object, source),
+                            node_text(base, source).to_string(),
+                            true,
+                            false,
+                        )
+                    })
+                }
+                _ => None,
+            }
+        }
+        "field_expression" => {
+            let object = node.named_child(0)?;
+            (object.kind() == "identifier").then(|| {
+                (
+                    node_text(object, source),
+                    node_text(node, source).to_string(),
+                    true,
+                    false,
+                )
+            })
+        }
+        _ => None,
+    }
+}
+
+/// Whether `name` is assigned a `parallel.pool.Constant` before the loop. MATLAB
+/// does not report a Constant's `.Value` as a broadcast (probed).
+fn is_pool_constant(name: &str, before: &str) -> bool {
+    before.lines().any(|line| {
+        line.trim()
+            .strip_prefix(name)
+            .and_then(|rest| rest.trim_start().strip_prefix('='))
+            .is_some_and(|rhs| rhs.trim_start().starts_with("parallel.pool.Constant"))
+    })
+}
+
+/// `i` or `i + k` / `i - k` for a constant `k` (whitespace-free text).
+fn is_sliced_subscript(text: &str, index: &str) -> bool {
+    if index.is_empty() {
+        return false;
+    }
+    if text == index {
+        return true;
+    }
+    text.strip_prefix(index)
+        .and_then(|rest| rest.strip_prefix(['+', '-']))
+        .is_some_and(|k| !k.is_empty() && k.chars().all(|c| c.is_ascii_digit()))
+}
+
+/// `a:b` or `a:s:b` with constant bounds (whitespace-free text).
+fn is_constant_range(text: &str) -> bool {
+    let parts: Vec<&str> = text.split(':').collect();
+    (2..=3).contains(&parts.len())
+        && parts.iter().all(|p| {
+            let digits = p.strip_prefix('-').unwrap_or(p);
+            !digits.is_empty() && digits.chars().all(|c| c.is_ascii_digit())
+        })
 }
 
 impl Rule for PerformanceEngine {
@@ -1158,6 +1301,41 @@ mod tests {
         assert!(!has_id(&lint_file(&*engine(), src), "SPRIX"));
         let src = "S = sparse(10, 10);\nS = full(S);\nS(3) = 1;\n";
         assert!(!has_id(&lint_file(&*engine(), src), "SPRIX"));
+    }
+
+    #[test]
+    fn pfbns_follows_matlab_broadcast_rule() {
+        // Probed on R2026b: a non-sliced access is a broadcast on its own, and so are
+        // two different access shapes.
+        for body in [
+            "r(i) = data(1);",
+            "r(i) = data(end);",
+            "r(i) = data(:);",
+            "r(i) = data(floor(i));",
+            "r(i) = data.x;",
+            "r(i) = cfg.scale;",
+            "r(i) = data(i) + data(i + 1);",
+            "r(i) = data(i + 1) + data(1:3);",
+        ] {
+            let src = format!("data = foo();\ncfg = foo();\nr = zeros(1, 10);\nparfor i = 1:10\n    {body}\nend\n");
+            assert!(has_id(&lint_file(&*engine(), &src), "PFBNS"), "{body}");
+        }
+        // Probed: a `parallel.pool.Constant` is not a broadcast variable.
+        let src = "c = parallel.pool.Constant(@() 1);\nr = zeros(1, 10);\nparfor i = 1:10\n    r(i) = c.Value;\nend\n";
+        assert!(!has_id(&lint_file(&*engine(), src), "PFBNS"));
+        // Probed: one sliced shape, a constant range alone, a whole read and an
+        // indexed field are silent.
+        for body in [
+            "r(i) = data(i) + data(i);",
+            "r(i) = data(2:5);",
+            "r(i) = numel(data);",
+            "r(i) = sum(data);",
+            "r(i) = data(1, 1:3);",
+            "r(i) = cfg(i).scale + cfg(i).offset;",
+        ] {
+            let src = format!("data = foo();\ncfg = foo();\nr = zeros(1, 10);\nparfor i = 1:10\n    {body}\nend\n");
+            assert!(!has_id(&lint_file(&*engine(), &src), "PFBNS"), "{body}");
+        }
     }
 
     #[test]

@@ -21,6 +21,10 @@ analysis (last-statement detection, variable shadowing, class and property
 validation). Each diagnostic carries the specific check ID (e.g. `TRYNC`,
 `EVLCS`, `PFRNI`).
 
+CHAIN: a chained comparison such as `a < b < c` is evaluated by MATLAB as
+`(a < b) < c`, which compares a logical value with `c`; the check reports the
+outermost comparison of a chain once.
+
 The checks span error handling, string and comparison idioms, `eval`/dynamic
 code, parfor/spmd parallel practices, structure and field access, OOP and
 class properties, logical-usage patterns, shared variables, arity, and App

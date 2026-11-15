@@ -1,5 +1,5 @@
 use super::*;
-use crate::analysis::reaching::{reaching, Binding};
+use crate::analysis::reaching::resolved_values;
 
 impl GoodPracticesEngine {
     /// FVAL: `feval` with a literal function name or handle, which can be a
@@ -59,16 +59,11 @@ fn is_literal_feval(call: Node, source: &str) -> bool {
 fn callee_is_literal(node: Node, source: &str, depth: usize) -> bool {
     match node.kind() {
         "string" | "handle_operator" | "lambda" => true,
-        "identifier" if depth < 4 => {
-            let name = &source[node.byte_range()];
-            match reaching(node, source, name).binding {
-                Binding::Value(v) if v.kind() == "identifier" => {
-                    callee_is_literal(v, source, depth + 1)
-                }
-                Binding::Value(v) => matches!(v.kind(), "handle_operator" | "lambda" | "string"),
-                _ => false,
-            }
-        }
+        "identifier" if depth < 4 => resolved_values(node, source).is_some_and(|values| {
+            values
+                .iter()
+                .all(|v| matches!(v.kind(), "handle_operator" | "lambda" | "string"))
+        }),
         _ => false,
     }
 }
@@ -129,5 +124,35 @@ mod handle_variable_tests {
         assert!(!fires(
             "function a = g(f)\nfor k = 1:3\n    a = feval(f, k) + 2;\nend\nend\n"
         ));
+    }
+}
+
+#[cfg(test)]
+mod variable_tests {
+    use crate::test_util::{has_id, lint_file};
+    use malt_core::Config;
+
+    fn fval(src: &str) -> bool {
+        let e = crate::good_practices::GoodPracticesEngine::from_config(&Config::default());
+        has_id(&lint_file(&*e, src), "FVAL")
+    }
+
+    // Probed: FVAL for a handle or a name that reaches the call through copies (a
+    // self-copy included), a literal name, and a handle set in one branch.
+    #[test]
+    fn fval_follows_copies_and_self_copies() {
+        assert!(fval("h = @sin; h = h; y = feval(h, 1);\n"));
+        assert!(fval("h = @sin; g = h; y = feval(g, 1);\n"));
+        assert!(fval("h = 'sin'; y = feval(h, 1);\n"));
+        assert!(fval(
+            "h = @sin;\nc = rand > 0.5;\nif c\n    h = @cos;\nend\ny = feval(h, 1);\n"
+        ));
+    }
+
+    // Probed: silent for a value that is not a function and for a cleared name.
+    #[test]
+    fn fval_is_silent_for_a_non_function_or_a_cleared_name() {
+        assert!(!fval("h = @sin; h = 3; y = feval(h, 1);\n"));
+        assert!(!fval("h = @sin; clear h; y = feval(h, 1);\n"));
     }
 }

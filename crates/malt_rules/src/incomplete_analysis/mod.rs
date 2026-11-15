@@ -19,7 +19,10 @@
 //! (DEEPN), block comments nested too deeply (DEEPC), statements nested too
 //! deeply (NOSPC), and an expression with too many nested operators (MXASET).
 //! The thresholds are MATLAB's, measured with `checkcode` (R2026b) on generated
-//! files. They cannot be disabled by the user.
+//! files. They cannot be disabled by the user. MXASET, NOSPC, MDEEP and DEEPN
+//! stop the analysis: MATLAB reports only them for the file, so malt does too.
+//! MDEEP and DEEPN are measured before malt's own depth guard, so a file nested
+//! more deeply than malt walks still gets MATLAB's message.
 //!
 //! Some MATLAB checks of this category were never reported in the probes, so
 //! malt does not emit them: MBIG (no report up to 16 MB), TEXTL (no report for
@@ -151,6 +154,9 @@ pub(crate) struct TreeMetrics {
     error_count: usize,
     /// Maximum depth of parentheses/bracket nesting (`(`, `[`, `{`).
     max_paren_depth: usize,
+    /// Line and column of the first bracket at each depth (index `depth - 1`), so
+    /// MDEEP can be placed on the bracket that exceeds the limit.
+    paren_first_pos: Vec<(usize, usize)>,
     /// Maximum depth of nested `function_definition` nodes.
     max_function_depth: usize,
     /// Line of the function at `max_function_depth` (where DEEPN is reported).
@@ -180,10 +186,13 @@ struct Depths {
 /// generated files: a path of 248 `if`s (weight 992) is fine and 249 (996) is
 /// reported; 124 `switch`es (992) are fine and 125 (1000) are reported; 246 `if`s
 /// with 3 `for`s (993) are fine and 247 `if`s with 2 `for`s (994) are reported.
+/// An anonymous function weighs as a loop: 331 nested `@()` (993) are fine, 332
+/// (996) are reported; 247 `if`s with one lambda (991) are fine, with two (994)
+/// reported. Lambdas and statements share one sum along a path.
 fn statement_weight(kind: &str) -> usize {
     match kind {
         "if_statement" => 4,
-        "for_statement" | "while_statement" => 3,
+        "for_statement" | "while_statement" | "lambda" => 3,
         "try_statement" => 2,
         "switch_statement" => 8,
         _ => 0,
@@ -261,7 +270,11 @@ impl IncompleteAnalysisEngine {
         match node.kind() {
             "parenthesis" | "arguments" | "matrix" | "cell" => {
                 depths.paren += 1;
-                metrics.max_paren_depth = metrics.max_paren_depth.max(depths.paren);
+                if depths.paren > metrics.max_paren_depth {
+                    metrics.max_paren_depth = depths.paren;
+                    let column = node.start_position().column + 1;
+                    metrics.paren_first_pos.push((line, column));
+                }
             }
             "function_definition" => {
                 depths.function += 1;
@@ -271,7 +284,7 @@ impl IncompleteAnalysisEngine {
                 }
             }
             "if_statement" | "for_statement" | "while_statement" | "switch_statement"
-            | "try_statement" => {
+            | "try_statement" | "lambda" => {
                 depths.statement += statement_weight(node.kind());
                 metrics.max_statement_weight = metrics.max_statement_weight.max(depths.statement);
             }
@@ -315,11 +328,16 @@ impl Rule for IncompleteAnalysisEngine {
         true
     }
 
+    /// The limits that stop MATLAB's analysis (MXASET, NOSPC, MDEEP, DEEPN). They
+    /// are measured by the non-recursive walk before the linter's depth guard, so a
+    /// tree deeper than malt can walk still gets MATLAB's message.
     fn check_limits(&self, tree: &tree_sitter::Tree, source: &str) -> Vec<Diagnostic> {
         let metrics = self.collect_metrics(tree.root_node());
         let mut diagnostics = Vec::new();
         self.check_operator_depth(&metrics, source, &mut diagnostics);
         self.check_nesting_depth(&metrics, source, &mut diagnostics);
+        self.check_paren_depth(&metrics, source, &mut diagnostics);
+        self.check_function_depth(&metrics, source, &mut diagnostics);
         diagnostics
     }
 

@@ -125,6 +125,17 @@ pub(crate) fn reaching<'a>(at: Node<'a>, source: &str, name: &str) -> Reaching<'
         (Some(_), None) => true,
         _ => false,
     };
+    // A bare `clear` after the last binding leaves the name with no known value.
+    if index
+        .clear_all
+        .iter()
+        .any(|&s| s < before && best_start.is_none_or(|b| s > b))
+    {
+        return Reaching {
+            binding: Binding::Unknown,
+            indexed_since: true,
+        };
+    }
     let binding = match best {
         Some(event) => match event.kind {
             EventKind::Whole => match index
@@ -145,6 +156,102 @@ pub(crate) fn reaching<'a>(at: Node<'a>, source: &str, name: &str) -> Reaching<'
         binding,
         indexed_since,
     }
+}
+
+/// Every value that can reach the point `at` for `name`: the right-hand sides of the
+/// whole assignments that may define it there. `None` when the approximation cannot
+/// be sure: an indexed write, a loop variable or a `clear` of the name before the
+/// point, a binding inside a loop that holds the point (it reaches the point on the
+/// next pass), a bare `clear`, or no assignment at all (an input or undefined name).
+/// An assignment is dropped when a later assignment in a block that holds the point
+/// overwrites it (`x = 1; x = 2; f(x)` gives `2` only), and the assignment that
+/// contains the point never reaches it (`t = t` reads the earlier `t`).
+pub(crate) fn reaching_values<'a>(at: Node<'a>, source: &str, name: &str) -> Option<Vec<Node<'a>>> {
+    let scope = enclosing_function(at).unwrap_or_else(|| root_of(at));
+    let before = at.start_byte();
+    let index = scope_index(scope, source);
+    if index.clear_all.iter().any(|&s| s < before) {
+        return None;
+    }
+    let mut loops = Vec::new();
+    let mut current = at.parent();
+    while let Some(p) = current {
+        if p.id() == scope.id() {
+            break;
+        }
+        if matches!(p.kind(), "for_statement" | "while_statement") {
+            loops.push((p.start_byte(), p.end_byte()));
+        }
+        current = p.parent();
+    }
+    let mut defs = Vec::new();
+    // Assignments after the point inside a loop that holds it reach it on the next pass.
+    let mut next_pass = Vec::new();
+    for event in index.events.get(name).into_iter().flatten() {
+        if event.start >= before {
+            if loops
+                .iter()
+                .any(|&(s, e)| s <= event.start && event.start < e)
+            {
+                match event.kind {
+                    EventKind::Whole => {
+                        let assignment = index.node_at(scope, event.node)?;
+                        next_pass.push(assignment.child_by_field_name("right")?);
+                    }
+                    EventKind::Indexed | EventKind::Unknown => return None,
+                }
+            }
+            continue;
+        }
+        match event.kind {
+            EventKind::Whole => {
+                let assignment = index.node_at(scope, event.node)?;
+                if assignment.end_byte() > before {
+                    continue;
+                }
+                defs.push((event.start, assignment));
+            }
+            EventKind::Indexed | EventKind::Unknown => return None,
+        }
+    }
+    let mut values = Vec::new();
+    for &(start, assignment) in &defs {
+        let overwritten = defs.iter().any(|&(later, other)| {
+            later > start
+                && other.parent().is_some_and(|p| {
+                    matches!(p.kind(), "source_file" | "block")
+                        && p.start_byte() <= before
+                        && before < p.end_byte()
+                })
+        });
+        if !overwritten {
+            values.push(assignment.child_by_field_name("right")?);
+        }
+    }
+    values.extend(next_pass);
+    (!values.is_empty()).then_some(values)
+}
+
+/// The values of an expression: itself, or for a name, the values that reach it
+/// (see [`reaching_values`]), each followed through its own assignments as far as
+/// it is a name. `None` when a name in the chain cannot be followed.
+pub(crate) fn resolved_values<'a>(node: Node<'a>, source: &str) -> Option<Vec<Node<'a>>> {
+    resolve_at(node, source, 0)
+}
+
+fn resolve_at<'a>(node: Node<'a>, source: &str, depth: usize) -> Option<Vec<Node<'a>>> {
+    if node.kind() != "identifier" {
+        return Some(vec![node]);
+    }
+    if depth > MAX_DEPTH {
+        return None;
+    }
+    let values = reaching_values(node, source, text(node, source))?;
+    let mut out = Vec::new();
+    for value in values {
+        out.extend(resolve_at(value, source, depth + 1)?);
+    }
+    Some(out)
 }
 
 /// How a statement binds a name, for [`reaching`].
@@ -173,6 +280,8 @@ struct Event {
 /// its name instead of a walk over the scope.
 struct ScopeIndex {
     events: HashMap<String, Vec<Event>>,
+    /// Starts of the `clear` and `clearvars` calls with no name (they clear every variable).
+    clear_all: Vec<usize>,
     /// The nodes of the scope as (entry of the parent, child index in it); the
     /// scope itself is entry 0. Nodes cannot be kept across calls, so a binding
     /// statement is found again by its path of child indices.
@@ -183,6 +292,7 @@ impl ScopeIndex {
     fn build(scope: Node, source: &str) -> Self {
         let mut events: HashMap<String, Vec<Event>> = HashMap::new();
         let mut nodes = vec![(0, 0)];
+        let mut clear_all = Vec::new();
         let mut push = |name: &str, start: usize, kind: EventKind, node: usize| {
             events
                 .entry(name.to_string())
@@ -232,6 +342,30 @@ impl ScopeIndex {
                         }
                     }
                 }
+                "function_call" | "command" => {
+                    // `clear t` unbinds the names it lists; `clear all` keeps them (probed);
+                    // a bare `clear` or `clearvars` unbinds every name.
+                    let callee = if n.kind() == "command" {
+                        n.child(0).filter(|c| c.kind() == "command_name")
+                    } else {
+                        n.child_by_field_name("name")
+                    };
+                    if callee.is_some_and(|c| matches!(text(c, source), "clear" | "clearvars")) {
+                        let rest = &source[callee.map_or(0, |c| c.end_byte())..n.end_byte()];
+                        let words: Vec<&str> = rest
+                            .split(|c: char| !(c.is_alphanumeric() || c == '_' || c == '-'))
+                            .filter(|w| !w.is_empty())
+                            .collect();
+                        if words.is_empty() {
+                            clear_all.push(n.start_byte());
+                        }
+                        for word in words {
+                            if word != "all" && !word.starts_with('-') {
+                                push(word, n.start_byte(), EventKind::Unknown, entry);
+                            }
+                        }
+                    }
+                }
                 _ => {}
             }
             let mut cursor = n.walk();
@@ -240,7 +374,11 @@ impl ScopeIndex {
                 stack.push((child, nodes.len() - 1));
             }
         }
-        Self { events, nodes }
+        Self {
+            events,
+            clear_all,
+            nodes,
+        }
     }
 
     /// The node of entry `entry`, found from `scope` by its path.
@@ -386,5 +524,86 @@ pub(crate) fn is_growable_initial_value(binding: Binding, source: &str) -> bool 
             rhs.kind() == "number" || compact == "[]" || compact == "{}"
         }
         Binding::Param | Binding::Unknown => false,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::test_util::parse;
+
+    fn identifiers<'t>(node: Node<'t>, source: &str, name: &str, out: &mut Vec<Node<'t>>) {
+        if node.kind() == "identifier" && &source[node.byte_range()] == name {
+            out.push(node);
+        }
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            identifiers(child, source, name, out);
+        }
+    }
+
+    /// The source text of the values that reach the `nth` identifier `name` (the last
+    /// one when `nth` is None).
+    fn values_at(source: &str, name: &str, nth: Option<usize>) -> Option<Vec<String>> {
+        let tree = parse(source);
+        let mut found = Vec::new();
+        identifiers(tree.root_node(), source, name, &mut found);
+        let at = match nth {
+            Some(n) => *found.get(n)?,
+            None => *found.last()?,
+        };
+        reaching_values(at, source, name).map(|values| {
+            values
+                .iter()
+                .map(|v| source[v.byte_range()].to_string())
+                .collect()
+        })
+    }
+
+    #[test]
+    fn a_straight_line_overwrite_leaves_one_value() {
+        assert_eq!(
+            values_at("t = 'a';\nt = 'b';\ndisp(t)\n", "t", None),
+            Some(vec!["'b'".to_string()])
+        );
+    }
+
+    #[test]
+    fn a_conditional_assignment_adds_a_value() {
+        assert_eq!(
+            values_at("t = 'a';\nif c\n    t = 'b';\nend\ndisp(t)\n", "t", None).map(|v| v.len()),
+            Some(2)
+        );
+    }
+
+    #[test]
+    fn an_indexed_write_a_clear_or_no_assignment_leaves_no_value() {
+        assert_eq!(
+            values_at("t = 'a';\nt(2) = 'b';\ndisp(t)\n", "t", None),
+            None
+        );
+        assert_eq!(values_at("t = 'a';\nclear t\ndisp(t)\n", "t", None), None);
+        assert_eq!(values_at("disp(t)\n", "t", None), None);
+    }
+
+    #[test]
+    fn a_later_assignment_in_a_loop_reaches_the_point_on_the_next_pass() {
+        assert_eq!(
+            values_at(
+                "t = 'a';\nfor k = 1:2\n    disp(t)\n    t = 'b';\nend\n",
+                "t",
+                Some(1)
+            )
+            .map(|v| v.len()),
+            Some(2)
+        );
+    }
+
+    #[test]
+    fn an_assignment_does_not_reach_its_own_right_side() {
+        assert_eq!(
+            values_at("t = 'a';\nt = t;\ndisp(t)\n", "t", Some(3)),
+            Some(vec!["t".to_string()])
+        );
     }
 }

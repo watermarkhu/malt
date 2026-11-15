@@ -1579,9 +1579,7 @@ impl<'a> Builder<'a> {
                 .filter(|c| c.kind() == "arguments")
                 .flat_map(|args| {
                     let mut inner = args.walk();
-                    args.named_children(&mut inner)
-                        .filter(|a| a.kind() == "string")
-                        .collect::<Vec<_>>()
+                    args.named_children(&mut inner).collect::<Vec<_>>()
                 })
                 .collect(),
             _ => node
@@ -1589,8 +1587,12 @@ impl<'a> Builder<'a> {
                 .filter(|c| c.kind() == "command_argument")
                 .collect(),
         };
-        // The first argument is the file name.
+        // The first argument is the file name, whatever its kind (`load(f, 'x')`
+        // stores `x`, probed); the other function-form arguments count only as strings.
         for arg in args.into_iter().skip(1) {
+            if node.kind() == "function_call" && arg.kind() != "string" {
+                continue;
+            }
             let raw = self.node_text(arg);
             let name = if arg.kind() == "string" {
                 raw.trim_matches(|c| c == '\'' || c == '"')

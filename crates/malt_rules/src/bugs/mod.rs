@@ -18,6 +18,13 @@
 //! analysis after traversal). Each diagnostic carries the specific check ID
 //! (e.g. `IFBDUP`, `FNAN`).
 //!
+//! CTRUE and CFALSE: a comparison of a function that returns a logical value with a
+//! numeric literal, such as `any(A) <= 1`, is constant, because a logical is only 0
+//! or 1. SHOCIRT and SHOCIRF: a predicate applied to the result of a short-circuit
+//! operator, such as `isscalar(A && B)`, is constant, because `&&` and `||` always
+//! give a logical scalar (or an error). DEBUGFUN: a debug function, which is meant
+//! for the Command Window, is called in code that runs at runtime, where it fails.
+//!
 //! ## Check IDs
 //!
 //! | Check ID | Severity | Fix | Description |
@@ -121,7 +128,7 @@ use tree_sitter::Node;
 
 use crate::analysis::control_flow::{in_unreachable_code, is_split_statement_continuation};
 use crate::analysis::elementwise::call_name;
-use crate::analysis::reaching::{reaching, Binding};
+use crate::analysis::reaching::reaching_values;
 use crate::analysis::symbols::SymbolTable;
 use crate::readability::is_variable_defined_before;
 
@@ -812,12 +819,14 @@ impl Rule for BugsEngine {
 /// `v = 3` and `v = [1 2 3]` are reported; `zeros(3)`, `input(...)`, `'abc'` and
 /// `y(1)` are silent.
 fn variable_holds_numeric_literal(call: Node, name: &str, source: &str) -> bool {
-    let r = reaching(call, source, name);
-    !r.indexed_since
-        && match r.binding {
-            Binding::Value(rhs) => is_numeric_literal(rhs),
-            _ => false,
-        }
+    // One value reaches the call, and it is a literal (probed: `v = 'abc'; [a, b] = v(1)`
+    // is reported; `v = 3; if c, v = 4; end; [a, b] = v(1)` is silent).
+    reaching_values(call, source, name).is_some_and(|values| {
+        let [value] = values.as_slice() else {
+            return false;
+        };
+        is_numeric_literal(*value) || value.kind() == "string"
+    })
 }
 
 /// Whether `node` is a number, a negated number, or a matrix of them.
@@ -1351,12 +1360,11 @@ end
 
     #[test]
     fn rhsfn_silent_on_index_of_variable_without_numeric_literal() {
-        // Probed: `zeros(3)`, `input(...)`, a char literal, an element of an
-        // input, and an undefined callee are all silent.
+        // Probed: `zeros(3)`, `input(...)`, an element of an input, and an undefined
+        // callee are all silent. (A char literal is reported: see rhsfn_variable_tests.)
         for src in [
             "v = zeros(3);\n[a, b] = v(2);\n",
             "v = input('x');\n[a, b] = v(2);\n",
-            "v = 'abc';\n[a, b] = v(2);\n",
             "function r = f(y)\nv = y(1);\n[a, b] = v(2);\nr = a + b;\nend\n",
             "[a, b] = q(2);\n",
             "y = [4 5 6];\n[~, idx] = max(y);\n",
@@ -1527,5 +1535,29 @@ end
             d.message,
             "The case value '3' is a duplicate of one on line 2."
         );
+    }
+}
+
+#[cfg(test)]
+mod rhsfn_variable_tests {
+    use crate::test_util::{has_id, lint_file};
+    use malt_core::Config;
+
+    fn rhsfn(src: &str) -> bool {
+        let e = super::BugsEngine::from_config(&Config::default());
+        has_id(&lint_file(&*e, src), "RHSFN")
+    }
+
+    // Probed: `[a, b] = v(1)` is RHSFN when one value reaches the call and it is a
+    // literal (a number or a string); two values from a branch are silent, and an
+    // indexed value through a copy is silent too.
+    #[test]
+    fn rhsfn_on_an_indexed_variable_needs_one_literal_value() {
+        assert!(rhsfn("v = 3;\n[a, b] = v(1);\n"));
+        assert!(rhsfn("v = 'abc';\n[a, b] = v(1);\n"));
+        assert!(!rhsfn(
+            "v = 3;\nc = rand > 0.5;\nif c\n    v = 4;\nend\n[a, b] = v(1);\n"
+        ));
+        assert!(!rhsfn("v = 3;\nw = v;\n[a, b] = w(1);\n"));
     }
 }

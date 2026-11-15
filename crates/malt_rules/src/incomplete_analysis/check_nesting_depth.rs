@@ -86,6 +86,37 @@ mod tests {
         assert!(has_id(&lint_file(&*engine(), &nested(&kinds)), "NOSPC"));
     }
 
+    /// `ifs` nested `if`s around one statement with `lambdas` nested anonymous functions.
+    fn nested_with_lambdas(ifs: usize, lambdas: usize) -> String {
+        format!(
+            "{}g = {}1;\n{}",
+            "if x\n".repeat(ifs),
+            "@() ".repeat(lambdas),
+            "end\n".repeat(ifs)
+        )
+    }
+
+    #[test]
+    fn nospc_weights_lambdas_as_three_quarters() {
+        // MATLAB probe: 331 nested `@()` (993) are fine, 332 (996) give NOSPC.
+        let diags = lint_file(&*engine(), &nested_with_lambdas(0, 331));
+        assert!(!has_id(&diags, "NOSPC"), "got: {diags:?}");
+        let diags = lint_file(&*engine(), &nested_with_lambdas(0, 332));
+        assert!(has_id(&diags, "NOSPC"), "got: {diags:?}");
+    }
+
+    #[test]
+    fn nospc_adds_lambdas_to_the_statement_weight() {
+        // MATLAB probe: 247 nested `if`s (988) with one lambda (991) are fine, with two
+        // (994) NOSPC; 248 `if`s (992) with one lambda (995) give NOSPC.
+        let diags = lint_file(&*engine(), &nested_with_lambdas(247, 1));
+        assert!(!has_id(&diags, "NOSPC"), "got: {diags:?}");
+        let diags = lint_file(&*engine(), &nested_with_lambdas(247, 2));
+        assert!(has_id(&diags, "NOSPC"), "got: {diags:?}");
+        let diags = lint_file(&*engine(), &nested_with_lambdas(248, 1));
+        assert!(has_id(&diags, "NOSPC"), "got: {diags:?}");
+    }
+
     #[test]
     fn nospc_ok_on_shallow_nesting() {
         let diags = lint_file(&*engine(), "if x\n    y = 1;\nend\n");

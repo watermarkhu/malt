@@ -927,3 +927,31 @@ mod tests {
         );
     }
 }
+
+#[cfg(test)]
+mod clear_and_load_tests {
+    use super::*;
+    use crate::test_util::{has_id, lint_file};
+    use malt_core::Config;
+
+    fn nasgu(src: &str) -> bool {
+        has_id(
+            &lint_file(&*UnusedEngine::from_config(&Config::default()), src),
+            "NASGU",
+        )
+    }
+
+    // Probed: `clearvars` no longer silences the whole script; the first assignment is
+    // NASGU because the second one replaces it.
+    #[test]
+    fn clearvars_does_not_silence_the_scope() {
+        assert!(nasgu("x = 1;\nclearvars;\nx = 2;\ndisp(x)\n"));
+    }
+
+    // Probed: `load(file, 'x')` stores `x` when the file name is a variable too.
+    #[test]
+    fn load_with_a_variable_file_name_stores_its_names() {
+        assert!(nasgu("f = 'a.mat';\nx = 1;\nload(f, 'x');\ndisp(x)\n"));
+        assert!(!nasgu("x = 1;\ndisp(x)\n"));
+    }
+}

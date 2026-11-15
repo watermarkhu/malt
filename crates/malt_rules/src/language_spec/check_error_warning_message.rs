@@ -1,6 +1,7 @@
 //! See the parent module `super` for the shared engine and helpers.
 
 use super::*;
+use crate::analysis::reaching::reaching_values;
 
 /// The rule ID and message for `error` (ERTXT) and `warning` (WTXT).
 fn error_or_warning(name: &str) -> Option<(&'static str, &'static str)> {
@@ -49,14 +50,25 @@ impl LanguageSpecEngine {
         if args.len() != 1 {
             return;
         }
+        // A variable is a literal when exactly one value reaches the call (probed:
+        // `x = 'a:b'; error(x)` is ERTXT; a copy `y = x`, two reaching values or an
+        // indexed write are silent).
+        let arg = if args[0].kind() == "identifier" {
+            match reaching_values(args[0], source, node_text(args[0], source)) {
+                Some(values) if values.len() == 1 && values[0].kind() == "string" => values[0],
+                _ => return,
+            }
+        } else {
+            args[0]
+        };
         // Probed: `error("a:b")` is silent (MATLAB reads the string object as plain
         // text), but `warning("a:b")` is WTXT. Other argument kinds are not literals.
-        let text = node_text(args[0], source);
+        let text = node_text(arg, source);
         let double_quoted = text.starts_with('"');
         if (double_quoted && rule_id == "ERTXT") || !(double_quoted || text.starts_with('\'')) {
             return;
         }
-        let Some(content) = string_content(args[0], source) else {
+        let Some(content) = string_content(arg, source) else {
             return;
         };
         // MATLAB reads a single argument as an identifier only when it is one; see
@@ -314,5 +326,25 @@ end
         let source = "function f(x)\nif x\nreturn\nend\nerror('a:b');\nend\n";
         let diags = check_source(source, "f.m");
         assert_eq!(filter_by_id(&diags, "ERTXT").len(), 1, "got: {diags:?}");
+    }
+}
+
+#[cfg(test)]
+mod variable_tests {
+    use crate::language_spec::tests::{check_source, filter_by_id};
+
+    // Probed: `x = 'a:b'; error(x)` is ERTXT when exactly one value reaches the call;
+    // a copy, a value a branch may replace and a cleared name are silent.
+    #[test]
+    fn ertxt_needs_one_reaching_literal() {
+        let ertxt = |src: &str| !filter_by_id(&check_source(src, "t.m"), "ERTXT").is_empty();
+        assert!(ertxt("x = 'a:b';\nerror(x)\n"));
+        assert!(ertxt("x = 'c';\nx = 'a:b';\nerror(x)\n"));
+        assert!(ertxt("x = 'a:b';\nfor k = 1:2\n    error(x);\nend\n"));
+        assert!(!ertxt("x = 'a:b';\ny = x;\nerror(y)\n"));
+        assert!(!ertxt(
+            "x = 'a:b';\nc = rand > 0.5;\nif c\n    x = 'a:c';\nend\nerror(x)\n"
+        ));
+        assert!(!ertxt("x = 'a:b';\nclear x\nerror(x)\n"));
     }
 }

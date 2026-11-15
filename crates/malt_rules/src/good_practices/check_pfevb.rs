@@ -70,3 +70,35 @@ mod tests {
         assert!(eng.check_pfevb(parfor, source).is_empty());
     }
 }
+
+#[cfg(test)]
+mod variable_tests {
+    use crate::test_util::lint_nodes;
+    use malt_core::Config;
+
+    fn pfevb(src: &str) -> usize {
+        let e = crate::good_practices::GoodPracticesEngine::from_config(&Config::default());
+        lint_nodes(&*e, src)
+            .iter()
+            .filter(|d| d.rule_id == "PFEVB")
+            .count()
+    }
+
+    // Probed: a variable whose value is 'base' is the base workspace inside a parfor;
+    // 'caller' and a built name are not.
+    #[test]
+    fn pfevb_follows_a_variable_holding_base() {
+        assert_eq!(
+            pfevb("b = 'base';\nparfor i = 1:3, evalin(b, 'x = 1;'); end\n"),
+            1
+        );
+        assert_eq!(
+            pfevb("b = 'caller';\nparfor i = 1:3, evalin(b, 'x = 1;'); end\n"),
+            0
+        );
+        assert_eq!(
+            pfevb("b = ['ba' 'se'];\nparfor i = 1:3, evalin(b, 'x = 1;'); end\n"),
+            0
+        );
+    }
+}

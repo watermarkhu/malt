@@ -110,6 +110,10 @@ fn used_after_parfor(
     if overwritten_before_read(parfor, name, source) {
         return false;
     }
+    // A function output is returned, so its value is read after the loop (probed).
+    if is_output_of_enclosing_function(sym, parfor.start_byte(), name) {
+        return true;
+    }
     sym.scopes
         .iter()
         .flat_map(|scope| scope.uses.iter())
@@ -124,8 +128,9 @@ fn used_after_parfor(
 }
 
 /// Whether the first statement after the loop that mentions `name` is a plain
-/// assignment to it that does not read it.
-fn overwritten_before_read(parfor: Node, name: &str, source: &str) -> bool {
+/// assignment to it that does not read it, or a function-syntax `clear name`
+/// (probed: `clear s;` ends the value, `clear s` in command syntax does not).
+pub(crate) fn overwritten_before_read(parfor: Node, name: &str, source: &str) -> bool {
     let Some(block) = parfor.parent() else {
         return false;
     };
@@ -135,6 +140,9 @@ fn overwritten_before_read(parfor: Node, name: &str, source: &str) -> bool {
         .filter(|s| s.start_byte() >= parfor.end_byte())
         .collect();
     for statement in later {
+        if is_clear_of(statement, name, source) {
+            return true;
+        }
         if !mentions(statement, name, source) {
             continue;
         }
@@ -217,12 +225,62 @@ fn collect_reduction_assignments<'a>(body: Node<'a>, source: &str) -> Vec<(Strin
                 }
             }
         }
-        if let (true, Some(lhs)) = (reduction, first) {
+        if let (true, Some(lhs)) = (
+            reduction && !read_outside_reduction(body, &name, source),
+            first,
+        ) {
             out.push((name, lhs));
         }
     }
     out.sort_by_key(|(_, lhs)| lhs.start_byte());
     out
+}
+
+/// Whether the body reads `name` other than in its own reduction assignments.
+/// Probed: `t = s`, `disp(s)`, `v(i) = s` and `s(1)` in the body make `s` a
+/// temporary (PFUTVR), not a reduction variable.
+fn read_outside_reduction(body: Node, name: &str, source: &str) -> bool {
+    let mut stack = vec![body];
+    while let Some(node) = stack.pop() {
+        if node.kind() == "identifier"
+            && node_text(node, source) == name
+            && !in_own_assignment(node, name, body, source)
+        {
+            return true;
+        }
+        let mut cursor = node.walk();
+        stack.extend(node.children(&mut cursor));
+    }
+    false
+}
+
+/// Whether a statement is `clear name` or `clear(name)`, in function or command syntax
+/// (probed: both end the value, t05 and t18).
+fn is_clear_of(statement: Node, name: &str, source: &str) -> bool {
+    let text = node_text(statement, source).trim().trim_end_matches(';');
+    let mut words = text
+        .split(|c: char| c.is_whitespace() || matches!(c, '(' | ')' | ','))
+        .filter(|w| !w.is_empty());
+    words.next() == Some("clear") && words.any(|w| w == name)
+}
+
+/// Whether an identifier sits in an assignment whose target is `name`.
+fn in_own_assignment(node: Node, name: &str, body: Node, source: &str) -> bool {
+    let mut current = node.parent();
+    while let Some(p) = current {
+        if p.id() == body.id() {
+            return false;
+        }
+        if p.kind() == "assignment" {
+            return p
+                .child_by_field_name("left")
+                .and_then(|l| lhs_base_name(l, source))
+                .as_deref()
+                == Some(name);
+        }
+        current = p.parent();
+    }
+    false
 }
 
 /// The operator of a reduction right-hand side `name op ...`, or `max` / `min`
@@ -389,6 +447,25 @@ mod tests {
         // Probed: `save('x.mat', 's')` is not a read of s (pr28); nor is `save x.mat s` (q09).
         let source = "function f()\ns = 0;\nparfor i = 1:10\n    s = s + i;\nend\nsave('x.mat', 's');\nend\n";
         assert_eq!(pfr_ids_for(source, "PFRUS").len(), 1);
+    }
+
+    #[test]
+    fn test_pfrus_silent_when_returned_or_read_whole_in_body() {
+        // Probed: a returned reduction is used (pr01, h01); a whole read in the body
+        // makes `s` a temporary, not a reduction (pr03, pr10, t13).
+        let returned = "function s = f(n)\ns = 0;\nparfor i = 1:n\n    s = s + i;\nend\nend\n";
+        assert!(pfr_ids_for(returned, "PFRUS").is_empty());
+        let whole = "function r = f(n)\ns = 0;\nparfor i = 1:n\n    s = s + i;\n    disp(s);\nend\nr = 1;\nend\n";
+        assert!(pfr_ids_for(whole, "PFRUS").is_empty());
+    }
+
+    #[test]
+    fn test_pfrus_clear_ends_value_in_either_syntax() {
+        // Probed: `clear s;` (t05) and command syntax `clear s` (t18) both end the value.
+        let function_syntax = "function r = f(n)\ns = 0;\nparfor i = 1:n\n    s = s + i;\nend\nclear s;\nr = 1;\nend\n";
+        assert_eq!(pfr_ids_for(function_syntax, "PFRUS").len(), 1);
+        let command_syntax = "function r = f(n)\ns = 0;\nparfor i = 1:n\n    s = s + i;\nend\nclear s\nr = 1;\nend\n";
+        assert_eq!(pfr_ids_for(command_syntax, "PFRUS").len(), 1);
     }
 
     #[test]

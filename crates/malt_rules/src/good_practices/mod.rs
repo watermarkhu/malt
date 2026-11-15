@@ -21,6 +21,10 @@
 //! validation). Each diagnostic carries the specific check ID (e.g. `TRYNC`,
 //! `EVLCS`, `PFRNI`).
 //!
+//! CHAIN: a chained comparison such as `a < b < c` is evaluated by MATLAB as
+//! `(a < b) < c`, which compares a logical value with `c`; the check reports the
+//! outermost comparison of a chain once.
+//!
 //! The checks span error handling, string and comparison idioms, `eval`/dynamic
 //! code, parfor/spmd parallel practices, structure and field access, OOP and
 //! class properties, logical-usage patterns, shared variables, arity, and App
@@ -197,8 +201,10 @@ use malt_core::{Category, Config, Diagnostic, FileContext, Fix, NodeContext, Rul
 use serde::Deserialize;
 use tree_sitter::Node;
 
+use self::check_parfor_reduction::overwritten_before_read;
 use crate::analysis::control_flow::in_unreachable_code;
 use crate::analysis::metadata::{ClassMeta, FileMeta};
+use crate::analysis::reaching::resolved_values;
 use crate::analysis::symbols::SymbolTable;
 
 mod check_app_designer;
@@ -530,6 +536,7 @@ impl GoodPracticesEngine {
                                 .any(|(n, _)| *n == name)
                             || is_defined_before_parfor(&sym, &name, parfor.start_byte())
                             || is_assigned_in_body(body_node, &name, source)
+                            || assigned_as_target(body_node, &name, source)
                             || matches!(name.as_str(), "nargin" | "nargout" | "who" | "whos")
                         {
                             continue;
@@ -570,13 +577,18 @@ impl GoodPracticesEngine {
                             || whole.contains(&name)
                             || reported.contains(&name)
                             || has_whole_read(body_node, &name, source)
-                            || is_output_of_enclosing_function(&sym, parfor.start_byte(), &name)
                         {
                             continue;
                         }
                         reported.push(name.clone());
+                        // Unused when the first access after the loop overwrites it (probed:
+                        // `a(1) = 0`, `a = 5`, `clear a;`, even for a function output), or
+                        // when nothing reads it and it is not returned.
+                        let overwritten = overwritten_before_read(*parfor, &name, source);
+                        let is_output =
+                            is_output_of_enclosing_function(&sym, parfor.start_byte(), &name);
                         let uses = uses_after_parfor(&sym, &name, parfor.end_byte(), tree, false);
-                        if uses.is_empty() {
+                        if overwritten || (uses.is_empty() && !is_output) {
                             let pos = lhs_node.start_position();
                             diagnostics.push(Diagnostic {
                                 rule_id: "PFOUS",
@@ -1033,8 +1045,11 @@ pub(crate) fn built_assignment(args: &str) -> Option<bool> {
         }
     }
     let name = name.trim();
-    let identifier = name.chars().next().is_some_and(|c| c.is_ascii_alphabetic())
-        && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_');
+    // A static field path (`a.b = ...`) is a name too (probed: EVLEQ).
+    let identifier = name.split('.').all(|part| {
+        part.chars().next().is_some_and(|c| c.is_ascii_alphabetic())
+            && part.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+    });
     (assigned && identifier).then_some(numbered)
 }
 
@@ -1136,9 +1151,7 @@ pub(crate) fn classify_eval_usage(
                 && (bytes[i - 1].is_ascii_alphanumeric()
                     || bytes[i - 1] == b'_'
                     || bytes[i - 1] == b')')
-                && bytes
-                    .get(i + 1)
-                    .is_none_or(|n| n.is_ascii_alphabetic() || *n == b' ')
+                && bytes.get(i + 1).is_none_or(|n| *n == b' ')
         });
     if dotted && !is_constant && on("EVLDOT") {
         return (
@@ -1424,6 +1437,19 @@ pub(crate) fn is_evalin_assignin_base(node: Node, source: &str) -> bool {
         Some(a) => a,
         None => return false,
     };
+    if first_arg.kind() == "identifier" {
+        // A variable whose every reaching value is the workspace name (probed: `b = 'base';
+        // evalin(b, ...)` inside a parfor is PFEVB; `b = 'caller'` is not).
+        return resolved_values(first_arg, source).is_some_and(|values| {
+            !values.is_empty()
+                && values.iter().all(|v| {
+                    v.kind() == "string"
+                        && node_text(*v, source)
+                            .trim_matches(|c| c == '\'' || c == '"')
+                            .eq_ignore_ascii_case("base")
+                })
+        });
+    }
     let text = node_text(first_arg, source).trim();
     let text = text.trim_matches('\'').trim_matches('"');
     // MATLAB matches the workspace name without regard to case (probed: 'BASE').
@@ -1550,6 +1576,59 @@ pub(crate) fn collect_global_use_diagnostics<'a>(
 ///
 /// Function-call names, assignment LHS writes, field names, and declarations
 /// are excluded; only genuine variable reads are returned, deduplicated by name.
+/// Whether `name` is a target of a multi-output assignment in the body (`[name, ~] = ...`).
+fn assigned_as_target(body: Node, name: &str, source: &str) -> bool {
+    let mut identifiers = Vec::new();
+    collect_nodes_of_kind(body, "identifier", &mut identifiers);
+    identifiers
+        .iter()
+        .any(|id| node_text(*id, source) == name && is_assignment_target(*id))
+}
+
+/// Whether an identifier is a target of an assignment, as in `[i, j] = deal(...)`
+/// (not an index argument: `v(k) = 1` reads `k`).
+fn is_assignment_target(id: Node) -> bool {
+    let mut prev = id;
+    let mut current = id.parent();
+    while let Some(p) = current {
+        match p.kind() {
+            "assignment" => {
+                // A multi-output target may not carry the `left` field: then it is the
+                // first named child.
+                let left = p.child_by_field_name("left").or_else(|| p.named_child(0));
+                return left.is_some_and(|l| l.id() == prev.id());
+            }
+            "arguments" | "function_call" | "cell_index" | "block" | "function_definition" => {
+                return false;
+            }
+            _ => {}
+        }
+        prev = p;
+        current = p.parent();
+    }
+    false
+}
+
+/// Whether `name` is a parameter of an anonymous function that contains `id`
+/// (`@(i, j) i + j`: the parameters shadow the loop's variables).
+fn is_lambda_parameter(id: Node, name: &str, source: &str) -> bool {
+    let mut current = id.parent();
+    while let Some(p) = current {
+        if p.kind() == "lambda" {
+            let text = node_text(p, source);
+            let params = text
+                .strip_prefix("@(")
+                .and_then(|rest| rest.split(')').next())
+                .unwrap_or("");
+            if params.split(',').any(|param| param.trim() == name) {
+                return true;
+            }
+        }
+        current = p.parent();
+    }
+    false
+}
+
 pub(crate) fn collect_parfor_body_reads<'a>(
     node: Node<'a>,
     source: &str,
@@ -1561,7 +1640,10 @@ pub(crate) fn collect_parfor_body_reads<'a>(
     collect_nodes_of_kind(node, "identifier", &mut identifiers);
     for id in identifiers {
         let name = node_text(id, source).to_string();
-        if skip.contains(&name) {
+        if skip.contains(&name)
+            || is_assignment_target(id)
+            || is_lambda_parameter(id, &name, source)
+        {
             continue;
         }
         if let Some(parent) = id.parent() {
@@ -2555,6 +2637,34 @@ z = f(eval(x + y));\nonCleanup(@f);\n[~] = onCleanup(@f);\nc = computer('arch');
     fn test_pfiin_silent_when_loop_in_body_iterates_name() {
         // Probed (pfbrk_10): a `for` loop in the body assigns its iterator.
         let source = "function f()\nparfor i = 1:10\n    for k = 1:2\n        if k > 1\n            a(i) = k;\n        end\n    end\nend\nk = 1;\nend\n";
+        let tree = parse(source);
+        let eng = engine();
+        assert!(g2_file_ids_with(&eng, &tree, source, "PFIIN").is_empty());
+    }
+
+    #[test]
+    fn test_pfous_fires_on_overwrite_after_loop_even_for_output() {
+        // Probed (po02, po12, t06, t16): an overwrite after the loop ends the value, even
+        // for a function output. A returned sliced output with no later write is used (t03).
+        let overwritten = "function a = f(n)\na = zeros(1, n);\nparfor i = 1:n\n    a(i) = i;\nend\na(1) = 0;\nend\n";
+        let tree = parse(overwritten);
+        let eng = engine();
+        assert_eq!(g2_file_ids_with(&eng, &tree, overwritten, "PFOUS").len(), 1);
+        let canonical =
+            "function a = f(n)\na = zeros(1, n);\nparfor i = 1:n\n    a(i) = i;\nend\nend\n";
+        let tree = parse(canonical);
+        assert!(g2_file_ids_with(&eng, &tree, canonical, "PFOUS").is_empty());
+        // Probed (po15): `clear a;` in function syntax ends the value.
+        let cleared = "function a = f(n)\na = zeros(1, n);\nparfor i = 1:n\n    a(i) = i;\nend\nclear a;\nend\n";
+        let tree = parse(cleared);
+        assert_eq!(g2_file_ids_with(&eng, &tree, cleared, "PFOUS").len(), 1);
+    }
+
+    #[test]
+    fn test_pfiin_silent_on_lambda_parameter_and_multi_output_target() {
+        // Probed (pu15, pu16, pu18): a lambda parameter and a target of `[i2, ~] = ...` are
+        // not input variables.
+        let source = "function v = f(n)\nv = zeros(1, n);\nparfor i = 1:n\n    g = @(x) x + i;\n    [i2, ~] = deal(i, 2);\n    v(i) = g(1) + i2;\nend\nend\n";
         let tree = parse(source);
         let eng = engine();
         assert!(g2_file_ids_with(&eng, &tree, source, "PFIIN").is_empty());

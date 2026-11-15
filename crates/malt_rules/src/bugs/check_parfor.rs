@@ -162,12 +162,15 @@ impl BugsEngine {
             return;
         };
 
-        // PFUIXE: the loop index is unavailable after the loop.
+        // PFUIXE: the loop index is unavailable after the loop. MATLAB reports it at the
+        // loop header, not at the later use (probed), and names the use's line.
         if let Some(lv) = loop_var.as_deref() {
             if let Some(use_node) = later_use(parfor, lv, source) {
+                let header =
+                    crate::good_practices::find_parfor_index_identifier(parfor).unwrap_or(parfor);
                 diagnostics.push(diag(
                     "PFUIXE",
-                    use_node,
+                    header,
                     format!("The index variable '{lv}' might be used after the PARFOR loop on line {}, but it is unavailable after the loop.", use_node.start_position().row + 1),
                 ));
             }
@@ -319,7 +322,8 @@ mod tests {
             "got: {}",
             d.message
         );
-        assert_eq!(d.line, 4);
+        // Probed: MATLAB reports PFUIXE on the loop header (line 1), not at the use.
+        assert_eq!(d.line, 1);
     }
 
     #[test]
@@ -470,6 +474,8 @@ mod tests {
             d.message,
             "The index variable 'i' might be used after the PARFOR loop on line 4, but it is unavailable after the loop."
         );
+        // Probed: MATLAB reports PFUIXE on the loop header line (here line 1).
+        assert_eq!((d.line, d.column), (1, 8));
     }
 
     #[test]

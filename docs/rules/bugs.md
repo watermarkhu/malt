@@ -18,6 +18,13 @@ single hybrid engine (`BugsEngine`) that performs both node-level checking
 analysis after traversal). Each diagnostic carries the specific check ID
 (e.g. `IFBDUP`, `FNAN`).
 
+CTRUE and CFALSE: a comparison of a function that returns a logical value with a
+numeric literal, such as `any(A) <= 1`, is constant, because a logical is only 0
+or 1. SHOCIRT and SHOCIRF: a predicate applied to the result of a short-circuit
+operator, such as `isscalar(A && B)`, is constant, because `&&` and `||` always
+give a logical scalar (or an error). DEBUGFUN: a debug function, which is meant
+for the Command Window, is called in code that runs at runtime, where it fails.
+
 ## Check IDs
 
 ### IFBDUP

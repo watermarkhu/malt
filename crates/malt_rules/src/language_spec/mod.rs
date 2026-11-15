@@ -1795,7 +1795,7 @@ impl LanguageSpecEngine {
                 let same_statement_read = analysis.indexed_reads.get(var).and_then(|rs| {
                     rs.iter()
                         .map(|(_, s, _, _)| *s)
-                        .filter(|&s| s > fs && !source[fs..s].contains('\n'))
+                        .filter(|&s| s > fs && !source[fs..s].contains(['\n', ';', ',']))
                         .min()
                 });
                 if let Some(fr) = same_statement_read.filter(|_| !pfutmp_vars.contains(var)) {
@@ -1939,6 +1939,35 @@ impl LanguageSpecEngine {
         // whole. Probed: MATLAB is silent for `a(i) = i; a = 3` and for `q = zeros(3,1);
         // q(i) = 1`, and reports PFUNK only for less common shapes such as a sliced
         // variable indexed by a temporary (`k = i; v(k) = 1`).
+
+        // PFUNK: a sliced write whose subscript is a temporary of the body, as in
+        // `k = i; v(k) = 1`. Probed: MATLAB reports it whatever the temporary's value
+        // (`k = 2; v(k) = i`) and whether `k` is reassigned later (`k = 2` after the write).
+        for (var, writes) in &analysis.sliced_lhs {
+            let mut first_write: Option<usize> = None;
+            for (args, start, _end, _is_cell) in writes {
+                let uses_temp = args
+                    .split(|c: char| !(c.is_alphanumeric() || c == '_'))
+                    .any(|t| t != analysis.parfor_var && analysis.temp_assigns.contains_key(t));
+                if uses_temp
+                    && !args
+                        .split(|c: char| !(c.is_alphanumeric() || c == '_'))
+                        .any(|t| t == analysis.parfor_var)
+                {
+                    first_write = Some(first_write.map_or(*start, |f| f.min(*start)));
+                }
+            }
+            if let Some(start) = first_write {
+                self.push_diag_bytes(
+                    source,
+                    start,
+                    start + 1,
+                    "PFUNK",
+                    &format!("Unable to classify variable {var} in the body of the parfor loop."),
+                    diagnostics,
+                );
+            }
+        }
 
         // PFANON: sliced output variable used inside an anonymous function
         for (start, refs) in &analysis.lambdas {
@@ -4877,6 +4906,42 @@ end
         assert!(
             !filter_by_id(&diags, "PFUTMP").is_empty(),
             "PFUTMP should fire when a temporary is used before it is set"
+        );
+    }
+
+    #[test]
+    fn test_pfunk_fires_on_sliced_write_through_temporary() {
+        // Probed (pu01, u20, u32): a sliced write whose subscript is a body temporary is
+        // PFUNK, whatever the temporary holds, and the write is reported.
+        for body in [
+            "k = i;\n        v(k) = 1;",
+            "k = 2;\n        v(k) = i;",
+            "k = i;\n        v(k) = 1;\n        k = 2;",
+        ] {
+            let source = format!("function v = f(n)\n    v = zeros(1, n);\n    parfor i = 1:n\n        {body}\n    end\nend\n");
+            let diags = check_source(&source, "f.m");
+            assert_eq!(filter_by_id(&diags, "PFUNK").len(), 1, "{body}");
+        }
+        // Probed: a sliced write by the loop index itself is not PFUNK.
+        let source = "function v = f(n)\n    v = zeros(1, n);\n    parfor i = 1:n\n        k = i;\n        v(i) = k;\n    end\nend\n";
+        let diags = check_source(source, "f.m");
+        assert!(filter_by_id(&diags, "PFUNK").is_empty());
+    }
+
+    #[test]
+    fn test_pfutmp_no_fire_read_after_separator_on_same_line() {
+        // Probed (q08): `x = data(1:3); r(i) = x(1);` on one line is set before use.
+        let source = "\
+function f(data)
+    parfor i = 1:10
+        x = data(1:3); r(i) = x(1);
+    end
+end
+";
+        let diags = check_source(source, "f.m");
+        assert!(
+            filter_by_id(&diags, "PFUTMP").is_empty(),
+            "PFUTMP should NOT fire when the read follows a separator"
         );
     }
 

@@ -399,6 +399,7 @@ impl Linter {
 
         // Step 3c: MATLAB stops at 10,000 messages (TMMSG), counting every rule's
         // messages before the %#ok directives remove any.
+        limit_parse_errors(&mut diagnostics);
         limit_messages(&mut diagnostics, source);
 
         // Step 4: Apply inline suppression directives (%#ok<...>).
@@ -691,14 +692,58 @@ fn unused_bare_suppressions(
         .collect()
 }
 
-/// Keep the first `MATLAB_MAX_MESSAGES` messages in source order and add TMMSG
-/// when there are more, as MATLAB does (the messages past the limit are deleted).
-fn limit_messages(diagnostics: &mut Vec<Diagnostic>, source: &str) {
-    if diagnostics.len() <= MATLAB_MAX_MESSAGES {
+/// Parse errors MATLAB keeps before it reports TMSMS (the message itself comes from
+/// the incomplete-analysis engine). Probed: 1,100 and 1,500 erroneous statements
+/// both give 1,000 SYNER and one TMSMS.
+const MATLAB_MAX_PARSE_ERRORS: usize = 1_000;
+
+/// Keeps the first `MATLAB_MAX_PARSE_ERRORS` SYNER messages in source order and drops
+/// the rest, as MATLAB does once its parse-error budget is spent.
+fn limit_parse_errors(diagnostics: &mut Vec<Diagnostic>) {
+    let syner = diagnostics.iter().filter(|d| d.rule_id == "SYNER").count();
+    if syner <= MATLAB_MAX_PARSE_ERRORS {
         return;
     }
     diagnostics.sort_by(|a, b| a.line.cmp(&b.line).then(a.column.cmp(&b.column)));
-    diagnostics.truncate(MATLAB_MAX_MESSAGES);
+    let mut kept = 0;
+    diagnostics.retain(|d| {
+        if d.rule_id != "SYNER" {
+            return true;
+        }
+        kept += 1;
+        kept <= MATLAB_MAX_PARSE_ERRORS
+    });
+}
+
+/// The budget units one message uses against MATLAB's message limit. NOPTS
+/// counts three (probed: 3,334 NOPTS messages are kept, the 3,335th is cut and
+/// TMMSG added); every other message counts one.
+fn message_units(rule_id: &str) -> usize {
+    match rule_id {
+        "NOPTS" => 3,
+        _ => 1,
+    }
+}
+
+/// Keep the messages in source order while the units used so far are below
+/// `MATLAB_MAX_MESSAGES` and add TMMSG when some are dropped, as MATLAB does (the
+/// messages past the limit are deleted). The message that crosses the limit is kept.
+fn limit_messages(diagnostics: &mut Vec<Diagnostic>, source: &str) {
+    let units: usize = diagnostics.iter().map(|d| message_units(d.rule_id)).sum();
+    if units <= MATLAB_MAX_MESSAGES {
+        return;
+    }
+    diagnostics.sort_by(|a, b| a.line.cmp(&b.line).then(a.column.cmp(&b.column)));
+    let mut used = 0;
+    let mut kept = 0;
+    for diagnostic in diagnostics.iter() {
+        if used >= MATLAB_MAX_MESSAGES {
+            break;
+        }
+        used += message_units(diagnostic.rule_id);
+        kept += 1;
+    }
+    diagnostics.truncate(kept);
     diagnostics.push(Diagnostic {
         rule_id: "TMMSG",
         message:
@@ -1268,6 +1313,33 @@ mod tests {
 #[cfg(test)]
 mod statement_error_tests {
     use super::*;
+
+    #[test]
+    fn syner_past_the_parse_error_budget_is_dropped() {
+        // MATLAB probe: 1,100 and 1,500 erroneous statements give 1,000 SYNER and TMSMS.
+        let mut diags: Vec<Diagnostic> = (0..1500).map(|i| diag("SYNER", i)).collect();
+        limit_parse_errors(&mut diags);
+        assert_eq!(diags.len(), 1000);
+        assert_eq!(diags.last().unwrap().byte_range.start, 999);
+
+        let mut diags: Vec<Diagnostic> = (0..1000).map(|i| diag("SYNER", i)).collect();
+        limit_parse_errors(&mut diags);
+        assert_eq!(diags.len(), 1000);
+    }
+
+    #[test]
+    fn nopts_counts_three_units_towards_the_matlab_limit() {
+        // MATLAB probe: 3,400 NOPTS messages keep 3,334 and add TMMSG; 3,000 are all kept.
+        let mut diags: Vec<Diagnostic> = (0..3400).map(|i| diag("NOPTS", i)).collect();
+        limit_messages(&mut diags, "");
+        assert_eq!(diags.iter().filter(|d| d.rule_id == "NOPTS").count(), 3334);
+        assert_eq!(diags.last().unwrap().rule_id, "TMMSG");
+
+        let mut diags: Vec<Diagnostic> = (0..3000).map(|i| diag("NOPTS", i)).collect();
+        limit_messages(&mut diags, "");
+        assert_eq!(diags.len(), 3000);
+        assert!(diags.iter().all(|d| d.rule_id == "NOPTS"));
+    }
 
     fn diag(rule_id: &'static str, start: usize) -> Diagnostic {
         Diagnostic {

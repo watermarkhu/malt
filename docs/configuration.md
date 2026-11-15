@@ -125,7 +125,7 @@ formatting = "info"            # All formatting rules are informational
 
 | Category | Config Key | Includes |
 | -------- | ---------- | -------- |
-| Incomplete Analysis | `incomplete-analysis` | QUIT, NOFIL, RDERR, MBIG, MDEEP … |
+| Incomplete Analysis | `incomplete-analysis` | QUIT, NOFIL, RDERR, MDEEP … |
 | Syntax Errors | `syntax-errors` | BADCT, RESWD, DOUQT, NOPAR2, SYNEND … |
 | Language Specification | `language-specification` | PF\*, FV\*, MC\*, AT\* checks |
 | Bugs | `bugs` | IFBDUP, CTRUE, LOGEMP, INCR, DECR … |
@@ -245,7 +245,7 @@ disabled_checks = ["PFEVC", "PFANSLP"]   # Turn off specific checks
 
 | Engine ID | Category | Parameters |
 | --------- | -------- | ---------- |
-| `INCOMPLETE_ANALYSIS` | incomplete-analysis | `max_diagnostics`, `max_parse_errors`, `max_node_count` (linter-internal limits) |
+| `INCOMPLETE_ANALYSIS` | incomplete-analysis | `max_parse_errors` (TMSMS, default 1000), `max_paren_depth` (MDEEP, default 32), `max_function_depth` (DEEPN, default 17); MATLAB's own limits, the rule cannot be disabled |
 | `SYNTAX_ERRORS_ENGINE` | syntax-errors | `disabled_checks` |
 | `LANGUAGE_SPEC_ENGINE` | language-specification | `disabled_checks` |
 | `BUGS_ENGINE` | bugs | `debug_functions`, `higher_order_functions` (extra function names to treat as debug/higher-order) |

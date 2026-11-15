@@ -97,12 +97,14 @@ pub(crate) fn first_group_has_end_plus_one(group: &str) -> bool {
         .contains("end+1")
 }
 
-/// Whether the first bracket group of a target holds `numel(base)+1` or
-/// `length(base)+1`, the size form of the same growth.
+/// Whether the first bracket group of a target holds `numel(base)+1`, `length(base)+1`
+/// or `size(base,2)+1`, the size forms of the same growth (probed: `x(size(x,2)+1) = i`
+/// in a loop is SAGROW).
 pub(crate) fn first_group_has_size_plus_one(group: &str, base: &str) -> bool {
     let normalized: String = group.chars().filter(|c| !c.is_whitespace()).collect();
     normalized.contains(&format!("numel({base})+1"))
         || normalized.contains(&format!("length({base})+1"))
+        || normalized.contains(&format!("size({base},2)+1"))
 }
 
 /// Whether `base` starts as a value the growth checks follow (undefined, `[]`,
@@ -414,5 +416,28 @@ mod tests {
         let src = "function r = f(n)\nr = [];\nfor i = 1:n\n    r(i) = i;\nend\nend\n";
         let diags = lint_file(&*engine(), src);
         assert!(has_id(&diags, "AGROW"), "got: {diags:?}");
+    }
+}
+
+#[cfg(test)]
+mod size_form_tests {
+    use crate::test_util::{has_id, lint_file};
+
+    // Probed: `x(size(x,2)+1) = i` in a loop is SAGROW (in a script), as the numel form is;
+    // after `zeros(1,0)` it is silent.
+    #[test]
+    fn sagrow_fires_on_the_size_second_dimension_form() {
+        let e = super::super::test_support::engine();
+        assert!(has_id(
+            &lint_file(&*e, "x = [];\nfor i = 1:3\n    x(size(x,2)+1) = i;\nend\n"),
+            "SAGROW"
+        ));
+        assert!(!has_id(
+            &lint_file(
+                &*e,
+                "x = zeros(1,0);\nfor i = 1:3\n    x(size(x,2)+1) = i;\nend\n"
+            ),
+            "SAGROW"
+        ));
     }
 }

@@ -813,12 +813,10 @@ fn walk_switch_statement(
             "case_clause" => {
                 let case_children = named_children(*child);
 
-                // Check case expression for uses.
-                for cc in &case_children {
-                    if cc.kind() == "condition" {
-                        collect_uses_in_expr(*cc, source, assigned, uses);
-                        break;
-                    }
+                // Check the case expression for uses. The grammar names it by the field
+                // `condition`, not by a node kind.
+                if let Some(expr) = child.child_by_field_name("condition") {
+                    collect_uses_in_expr(expr, source, assigned, uses);
                 }
 
                 // Walk case body.

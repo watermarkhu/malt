@@ -65,6 +65,7 @@ use std::sync::LazyLock;
 
 use malt_core::{Category, Config, Diagnostic, NodeContext, Rule, Severity};
 
+use crate::analysis::reaching::resolved_values;
 use crate::analysis::symbols::{is_field_name, ScopeKind, SymbolTable};
 use crate::compatibility::reference_name;
 
@@ -241,8 +242,23 @@ impl SuggestedEntry {
             let Some(arg) = args.get(self.arg_at.max(1) - 1) else {
                 return false;
             };
-            let version = literal_text(*arg, source).unwrap_or_default();
-            if !release_at_least(version, self.version_at_least) {
+            // A variable is a version when every value that reaches the call is one
+            // (probed: `vv = '9.10'; verLessThan('matlab', vv)` is reported).
+            let versions: Vec<&str> = if arg.kind() == "identifier" {
+                resolved_values(*arg, source)
+                    .unwrap_or_default()
+                    .into_iter()
+                    .map(|v| literal_text(v, source))
+                    .collect::<Option<Vec<_>>>()
+                    .unwrap_or_default()
+            } else {
+                literal_text(*arg, source).into_iter().collect()
+            };
+            if versions.is_empty()
+                || !versions
+                    .iter()
+                    .all(|v| release_at_least(v, self.version_at_least))
+            {
                 return false;
             }
         }
@@ -1288,6 +1304,30 @@ mod tests {
         );
         // A name-value channel is not the positional one (probe `blfread(1, 'ChannelID', 2)`).
         assert!(rule_ids("blfread(1, 'ChannelID', 2);\n").is_empty());
+    }
+
+    // Probed: a variable holding a dotted release from 9.9 on is VERLESSMATLAB when every
+    // value that reaches the call is one (a copy counts); a built version and '9.8' are not.
+    #[test]
+    fn verlessthan_follows_a_variable_holding_a_release() {
+        let fires = |src: &str| {
+            lint_nodes(&*engine(), src)
+                .iter()
+                .any(|d| d.rule_id == "VERLESSMATLAB")
+        };
+        assert!(fires("vv = '9.10';\nok = verLessThan('matlab', vv);\n"));
+        assert!(fires(
+            "w = '9.10';\nvv = w;\nok = verLessThan('matlab', vv);\n"
+        ));
+        assert!(fires(
+            "vv = '9.10';\nvv = '9.11';\nok = verLessThan('matlab', vv);\n"
+        ));
+        assert!(!fires(
+            "vv = '9.10';\nvv = '9.8';\nok = verLessThan('matlab', vv);\n"
+        ));
+        assert!(!fires(
+            "vv = ['9.' '10'];\nok = verLessThan('matlab', vv);\n"
+        ));
     }
 
     #[test]

@@ -1,4 +1,5 @@
 use super::*;
+use crate::analysis::reaching::resolved_values;
 
 impl GoodPracticesEngine {
     /// EVLCS / EVLDOT / EVLEQ / EVLSYS / EVLSEQVAR / EVLDUAL: `eval` usage.
@@ -20,6 +21,10 @@ impl GoodPracticesEngine {
 
         if func_name != "eval" {
             return Vec::new();
+        }
+
+        if let Some(diags) = self.check_eval_variable(node, source) {
+            return diags;
         }
 
         let pos = node.start_position();
@@ -114,6 +119,90 @@ impl GoodPracticesEngine {
         }]
     }
 
+    /// EVLCS / EVLEQ for `eval(t)` where `t` holds a constant text or a concatenation
+    /// built from constants (probed: `t = 'x = 1;'; eval(t)` is EVLCS, `t = ['x = '
+    /// num2str(v)]; eval(t)` is EVLEQ, through copies and `t = [t ';']`). Every value
+    /// that reaches the call must give the same message; a literal in a value position
+    /// only (`y = eval(t)`). `None` when the argument is not a single variable.
+    fn check_eval_variable(&self, node: Node, source: &str) -> Option<Vec<Diagnostic>> {
+        let args = find_child_of_kind(node, "arguments")?;
+        if args.named_child_count() != 1 {
+            return None;
+        }
+        let arg = args.named_child(0)?;
+        if arg.kind() != "identifier" {
+            return None;
+        }
+        let silent = Some(Vec::new());
+        if !self.is_check_enabled("EVLCS") {
+            return silent;
+        }
+        let Some(values) = resolved_values(arg, source) else {
+            return silent;
+        };
+        let statement_level = node
+            .parent()
+            .is_some_and(|p| STATEMENT_PARENTS.contains(&p.kind()));
+        let mut found = Vec::new();
+        for value in values {
+            if !statement_level && value.kind() != "string" {
+                return silent;
+            }
+            let (literal, args_text) = match value.kind() {
+                "string" => (
+                    string_literal_text(value, source),
+                    format!("({})", node_text(value, source)),
+                ),
+                "matrix" => {
+                    let mut literal = String::new();
+                    let mut parts = Vec::new();
+                    if !expand_matrix(value, source, 0, &mut literal, &mut parts) {
+                        return silent;
+                    }
+                    (literal, format!("([{}])", parts.join(" ")))
+                }
+                _ => return silent,
+            };
+            if value.kind() == "matrix" && command_word_concatenation(value, source) {
+                // `t = ['load ' x]; eval(t)` is EVLDUAL (probed), as for a direct argument.
+                return Some(if self.is_check_enabled("EVLDUAL") {
+                    vec![Diagnostic {
+                    rule_id: "EVLDUAL",
+                    message: "This use of 'eval' is unnecessary and can be removed. Call the evaluated function directly using parentheses. For example, use 'load(filename)' instead of 'eval(['load ' filename])'.".to_string(),
+                    severity: Severity::Warning,
+                    byte_range: node.start_byte()..node.end_byte(),
+                    line: node.start_position().row + 1,
+                    column: node.start_position().column + 1,
+                    fix: None,
+                }]
+                } else {
+                    Vec::new()
+                });
+            }
+            let (id, message) = classify_eval_usage(&literal, &args_text, &self.config);
+            // As for a direct argument: a constant matrix is EVLCS only with one
+            // literal (probed), and a dynamic EVLCS is silent.
+            if id == "EVLCS" && (value.kind() == "matrix" || !is_constant_argument(&args_text)) {
+                return silent;
+            }
+            found.push((id, message));
+        }
+        let first = *found.first()?;
+        if found.iter().any(|f| *f != first) {
+            return silent;
+        }
+        let pos = node.start_position();
+        Some(vec![Diagnostic {
+            rule_id: first.0,
+            message: first.1.to_string(),
+            severity: Severity::Warning,
+            byte_range: node.start_byte()..node.end_byte(),
+            line: pos.row + 1,
+            column: pos.column + 1,
+            fix: None,
+        }])
+    }
+
     /// Whether an `eval(...)` call's single argument is a concatenation that
     /// starts with a command word and a space, such as `['load ' name]`.
     fn eval_is_command_concatenation(&self, node: Node, source: &str) -> bool {
@@ -133,25 +222,86 @@ impl GoodPracticesEngine {
         // MATLAB's EVLDUAL is for a concatenated command such as
         // `eval(['load ' name])`: the first piece is a command word followed by
         // a space (probed). `eval(['x' num2str(i)])` is not one.
-        let arg = named[0];
-        if arg.kind() != "matrix" {
-            return false;
-        }
-        let text = node_text(arg, source).trim();
-        let Some(rest) = text.strip_prefix('[').map(str::trim_start) else {
-            return false;
-        };
-        let Some(word) = rest.strip_prefix('\'').and_then(|r| r.split('\'').next()) else {
-            return false;
-        };
-        word.ends_with(' ')
-            && !word.trim().is_empty()
-            && word
-                .trim()
-                .chars()
-                .all(|c| c.is_ascii_alphanumeric() || c == '_')
-            && !text.contains('=')
+        command_word_concatenation(named[0], source)
     }
+}
+
+/// The pieces of a matrix, with the elements of its rows (`[a b; c]` gives a, b, c).
+fn matrix_pieces(node: Node) -> Vec<Node> {
+    let mut out = Vec::new();
+    let mut cursor = node.walk();
+    for child in node.named_children(&mut cursor) {
+        if child.kind() == "row" {
+            out.extend(matrix_pieces(child));
+        } else {
+            out.push(child);
+        }
+    }
+    out
+}
+
+/// The literal text and the source text of a matrix that builds an eval argument,
+/// with each variable replaced by the single value it holds (`t = [t ';']`). `false`
+/// when a variable has no single value that is a literal or such a matrix.
+fn expand_matrix(
+    node: Node,
+    source: &str,
+    depth: usize,
+    literal: &mut String,
+    parts: &mut Vec<String>,
+) -> bool {
+    if depth > 8 {
+        return false;
+    }
+    for piece in matrix_pieces(node) {
+        let value = if piece.kind() == "identifier" {
+            let Some(values) = resolved_values(piece, source) else {
+                return false;
+            };
+            match values.as_slice() {
+                [value] => *value,
+                _ => return false,
+            }
+        } else {
+            piece
+        };
+        match value.kind() {
+            "string" => {
+                literal.push_str(&string_literal_text(value, source));
+                parts.push(node_text(value, source).to_string());
+            }
+            "matrix" => {
+                if !expand_matrix(value, source, depth + 1, literal, parts) {
+                    return false;
+                }
+            }
+            _ if piece.kind() == "identifier" => return false,
+            _ => parts.push(node_text(value, source).to_string()),
+        }
+    }
+    true
+}
+
+/// Whether a matrix is a concatenation that starts with a command word and a space,
+/// such as `['load ' name]` (probed: EVLDUAL).
+fn command_word_concatenation(arg: Node, source: &str) -> bool {
+    if arg.kind() != "matrix" {
+        return false;
+    }
+    let text = node_text(arg, source).trim();
+    let Some(rest) = text.strip_prefix('[').map(str::trim_start) else {
+        return false;
+    };
+    let Some(word) = rest.strip_prefix('\'').and_then(|r| r.split('\'').next()) else {
+        return false;
+    };
+    word.ends_with(' ')
+        && !word.trim().is_empty()
+        && word
+            .trim()
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_')
+        && !text.contains('=')
 }
 
 #[cfg(test)]
@@ -279,5 +429,80 @@ mod tests {
         // Probed: EVLDUAL needs a command word followed by a space.
         assert_eq!(ids("eval(['load ' f]);\n"), vec!["EVLDUAL"]);
         assert!(!ids("eval(['x' f]);\n").contains(&"EVLDUAL"));
+    }
+}
+
+#[cfg(test)]
+mod variable_tests {
+    use crate::test_util::lint_nodes;
+    use malt_core::Config;
+
+    fn evl_ids(src: &str) -> Vec<&'static str> {
+        let e = crate::good_practices::GoodPracticesEngine::from_config(&Config::default());
+        lint_nodes(&*e, src)
+            .iter()
+            .map(|d| d.rule_id)
+            .filter(|id| id.starts_with("EVL"))
+            .collect()
+    }
+
+    // Probed: a variable holding a constant text is EVLCS; every value that reaches
+    // the call must give the same message (two literal branches, a loop back edge).
+    #[test]
+    fn eval_of_a_constant_variable_is_evlcs() {
+        assert_eq!(evl_ids("t = 'x = 1;';\neval(t)\n"), vec!["EVLCS"]);
+        assert_eq!(evl_ids("t = 'x = 1;';\ns = t;\neval(s)\n"), vec!["EVLCS"]);
+        assert_eq!(evl_ids("t = 'a.b = 1;';\neval(t)\n"), vec!["EVLCS"]);
+        assert_eq!(evl_ids("t = 'x = 1;';\ny = eval(t);\n"), vec!["EVLCS"]);
+        assert_eq!(
+            evl_ids("t = 'x = 1;'; t = 'y = 2;';\neval(t)\n"),
+            vec!["EVLCS"]
+        );
+        assert_eq!(
+            evl_ids("t = 'x = 1;';\nc = rand > 0.5;\nif c\n    t = 'y = 2;';\nend\neval(t)\n"),
+            vec!["EVLCS"]
+        );
+        assert_eq!(
+            evl_ids("t = 'x = 1;';\nfor k = 1:2\n    eval(t);\n    t = 'x = 2;';\nend\n"),
+            vec!["EVLCS"]
+        );
+    }
+
+    // Probed: a built assignment held in a variable is EVLEQ, through copies,
+    // `t = [t ';']` and `num2str` pieces; a dotted name is EVLEQ too.
+    #[test]
+    fn eval_of_a_built_variable_is_evleq() {
+        assert_eq!(
+            evl_ids("v = 3;\nt = ['x = ' num2str(v)];\neval(t)\n"),
+            vec!["EVLEQ"]
+        );
+        assert_eq!(
+            evl_ids("t = ['x = ' num2str(3)];\nt = [t ';'];\neval(t)\n"),
+            vec!["EVLEQ"]
+        );
+        assert_eq!(
+            evl_ids("t = ['x = ' 'y;'];\nt = [t ' '];\neval(t)\n"),
+            vec!["EVLEQ"]
+        );
+        assert_eq!(
+            evl_ids("a.b = 1;\nt = ['a.b = ' num2str(5) ';'];\neval(t)\n"),
+            vec!["EVLEQ"]
+        );
+    }
+
+    // Probed: a concatenated command held in a variable is EVLDUAL.
+    #[test]
+    fn eval_of_a_command_variable_is_evldual() {
+        assert_eq!(evl_ids("t = ['load ' 'x'];\neval(t)\n"), vec!["EVLDUAL"]);
+    }
+
+    // Probed: silent for an input, a cleared name, a value changed by indexing and the
+    // two-argument form (EV2IN is another ID).
+    #[test]
+    fn eval_of_a_variable_is_silent_when_its_value_is_not_known() {
+        assert!(evl_ids("eval(t)\n").is_empty());
+        assert!(evl_ids("t = 'x = 1;';\nclear t\neval(t)\n").is_empty());
+        assert!(evl_ids("t = 'x = 1;';\nt(end+1) = ' ';\neval(t)\n").is_empty());
+        assert!(evl_ids("t = 'x = 1;';\neval(t, 'disp(2)')\n").is_empty());
     }
 }
