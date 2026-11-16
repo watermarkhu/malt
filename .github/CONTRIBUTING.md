@@ -24,6 +24,22 @@ uv run pytest                      # Python wrapper tests (builds the wheel)
 bun run docs:build                 # documentation site
 ```
 
+The MATLAB cross-check of the path index is in two phases, because on a public repository only the
+matlab-actions `run-*` actions license MATLAB in CI. First MATLAB writes the facts file, then the
+test compares it (MATLAB is not started by the test then). Locally, with MATLAB (tested with R2026b)
+on your `PATH`:
+
+```sh
+matlab -batch "run('crates/malt_cli/tests/matlab/generate_namespace_facts.m')"
+MALT_MATLAB_FACTS=target/matlab/namespace_facts.json MALT_MATLAB_REQUIRE=1 \
+  cargo test -p malt-cli --locked --test matlab_namespace -- --nocapture
+```
+
+Without `MALT_MATLAB_FACTS`, the test starts MATLAB itself (`MALT_MATLAB` or `matlab` on `PATH`) and
+generates the same file; without MATLAB it prints a `SKIP` line. `MALT_MATLAB_REQUIRE=1` makes a missing
+MATLAB or facts file a failure (CI sets it). `MALT_MATLAB_EXTRA_PATHS` adds local folders to the
+generation (never copied into the repository). See `docs/VERIFY.md`, 'Cross-check against MATLAB'.
+
 The **Qualify** workflow runs all of these on every pull request, builds every
 distribution (wheels, sdist, npm package, crates), and reports a single
 `Qualified` status.

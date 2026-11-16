@@ -21,6 +21,7 @@ let fun: Option<Entity> = index.get("pkg.sub.fn")?;      // functions, classes, 
 let method = index.get("ClassFolder.method")?;            // class folder methods
 let local = index.get_from("helper", Path::new("src"))?;  // siblings and private/ first
 let names = index.member_names();                         // top-level names
+let paths = index.contributor_paths("fn");                 // the files (folders) of a top-level name, in precedence order
 let all = index.members()?;                               // every top-level entity
 let folder = index.folder("src/sub")?;                    // a folder on the path, as an entity
 let by_path = index.get_path("src/sub/fn.m")?;            // a file, or a folder, by path
@@ -66,6 +67,10 @@ let (index, warnings) = Index::from_config(&config, &cwd, Some(file), &[], &Pars
   valid TOML, or an invalid `[index]` table, is `IndexError::Config`.
 - Globs are matched without the `globset` or `walkdir` crates (neither is a dependency).
   Symbolic links are followed when a pattern names them, but not while recursing.
+
+## Cross-check against MATLAB
+
+The integration test `crates/malt_cli/tests/matlab_namespace.rs` compares this crate with MATLAB on the same folders (names, the file each resolves to, `which -all`, signatures, class members). It runs `matlab -batch` and skips without MATLAB; CI runs it, required. See `docs/VERIFY.md`, 'Cross-check against MATLAB'.
 
 ## Entities
 
@@ -168,7 +173,7 @@ methods of a class folder as `cls.method`.
 - Getters and setters (`get.X`, `set.X`) attach to the property `X` of the class (its
   `getter`/`setter` in `PropertyDetail`); without a property, they are members named `X`
   with `is_getter`/`is_setter` set.
-- Attributes: `Access`, `GetAccess`, `SetAccess` (not `public` ones) as `Access=private`
+- Attributes: `Access`, `GetAccess`, `SetAccess` (not `public` ones) as `Access=private`; a class list (`{?Cls}`) or one class (`?Cls`) as `Access=restricted`
   etc.; the boolean attributes (`Abstract`, `Hidden`, `Sealed`, `Static`, `Constant`,
   `Dependent`, `Transient`, ...) as their names. A class's `Abstract`, `Hidden` and `Sealed`
   are its attributes too.

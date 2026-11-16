@@ -352,3 +352,64 @@ fn malformed_file_gives_an_entity_and_does_not_panic() {
         assert_eq!(e.name, "Sample");
     }
 }
+
+/// An abstract method is a signature with no body, not a `function_definition`: it is
+/// still a method of the class (MATLAB lists it, found by the cross-check against MATLAB).
+#[test]
+fn abstract_method_signatures_are_methods() {
+    let src = "classdef (Abstract) Base < handle\n\
+               methods (Abstract)\n\
+               out = doit(obj, x)\n\
+               end\n\
+               methods (Abstract, Static)\n\
+               r = make(x)\n\
+               end\n\
+               end\n";
+    let class = parse(src);
+    assert_eq!(class.kind, Kind::Class);
+    let doit = &class.members["doit"];
+    assert_eq!(doit.kind, Kind::Function);
+    assert!(doit.attributes.contains("Abstract"));
+    let detail = function(&class.members["doit"]);
+    assert_eq!(
+        arg_names(&detail.arguments),
+        vec!["x"],
+        "the object is dropped"
+    );
+    assert_eq!(arg_names(&detail.returns), vec!["out"]);
+    let make = &class.members["make"];
+    assert!(make.attributes.contains("Static"));
+    assert_eq!(arg_names(&function(make).arguments), vec!["x"]);
+}
+
+/// `Access` with a class list is `restricted` (MATLAB's metadata says so), not `private`.
+#[test]
+fn access_restricted_to_classes_is_restricted() {
+    let src = "classdef Msg < handle\n\
+               methods (Access = {?Logger, ?Other})\n\
+               function out = build(obj)\n\
+               out = 1;\n\
+               end\n\
+               end\n\
+               methods (Access = ?Logger)\n\
+               function out = single(obj)\n\
+               out = 2;\n\
+               end\n\
+               end\n\
+               methods (Access = protected)\n\
+               function out = guarded(obj)\n\
+               out = 3;\n\
+               end\n\
+               end\n\
+               end\n";
+    let class = parse(src);
+    assert!(class.members["build"]
+        .attributes
+        .contains("Access=restricted"));
+    assert!(class.members["single"]
+        .attributes
+        .contains("Access=restricted"));
+    assert!(class.members["guarded"]
+        .attributes
+        .contains("Access=protected"));
+}

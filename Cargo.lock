@@ -346,6 +346,8 @@ dependencies = [
  "malt-core",
  "malt-index",
  "malt-rules",
+ "serde",
+ "serde_json",
  "tempfile",
  "tree-sitter",
  "tree-sitter-matlab",

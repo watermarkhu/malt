@@ -246,9 +246,10 @@ impl Ctx<'_> {
         }
         for block in children.iter().filter(|c| c.kind() == "methods") {
             let attrs = self.method_attributes(*block);
+            // An abstract method is a signature with no body (`function_signature`).
             for method in named(*block)
                 .into_iter()
-                .filter(|c| c.kind() == "function_definition")
+                .filter(|c| matches!(c.kind(), "function_definition" | "function_signature"))
             {
                 if let Some(method) = self.function(method, Role::Method, &attrs) {
                     self.attach_method(&mut entity, method);
@@ -726,7 +727,8 @@ pub(crate) enum Role {
     Nested,
 }
 
-/// The access level of an attribute value: one of the four known levels, otherwise private.
+/// The access level of an attribute value: one of the known levels; a list of classes
+/// (`{?Cls1, ?Cls2}`) or one class (`?Cls`) is `restricted`; anything else is `private`.
 fn access_value(value: &AttrValue) -> String {
     match value {
         AttrValue::Text(s)
@@ -734,6 +736,7 @@ fn access_value(value: &AttrValue) -> String {
         {
             s.clone()
         }
+        AttrValue::Text(s) if s.starts_with('{') || s.starts_with('?') => "restricted".to_string(),
         _ => "private".to_string(),
     }
 }

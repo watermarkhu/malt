@@ -310,6 +310,15 @@ impl Index {
         self.top.get(name).map(Vec::as_slice).unwrap_or(&[])
     }
 
+    /// The paths of the contributors of a top-level name, in precedence order: each
+    /// file, or the folder of a package or class folder (as [`Index::contributors`]).
+    pub fn contributor_paths(&self, name: &str) -> Vec<PathBuf> {
+        self.contributors(name)
+            .iter()
+            .map(|id| self.entries[*id].path.clone())
+            .collect()
+    }
+
     fn resolve(&self, identifier: &str, dir: Option<&Path>) -> Result<Option<Entity>, IndexError> {
         let parts: Vec<&str> = identifier.split('.').collect();
         if parts.iter().any(|p| p.is_empty()) {

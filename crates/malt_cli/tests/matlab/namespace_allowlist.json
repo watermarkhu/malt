@@ -1,0 +1,76 @@
+{
+  "entries": [
+    {
+      "entity": "*",
+      "field": "methods.empty*",
+      "reason": "MATLAB adds an implicit static, hidden method `empty` to every classdef (probed: inputs varargin, outputs E). It is not in the source, so the index does not list it."
+    },
+    {
+      "entity": "*",
+      "field": "methods.{class}*",
+      "reason": "Implicit constructor: the class file declares no constructor, so MATLAB lists a default one (output obj, no input). The index lists declared methods only. Accepted only where the file has no function line naming the class."
+    },
+    {
+      "entity": "*",
+      "field": "methods.cellstr|methods.char|methods.colon|methods.eq|methods.intersect|methods.isequal|methods.isequaln|methods.ismember|methods.ne|methods.setdiff|methods.setxor|methods.strcmp|methods.strcmpi|methods.string|methods.strncmp|methods.strncmpi|methods.union",
+      "requires": "enumeration",
+      "reason": "MATLAB adds these methods to every enumeration class (probed: char, cellstr, eq, union, ...). None is declared in the source, so the index lists none."
+    },
+    {
+      "entity": "*",
+      "field": "methods.forInteractiveUse*",
+      "reason": "MATLAB adds the static, hidden method forInteractiveUse to a class derived from matlab.unittest.TestCase or matlab.perftest.TestCase (probed on R2026b). It is not in the source."
+    },
+    {
+      "entity": "mlog.view.LogDisplay",
+      "field": "methods.loadobj*",
+      "reason": "MATLAB lists a static loadobj for LogDisplay, which declares none in its file (it derives from matlab.ui.componentcontainer.ComponentContainer): an implicit method of the UI base class, not in the source."
+    },
+    {
+      "entity": "*",
+      "field": "events*",
+      "reason": "Known gap: an events block is not an entity in the index (README, 'What remains'). MATLAB lists the events; the index does not model them."
+    },
+    {
+      "entity": "*",
+      "field": "methods.*.outputs*",
+      "matlab": "varargout|absent",
+      "requires": "arguments-metadata",
+      "reason": "MATLAB's metadata gives varargout as the only output of a method with an arguments block (probed on R2026b: ArgClass.withArgs, ArgClass.named; and the toolkit's BordaVoter.rank, ConsensusVoter.select). The source names the outputs; the index reads the source."
+    },
+    {
+      "entity": "*",
+      "field": "methods.*.inputs*",
+      "matlab": "varargin|absent",
+      "requires": "arguments-metadata",
+      "reason": "MATLAB's metadata gives varargin alone as the inputs of a method with an arguments block (probed on R2026b: ArgClass.withArgs in=varargin). The source names the inputs; the index reads the source."
+    },
+    {
+      "entity": "*",
+      "field": "nargin|nargout",
+      "requires": "p-file",
+      "reason": "MATLAB resolves the name to a .p file next to the .m, and its signature (nargin, nargout) comes from the .p, which the index does not read (probed: hardwareDeviceCache, nargin 2 from the .p against -2 from the .m)."
+    },
+    {
+      "entity": "*",
+      "field": "file|all*",
+      "matlab": "*.p",
+      "reason": "A .p file next to the .m: MATLAB resolves the name to the .p (the file MATLAB runs), the index reads the .m. The .p file is listed by the MATLAB side under other."
+    },
+    {
+      "entity": "mlog.Logger.*",
+      "field": "file|all*|dotted_resolves",
+      "reason": "MATLAB resolves no name for a method of a class folder inside a package: which('mlog.Logger.addMessage') and which('mlog.@Logger/addMessage') are empty (probed on R2026b), so which(..., '-all') is empty too. which('@Logger/addMessage') finds the file in +mlog, but a short form like that could name another class's method, so it is not used. The index reads the file from the listing and lists the method under its dotted name."
+    },
+    {
+      "entity": "oldcls.*",
+      "field": "dotted_resolves",
+      "reason": "MATLAB resolves an old-style class method only through its folder: which('oldcls.getv') is empty, which('@oldcls/getv') is the file. The index lists it under its dotted name, as maxx does (README, 'Bare names')."
+    },
+    {
+      "entity": "FeaturePerformanceTest",
+      "field": "properties.DataSize*",
+      "reason": "A property in a properties (MethodSetupParameter) block is constant in MATLAB's metadata (the matlab.unittest framework defines the attribute, probed on R2026b); the source does not say Constant."
+    }
+  ]
+}
