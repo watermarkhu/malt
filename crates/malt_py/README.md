@@ -71,7 +71,7 @@ obj = parse_source(text, "src/x.m")       # the same, from text (the file is not
 | `Object` | `kind`, `name`, `path` (dotted identifier; a folder's `/name`), `filepath`, `lineno`, `endlineno`, `docstring`, `docstring_raw`, `docstring_lineno`, `docstring_endlineno`, `attributes`, `access`, `is_private`, `is_hidden`, `is_alias`, `target`, `members`, `parent`, `lines`, `source`, `lines_collection`, `is_folder`, `is_namespace`, `is_class`, `is_function`, `is_script`, `is_live_script`, `is_property`, `is_enumeration`. |
 | `Folder(Object)`, `Namespace(Object)`, `Script(Object)` | A plain folder, a package, a script. |
 | `LiveScript(Object)` | `sections`: a list of `LiveScriptSection` (`kind`, `content`, `lineno`, `endlineno`). |
-| `Class(Object)` | `bases` (text), `bases_expr` (`Expr`s), `mro`, `inherited_members`. |
+| `Class(Object)` | `bases` (text), `bases_expr` (`Expr`s), `events` (the names of the `events` entries, sorted), `declares_constructor` (a method named as the class is declared), `mro`, `inherited_members`. |
 | `Function(Object)` | `arguments`, `returns`, `is_getter`, `is_setter`. |
 | `Property(Object)` | `type`, `dimensions`, `validators`, `default`, and `type_expr`, `validators_expr`, `default_expr`; `getter` and `setter` (`Function`, with `parent` the property). |
 | `Enumeration(Object)` | `value`, `value_expr`. |

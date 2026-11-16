@@ -225,6 +225,14 @@ impl Ctx<'_> {
             .copied()
             .collect();
 
+        let events: Vec<String> = children
+            .iter()
+            .filter(|c| c.kind() == "events")
+            .flat_map(|block| named(*block))
+            .filter(|c| c.kind() == "identifier")
+            .map(|c| self.text(c))
+            .collect();
+
         let mut entity = Entity::new(Kind::Class, &name);
         let (lineno, endlineno) = span(node);
         entity.lineno = Some(lineno);
@@ -232,7 +240,11 @@ impl Ctx<'_> {
         entity.path = Some(self.path.to_path_buf());
         entity.docstring = comment_docstring(self.src, &leading);
         entity.attributes = attributes;
-        entity.detail = Detail::Class { bases };
+        entity.detail = Detail::Class {
+            bases,
+            events,
+            declares_constructor: false,
+        };
 
         for block in children.iter().filter(|c| c.kind() == "enumeration") {
             for member in self.enumeration(*block) {
@@ -244,6 +256,7 @@ impl Ctx<'_> {
                 entity.members.insert(property.name.clone(), property);
             }
         }
+        let mut declares_constructor = false;
         for block in children.iter().filter(|c| c.kind() == "methods") {
             let attrs = self.method_attributes(*block);
             // An abstract method is a signature with no body (`function_signature`).
@@ -252,9 +265,17 @@ impl Ctx<'_> {
                 .filter(|c| matches!(c.kind(), "function_definition" | "function_signature"))
             {
                 if let Some(method) = self.function(method, Role::Method, &attrs) {
+                    declares_constructor |= method.name == name;
                     self.attach_method(&mut entity, method);
                 }
             }
+        }
+        if let Detail::Class {
+            declares_constructor: flag,
+            ..
+        } = &mut entity.detail
+        {
+            *flag = declares_constructor;
         }
         entity
     }

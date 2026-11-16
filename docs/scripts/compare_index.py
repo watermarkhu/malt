@@ -42,6 +42,8 @@ from pathlib import Path
 from typing import Any
 
 DEFAULT_ALLOWLIST = Path(__file__).resolve().parents[2] / "crates" / "malt_index" / "oracle_allowlist.json"
+# The fields compared. Keys the index adds beyond maxx's schema (`events`,
+# `declares_constructor`) are not in these lists, so they are ignored, not reported.
 SCALAR_FIELDS = (
     "kind",
     "name",

@@ -205,10 +205,16 @@ pub struct LiveSection {
 pub enum Detail {
     /// No extra fields (folders, packages, class folders, scripts).
     None,
-    /// A classdef class: its superclasses, as written.
+    /// A classdef class: its superclasses, as written, its events and its constructor.
     Class {
         /// The superclasses, in order.
         bases: Vec<Expr>,
+        /// The names of the entries of its `events` blocks, in source order (no attributes).
+        #[serde(default)]
+        events: Vec<String>,
+        /// Whether the class file declares a method named as the class (its constructor).
+        #[serde(default)]
+        declares_constructor: bool,
     },
     /// A function or method.
     Function(FunctionDetail),
@@ -287,9 +293,29 @@ impl Entity {
     /// The superclasses, if this entity is a class.
     pub fn bases(&self) -> &[Expr] {
         match &self.detail {
-            Detail::Class { bases } => bases,
+            Detail::Class { bases, .. } => bases,
             _ => &[],
         }
+    }
+
+    /// The names of the `events` entries, if this entity is a class (source order).
+    pub fn events(&self) -> &[String] {
+        match &self.detail {
+            Detail::Class { events, .. } => events,
+            _ => &[],
+        }
+    }
+
+    /// Whether the class file declares a constructor (a method named as the class), if this
+    /// entity is a class. An implicit constructor is not declared, so it is `false`.
+    pub fn declares_constructor(&self) -> bool {
+        matches!(
+            self.detail,
+            Detail::Class {
+                declares_constructor: true,
+                ..
+            }
+        )
     }
 
     /// The sections, if this entity is a live script.

@@ -290,7 +290,7 @@ fn index_facts(index: &Index, key: &str, entity: &Entity) -> Value {
         "dotted_resolves": if method { Value::Bool(true) } else { Value::Null },
         "properties": properties,
         "methods": methods,
-        "events": Vec::<String>::new(),
+        "events": if class { sorted(entity.events().to_vec()) } else { vec![] },
         "enumeration": sorted(enumeration),
     })
 }
@@ -497,8 +497,8 @@ struct Entry {
 
 /// What an allowlist entry may depend on, from the index.
 struct IndexContext {
-    /// The file of each class.
-    class_files: BTreeMap<String, PathBuf>,
+    /// The classes whose file declares a constructor (the index's `declares_constructor`).
+    constructors: BTreeSet<String>,
     /// The classes with enumeration members.
     enumerations: BTreeSet<String>,
     /// The names MATLAB resolves to a `.p` file.
@@ -514,21 +514,6 @@ fn method_of(field: &str) -> Option<&str> {
     rest.split(['.', '[']).next()
 }
 
-/// Whether the class file declares a constructor named `class` (a `function` line that
-/// has the name as a word). A file that cannot be read is taken as declaring one.
-fn declares_constructor(file: &Path, class: &str) -> bool {
-    let Ok(text) = fs::read_to_string(file) else {
-        return true;
-    };
-    text.lines()
-        .map(str::trim_start)
-        .filter(|line| line.starts_with("function"))
-        .any(|line| {
-            line.split(|c: char| !(c.is_alphanumeric() || c == '_'))
-                .any(|word| word == class)
-        })
-}
-
 fn accepted_by(entry: &Entry, diff: &Difference, ctx: &IndexContext) -> bool {
     let class = diff.entity.rsplit('.').next().unwrap_or(&diff.entity);
     if !glob(&entry.entity, &diff.entity) {
@@ -538,14 +523,8 @@ fn accepted_by(entry: &Entry, diff: &Difference, ctx: &IndexContext) -> bool {
     if !field.split('|').any(|pattern| glob(pattern, &diff.field)) {
         return false;
     }
-    if entry.field.contains("{class}") {
-        let declared = ctx
-            .class_files
-            .get(&diff.entity)
-            .is_some_and(|file| declares_constructor(file, class));
-        if declared {
-            return false;
-        }
+    if entry.field.contains("{class}") && ctx.constructors.contains(&diff.entity) {
+        return false;
     }
     let required = match entry.requires.as_deref() {
         Some("enumeration") => ctx.enumerations.contains(&diff.entity),
@@ -650,7 +629,7 @@ fn index_agrees_with_matlab_on_the_project() -> Result<()> {
     }
     let mut index_side: BTreeMap<String, Value> = BTreeMap::new();
     let mut context = IndexContext {
-        class_files: BTreeMap::new(),
+        constructors: BTreeSet::new(),
         enumerations: BTreeSet::new(),
         p_files: matlab_side
             .iter()
@@ -672,8 +651,8 @@ fn index_agrees_with_matlab_on_the_project() -> Result<()> {
     for (key, entity) in &members {
         index_side.insert(key.clone(), index_facts(&index, key, entity));
         if entity.kind == Kind::Class {
-            if let Some(path) = &entity.path {
-                context.class_files.insert(key.clone(), path.clone());
+            if entity.declares_constructor() {
+                context.constructors.insert(key.clone());
             }
             if entity.members.values().any(|m| m.kind == Kind::Enumeration) {
                 context.enumerations.insert(key.clone());

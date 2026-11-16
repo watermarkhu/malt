@@ -8,7 +8,7 @@
     {
       "entity": "*",
       "field": "methods.{class}*",
-      "reason": "Implicit constructor: the class file declares no constructor, so MATLAB lists a default one (output obj, no input). The index lists declared methods only. Accepted only where the file has no function line naming the class."
+      "reason": "Implicit constructor: the class file declares no constructor, so MATLAB lists a default one (output obj, no input). The index lists declared methods only. Accepted only where the index finds no constructor in the class (`declares_constructor` is false)."
     },
     {
       "entity": "*",
@@ -25,11 +25,6 @@
       "entity": "mlog.view.LogDisplay",
       "field": "methods.loadobj*",
       "reason": "MATLAB lists a static loadobj for LogDisplay, which declares none in its file (it derives from matlab.ui.componentcontainer.ComponentContainer): an implicit method of the UI base class, not in the source."
-    },
-    {
-      "entity": "*",
-      "field": "events*",
-      "reason": "Known gap: an events block is not an entity in the index (README, 'What remains'). MATLAB lists the events; the index does not model them."
     },
     {
       "entity": "*",

@@ -12,8 +12,10 @@
           "bases": [
             "handle"
           ],
+          "declares_constructor": true,
           "docstring": "A point in the plane.",
           "endlineno": 16,
+          "events": [],
           "kind": "class",
           "lineno": 1,
           "members": {
@@ -171,8 +173,10 @@
               "bases": [
                 "geo.Point"
               ],
+              "declares_constructor": false,
               "docstring": "A circle: a point and a radius.",
               "endlineno": 6,
+              "events": [],
               "kind": "class",
               "lineno": 1,
               "members": {
@@ -217,8 +221,10 @@
           "bases": [
             "geo.Point"
           ],
+          "declares_constructor": false,
           "docstring": "A circle: a point and a radius.",
           "endlineno": 6,
+          "events": [],
           "kind": "class",
           "lineno": 1,
           "members": {
@@ -485,8 +491,12 @@
         "handle",
         "matlab.mixin.Copyable"
       ],
+      "declares_constructor": true,
       "docstring": "WIDGET A widget with a size and a name.\n\nBlock text.\n  Indented.",
       "endlineno": 47,
+      "events": [
+        "Changed"
+      ],
       "kind": "class",
       "lineno": 1,
       "members": {
@@ -675,8 +685,10 @@
       "bases": [
         "handle"
       ],
+      "declares_constructor": true,
       "docstring": "A point in the plane.",
       "endlineno": 16,
+      "events": [],
       "kind": "class",
       "lineno": 1,
       "members": {
@@ -827,8 +839,10 @@
       "bases": [
         "geo.Point"
       ],
+      "declares_constructor": false,
       "docstring": "A circle: a point and a radius.",
       "endlineno": 6,
+      "events": [],
       "kind": "class",
       "lineno": 1,
       "members": {

@@ -413,3 +413,51 @@ fn access_restricted_to_classes_is_restricted() {
         .attributes
         .contains("Access=protected"));
 }
+
+#[test]
+fn events_are_named_in_source_order_with_or_without_attributes() {
+    let class = parse(
+        "classdef Sample < handle
+    events
+        Changed
+        Moved
+    end
+    events (ListenAccess = private)
+        Internal
+    end
+end
+",
+    );
+    assert_eq!(class.kind, Kind::Class);
+    assert_eq!(class.events(), ["Changed", "Moved", "Internal"]);
+    assert!(parse("function f()\nend\n").events().is_empty());
+    assert!(parse("classdef Plain\nend\n").events().is_empty());
+}
+
+#[test]
+fn declares_constructor_is_a_method_named_as_the_class() {
+    let with = parse(
+        "classdef Sample
+    methods
+        function obj = Sample(x)
+        end
+        function y = bump(obj)
+        end
+    end
+end
+",
+    );
+    assert!(with.declares_constructor());
+    let without = parse(
+        "classdef Sample
+    methods
+        function y = Sampler(obj)
+        end
+    end
+end
+",
+    );
+    assert!(!without.declares_constructor());
+    assert!(!parse("classdef Sample\nend\n").declares_constructor());
+    assert!(!parse("function Sample()\nend\n").declares_constructor());
+}

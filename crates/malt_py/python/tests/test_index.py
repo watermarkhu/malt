@@ -107,6 +107,25 @@ def test_class_bases_mro_and_inherited_members(paths: PathsCollection) -> None:
     assert inherited["Name"].path == "shapes.Shape.Name"
 
 
+def test_class_events_and_declared_constructor(tmp_path: Path) -> None:
+    (tmp_path / "Sample.m").write_text(
+        "classdef Sample < handle\n"
+        "    events\n        Moved\n        Changed\n    end\n"
+        "    methods\n        function obj = Sample()\n        end\n    end\n"
+        "end\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "Plain.m").write_text("classdef Plain\nend\n", encoding="utf-8")
+    collection = PathsCollection([tmp_path])
+    sample = collection["Sample"]
+    assert isinstance(sample, Class)
+    assert sample.events == ["Changed", "Moved"]
+    assert sample.declares_constructor is True
+    plain = collection["Plain"]
+    assert plain.events == []
+    assert plain.declares_constructor is False
+
+
 def test_class_folder_is_a_class(paths: PathsCollection) -> None:
     money = paths["Money"]
     assert money.kind == "class"

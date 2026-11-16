@@ -3,7 +3,9 @@
 //!
 //! Keys are sorted. Fields follow maxx's rules per kind: `bases` only for classes,
 //! `arguments`, `returns`, `is_getter`, `is_setter` only for functions, and `type`,
-//! `dimensions`, `validators`, `default` only for properties. `path` is relative
+//! `dimensions`, `validators`, `default` only for properties. `events` (sorted names) and
+//! `declares_constructor` are index-side only: maxx has no such keys, and
+//! `docs/scripts/compare_index.py` compares only the fields of maxx's schema. `path` is relative
 //! to the first path of the search path (absolute when outside it).
 
 use std::path::Path;
@@ -50,6 +52,13 @@ pub fn entity_json(entity: &Entity, root: &Path) -> Value {
     );
     if entity.kind == Kind::Class {
         out.insert("bases".into(), json!(entity.bases()));
+        let mut events = entity.events().to_vec();
+        events.sort();
+        out.insert("events".into(), json!(events));
+        out.insert(
+            "declares_constructor".into(),
+            json!(entity.declares_constructor()),
+        );
     }
     if let Some(function) = entity.function() {
         out.insert("arguments".into(), arguments_json(&function.arguments));

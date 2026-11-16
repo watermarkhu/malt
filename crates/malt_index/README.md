@@ -80,7 +80,7 @@ The integration test `crates/malt_cli/tests/matlab_namespace.rs` compares this c
 | Kind | Name | Detail | Members |
 |---|---|---|---|
 | `Function` | file stem (the file's own function), or the identifier (methods, local and nested functions, getters/setters) | `Function(FunctionDetail { arguments, returns, is_getter, is_setter })` | local and nested functions |
-| `Class` | file stem | `Class { bases: Vec<Expr> }` | properties, methods, enumeration members |
+| `Class` | file stem | `Class { bases: Vec<Expr>, events: Vec<String>, declares_constructor: bool }` | properties, methods, enumeration members |
 | `Property` | identifier | `Property(PropertyDetail { type, dimensions, validators, default, getter, setter })` | none |
 | `Enumeration` | identifier | `Enumeration { value: Option<Expr> }` | none |
 | `Script` | file stem | `None` | local functions |
@@ -110,7 +110,9 @@ Every entity has `kind`, `name`, `lineno`, `endlineno`, `docstring` (a string or
 `attributes` (a list), `members`, and `path` when the entity has a file (relative to the
 first PATH, absolute outside it). Extra keys only by kind:
 
-- `class`: `bases` (as text).
+- `class`: `bases` (as text); `events` (the names of the `events` entries, sorted) and
+  `declares_constructor` (a method named as the class is declared) are index-side only: maxx has
+  no such keys, and `docs/scripts/compare_index.py` compares the fields of maxx's schema only.
 - `function`: `arguments`, `returns` (each `{name, kind, type, dimensions, validators,
   default, docstring}`), `is_getter`, `is_setter`.
 - `property`: `type`, `dimensions`, `validators`, `default`.
@@ -178,7 +180,8 @@ methods of a class folder as `cls.method`.
   `Dependent`, `Transient`, ...) as their names. A class's `Abstract`, `Hidden` and `Sealed`
   are its attributes too.
 - Enumerations: the members of each `enumeration` block, with their values as written.
-- `events` blocks are not entities (maxx does not record them either).
+- `events` blocks are not entities. The names of their entries are recorded on the class (no
+  attributes), in source order in the entity and sorted in the dump.
 - Local functions (after the file's own function) are members of that function; nested
   functions (in a function body) are members of the function. Scripts' local functions are
   members of the script.
@@ -265,7 +268,12 @@ reports it as accepted. The main groups:
    enumeration members (maxx gives null); the varargin kind; the `~` arguments; line spans
    of live script sections (for a plain-text live script).
 3. **Bare names**: maxx lists the methods of a class folder without a class file under the
-   bare name (`inv`, for `@double/inv.m`). The index lists them as `double.inv`.
+   bare name (`inv`, for `@double/inv.m`). The index lists them as `double.inv`. The dotted
+   key is a listing name only: MATLAB does not resolve `double.inv` (`which('double.inv')` is
+   empty; the file is `@double/inv`), so it is not a name to call, though the index lists the
+   method under it (as maxx does). The same holds for a method of a class folder inside a package
+   (`mlog.Logger.addMessage`). The namespace test accepts both (the `dotted_resolves` entries of
+   `tests/matlab/namespace_allowlist.json`), and keeps them.
 4. **Enumeration kind**: maxx's `Kind.ENUMERATION` equals `CLASS` (`"class"`); the index
    says `enumeration`.
 5. **Encoding**: maxx detects the encoding with charset-normalizer; the index uses UTF-8
@@ -316,7 +324,8 @@ list its paths (for a recursive scan: the root and its plain subfolders, not `+`
 - `src/comments.rs`: the docstring text rules. `src/expr.rs`, `src/live.rs`, `src/source.rs`:
   unit tests of the expression text, the cell and marker rules, and the line splitting.
 - `tests/parse.rs`: the parser on small samples (every kind, argument forms, attributes,
-  enumerations, placement, block comments, nested functions, BOM/CRLF/Latin-1, malformed input).
+  enumerations, placement, block comments, nested functions, BOM/CRLF/Latin-1, malformed input,
+  `events` names and the declared constructor).
 - `tests/expr.rs`: expressions (text, span, the joined type, bases, enumeration values, the
   `opts.?` class path).
 - `tests/live.rs`: `.mlx` files built in the test with `zip` (paragraph runs, namespace-free
@@ -358,7 +367,8 @@ The sample project under `tests/project` is written for these tests.
   the repository's skill describes; it is not yet checked against MATLAB's own reader
   (`export` or `matlab.desktop.editor`). Unknown markers are treated as output blocks.
 - No section-level line spans for a `.mlx`, and no docstrings for live scripts.
-- `events` blocks are still not entities.
+- `events` blocks are still not entities: only the names of their entries are recorded (on the
+  class).
 
 ## Real `.mlx` files
 

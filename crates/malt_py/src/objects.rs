@@ -294,6 +294,22 @@ impl Class {
             .collect()
     }
 
+    /// The names of the entries of the class's `events` blocks, sorted. Names only: the
+    /// attributes of an event are not recorded.
+    #[getter]
+    fn events(slf: PyRef<'_, Self>) -> Vec<String> {
+        let mut names = slf.as_super().entity.events().to_vec();
+        names.sort();
+        names
+    }
+
+    /// Whether the class file declares a constructor (a method named as the class). An
+    /// implicit constructor is not declared.
+    #[getter]
+    fn declares_constructor(slf: PyRef<'_, Self>) -> bool {
+        slf.as_super().entity.declares_constructor()
+    }
+
     /// The names of the classes in method resolution order (C3), this class first. A base
     /// that is not on the search path is listed by its name only. Raises `CyclicAliasError`
     /// when the superclasses lead back to the class.
