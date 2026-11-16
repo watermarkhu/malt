@@ -4,9 +4,9 @@
 [tools]
 # WASM toolchain for the browser/npm wasm package (pinned; Renovate updates).
 # 0.15.0 requires rustc >= 1.91; 0.13.1 builds on the current 1.90 toolchain.
-"cargo:wasm-pack" = "0.13.1"
+"cargo:wasm-pack" = "0.15.1"
 # Node.js used for npm publishing and local tooling (pinned; Renovate updates).
-node = "24.19.0"
+node = "24.22.3"
 # Bun for the VitePress docs project (install, `bun run docs:*` scripts).
 bun = "latest"
 # uv for the Python wrapper (PyPI package `malt`, built with maturin).
@@ -19,7 +19,7 @@ clang = "22.1.8"
 pinact = "latest"
 # Git hooks via hk (pinned; Renovate updates). Runs through `mise x` so every
 # contributor gets the pinned tools on PATH without activating mise.
-hk = "1.54.1"
+hk = "1.58.1"
 # Markdown linter for the docs (VitePress flavor) and GitHub Actions linter
 # (jactionlint, a security-aware fork of actionlint), used by the hk pre-commit
 # hooks. jactionlint runs shellcheck on the `run:` scripts of the workflows.
