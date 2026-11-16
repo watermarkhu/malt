@@ -42,7 +42,7 @@ impl GoodPracticesEngine {
                     diagnostics.push(Diagnostic {
                         rule_id: "PFRIN",
                         message: format!(
-                            "The reduction variable {name} might not be set before the PARFOR loop."
+                            "The reduction variable '{name}' might not be set before the PARFOR loop."
                         ),
                         severity: Severity::Warning,
                         byte_range: lhs_node.start_byte()..lhs_node.end_byte(),
@@ -59,7 +59,7 @@ impl GoodPracticesEngine {
                     diagnostics.push(Diagnostic {
                         rule_id: "PFRUS",
                         message: format!(
-                            "The reduction variable {name} might not be used after the PARFOR loop."
+                            "The reduction variable '{name}' might not be used after the PARFOR loop."
                         ),
                         severity: Severity::Warning,
                         byte_range: lhs_node.start_byte()..lhs_node.end_byte(),

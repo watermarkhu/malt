@@ -1128,7 +1128,7 @@ impl LanguageSpecEngine {
                             target,
                             "SPGP",
                             &format!(
-                                "Setting the GLOBAL or PERSISTENT variable {name} in an SPMD block might fail because the set happens on a worker machine."
+                                "Setting the GLOBAL or PERSISTENT variable '{name}' in an SPMD block might fail because the set happens on a worker machine."
                             ),
                             diagnostics,
                         );

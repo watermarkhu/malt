@@ -12,17 +12,15 @@ of how it got here is in git and in the plan's progress log.
 | Run the Code Analyzer over a file list | `docs/scripts/matlab_probe.m` |
 | Compare (file, line, ID) with malt, per check | `docs/scripts/diff_against_matlab.ts` |
 | Compare IDs, severities and messages with MATLAB's own list (`checkcode -allmsg`) | `docs/scripts/make-allmsg-csv.ts` + `docs/scripts/check_against_mathworks.ts` |
-| Fixture regression test | `crates/malt_cli/tests/matlab_conformance.rs` |
+| Fixture regression test, and the fixture list | `crates/malt_cli/tests/matlab_conformance.rs`; how fixtures are added: `crates/malt_cli/tests/fixtures/README.md` |
 | Recorded expectations against live `checkcode`, and the release | `crates/malt_cli/tests/matlab_live.rs` (see 'Live checkcode check') |
 
 `tests/fixtures/matlab_expected.tsv` holds what MATLAB reports for every fixture
 (path, line, ID: facts only, no message text), recorded with the release named in
 `tests/fixtures/matlab_release.txt`. The test fails on any difference, a
-missed finding or an extra one: malt matches MATLAB on all 336 fixtures under the default configuration: the 209
-the rules were fitted to, and `corpus1/` to `corpus4/` (31, 31, 33 and 32 fresh files,
-written independently of the rules). A new fixture needs its MATLAB expectations: run
-`docs/scripts/matlab_probe.m` over it and append the rows (relative path, line, ID;
-line 0 becomes 1) to `matlab_expected.tsv`.
+missed finding or an extra one: malt matches MATLAB on all 507 fixtures under the default configuration, among them
+`corpus1/` to `corpus4/` (31, 31, 33 and 32 fresh files, written independently of the rules). A new fixture needs
+its MATLAB expectations and a line in `matlab_files.txt`; `crates/malt_cli/tests/fixtures/README.md` gives the steps.
 
 MATLAB's own message text and full check list are MathWorks content: keep them outside
 the repository (`~/.local/share/malt-reference/`: `matlab-allmsg.txt` from
@@ -111,7 +109,6 @@ No fixture fails on these.
 | RHSFN | `[a,b] = v(...)` is reported only when `v` holds a numeric literal; chains through other variables are not followed. |
 | STRNU | Conflicting probes: one set had MATLAB reporting `x(end+1).f = v` on an undefined `x`, a later set (cd3_g03, cd3_g04) had it silent; malt is silent. Re-probe before changing. |
 | AGROW | `x(numel(x)+1)` on a parameter is unprobed. |
-| Message text | The test compares file, line and ID, not the text of dynamic messages (for example MATLAB quotes names in MCNPN: `'foo' is referenced...`). |
 | Statement right after a stray `end` | MATLAB reports one SYNER and no NASGU for the statement after a stray `end`; malt adds a second SYNER on that statement (grammar-level, open). |
 | Signed literal in kind conditions | `year(-5)` is reported by MATLAB and malt is silent: a `unary_operator` arm in `argument_kinds` also made `display(-3)` fire, which MATLAB does not report (the existing test), so the arm was removed. Command syntax (`display x`, `year x`) matches MATLAB. |
 | `[h,a] = legend;` | MATLAB reports LEGMOP; malt only visits calls and commands, so the bare form with several outputs is missed. |
@@ -191,7 +188,7 @@ Open after the audit and the follow-up pass (probe files are not kept; re-probe 
 - BDSCA2 inside call arguments (`disp([1 0] && x)`) is missed. BDLGI/BDSCI use a reaching-definitions rule inferred from about 60 probes: a variable is reported only when every reaching definition is of the reported kind.
 - ADMTHDINV misses `@() helper + 1`.
 - Parfor: PFBNS rule unclear (6 misses); PFUNK for `k=i; v(k)=1`; PFRUS/PFRIN/PFVSUB/PFUTMP extras when a reduction variable is read whole; PFOUS misses struct-field sliced writes; PFIIN after `clear k`; PFINCR for `s = [s i]`; PFUTVR is off by design.
-- CFALSE is limited to `any`, `isequal`, `isreal` (others unprobed); STLOW for a letterless literal; INUSD message text includes the argument name; STRNU loop-store fallback is a heuristic.
+- CFALSE is limited to `any`, `isequal`, `isreal` (others unprobed); STLOW for a letterless literal; STRNU loop-store fallback is a heuristic.
 
 ## Phase 2.2 audit gaps (language_spec)
 
@@ -377,10 +374,9 @@ The fixture is `tests/matlab/project`: argument forms (`~`, `varargin`, `varargo
 
 Accepted differences are in `tests/matlab/namespace_allowlist.json`. Each entry has a `reason` (an empty reason fails the test). It matches on the entity, the field (a glob, `|` separates several, `{class}` is the entity's class name) and optionally the MATLAB value (`matlab`, a glob) and a required file state (`requires`: `enumeration`, `p-file`, `arguments-metadata`). A difference that matches no entry fails the test. An entry that matches nothing is printed as a warning; the extra-project entries are unused on the fixture alone. The accepted groups:
 
-- MATLAB's own additions: the implicit `empty` method of every classdef, implicit constructors (only where the class file declares none), implicit methods of enumeration classes and of `matlab.unittest`/`matlab.perftest` test classes, `loadobj` of a UI component container;
+- MATLAB's own additions: the implicit `empty` method of every classdef, implicit constructors (only where the index finds no declared constructor, `declares_constructor`), implicit methods of enumeration classes and of `matlab.unittest`/`matlab.perftest` test classes, `loadobj` of a UI component container;
 - MATLAB's metadata: `varargin` and `varargout` as the only input and output of a method with an arguments block (the index reads the source), a constant property declared with the `MethodSetupParameter` attribute, and the `SetAccess` default of an enumeration class's property (`immutable`);
 - MATLAB's resolution: a `.p` file next to the `.m` (MATLAB runs the `.p`, so its file and `nargin` are the `.p`'s); a method of a class folder inside a package (no name resolves it: `which('mlog.Logger.addMessage')` is empty); an old-style method under its dotted name (`which('oldcls.getv')` is empty, `which('@oldcls/getv')` is the file);
-- the index's model: events blocks are not entities.
 
 Real index bugs the test found, both fixed with unit tests in `crates/malt_index/tests/parse.rs`: abstract methods (a signature with no body) were not methods; `Access` with a class list (`{?Cls}`, `?Cls`) was `private` and is now `restricted`.
 
@@ -400,9 +396,9 @@ Two phases, as for the path index. Generation: `tests/matlab/generate_checkcode.
 files on R2026b). It writes `target/matlab/checkcode.tsv` in the format of `matlab_expected.tsv` (path
 relative to the fixtures folder, line with 0 read as 1, ID) and `target/matlab/checkcode.release`
 (`version('-release')`, beside the TSV). A file `checkcode` fails on becomes a `PROBE_ERROR` row, so
-it is a difference. Message text is not written: the output stays out of the repository (it is
-MathWorks content) and the comparison is on the same facts as the recording.
-`MALT_CHECKCODE_OUT` changes the TSV's location.
+it is a difference. Beside the TSV it also writes `checkcode_messages.tsv` (MATLAB's message text per
+finding, MathWorks content: under `target/` only, never committed) and `checkcode_files.txt` (every file
+checked). `MALT_CHECKCODE_OUT` changes the TSV's location; the two other files go beside it.
 
 Comparison: `tests/matlab_live.rs` reads the TSV named by `MALT_MATLAB_CHECKCODE` (MATLAB is not
 started), or, without it, finds MATLAB (`MALT_MATLAB`, else `matlab` on `PATH`) and runs the same script
@@ -412,6 +408,14 @@ in a temporary directory. Without MATLAB it prints `SKIP`; `MALT_MATLAB_REQUIRE=
   (`R2026b`). A different release fails with its own message (`expectations recorded with R2026b, live
   MATLAB is R2025b: re-record or pin the CI release`). Reports are expected to drift across releases, so
   this is not a bug in malt; it means the recording has to be re-made, or the CI release pinned again.
+- **Files**: the files MATLAB checked (`checkcode_files.txt`, `MALT_MATLAB_CHECKCODE_FILES`) are the files of
+  `fixtures/matlab_files.txt`. A fixture with no finding is checked too, so it must be listed.
+- **Messages**: for every finding both sides report, the message text is the same: malt's message and
+  MATLAB's (`checkcode_messages.tsv`, `MALT_MATLAB_CHECKCODE_MESSAGES`), after `normalise_message` (tabs and
+  line breaks as spaces, trimmed). A message repeated on one line counts once. Quoting is part of the text:
+  MATLAB quotes the names in FNDEF, MCFIL, PFRUS, REDEF and similar messages, and not in INUSD, NODEF,
+  PREALL or SVNODEF. The accepted differences are in `tests/matlab/message_allowlist.tsv` (path, line, ID and a
+  reason); an entry that matches no difference fails. Only SYNER is accepted (its token, see Known gaps).
 - **Reports**: the live (path, line, ID) findings equal the recorded ones. The failure lists the
   findings recorded but no longer reported (`-`) and the new ones (`+`), counted per check ID and per file,
   then the first 40. A `-` is a stale expectation or a fixture change; a `+` is either a stale expectation
@@ -421,7 +425,9 @@ Run it locally, from the repository root, with MATLAB on `PATH`:
 
 ```sh
 matlab -batch "run('crates/malt_cli/tests/matlab/generate_checkcode.m')"
-MALT_MATLAB_CHECKCODE=target/matlab/checkcode.tsv MALT_MATLAB_REQUIRE=1 \
+MALT_MATLAB_CHECKCODE=target/matlab/checkcode.tsv \
+MALT_MATLAB_CHECKCODE_MESSAGES=target/matlab/checkcode_messages.tsv \
+MALT_MATLAB_CHECKCODE_FILES=target/matlab/checkcode_files.txt MALT_MATLAB_REQUIRE=1 \
   cargo test -p malt-cli --locked --test matlab_live -- --nocapture
 ```
 
@@ -439,4 +445,4 @@ When the check reports differences, read the report first and decide whether the
 changed. Then bring `matlab_expected.tsv` in line with the live rows in `target/matlab/checkcode.tsv`
 (path, line, ID; the `-` and `+` lines of the report are the rows to remove and to add). A change of
 release is a separate change: update `matlab_release.txt` and the header of `matlab_expected.tsv`
-together, after a live run on that release. No difference is allowlisted.
+together, after a live run on that release. No finding difference is allowlisted (message text has its own list, see 'Messages').

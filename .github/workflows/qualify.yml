@@ -127,6 +127,8 @@ jobs:
       - name: Check the recorded MATLAB expectations against the live reports
         env:
           MALT_MATLAB_CHECKCODE: target/matlab/checkcode.tsv
+          MALT_MATLAB_CHECKCODE_MESSAGES: target/matlab/checkcode_messages.tsv
+          MALT_MATLAB_CHECKCODE_FILES: target/matlab/checkcode_files.txt
         run: cargo test -p malt-cli --locked --test matlab_live -- --nocapture
 
   python:

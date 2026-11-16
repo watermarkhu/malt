@@ -38,9 +38,8 @@ impl UnusedEngine {
                 }
                 diagnostics.push(Diagnostic {
                     rule_id: "PREALL",
-                    message: format!(
-                        "The preallocated value assigned to variable '{name}' might be unused."
-                    ),
+                    message: "The preallocated value assigned to variable might be unused."
+                        .to_string(),
                     severity: Severity::Warning,
                     byte_range: def.byte_range.clone(),
                     line: def.line,

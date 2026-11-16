@@ -59,7 +59,7 @@ impl GoodPracticesEngine {
         vec![Diagnostic {
             rule_id: "FNDEF",
             message: format!(
-                "Function name {} is known to MATLAB by its file name: {}.",
+                "Function name '{}' is known to MATLAB by its file name: '{}'.",
                 name, stem
             ),
             severity: Severity::Warning,
@@ -162,7 +162,7 @@ mod tests {
         let m = d.iter().find(|d| d.rule_id == "FNDEF").expect("FNDEF");
         // MATLAB names the file without its extension ('mine', not 'mine.m').
         assert!(
-            m.message.contains("other") && m.message.ends_with(": mine."),
+            m.message.contains("'other'") && m.message.ends_with(": 'mine'."),
             "{}",
             m.message
         );
@@ -216,7 +216,7 @@ mod tests {
         let m = d.iter().find(|d| d.rule_id == "FNDEF").expect("FNDEF");
         assert_eq!(m.line, 1, "{}", m.message);
         assert!(
-            m.message.contains("t3") && m.message.ends_with(": t3f."),
+            m.message.contains("'t3'") && m.message.ends_with(": 't3f'."),
             "{}",
             m.message
         );

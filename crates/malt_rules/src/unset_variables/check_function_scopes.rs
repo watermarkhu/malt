@@ -173,14 +173,12 @@ impl UnsetVariablesEngine {
                     }
                     (
                         "SVNODEF",
-                        format!(
-                            "Variable '{name}' might not have a value, because variable definition may not be executed."
-                        ),
+                        "Variable might not have a value, because variable definition may not be executed.".to_string(),
                     )
                 } else {
                     (
                         "NODEF",
-                        format!("Variable '{name}' might be used before it is defined."),
+                        "Variable might be used before it is defined.".to_string(),
                     )
                 };
                 // A parfor input cleared before the loop is PFIIN, not NODEF (probed).

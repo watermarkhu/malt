@@ -124,9 +124,7 @@ impl UnusedEngine {
                 if unread && !super::check_manu::returned_input(scope, name) {
                     diagnostics.push(Diagnostic {
                         rule_id: "INUSD",
-                        message: format!(
-                            "Input argument '{name}' might be unused. Consider replacing the argument with ~ instead."
-                        ),
+                        message: "Input argument might be unused. Consider replacing the argument with ~ instead.".to_string(),
                         severity: Severity::Warning,
                         byte_range: def.byte_range.clone(),
                         line: def.line,

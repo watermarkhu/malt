@@ -47,7 +47,7 @@ impl GoodPracticesEngine {
                 diagnostics.push(Diagnostic {
                     rule_id: "PFGP",
                     message: format!(
-                        "Avoid assigning to GLOBAL or PERSISTENT variable {name} inside a PARFOR loop."
+                        "Avoid assigning to GLOBAL or PERSISTENT variable '{name}' inside a PARFOR loop."
                     ),
                     severity: Severity::Warning,
                     byte_range: target.start_byte()..target.end_byte(),
@@ -89,7 +89,7 @@ mod tests {
             .map(|d| d.message.as_str())
             .collect();
         assert_eq!(names.len(), 2, "{diags:?}");
-        assert!(names[1].contains("variable H"), "{names:?}");
+        assert!(names[1].contains("variable 'H'"), "{names:?}");
     }
 
     #[test]

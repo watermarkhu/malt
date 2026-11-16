@@ -43,7 +43,7 @@ impl LanguageSpecEngine {
                         diagnostics.push(Diagnostic {
                             rule_id: "REDEF",
                             message: format!(
-                                "The current use of {} is inconsistent with its previous use or definition (line {}).",
+                                "The current use of '{}' is inconsistent with its previous use or definition (line {}).",
                                 gp_def.name, first.line
                             ),
                             severity: Severity::Error,
@@ -69,7 +69,7 @@ impl LanguageSpecEngine {
                         diagnostics.push(Diagnostic {
                             rule_id: "REDEF",
                             message: format!(
-                                "The current use of {} is inconsistent with its previous use or definition (line {}).",
+                                "The current use of '{}' is inconsistent with its previous use or definition (line {}).",
                                 gp_def.name, arg.line
                             ),
                             severity: Severity::Error,

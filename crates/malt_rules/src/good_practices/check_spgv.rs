@@ -30,7 +30,7 @@ impl GoodPracticesEngine {
             diagnostics.push(Diagnostic {
                 rule_id: "SPGV",
                 message: format!(
-                    "Using the GLOBAL or PERSISTENT variable {name} in an SPMD block might fail because it is accessed on a worker machine."
+                    "Using the GLOBAL or PERSISTENT variable '{name}' in an SPMD block might fail because it is accessed on a worker machine."
                 ),
                 severity: Severity::Warning,
                 byte_range: name_node.start_byte()..name_node.end_byte(),

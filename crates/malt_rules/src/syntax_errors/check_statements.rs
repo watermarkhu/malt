@@ -30,7 +30,7 @@ impl SyntaxErrorsEngine {
                     diagnostics.push(Diagnostic {
                         rule_id: "REDEF",
                         message: format!(
-                            "The current use of {name} is inconsistent with its previous use or definition (line {first_line})."
+                            "The current use of '{name}' is inconsistent with its previous use or definition (line {first_line})."
                         ),
                         severity: Severity::Error,
                         byte_range: name_node.byte_range(),
@@ -80,7 +80,7 @@ impl SyntaxErrorsEngine {
                             diagnostics.push(Diagnostic {
                                 rule_id: "REDEF",
                                 message: format!(
-                                    "The current use of {name} is inconsistent with its previous use or definition (line {first_line})."
+                                    "The current use of '{name}' is inconsistent with its previous use or definition (line {first_line})."
                                 ),
                                 severity: Severity::Error,
                                 byte_range: name_node.byte_range(),
@@ -148,12 +148,12 @@ impl SyntaxErrorsEngine {
                     && !redef_reported.contains(&name)
                 {
                     let pos = name_node.start_position();
+                    let def_line = variable_names[&name];
                     diagnostics.push(Diagnostic {
                         rule_id: "REDEF",
                         message: format!(
-                            "The current use of {} is inconsistent with its previous use or definition (line {}).",
-                            name,
-                            pos.row + 1
+                            "The current use of '{}' is inconsistent with its previous use or definition (line {}).",
+                            name, def_line
                         ),
                         severity: Severity::Error,
                         byte_range: name_node.byte_range(),

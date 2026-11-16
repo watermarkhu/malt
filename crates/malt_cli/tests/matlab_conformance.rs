@@ -9,70 +9,33 @@
 //! A new fixture needs its MATLAB expectations: run `docs/scripts/matlab_probe.m`
 //! over it and append the result to `matlab_expected.tsv` (see `docs/VERIFY.md`).
 //! `matlab_live.rs` checks that the recorded file still matches a live MATLAB.
+//! `fixtures/matlab_files.txt` must list every fixture file (`fixtures/README.md`).
 
 use std::collections::BTreeSet;
 use std::fs;
-use std::path::{Path, PathBuf};
-
-use malt_core::{Config, Linter, RuleRegistry};
 
 mod common;
 
 use common::expected::{only_in, parse_triples, Triple};
-
-fn fixtures() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures")
-}
+use common::fixtures::{fixture_files, fixtures_dir, lint_fixtures, listed_files, relative};
 
 fn read_expected() -> BTreeSet<Triple> {
-    let text = fs::read_to_string(fixtures().join("matlab_expected.tsv")).unwrap_or_default();
+    let text = fs::read_to_string(fixtures_dir().join("matlab_expected.tsv")).unwrap_or_default();
     parse_triples(&text)
-}
-
-fn mfiles(dir: &Path, out: &mut Vec<PathBuf>) {
-    for entry in fs::read_dir(dir).unwrap() {
-        let path = entry.unwrap().path();
-        if path.is_dir() {
-            mfiles(&path, out);
-        } else if path.extension().is_some_and(|e| e == "m") {
-            out.push(path);
-        }
-    }
 }
 
 /// Everything malt reports on the fixtures, as (path relative to fixtures, line, ID).
 fn malt_findings() -> BTreeSet<Triple> {
-    let root = fixtures();
-    let mut files = Vec::new();
-    mfiles(&root, &mut files);
-    files.sort();
-    let config = Config::default();
-    let registry = RuleRegistry::new(malt_rules::active_rules(&config), &config);
-    let mut linter = Linter::new(registry);
-    let mut found = BTreeSet::new();
-    for path in files {
-        let source = fs::read_to_string(&path).unwrap();
-        let rel = path
-            .strip_prefix(&root)
-            .unwrap()
-            .to_string_lossy()
-            .replace('\\', "/");
-        for d in linter.lint(&source, &path).unwrap() {
-            found.insert((rel.clone(), d.line, d.rule_id.to_string()));
-        }
-    }
-    found
+    lint_fixtures()
+        .into_iter()
+        .map(|(triple, _)| triple)
+        .collect()
 }
 
 /// All differences with MATLAB: ("matlab-only" | "malt-only", triple).
 fn differences() -> BTreeSet<(String, Triple)> {
     let matlab = read_expected();
-    let malt = std::thread::Builder::new()
-        .stack_size(256 * 1024 * 1024)
-        .spawn(malt_findings)
-        .unwrap()
-        .join()
-        .unwrap();
+    let malt = malt_findings();
     let mut diff = BTreeSet::new();
     for t in only_in(&matlab, &malt) {
         diff.insert(("matlab-only".to_string(), t));
@@ -95,5 +58,34 @@ fn no_differences_with_matlab() {
             .map(|(k, (p, l, i))| format!("  {k}\t{p}:{l}\t{i}"))
             .collect::<Vec<_>>()
             .join("\n")
+    );
+}
+
+#[test]
+fn fixture_list_names_every_fixture_file() {
+    let on_disk: BTreeSet<String> = fixture_files().iter().map(|p| relative(p)).collect();
+    let listed = listed_files();
+    let unlisted: Vec<&String> = on_disk.difference(&listed).collect();
+    let missing: Vec<&String> = listed.difference(&on_disk).collect();
+    assert!(
+        unlisted.is_empty() && missing.is_empty(),
+        "tests/fixtures/matlab_files.txt does not match the .m files under tests/fixtures.\n\
+         not listed ({}): {}\nlisted but no file ({}): {}\n\
+         Regenerate the list with the command in tests/fixtures/README.md, and see that file for \
+         how a new fixture is added.",
+        unlisted.len(),
+        unlisted
+            .iter()
+            .take(10)
+            .map(|s| s.as_str())
+            .collect::<Vec<_>>()
+            .join(", "),
+        missing.len(),
+        missing
+            .iter()
+            .take(10)
+            .map(|s| s.as_str())
+            .collect::<Vec<_>>()
+            .join(", "),
     );
 }

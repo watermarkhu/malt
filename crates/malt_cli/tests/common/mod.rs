@@ -3,4 +3,5 @@
 #![allow(dead_code)]
 
 pub mod expected;
+pub mod fixtures;
 pub mod matlab;

@@ -53,6 +53,10 @@ MALT_MATLAB_CHECKCODE=target/matlab/checkcode.tsv MALT_MATLAB_REQUIRE=1 \
 A difference fails with the list of stale and new findings; a different MATLAB release fails with its own
 message. See `docs/VERIFY.md`, 'Live checkcode check'.
 
+New fixtures (the `.m` files under `crates/malt_cli/tests/fixtures`) are added as
+[`crates/malt_cli/tests/fixtures/README.md`](../crates/malt_cli/tests/fixtures/README.md) describes: the file list,
+the MATLAB expectations and the checks.
+
 The **Qualify** workflow runs all of these on every pull request, builds every
 distribution (wheels, sdist, npm package, crates), and reports a single
 `Qualified` status.

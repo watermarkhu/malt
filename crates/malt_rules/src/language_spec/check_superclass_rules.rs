@@ -205,7 +205,7 @@ impl LanguageSpecEngine {
                     let pos = call_node.start_position();
                     diagnostics.push(Diagnostic {
                         rule_id: "MCSCM",
-                        message: format!("To call a superclass method, the method name {} must match the name of the subclass method {}.", caller, mname),
+                        message: format!("To call a superclass method, the method name '{}' must match the name of the subclass method '{}'.", caller, mname),
                         severity: Severity::Error,
                         byte_range: call_node.start_byte()..call_node.end_byte(),
                         line: pos.row + 1,

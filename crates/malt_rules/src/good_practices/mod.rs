@@ -555,7 +555,7 @@ impl GoodPracticesEngine {
                         diagnostics.push(Diagnostic {
                             rule_id: "PFIIN",
                             message: format!(
-                                "The input variable {name} should be initialized before the PARFOR loop."
+                                "The input variable '{name}' should be initialized before the PARFOR loop."
                             ),
                             severity: Severity::Warning,
                             byte_range: read_node.start_byte()..read_node.end_byte(),
@@ -608,7 +608,7 @@ impl GoodPracticesEngine {
                             diagnostics.push(Diagnostic {
                                 rule_id: "PFOUS",
                                 message: format!(
-                                    "The output variable {name} might not be used after the PARFOR loop."
+                                    "The output variable '{name}' might not be used after the PARFOR loop."
                                 ),
                                 severity: Severity::Warning,
                                 byte_range: lhs_node.start_byte()..lhs_node.end_byte(),
@@ -1538,10 +1538,10 @@ pub(crate) fn collect_global_use_diagnostics<'a>(
         }
         let pos = id.start_position();
         let message = if rule_id == "PFGV" {
-            format!("Avoid using GLOBAL variable {name} in a PARFOR loop.")
+            format!("Avoid using GLOBAL variable '{name}' in a PARFOR loop.")
         } else {
             format!(
-                "Using the GLOBAL or PERSISTENT variable {name} in an SPMD block might fail because it is accessed on a worker machine."
+                "Using the GLOBAL or PERSISTENT variable '{name}' in an SPMD block might fail because it is accessed on a worker machine."
             )
         };
         diagnostics.push(Diagnostic {
