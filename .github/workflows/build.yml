@@ -1,7 +1,7 @@
 name: Build
 
-# Builds every distributable: Python wheels + sdist (PyPI), the WebAssembly npm
-# package, and the crates.io packages (verified, not uploaded). Called by
+# Builds every distributable: Python wheels + sdist (PyPI; `malt`, the CLI, and
+# `malt-index`, the PyO3 module of crates/malt_py), the WebAssembly npm package, and the crates.io packages (verified, not uploaded). Called by
 # qualify.yml (no version: builds as 0.0.0) and release.yml (stamped version),
 # so a pull request exercises exactly what a release publishes.
 
@@ -152,6 +152,123 @@ jobs:
             /tmp/venv/bin/pip install pytest
             /tmp/venv/bin/python -m pytest -p no:cacheprovider python/tests -v
           '
+
+  # `malt-index` (crates/malt_py) is a separate distribution from `malt`: maturin builds
+  # one kind of artifact per project, and a wheel with the CLI binary is tagged for one
+  # Python version, so it cannot also hold an abi3 extension. One abi3 wheel (cp310-abi3)
+  # per platform serves every supported Python.
+  index-wheels:
+    name: Index wheel ${{ matrix.platform.name }}
+    runs-on: ${{ matrix.platform.runner }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        platform:
+          - { name: linux-x86_64, runner: ubuntu-latest, target: x86_64, manylinux: 2_28 }
+          - { name: linux-aarch64, runner: ubuntu-latest, target: aarch64, manylinux: 2_28 }
+          - { name: musllinux-x86_64, runner: ubuntu-latest, target: x86_64-unknown-linux-musl, manylinux: musllinux_1_2 }
+          - { name: musllinux-aarch64, runner: ubuntu-latest, target: aarch64-unknown-linux-musl, manylinux: musllinux_1_2 }
+          - { name: macos-aarch64, runner: macos-latest, target: aarch64-apple-darwin }
+          - { name: windows-x64, runner: windows-latest, target: x64 }
+          - { name: windows-arm64, runner: windows-11-arm, target: aarch64-pc-windows-msvc }
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Stamp version
+        if: env.VERSION != ''
+        shell: bash
+        run: sed -i.bak "s/\"0\.0\.0\"/\"${VERSION}\"/g" Cargo.toml && rm Cargo.toml.bak
+
+      # The Windows ARM64 image does not ship a Rust toolchain.
+      - name: Setup Rust
+        if: matrix.platform.name == 'windows-arm64'
+        uses: actions-rust-lang/setup-rust-toolchain@a188e68d0fd2bd36ad51dccb2b07ba6e75105f30 # v2.0.1
+        with:
+          target: aarch64-pc-windows-msvc
+          rustflags: ""
+          cache: false
+
+      - name: Build wheel
+        uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1.51.0
+        with:
+          target: ${{ matrix.platform.target }}
+          manylinux: ${{ matrix.platform.manylinux }}
+          args: --release --out dist --manifest-path crates/malt_py/Cargo.toml
+
+      - name: Upload wheel
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: wheels-index-${{ matrix.platform.name }}
+          path: dist/*.whl
+          if-no-files-found: error
+
+  index-sdist:
+    name: Index source distribution
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Stamp version
+        if: env.VERSION != ''
+        run: sed -i "s/\"0\.0\.0\"/\"${VERSION}\"/g" Cargo.toml
+
+      - name: Build sdist
+        uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1.51.0
+        with:
+          command: sdist
+          args: --out dist --manifest-path crates/malt_py/Cargo.toml
+
+      - name: Upload sdist
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: wheels-index-sdist
+          path: dist/*.tar.gz
+          if-no-files-found: error
+
+  # Each index wheel is installed and its pytest suite run on the native platform, so a
+  # wheel that builds but does not import fails the pipeline before it is published.
+  test-index-wheels:
+    name: Test index wheel ${{ matrix.platform.name }}
+    needs: index-wheels
+    runs-on: ${{ matrix.platform.runner }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        platform:
+          - { name: linux-x86_64, runner: ubuntu-latest }
+          - { name: linux-aarch64, runner: ubuntu-24.04-arm }
+          - { name: macos-aarch64, runner: macos-latest }
+          - { name: windows-x64, runner: windows-latest }
+          - { name: windows-arm64, runner: windows-11-arm }
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: wheels-index-${{ matrix.platform.name }}
+          path: dist
+
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+
+      # Python 3.10 is the abi3 floor, 3.13 the newest: one wheel must serve both.
+      - name: Install wheel and run the Python tests
+        shell: bash
+        run: |
+          for py in 3.10 3.13; do
+            uv venv --python "${py}" --clear
+            uv pip install --no-index --find-links dist malt-index
+            uv pip install pytest
+            uv run --no-project pytest crates/malt_py/python/tests -v
+          done
 
   wasm:
     name: WebAssembly package
