@@ -29,6 +29,7 @@ malt [OPTIONS] <FILES>...
 | `--no-index`          | Do not use the path index, even when `[index] enabled = true` |
 | `-v`, `--verbose`     | Report on stderr which files are linted and the total time; `-vv` adds the time and the number of findings of each file |
 | `--color <WHEN>`      | When to colour the text output: `auto` (default), `always` or `never`. Alias `--colour`; see [Colours](#colours) |
+| `--level <LEVEL>`    | The least severe findings to show: `error` (errors only), `warning` (errors and warnings; alias `warn`) or `info` (everything, the default). See [Levels](#levels) |
 | `-h`, `--help`        | Print help information                           |
 | `-V`, `--version`     | Print version information                        |
 
@@ -111,6 +112,22 @@ malt -vv src/*.m
 # malt: skipped src/missing.m (NOFIL)
 # malt: 2 files in 4.56 ms
 ```
+
+## Levels
+
+`--level` limits what is shown to a severity and the more severe ones:
+
+```bash
+malt --level error src/*.m      # errors only
+malt --level warning src/*.m    # errors and warnings
+malt src/*.m                    # everything (--level info)
+```
+
+A hidden finding is not printed, not counted in the closing summary and does not set the exit
+code: with `--level error`, a file that has only warnings exits 0. An unreadable file (NOFIL,
+RDERR) is an error and is always shown. `--fix` is not filtered: it still applies the fixes of
+hidden findings. The severity of a rule can be changed in the config file (see
+[Configuration](../configuration.md)).
 
 ## Colours
 

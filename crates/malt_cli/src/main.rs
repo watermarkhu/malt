@@ -68,6 +68,36 @@ struct Cli {
     /// says otherwise), `always` or `never`. See the docs for the environment.
     #[arg(long, alias = "colour", value_name = "WHEN", value_enum, default_value_t = ColorWhen::Auto)]
     color: ColorWhen,
+
+    /// The least severe findings to show: `error` (errors only), `warning` (errors and
+    /// warnings) or `info` (everything, the default). Hidden findings are not counted and
+    /// do not change the exit code; `--fix` still fixes them.
+    #[arg(long, value_name = "LEVEL", value_enum, default_value_t = Level::Info)]
+    level: Level,
+}
+
+/// How severe a finding must be to be shown (`--level`): that severity or a more severe one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, clap::ValueEnum)]
+enum Level {
+    /// Errors only.
+    Error,
+    /// Errors and warnings.
+    #[value(alias = "warn")]
+    Warning,
+    /// Errors, warnings and info (everything).
+    Info,
+}
+
+impl Level {
+    /// Whether a finding of `severity` is shown at this level.
+    fn shows(self, severity: Severity) -> bool {
+        let rank = match severity {
+            Severity::Error => Level::Error,
+            Severity::Warning => Level::Warning,
+            Severity::Info => Level::Info,
+        };
+        rank <= self
+    }
 }
 
 /// Stack size of the thread that lints. Many rules walk the syntax tree
@@ -139,11 +169,11 @@ fn run(cli: Cli, colours: Colours) -> Result<()> {
         let mut linter = new_linter();
         for file_path in &cli.files {
             let checked = check_file(&mut linter, file_path, &cli)?;
-            summary.report(file_path, checked, cli.verbose, colours);
+            summary.report(file_path, checked, cli.verbose, cli.level, colours);
         }
     } else {
         lint_in_parallel(&cli, threads, new_linter, |file_path, checked| {
-            summary.report(file_path, checked?, cli.verbose, colours);
+            summary.report(file_path, checked?, cli.verbose, cli.level, colours);
             Ok(())
         })?;
     }
@@ -364,7 +394,14 @@ struct Summary {
 
 impl Summary {
     /// Print the diagnostics of one file and count them.
-    fn report(&mut self, file_path: &Path, checked: Checked, verbose: u8, colours: Colours) {
+    fn report(
+        &mut self,
+        file_path: &Path,
+        checked: Checked,
+        verbose: u8,
+        level: Level,
+        colours: Colours,
+    ) {
         let Checked { outcome, elapsed } = checked;
         let diagnostics = match outcome {
             FileOutcome::Unreadable(diag) => {
@@ -381,7 +418,10 @@ impl Summary {
                 self.files_with_issues += 1;
                 return;
             }
-            FileOutcome::Linted(diagnostics) => diagnostics,
+            FileOutcome::Linted(mut diagnostics) => {
+                diagnostics.retain(|d| level.shows(d.severity));
+                diagnostics
+            }
         };
         let prefix = paint(colours.stderr, colour::dim(), "malt:");
         match verbose {
