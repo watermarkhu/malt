@@ -31,6 +31,8 @@ Repository = "https://github.com/watermarkhu/malt"
 [tool.maturin]
 # The module is `malt_index`; the Rust library is `malt_index_py` (see Cargo.toml).
 module-name = "malt_index"
+# The package with the type stubs (`malt_index.pyi`) and the `py.typed` marker.
+python-source = "python"
 features = ["extension-module"]
 strip = true
 

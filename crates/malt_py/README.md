@@ -11,6 +11,9 @@ cannot share a wheel with the `malt` binary.
 
 Licence: MIT. maxx is GPL-3.0; nothing here is copied from it (see malt-index's README).
 
+The package ships type stubs (`malt_index/malt_index.pyi`) and the `py.typed` marker, so type
+checkers see the API above.
+
 ## Use
 
 ```python
@@ -65,7 +68,7 @@ obj = parse_source(text, "src/x.m")       # the same, from text (the file is not
 | `parse_file(path, parser_config=None)` | The object of one file (its parent is `None`). Raises `FilePathError`, or `ValueError` for a `.mlx` that is not one. |
 | `parse_source(source, path, parser_config=None)` | The object of MATLAB text, named after `path`. The file is not read. |
 | `parse_live_script(path, plaintext=False)` | A `LiveScript`: a `.mlx` by its contents, or a plain-text live `.m` with `plaintext=True`. |
-| `Object` | `kind`, `name`, `path` (dotted identifier; a folder's `/name`), `filepath`, `lineno`, `endlineno`, `docstring`, `docstring_raw`, `attributes`, `access`, `is_private`, `is_hidden`, `is_alias`, `target`, `members`, `parent`, `lines`, `source`, `lines_collection`, `is_folder`, `is_namespace`, `is_class`, `is_function`, `is_script`, `is_live_script`, `is_property`, `is_enumeration`. |
+| `Object` | `kind`, `name`, `path` (dotted identifier; a folder's `/name`), `filepath`, `lineno`, `endlineno`, `docstring`, `docstring_raw`, `docstring_lineno`, `docstring_endlineno`, `attributes`, `access`, `is_private`, `is_hidden`, `is_alias`, `target`, `members`, `parent`, `lines`, `source`, `lines_collection`, `is_folder`, `is_namespace`, `is_class`, `is_function`, `is_script`, `is_live_script`, `is_property`, `is_enumeration`. |
 | `Folder(Object)`, `Namespace(Object)`, `Script(Object)` | A plain folder, a package, a script. |
 | `LiveScript(Object)` | `sections`: a list of `LiveScriptSection` (`kind`, `content`, `lineno`, `endlineno`). |
 | `Class(Object)` | `bases` (text), `bases_expr` (`Expr`s), `mro`, `inherited_members`. |

@@ -86,6 +86,18 @@ impl Object {
         self.entity.docstring.as_ref().map(|d| d.raw.clone())
     }
 
+    /// The first line of the comment block (1-based), or `None` without a docstring.
+    #[getter]
+    fn docstring_lineno(&self) -> Option<usize> {
+        self.entity.docstring.as_ref().map(|d| d.lineno)
+    }
+
+    /// The last line of the comment block (1-based, inclusive), or `None` without a docstring.
+    #[getter]
+    fn docstring_endlineno(&self) -> Option<usize> {
+        self.entity.docstring.as_ref().map(|d| d.endlineno)
+    }
+
     /// The attributes, sorted, as `Name` or `Name=value` (for example `Access=private`).
     #[getter]
     fn attributes(&self) -> Vec<String> {

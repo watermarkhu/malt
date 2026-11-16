@@ -134,6 +134,15 @@ def test_docstrings_follow_maxx_placement(paths: PathsCollection) -> None:
     assert shape.members["Sides"].docstring is None
 
 
+def test_docstring_span_lines(paths: PathsCollection) -> None:
+    # Shape.m: the class comment is on line 2; the comment after `Name` is on line 7.
+    shape = paths["shapes.Shape"]
+    assert (shape.docstring_lineno, shape.docstring_endlineno) == (2, 2)
+    assert shape.members["Name"].docstring_lineno == 7
+    assert shape.members["Sides"].docstring_lineno is None
+    assert shape.members["Sides"].docstring_endlineno is None
+
+
 def test_parser_config_documents_before_properties() -> None:
     config = ParserConfig(docstring_before_properties=True)
     assert config.docstring_before_properties is True
