@@ -1,6 +1,6 @@
 //! The opt-in path index (`--index`, `[index] enabled`). With it off, malt's output
 //! is the one it was before the index existed (the golden file, recorded before the
-//! change). With it on, only the two intended checks report more: MCEB and MCPO on
+//! change). With it on, only one check reports more: MCEB on
 //! classes whose superclasses are value classes on the search path (see
 //! `docs/VERIFY.md`, 'Path index, stage 3.4').
 
@@ -12,14 +12,13 @@ use std::process::{Command, Output};
 const PROJECT: &str = "tests/index_project";
 
 /// The files of the sample project, in the order the runs lint them.
-const FILES: [&str; 10] = [
+const FILES: [&str; 9] = [
     "base_v.m",
     "base_h.m",
     "sub_ev.m",
     "sub_evh.m",
     "sub_nobase.m",
     "sub_missing.m",
-    "obs_v.m",
     "obs_none.m",
     "obs_h.m",
     "plain.m",
@@ -61,16 +60,15 @@ fn copy_project(config: Option<&str>) -> tempfile::TempDir {
     dir
 }
 
-/// The stdout of an enabled run on the sample project: the two findings the index
-/// adds (MCEB on `sub_ev.m`, MCPO on `obs_v.m`), each in its file's place.
+/// The stdout of an enabled run on the sample project: the finding the index
+/// adds (MCEB on `sub_ev.m`), in its file's place.
 const ENABLED: &str = "\
 sub_ev.m:2:1 [E] MCEB: Events can be defined only in a handle class.
 sub_nobase.m:2:1 [E] MCEB: Events can be defined only in a handle class.
-obs_v.m:2:5 [W] MCPO: SetObservable property has no effect in a value class.
 obs_none.m:2:5 [W] MCPO: SetObservable property has no effect in a value class.
 plain.m:2:3 [I] NOPRT: Add a semicolon after the statement to hide the output (in a function).
 
-Found 5 issues in 5 files.
+Found 4 issues in 4 files.
 1 fixable with the `--fix` option.
 ";
 

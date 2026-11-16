@@ -231,10 +231,9 @@ paths = [".", "lib/**", "src/*", "tools/helper"]
 
 ## Path index
 
-With the index on, malt reads the classes that a class file's superclasses name on the search path (its own folder first, then `paths`), and two checks report more than MATLAB's Code Analyzer does:
+With the index on, malt reads the classes that a class file's superclasses name on the search path (its own folder first, then `paths`), and one check reports more than MATLAB's Code Analyzer does:
 
 - **MCEB** (events in a class that is not a handle class) is also reported for a class whose superclasses are all value classes on the path. MATLAB refuses to load such a class.
-- **MCPO** (`SetObservable` or `GetObservable` in a value class) is also reported for a subclass of a value class on the path. Property events are not available there.
 
 A superclass that is not on the path, or whose own bases are not, is unknown, and nothing is reported for it. Nothing else changes: with the index off, the diagnostics are the Code Analyzer's, whatever folders surround the file. These extra findings are malt's, not MATLAB's; the evidence is in `docs/VERIFY.md`, section 'Path index, stage 3.4'.
 

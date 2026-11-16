@@ -30,10 +30,6 @@ code, parfor/spmd parallel practices, structure and field access, OOP and
 class properties, logical-usage patterns, shared variables, arity, and App
 Designer methods.
 
-With the opt-in path index (`[index] enabled = true`, or `--index`), MCPO
-is also reported for a subclass of a value class found on the search path.
-The Code Analyzer itself stays silent for any superclass.
-
 ## Check IDs
 
 ### TRYNC
