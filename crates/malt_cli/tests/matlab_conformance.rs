@@ -8,6 +8,7 @@
 //!
 //! A new fixture needs its MATLAB expectations: run `docs/scripts/matlab_probe.m`
 //! over it and append the result to `matlab_expected.tsv` (see `docs/VERIFY.md`).
+//! `matlab_live.rs` checks that the recorded file still matches a live MATLAB.
 
 use std::collections::BTreeSet;
 use std::fs;
@@ -15,7 +16,9 @@ use std::path::{Path, PathBuf};
 
 use malt_core::{Config, Linter, RuleRegistry};
 
-type Triple = (String, usize, String);
+mod common;
+
+use common::expected::{only_in, parse_triples, Triple};
 
 fn fixtures() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures")
@@ -23,17 +26,7 @@ fn fixtures() -> PathBuf {
 
 fn read_expected() -> BTreeSet<Triple> {
     let text = fs::read_to_string(fixtures().join("matlab_expected.tsv")).unwrap_or_default();
-    text.lines()
-        .filter(|l| !l.starts_with('#') && !l.trim().is_empty())
-        .map(|l| {
-            let cols: Vec<&str> = l.split('\t').collect();
-            (
-                cols[0].to_string(),
-                cols[1].parse().unwrap(),
-                cols[2].to_string(),
-            )
-        })
-        .collect()
+    parse_triples(&text)
 }
 
 fn mfiles(dir: &Path, out: &mut Vec<PathBuf>) {
@@ -81,11 +74,11 @@ fn differences() -> BTreeSet<(String, Triple)> {
         .join()
         .unwrap();
     let mut diff = BTreeSet::new();
-    for t in matlab.difference(&malt) {
-        diff.insert(("matlab-only".to_string(), t.clone()));
+    for t in only_in(&matlab, &malt) {
+        diff.insert(("matlab-only".to_string(), t));
     }
-    for t in malt.difference(&matlab) {
-        diff.insert(("malt-only".to_string(), t.clone()));
+    for t in only_in(&malt, &matlab) {
+        diff.insert(("malt-only".to_string(), t));
     }
     diff
 }

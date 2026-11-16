@@ -35,7 +35,7 @@ use malt_index::{ArgumentKind, Entity, Index, Kind, ParserConfig};
 use serde::Deserialize;
 use serde_json::{json, Map, Value};
 
-use common::matlab::{matlab, MatlabRun};
+use common::matlab::{matlab, matlab_string, MatlabRun};
 
 /// The folders the test puts on the path, in order.
 struct Roots {
@@ -116,11 +116,6 @@ fn generate(run: &MatlabRun) -> Result<Value> {
     let text = fs::read_to_string(&out)
         .context("reading the MATLAB facts written by generate_namespace_facts.m")?;
     Ok(serde_json::from_str(&text)?)
-}
-
-/// A MATLAB string literal for `path`.
-fn matlab_string(path: &Path) -> String {
-    format!("'{}'", path.to_string_lossy().replace('\'', "''"))
 }
 
 /// The folders the facts were taken with (the facts file records them, `matlab_facts.m`),

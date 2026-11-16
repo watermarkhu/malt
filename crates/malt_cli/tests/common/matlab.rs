@@ -125,6 +125,11 @@ impl MatlabRun {
     }
 }
 
+/// A MATLAB string literal for `path` (quotes doubled), for a `run(...)` command.
+pub fn matlab_string(path: &Path) -> String {
+    format!("'{}'", path.to_string_lossy().replace('\'', "''"))
+}
+
 fn read_all(reader: &mut impl Read) -> String {
     let mut text = String::new();
     let _ = reader.read_to_string(&mut text);

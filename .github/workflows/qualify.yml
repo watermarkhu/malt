@@ -77,10 +77,12 @@ jobs:
       - name: Run WASM binding host tests
         run: cargo test --locked -p malt_wasm --features wasm
 
-  # Cross-check of the path index against MATLAB R2026b, in two phases (see docs/VERIFY.md,
-  # 'Cross-check against MATLAB'). Licensing: on a PUBLIC repository only the matlab-actions run-*
-  # actions license MATLAB, so MATLAB runs only inside run-command here; the Rust test then reads
-  # the facts file and does not start MATLAB. MALT_MATLAB_REQUIRE=1 makes any missing piece fail.
+  # Cross-checks against MATLAB R2026b, in two phases each (see docs/VERIFY.md, 'Cross-check against
+  # MATLAB' and 'Live checkcode check'): the path index against MATLAB's facts, and the recorded
+  # checkcode expectations against live checkcode. Licensing: on a PUBLIC repository only the
+  # matlab-actions run-* actions license MATLAB, so MATLAB runs only inside run-command here; the Rust
+  # tests then read the generated files and do not start MATLAB. MALT_MATLAB_REQUIRE=1 makes any
+  # missing piece fail.
   matlab:
     name: Cross-check against MATLAB
     runs-on: ubuntu-latest
@@ -104,8 +106,13 @@ jobs:
         with:
           command: run('crates/malt_cli/tests/matlab/generate_namespace_facts.m')
 
-      # MATLAB live-script facts (the later live-checkcode generation step) go here, as one more
-      # run-command step that writes its own file; the Rust test reads it with the same contract.
+      # MATLAB's checkcode over every conformance fixture: target/matlab/checkcode.tsv and
+      # checkcode.release. A second run-command step, not part of the first: one MATLAB session
+      # each, so a failure names the step, and the first step's output is not affected.
+      - name: Generate the MATLAB checkcode reports
+        uses: matlab-actions/run-command@bfa857648f4895aa98a446fe41c85e0788421ed5 # v3.3.0
+        with:
+          command: run('crates/malt_cli/tests/matlab/generate_checkcode.m')
 
       - name: Setup Rust
         uses: actions-rust-lang/setup-rust-toolchain@a188e68d0fd2bd36ad51dccb2b07ba6e75105f30 # v2.0.1
@@ -115,6 +122,12 @@ jobs:
         env:
           MALT_MATLAB_FACTS: target/matlab/namespace_facts.json
         run: cargo test -p malt-cli --locked --test matlab_namespace -- --nocapture
+
+      # The recorded expectations against the live checkcode reports (and the release).
+      - name: Check the recorded MATLAB expectations against the live reports
+        env:
+          MALT_MATLAB_CHECKCODE: target/matlab/checkcode.tsv
+        run: cargo test -p malt-cli --locked --test matlab_live -- --nocapture
 
   python:
     name: Python wrapper (ruff, ty)

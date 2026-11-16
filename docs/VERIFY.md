@@ -13,9 +13,11 @@ of how it got here is in git and in the plan's progress log.
 | Compare (file, line, ID) with malt, per check | `docs/scripts/diff_against_matlab.ts` |
 | Compare IDs, severities and messages with MATLAB's own list (`checkcode -allmsg`) | `docs/scripts/make-allmsg-csv.ts` + `docs/scripts/check_against_mathworks.ts` |
 | Fixture regression test | `crates/malt_cli/tests/matlab_conformance.rs` |
+| Recorded expectations against live `checkcode`, and the release | `crates/malt_cli/tests/matlab_live.rs` (see 'Live checkcode check') |
 
 `tests/fixtures/matlab_expected.tsv` holds what MATLAB reports for every fixture
-(path, line, ID: facts only, no message text). The test fails on any difference, a
+(path, line, ID: facts only, no message text), recorded with the release named in
+`tests/fixtures/matlab_release.txt`. The test fails on any difference, a
 missed finding or an extra one: malt matches MATLAB on all 336 fixtures under the default configuration: the 209
 the rules were fitted to, and `corpus1/` to `corpus4/` (31, 31, 33 and 32 fresh files,
 written independently of the rules). A new fixture needs its MATLAB expectations: run
@@ -383,3 +385,58 @@ Accepted differences are in `tests/matlab/namespace_allowlist.json`. Each entry 
 Real index bugs the test found, both fixed with unit tests in `crates/malt_index/tests/parse.rs`: abstract methods (a signature with no body) were not methods; `Access` with a class list (`{?Cls}`, `?Cls`) was `private` and is now `restricted`.
 
 Measured on R2026b: the fixture alone gives 24 names, 43 accepted, 0 unaccepted. With the toolkit at `MALT_EXTERNAL_TOOLKIT` and the advanced-logger `advancedLogger` folder as `MALT_MATLAB_EXTRA_PATHS` (204 names), 240 accepted, 0 unaccepted. The CI job `matlab` (Qualify) runs both phases, with `MALT_MATLAB_REQUIRE=1`.
+
+## Live checkcode check
+
+`matlab_expected.tsv` is a recording: it was true of R2026b when it was written. The live check asks a
+running MATLAB the same question over the same fixtures and compares the answers, so it finds
+expectations gone stale and MATLAB's reports drifting across releases. `matlab_conformance.rs` proves
+malt equals the recording; this check proves the recording equals live MATLAB. Together, malt equals
+live MATLAB.
+
+Two phases, as for the path index. Generation: `tests/matlab/generate_checkcode.m` runs
+`checkcode(file, '-id', '-struct')` (the default configuration, as `matlab_probe.m` does) over every
+`.m` file under `tests/fixtures`, at any depth, in one MATLAB session (about 5 seconds for the 507
+files on R2026b). It writes `target/matlab/checkcode.tsv` in the format of `matlab_expected.tsv` (path
+relative to the fixtures folder, line with 0 read as 1, ID) and `target/matlab/checkcode.release`
+(`version('-release')`, beside the TSV). A file `checkcode` fails on becomes a `PROBE_ERROR` row, so
+it is a difference. Message text is not written: the output stays out of the repository (it is
+MathWorks content) and the comparison is on the same facts as the recording.
+`MALT_CHECKCODE_OUT` changes the TSV's location.
+
+Comparison: `tests/matlab_live.rs` reads the TSV named by `MALT_MATLAB_CHECKCODE` (MATLAB is not
+started), or, without it, finds MATLAB (`MALT_MATLAB`, else `matlab` on `PATH`) and runs the same script
+in a temporary directory. Without MATLAB it prints `SKIP`; `MALT_MATLAB_REQUIRE=1` fails. Two tests:
+
+- **Release**: the release that wrote the live file must be the one in `tests/fixtures/matlab_release.txt`
+  (`R2026b`). A different release fails with its own message (`expectations recorded with R2026b, live
+  MATLAB is R2025b: re-record or pin the CI release`). Reports are expected to drift across releases, so
+  this is not a bug in malt; it means the recording has to be re-made, or the CI release pinned again.
+- **Reports**: the live (path, line, ID) findings equal the recorded ones. The failure lists the
+  findings recorded but no longer reported (`-`) and the new ones (`+`), counted per check ID and per file,
+  then the first 40. A `-` is a stale expectation or a fixture change; a `+` is either a stale expectation
+  or a change in MATLAB. Neither is accepted silently: fix the recording (see below) or the fixture.
+
+Run it locally, from the repository root, with MATLAB on `PATH`:
+
+```sh
+matlab -batch "run('crates/malt_cli/tests/matlab/generate_checkcode.m')"
+MALT_MATLAB_CHECKCODE=target/matlab/checkcode.tsv MALT_MATLAB_REQUIRE=1 \
+  cargo test -p malt-cli --locked --test matlab_live -- --nocapture
+```
+
+Or `cargo test -p malt-cli --locked --test matlab_live -- --nocapture` alone: the test starts MATLAB
+itself. CI (the `matlab` job of Qualify) runs the generator in its own `matlab-actions/run-command` step
+after the path-index generator, then the test with `MALT_MATLAB_REQUIRE=1`. The release is checked on
+every run there, so the CI release pin (`release: R2026b` in `setup-matlab`) and `matlab_release.txt` must
+agree.
+
+Licensing: on a public repository only the matlab-actions `run-*` actions license MATLAB in CI, so MATLAB
+runs only inside `run-command` there, and the test reads the file. Locally, `matlab -batch` works with a
+licence that the machine holds.
+
+When the check reports differences, read the report first and decide whether the fixture or MATLAB
+changed. Then bring `matlab_expected.tsv` in line with the live rows in `target/matlab/checkcode.tsv`
+(path, line, ID; the `-` and `+` lines of the report are the rows to remove and to add). A change of
+release is a separate change: update `matlab_release.txt` and the header of `matlab_expected.tsv`
+together, after a live run on that release. No difference is allowlisted.

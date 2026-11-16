@@ -40,6 +40,19 @@ generates the same file; without MATLAB it prints a `SKIP` line. `MALT_MATLAB_RE
 MATLAB or facts file a failure (CI sets it). `MALT_MATLAB_EXTRA_PATHS` adds local folders to the
 generation (never copied into the repository). See `docs/VERIFY.md`, 'Cross-check against MATLAB'.
 
+The recorded `checkcode` expectations (`matlab_expected.tsv`) are checked against live MATLAB the same
+way: the generator runs `checkcode` over every fixture, then the test compares (and checks that the
+release is the recorded one):
+
+```sh
+matlab -batch "run('crates/malt_cli/tests/matlab/generate_checkcode.m')"
+MALT_MATLAB_CHECKCODE=target/matlab/checkcode.tsv MALT_MATLAB_REQUIRE=1 \
+  cargo test -p malt-cli --locked --test matlab_live -- --nocapture
+```
+
+A difference fails with the list of stale and new findings; a different MATLAB release fails with its own
+message. See `docs/VERIFY.md`, 'Live checkcode check'.
+
 The **Qualify** workflow runs all of these on every pull request, builds every
 distribution (wheels, sdist, npm package, crates), and reports a single
 `Qualified` status.
