@@ -28,6 +28,7 @@ malt [OPTIONS] <FILES>...
 | `--index`             | Use the path index: checks that read the classes on the search path (MCEB) also report the value-class case MATLAB refuses to load. Overrides `[index] enabled` |
 | `--no-index`          | Do not use the path index, even when `[index] enabled = true` |
 | `-v`, `--verbose`     | Report on stderr which files are linted and the total time; `-vv` adds the time and the number of findings of each file |
+| `--color <WHEN>`      | When to colour the text output: `auto` (default), `always` or `never`. Alias `--colour`; see [Colours](#colours) |
 | `-h`, `--help`        | Print help information                           |
 | `-V`, `--version`     | Print version information                        |
 
@@ -109,6 +110,35 @@ malt -vv src/*.m
 # malt: linted src/compute.m in 4.33 ms (3 findings)
 # malt: skipped src/missing.m (NOFIL)
 # malt: 2 files in 4.56 ms
+```
+
+## Colours
+
+Diagnostics, the summary, warnings and errors are coloured when the output goes to a terminal: severity tags (`[E]` red, `[W]` yellow, `[I]` cyan), the file and rule ID in bold, the line and column dimmed, and the fix hint in green. Machine-readable output is never coloured, and nothing is coloured in a pipe or a file unless you force it.
+
+`--color` decides first:
+
+| `--color` | Result |
+| --------- | ------ |
+| `always`  | Coloured, whatever the stream, the environment, or `NO_COLOR` |
+| `never`   | Plain, whatever the environment |
+| `auto`    | Decided by the environment and the stream, as below |
+
+In `auto` mode, malt checks these in order and stops at the first that applies, separately for stdout (diagnostics) and stderr (warnings, errors, `-v` lines):
+
+| Order | Environment | Result |
+| ----- | ----------- | ------ |
+| 1 | `NO_COLOR` set and not empty | Plain |
+| 2 | `CLICOLOR_FORCE` or `FORCE_COLOR` set and not `0` | Coloured |
+| 3 | `CLICOLOR=0` | Plain |
+| 4 | `TERM=dumb` | Plain |
+| 5 | none of the above | Coloured if the stream is a terminal, plain otherwise |
+
+On Windows, malt turns on the console's virtual terminal processing when it colours the output.
+
+```bash
+malt --color always src/*.m | less -R   # keep the colours through a pager
+NO_COLOR=1 malt src/*.m                 # plain text, even in a terminal
 ```
 
 ## Exit Codes

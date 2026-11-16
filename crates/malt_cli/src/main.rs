@@ -14,7 +14,10 @@ use malt_core::{
     fix_source, Config, Diagnostic, FixMode, Linter, ProjectIndex, RuleRegistry, Severity,
 };
 
+mod colour;
 mod path_index;
+
+use colour::{paint, ColorWhen, Colours};
 
 /// malt — An ultra-fast, extensible linter for MATLAB.
 #[derive(Parser, Debug)]
@@ -60,6 +63,11 @@ struct Cli {
     /// Do not use the path index, even when `[index] enabled = true`.
     #[arg(long, conflicts_with = "index")]
     no_index: bool,
+
+    /// When to colour the text output: `auto` (a terminal, unless the environment
+    /// says otherwise), `always` or `never`. See the docs for the environment.
+    #[arg(long, alias = "colour", value_name = "WHEN", value_enum, default_value_t = ColorWhen::Auto)]
+    color: ColorWhen,
 }
 
 /// Stack size of the thread that lints. Many rules walk the syntax tree
@@ -70,11 +78,12 @@ const LINT_STACK_BYTES: usize = 256 * 1024 * 1024;
 
 fn main() {
     let cli = Cli::parse();
+    let colours = Colours::for_process(cli.color);
 
     let worker = std::thread::Builder::new()
         .name("malt".into())
         .stack_size(LINT_STACK_BYTES)
-        .spawn(move || run(cli));
+        .spawn(move || run(cli, colours));
     let result = match worker {
         Ok(handle) => handle
             .join()
@@ -83,14 +92,17 @@ fn main() {
         Err(_) => Err(anyhow::anyhow!("could not start the analyzer thread")),
     };
     if let Err(err) = result {
-        eprintln!("error: {err:#}");
+        eprintln!(
+            "{}: {err:#}",
+            paint(colours.stderr, colour::error(), "error")
+        );
         process::exit(2);
     }
 }
 
-fn run(cli: Cli) -> Result<()> {
+fn run(cli: Cli, colours: Colours) -> Result<()> {
     // Load configuration from .malt.toml (or --config path).
-    let mut config = load_config(cli.config.as_deref(), cli.strict_config)?;
+    let mut config = load_config(cli.config.as_deref(), cli.strict_config, colours)?;
 
     // A --preset override takes priority over the config file's `[lint] preset`.
     if let Some(name) = &cli.preset {
@@ -107,7 +119,7 @@ fn run(cli: Cli) -> Result<()> {
     // Build rule registry from configuration (only enabled rules).
     let rules = malt_rules::active_rules(&config);
     let registry = Arc::new(RuleRegistry::new(rules, &config));
-    let project = project_index(&cli)?;
+    let project = project_index(&cli, colours)?;
     let cores = std::thread::available_parallelism().map_or(1, |n| n.get());
     let new_linter = || {
         let mut linter = Linter::shared(registry.clone());
@@ -127,17 +139,18 @@ fn run(cli: Cli) -> Result<()> {
         let mut linter = new_linter();
         for file_path in &cli.files {
             let checked = check_file(&mut linter, file_path, &cli)?;
-            summary.report(file_path, checked, cli.verbose);
+            summary.report(file_path, checked, cli.verbose, colours);
         }
     } else {
         lint_in_parallel(&cli, threads, new_linter, |file_path, checked| {
-            summary.report(file_path, checked?, cli.verbose);
+            summary.report(file_path, checked?, cli.verbose, colours);
             Ok(())
         })?;
     }
     if cli.verbose > 0 {
         eprintln!(
-            "malt: {} file{} in {}",
+            "{} {} file{} in {}",
+            paint(colours.stderr, colour::dim(), "malt:"),
             cli.files.len(),
             if cli.files.len() == 1 { "" } else { "s" },
             format_duration(started.elapsed())
@@ -146,27 +159,48 @@ fn run(cli: Cli) -> Result<()> {
 
     if summary.total_diagnostics > 0 {
         println!(
-            "\nFound {} issue{} in {} file{}.",
-            summary.total_diagnostics,
-            if summary.total_diagnostics == 1 {
-                ""
-            } else {
-                "s"
-            },
-            summary.files_with_issues,
-            if summary.files_with_issues == 1 {
-                ""
-            } else {
-                "s"
-            },
+            "\n{}",
+            paint(
+                colours.stdout,
+                colour::emphasis(),
+                format!(
+                    "Found {} issue{} in {} file{}.",
+                    summary.total_diagnostics,
+                    if summary.total_diagnostics == 1 {
+                        ""
+                    } else {
+                        "s"
+                    },
+                    summary.files_with_issues,
+                    if summary.files_with_issues == 1 {
+                        ""
+                    } else {
+                        "s"
+                    },
+                )
+            )
         );
         if summary.fixable > 0 {
-            println!("{} fixable with the `--fix` option.", summary.fixable);
+            println!(
+                "{}",
+                paint(
+                    colours.stdout,
+                    colour::success(),
+                    format!("{} fixable with the `--fix` option.", summary.fixable)
+                )
+            );
         }
         if summary.unsafe_fixable > 0 && !cli.unsafe_fixes {
             println!(
-                "{} more with `--fix --unsafe-fixes` (these may change behaviour).",
-                summary.unsafe_fixable
+                "{}",
+                paint(
+                    colours.stdout,
+                    colour::success(),
+                    format!(
+                        "{} more with `--fix --unsafe-fixes` (these may change behaviour).",
+                        summary.unsafe_fixable
+                    )
+                )
             );
         }
         process::exit(1);
@@ -330,25 +364,31 @@ struct Summary {
 
 impl Summary {
     /// Print the diagnostics of one file and count them.
-    fn report(&mut self, file_path: &Path, checked: Checked, verbose: u8) {
+    fn report(&mut self, file_path: &Path, checked: Checked, verbose: u8, colours: Colours) {
         let Checked { outcome, elapsed } = checked;
         let diagnostics = match outcome {
             FileOutcome::Unreadable(diag) => {
                 if verbose > 0 {
-                    eprintln!("malt: skipped {} ({})", file_path.display(), diag.rule_id);
+                    eprintln!(
+                        "{} skipped {} ({})",
+                        paint(colours.stderr, colour::dim(), "malt:"),
+                        file_path.display(),
+                        diag.rule_id
+                    );
                 }
-                print_diagnostic(file_path, &diag);
+                print_diagnostic(file_path, &diag, colours.stdout);
                 self.total_diagnostics += 1;
                 self.files_with_issues += 1;
                 return;
             }
             FileOutcome::Linted(diagnostics) => diagnostics,
         };
+        let prefix = paint(colours.stderr, colour::dim(), "malt:");
         match verbose {
             0 => {}
-            1 => eprintln!("malt: linted {}", file_path.display()),
+            1 => eprintln!("{prefix} linted {}", file_path.display()),
             _ => eprintln!(
-                "malt: linted {} in {} ({} finding{})",
+                "{prefix} linted {} in {} ({} finding{})",
                 file_path.display(),
                 format_duration(elapsed),
                 diagnostics.len(),
@@ -359,7 +399,7 @@ impl Summary {
             return;
         }
         for diag in &diagnostics {
-            print_diagnostic(file_path, diag);
+            print_diagnostic(file_path, diag, colours.stdout);
             match diag.fix.as_ref() {
                 Some(f) if f.is_safe() => self.fixable += 1,
                 Some(_) => self.unsafe_fixable += 1,
@@ -385,19 +425,18 @@ fn format_duration(duration: Duration) -> String {
 }
 
 /// Print a diagnostic in the standard `file:line:col [E] ID: message` format.
-fn print_diagnostic(file_path: &Path, diag: &Diagnostic) {
-    let severity = match diag.severity {
-        Severity::Error => "E",
-        Severity::Warning => "W",
-        Severity::Info => "I",
+fn print_diagnostic(file_path: &Path, diag: &Diagnostic, on: bool) {
+    let (severity, style) = match diag.severity {
+        Severity::Error => ("E", colour::error()),
+        Severity::Warning => ("W", colour::warning()),
+        Severity::Info => ("I", colour::info()),
     };
     println!(
-        "{}:{}:{} [{}] {}: {}",
-        file_path.display(),
-        diag.line,
-        diag.column,
-        severity,
-        diag.rule_id,
+        "{}{} {} {}: {}",
+        paint(on, colour::emphasis(), file_path.display()),
+        paint(on, colour::dim(), format!(":{}:{}", diag.line, diag.column)),
+        paint(on, style, format!("[{severity}]")),
+        paint(on, colour::emphasis(), diag.rule_id),
         diag.message,
     );
 }
@@ -405,7 +444,7 @@ fn print_diagnostic(file_path: &Path, diag: &Diagnostic) {
 /// The search path of this run as a [`ProjectIndex`], when it is on: `--index`, or
 /// `[index] enabled` unless `--no-index` says otherwise. Its warnings go to stderr.
 /// The `[index]` table is read (and must be valid) even when the index is off.
-fn project_index(cli: &Cli) -> Result<Option<Arc<dyn ProjectIndex>>> {
+fn project_index(cli: &Cli, colours: Colours) -> Result<Option<Arc<dyn ProjectIndex>>> {
     let settings = path_index::load_settings(cli.config.as_deref())?;
     let on = if cli.index {
         true
@@ -419,7 +458,10 @@ fn project_index(cli: &Cli) -> Result<Option<Arc<dyn ProjectIndex>>> {
     }
     let (index, warnings) = path_index::open(settings)?;
     for warning in &warnings {
-        eprintln!("warning: index: {warning}");
+        eprintln!(
+            "{} index: {warning}",
+            paint(colours.stderr, colour::warning(), "warning:")
+        );
     }
     Ok(Some(Arc::new(index)))
 }
@@ -432,7 +474,11 @@ fn project_index(cli: &Cli) -> Result<Option<Arc<dyn ProjectIndex>>> {
 ///
 /// Rule and parameter problems are reported on stderr. With `strict`, any problem is
 /// an error instead.
-fn load_config(explicit_path: Option<&std::path::Path>, strict: bool) -> Result<Config> {
+fn load_config(
+    explicit_path: Option<&std::path::Path>,
+    strict: bool,
+    colours: Colours,
+) -> Result<Config> {
     let config_path = if let Some(path) = explicit_path {
         if !path.exists() {
             anyhow::bail!("config file not found: {}", path.display());
@@ -455,7 +501,11 @@ fn load_config(explicit_path: Option<&std::path::Path>, strict: bool) -> Result<
                 .with_context(|| format!("failed to parse config: {}", path.display()))?;
             let warnings = malt_rules::config_check::config_warnings(&config);
             for warning in &warnings {
-                eprintln!("warning: {}: {warning}", path.display());
+                eprintln!(
+                    "{} {}: {warning}",
+                    paint(colours.stderr, colour::warning(), "warning:"),
+                    path.display()
+                );
             }
             if strict && !warnings.is_empty() {
                 anyhow::bail!(
