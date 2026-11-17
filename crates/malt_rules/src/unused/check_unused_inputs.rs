@@ -289,6 +289,38 @@ mod tests {
     }
 
     #[test]
+    fn inusd_fires_on_callback_argument_names() {
+        // Probes p52 a01, e06, a02: the GUIDE argument names are not exempt.
+        // `hObject`, `eventdata` and `handles` are INUSD in a callback-named
+        // function exactly as in a plain one, and reading one of them
+        // (`disp(handles.count)`) drops only that one.
+        let cb = "function p()\nend\n\nfunction pushbutton1_Callback(hObject, eventdata, handles)\nend\n";
+        assert_eq!(lines_of(&lint_file(&*engine(), cb), "INUSD"), vec![4, 4, 4]);
+        let plain = "function p()\nend\n\nfunction helper(hObject, eventdata, handles)\nend\n";
+        assert_eq!(
+            lines_of(&lint_file(&*engine(), plain), "INUSD"),
+            vec![4, 4, 4]
+        );
+        let reads_handles = "function p()\nend\n\nfunction pushbutton1_Callback(hObject, eventdata, handles)\ndisp(handles.count);\nend\n";
+        assert_eq!(
+            lines_of(&lint_file(&*engine(), reads_handles), "INUSD"),
+            vec![4, 4]
+        );
+    }
+
+    #[test]
+    fn inusd_fires_on_classdef_callback_method_arguments() {
+        // Probes p52 c03, c01: an App Designer-style private callback method
+        // gets INUSD for each unused input (`app` and `event`), with or without
+        // the `% Callbacks that handle component events` header; a body that
+        // reads `app` leaves only `event`'s INUSD.
+        let both = "classdef Cls\n    methods (Access = private)\n        function appButtonPushed(app, event)\n        end\n    end\nend\n";
+        assert_eq!(lines_of(&lint_file(&*engine(), both), "INUSD"), vec![3, 3]);
+        let uses_app = "classdef Cls\n    properties\n        UIFigure\n    end\n    methods (Access = private)\n        % Callbacks that handle component events\n        function appButtonPushed(app, event)\n            disp(app.UIFigure);\n        end\n    end\nend\n";
+        assert_eq!(lines_of(&lint_file(&*engine(), uses_app), "INUSD"), vec![7]);
+    }
+
+    #[test]
     fn inusa_fires_on_unused_block_input() {
         let diags = lint_file(
             &*engine(),

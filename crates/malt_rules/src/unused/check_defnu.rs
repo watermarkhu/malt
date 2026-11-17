@@ -385,4 +385,81 @@ mod tests {
         let src = "function r = c2(n)\n    arguments\n        n (1,1) double\n        function q = inner(), q = 1; end\n    end\n    r = 1;\nend\n";
         assert_eq!(defnu_lines(src), vec![1, 4]);
     }
+
+    // -- DEFNU: GUIDE and App Designer callback names (plan 5.2) ------------
+
+    #[test]
+    fn defnu_fires_on_uncalled_callback_named_subfunctions() {
+        // Probes p52 a01, a03-a09, e08, b01, d01: MATLAB has no exemption for
+        // GUIDE or App Designer callback names. An uncalled local function is
+        // DEFNU whatever suffix it carries: `pushbutton1_Callback`,
+        // `figure1_CreateFcn`, `<gui>_OpeningFcn`, `figure1_ResizeFcn`,
+        // `startupFcn`, `appButtonPushed`, `slider1ValueChanged`,
+        // `table1CellEditCallback`, the lowercase `pushbutton1_callback`, a
+        // script's local function and a nested function alike.
+        for header in [
+            "pushbutton1_Callback(hObject, eventdata, handles)",
+            "figure1_CreateFcn(hObject, eventdata, handles)",
+            "p_OpeningFcn(hObject, eventdata, handles, varargin)",
+            "figure1_ResizeFcn(hObject, eventdata, handles)",
+            "figure1_CloseRequestFcn(hObject, eventdata, handles)",
+            "figure1_DeleteFcn(hObject, eventdata, handles)",
+            "startupFcn()",
+            "appButtonPushed(src, event)",
+            "slider1ValueChanged(src, event)",
+            "table1CellEditCallback(src, event)",
+            "pushbutton1_callback(hObject, eventdata, handles)",
+        ] {
+            let src = format!("function p()\nend\n\nfunction {header}\nend\n");
+            let diags = lint_file(&*engine(), &src);
+            assert!(has_id(&diags, "DEFNU"), "{header}: got: {diags:?}");
+        }
+        // Probe b01: a script's uncalled callback-named local function.
+        let script = "disp(1);\nfunction pushbutton1_Callback(hObject, eventdata, handles)\nend\n";
+        assert!(has_id(&lint_file(&*engine(), script), "DEFNU"));
+        // Probe d01: an uncalled callback-named nested function.
+        let nested =
+            "function p()\nfunction pushbutton1_Callback(hObject, eventdata, handles)\nend\nend\n";
+        assert!(has_id(&lint_file(&*engine(), nested), "DEFNU"));
+    }
+
+    #[test]
+    fn defnu_fires_under_a_callbacks_header_comment() {
+        // Probe p52 e03 (and classdefs c01, c07): neither a `%%` nor a
+        // `% Callbacks that handle component events` header silences DEFNU.
+        let src = "function p()\nend\n\n%% Callbacks that handle component events\nfunction pushbutton1_Callback(hObject, eventdata, handles)\nend\n";
+        let diags = lint_file(&*engine(), src);
+        assert!(has_id(&diags, "DEFNU"), "got: {diags:?}");
+    }
+
+    #[test]
+    fn defnu_not_silenced_by_callback_string_registration() {
+        // Probes p52 a12, a13, a16: registering the name as a callback STRING
+        // (`uicontrol('Callback', 'name')`, `set(h, 'WindowKeyPressFcn', 'name')`,
+        // `uibutton(f, 'push', 'ButtonPushedFcn', 'name')`) is not a call:
+        // MATLAB still reports DEFNU for the unreferenced function.
+        for src in [
+            "function p()\nuicontrol('Callback', 'mycb_Callback');\nend\n\nfunction mycb_Callback(src, event)\nend\n",
+            "function p()\nh = figure;\nset(h, 'WindowKeyPressFcn', 'fig_KeyPressFcn');\nend\n\nfunction fig_KeyPressFcn(src, event)\nend\n",
+            "function p()\nf = uifigure;\nuibutton(f, 'push', 'ButtonPushedFcn', 'btnPushed');\nend\n\nfunction btnPushed(src, event)\nend\n",
+        ] {
+            let diags = lint_file(&*engine(), src);
+            assert!(has_id(&diags, "DEFNU"), "{src:?}: got: {diags:?}");
+        }
+    }
+
+    #[test]
+    fn defnu_silent_when_callback_registered_as_handle_or_anonymous_call() {
+        // Probes p52 a14, a15: a handle (`uicontrol('Callback', @pushed)`) or an
+        // anonymous function that calls the local function
+        // (`@(src, evt) mycb(src, evt)`) is a use, so no DEFNU. The arguments
+        // the body never reads are still INUSD, as in MATLAB.
+        for src in [
+            "function p()\nuicontrol('Callback', @pushed);\nend\n\nfunction pushed(src, event)\nend\n",
+            "function p()\nuicontrol('Callback', @(src, evt) mycb(src, evt));\nend\n\nfunction mycb(src, evt)\nend\n",
+        ] {
+            let diags = lint_file(&*engine(), src);
+            assert!(!has_id(&diags, "DEFNU"), "{src:?}: got: {diags:?}");
+        }
+    }
 }

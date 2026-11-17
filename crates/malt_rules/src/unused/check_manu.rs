@@ -205,6 +205,18 @@ mod tests {
     }
 
     #[test]
+    fn manu_fires_on_startup_fcn_callback_method() {
+        // Probes p52 c04 and c05: an App Designer-style private method named
+        // `startupFcn` is not exempt; its unused sole input is MANU like any
+        // method's (c05's `helper2`), with or without the
+        // `% Callbacks that handle component events` header.
+        let src = "classdef Cls\n    methods (Access = private)\n        % Callbacks that handle component events\n        function startupFcn(app)\n        end\n    end\nend\n";
+        let diags = lint_file(&*engine(), src);
+        assert!(has_id(&diags, "MANU"), "got: {diags:?}");
+        assert!(!has_id(&diags, "INUSD"), "got: {diags:?}");
+    }
+
+    #[test]
     fn manu_silent_when_tilde_placeholder_follows_unused_input() {
         // Probe U_e: with a `~` placeholder, the unused `obj` is INUSD (line 3), not MANU.
         let diags = lint_file(
