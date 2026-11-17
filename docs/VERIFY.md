@@ -649,3 +649,55 @@ Same procedure as the rounds above: ten new files of the session's own writing p
 | 11 | 10 (`corpus15/`; nine first, a tenth added before the diff) | 34 | none (34 matched, message text identical) | clean |
 
 Consecutive clean rounds: three (rounds 9, 10 and 11), so the exit criterion of the phase is met and no further round was run. Round 10 found little to compare (well-written class code gives MATLAB five findings), so it is the weakest of the three; round 11 is the stronger test. No malt change was needed, so there are no new fixes and no new known gaps. The files joined the fixtures as `corpus14/` and `corpus15/` (20 files; 773 in all).
+
+## 5.2 DEFNU and callbacks (2026-11-17)
+
+Whether the Code Analyzer treats GUIDE- and App Designer-shaped functions (`*_Callback`, `*_CreateFcn`, `*_DeleteFcn`, `*_OpeningFcn`, `*_OutputFcn`, `*_KeyPressFcn`, `*_ButtonDownFcn`, `*_ResizeFcn`, `*_CloseRequestFcn`, `startupFcn`, `*ButtonPushed`, `*ValueChanged`, `*CellEditCallback`) as used: does DEFNU fire on an uncalled callback, and INUSD/MANU on its typical `hObject, eventdata, handles` / `app, event` arguments. 40 tiny probe files of the session's own writing under `/tmp/probe/cb/` (GUIDE-style function files without `gui_mainfcn` boilerplate, scripts with local functions, classdefs with private callback methods, nested functions, minimal variants), one `matlab -batch` call over the set (`docs/scripts/matlab_probe.m`; the paired `.fig` for one probe was created in the same call), compared with malt per (file, line, ID) and message text.
+
+| Case (probe file) | MATLAB IDs |
+| --- | --- |
+| Function file, uncalled `pushbutton1_Callback(hObject, eventdata, handles)` (a01) | DEFNU + 3x INUSD |
+| Same, body reads `handles` (a02) or `hObject` (e05) | DEFNU + 2x INUSD |
+| Uncalled `figure1_CreateFcn` (a03), `<gui>_OpeningFcn` with `varargin` (a04) | DEFNU + 3x INUSD |
+| `varargout = <gui>_OutputFcn` (a05) | DEFNU + 3x INUSD + STOUT (`varargout` never assigned) |
+| `_KeyPressFcn`, `_ButtonDownFcn` (a06); `_ResizeFcn`, `_CloseRequestFcn`, `_DeleteFcn` (a07) | DEFNU + 3x INUSD each |
+| `startupFcn()` (a08) | DEFNU |
+| `appButtonPushed`, `slider1ValueChanged`, `table1CellEditCallback`, `edit1ValueChanged` (a09) | DEFNU + 2x INUSD each |
+| Plain `helper(a, b)` uncalled (a10) | DEFNU + 2x INUSD (the same shape: no exemption) |
+| Callback called by name (a11) | no DEFNU; INUSD x3 (the body reads nothing) |
+| `uicontrol('Callback', 'name')` (a12), `set(h, 'WindowKeyPressFcn', 'name')` (a13), `uibutton(f, 'push', 'ButtonPushedFcn', 'name')` (a16) | DEFNU + 2x INUSD: a callback STRING is not a use |
+| `uicontrol('Callback', @pushed)` (a14), `@(src,evt) mycb(src,evt)` (a15) | 2x INUSD: a handle or an anonymous call IS a use |
+| Script local function `pushbutton1_Callback` (b01), plain `helper` (b02) | DEFNU + INUSD x3/2, as in a function file |
+| classdef, `methods (Access = private)`, `%`/`%% Callbacks that handle component events` header, `appButtonPushed(app, event)` using `app` (c01, c02, c07) | INUSD for `event` only: methods are outside DEFNU, and the header exempts nothing |
+| Same with `app` and `event` both unused (c03) | INUSD x2 |
+| Private `startupFcn(app)` (c04), plain `helper2(app)` (c05) | MANU both: no `startupFcn` exemption |
+| Callback referenced as `@app.pushed` (c06); full App Designer shape with `createCallbackFcn` and a `matlab.apps.AppCompatActivityBase` superclass (c08) | INUSD for `event` only |
+| Nested `pushbutton1_Callback` (d01), plain nested `helper` (d02) | DEFNU + INUSD x3/2 |
+| GUI-named file with a paired `.fig` (e01), any other file name (e02) | DEFNU + 3x INUSD: a paired `.fig` and the file name change nothing |
+| `%% Callbacks that handle component events` header in a function file (e03) | DEFNU + 3x INUSD |
+| `handles.count = handles.count + 1;` in the body (e04) | DEFNU + 2x INUSD, no NASGU for the store |
+| Plain `helper(hObject, eventdata, handles)` (e06) | DEFNU + 3x INUSD: the argument names are not exempt either |
+| Callback-named + plain subfunctions, both uncalled (e07) | DEFNU for both |
+| Lowercase `pushbutton1_callback` (e08) | DEFNU + 3x INUSD |
+| 62-character callback name (e09) | DEFNU + 3x INUSD, no LNGNM |
+| Main function named differently from the file (e01, e10) | FNDEF, as for any file |
+| `helper@app(app)` inside `appButtonPushed` of a `handle` subclass (e11) | MCSCM at the call (name mismatch) + INUSD for `event`: the `name@app(app)` form counts as a read of `app` |
+
+**Established rule.** MATLAB has no callback exemption of any kind. A function that looks like a GUIDE or App Designer callback is analysed exactly like any other local function: DEFNU fires when it is never called, in function files, scripts with local functions and nested functions alike, whatever suffix or case its name carries; INUSD fires for each unread input, `hObject`/`eventdata`/`handles` no more exempt than `a`/`b`; MANU fires for a private `startupFcn(app)` like any method's sole input. Nothing silences them: not a paired `.fig`, not the file name, not a `%` or `%% Callbacks that handle component events` header (function file or classdef), not the privacy of the methods block. A use is a call by name, a handle `@f`, or an anonymous function that calls `f`; a callback registered as a STRING (`uicontrol`, `set`, `uibutton`) is not a use. Real GUIDE files are silent only through their `str2func`/`feval` boilerplate, which the existing `DYNAMIC_CALLS` rule in `check_defnu.rs` already models.
+
+**Decision.** No malt change. Before any fix, malt reported exactly MATLAB's 88 findings on the 40 probes — identical per (file, line, ID) and message text — so there was no false positive to remove and no condition to gate on. The behaviour is pinned so a name-based exemption cannot be added later: unit tests in `unused/check_defnu.rs` (uncalled suffixes, the header comment, string vs handle registration), `check_unused_inputs.rs` (callback argument names, classdef callback methods) and `check_manu.rs` (`startupFcn`), each naming its probe, and the 18 fixtures `phase3/defnu_p52_*.m` with their MATLAB expectations appended (2874 recorded findings on 791 files, live check agreeing).
+
+Known gaps:
+
+- INUSA (an input of a callback-named function declared in an `arguments` block) was not probed; no exemption is expected, since INUSD and MANU have none.
+- The paired-`.fig` probe covered one shape (a GUIDE-style function file whose stem matches the `.fig`). The `.fig` is binary and cannot be a fixture, so the fixtures pin the name-independent behaviour only.
+- GUIDE's real `guidata`/`gui_mainfcn` boilerplate was not re-probed; its silencing is attributed to the already-modelled dynamic calls (`str2func`, `feval`), not to anything callback-specific.
+
+## WASM parity (plan step 5.7, 2026-11-17)
+
+The browser build (`malt-wasm`) must report what the CLI reports. Two checks keep it so:
+
+- `crates/malt_wasm` has a host test that runs every conformance fixture (`matlab_files.txt`, 791 files) through the `Linter.check` the browser calls and compares the (file, line, ID) findings with the recorded MATLAB expectations. It found one real bug, now fixed: `new Linter()` and `new Linter(null)` built their configuration from a derived `Default`, which turned `%#ok` suppression off (extra AGROW findings, missing MSNU), while `new Linter({})` had it on. The default is now the same as an empty object, with a unit test and a smoke-test case.
+- `wasm-pkg/smoke-test.mjs` runs the built package in Node on realistic cases with the IDs the CLI reports, covers the three constructor forms, `fix`, the file-name-dependent checks, a malformed TOML, and a 5,000-level nesting that must not trap.
+
+One difference remains, on purpose: the wasm depth guard is 200 levels, the native one 1,000. The one fixture that nests 200 levels (`fix/incomplete__di200.m`) reports `MALT_TOO_DEEP` in wasm and is allowlisted in the host test. The guard stays low because of the measured stack: in the Node/V8 build a chain of about 750 binary operators (`x = 1+1+…`) traps (`memory access out of bounds`), while parentheses, calls, matrices, cells, `if`/`for` nesting, field chains and lambdas ran to 5,000 levels without a trap. Raising the guard to the native 1,000 is therefore not safe; with 200, every shape tested up to 5,000 levels ends in a diagnostic or a normal result, never a trap. Other engines (Safari, Firefox) have different stack sizes and were not measured.

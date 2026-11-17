@@ -80,7 +80,7 @@ mod wasm {
     }
 
     /// JavaScript-facing configuration object mirroring rumdl's `LinterConfig`.
-    #[derive(Debug, Default, serde::Deserialize)]
+    #[derive(Debug, serde::Deserialize)]
     pub struct LinterConfig {
         /// Rule IDs to disable (e.g., `["AGROW", "NOSEMI"]`).
         #[serde(default)]
@@ -116,6 +116,24 @@ mod wasm {
 
     fn default_true() -> bool {
         true
+    }
+
+    /// The configuration of `new Linter()`: the same as an empty object. A derived `Default`
+    /// would turn `%#ok` suppression off (`bool::default()`), which only `new Linter(null)`
+    /// and `new Linter()` would see, not `new Linter({})`.
+    impl Default for LinterConfig {
+        fn default() -> Self {
+            Self {
+                disable: Vec::new(),
+                enable: Vec::new(),
+                extend_disable: Vec::new(),
+                extend_enable: Vec::new(),
+                rules: HashMap::new(),
+                exclude: Vec::new(),
+                inline_suppression: default_true(),
+                preset: None,
+            }
+        }
     }
 
     impl LinterConfig {
@@ -295,6 +313,94 @@ mod wasm {
 
         fn linter() -> Linter {
             from_config(LinterConfig::default())
+        }
+
+        /// Every conformance fixture (`matlab_files.txt`, with the findings MATLAB R2026b
+        /// recorded in `matlab_expected.tsv`) through the same `check` the browser calls:
+        /// the wasm package must report what the native build reports. Both lists are read
+        /// from the CLI's test folder at test time.
+        #[test]
+        fn conformance_fixtures_match_the_recorded_matlab_findings() {
+            use std::collections::BTreeSet;
+            let fixtures = Path::new(env!("CARGO_MANIFEST_DIR")).join("../malt_cli/tests/fixtures");
+            let list = std::fs::read_to_string(fixtures.join("matlab_files.txt")).unwrap();
+            let files: Vec<&str> = list
+                .lines()
+                .map(str::trim)
+                .filter(|l| !l.is_empty() && !l.starts_with('#'))
+                .collect();
+            let recorded = std::fs::read_to_string(fixtures.join("matlab_expected.tsv")).unwrap();
+            let expected: BTreeSet<(String, usize, String)> = recorded
+                .lines()
+                .filter(|l| !l.starts_with('#') && !l.trim().is_empty())
+                .map(|l| {
+                    let c: Vec<&str> = l.split('\t').collect();
+                    (c[0].to_string(), c[1].parse().unwrap(), c[2].to_string())
+                })
+                .collect();
+
+            // The depth guard of the wasm build is lower than the native one, so a fixture
+            // that nests deeper than it reports MALT_TOO_DEEP here: none may.
+            let found = std::thread::Builder::new()
+                .stack_size(256 * 1024 * 1024)
+                .spawn({
+                    let files: Vec<String> = files.iter().map(|f| f.to_string()).collect();
+                    let fixtures = fixtures.clone();
+                    move || {
+                        let mut linter = linter();
+                        let mut found = BTreeSet::new();
+                        for file in &files {
+                            let source = std::fs::read_to_string(fixtures.join(file)).unwrap();
+                            let json = linter.check(&source, Some(file.clone()));
+                            let warnings: Vec<serde_json::Value> =
+                                serde_json::from_str(&json).unwrap();
+                            for w in warnings {
+                                let id = w["rule_id"].as_str().expect("a rule_id").to_string();
+                                let line = w["line"].as_u64().expect("a line") as usize;
+                                found.insert((file.clone(), line, id));
+                            }
+                        }
+                        found
+                    }
+                })
+                .unwrap()
+                .join()
+                .unwrap();
+
+            // Known differences of the wasm build. `fix/incomplete__di200.m` nests 200 levels
+            // deep: the wasm depth guard (200, see WASM_MAX_TREE_DEPTH) reports MALT_TOO_DEEP
+            // where the native one (1,000) does not. A trap was measured at about 750
+            // chained binary operators in V8, so the lower guard is deliberate.
+            let found: BTreeSet<_> = found
+                .into_iter()
+                .filter(|(file, _, id)| {
+                    !(file == "fix/incomplete__di200.m" && id == "MALT_TOO_DEEP")
+                })
+                .collect();
+            let missing: Vec<_> = expected.difference(&found).take(10).collect();
+            let extra: Vec<_> = found.difference(&expected).take(10).collect();
+            assert!(
+                missing.is_empty() && extra.is_empty(),
+                "wasm differs from the recorded findings over {} files:\nrecorded but not reported: {missing:?}\nreported but not recorded: {extra:?}",
+                files.len()
+            );
+        }
+
+        #[test]
+        fn a_default_config_honors_inline_suppression_like_an_empty_object() {
+            // `new Linter()` and `new Linter(null)` use `LinterConfig::default()`.
+            assert!(LinterConfig::default().inline_suppression);
+            let empty: LinterConfig = serde_json::from_str("{}").unwrap();
+            assert_eq!(
+                empty.inline_suppression,
+                LinterConfig::default().inline_suppression
+            );
+            let mut l = linter();
+            let suppressed = l.check(
+                "x = [];\nfor i=1:3\n    x(end+1) = i; %#ok<SAGROW>\nend\n",
+                None,
+            );
+            assert!(!suppressed.contains("GROW"), "{suppressed}");
         }
 
         #[test]
