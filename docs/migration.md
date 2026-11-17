@@ -149,10 +149,15 @@ New IDs appeared on the other side: `NOPAR` and `SEPEXC` (syntax),
 (language specification), `SZCLN` (compatibility), 29 new compatibility
 data entries (comm/dsp interleavers, `PDSCHCONFIG`, `WSDLCLIENT`, …; eight
 `DLAB*`/`DNUMLABS` entries moved to the suggested-improvements table), and
-`MALT_TOO_DEEP` — the one ID that is malt's own, a parse-tree safety limit on
-pathologically nested code rather than a MATLAB check. A full diff of the
+`MALT_TOO_DEEP` and `MALT_TOO_BIG` — the two IDs that are malt's own, safety
+limits on pathologically nested or very large input rather than MATLAB checks
+(see [Resource limits](configuration.md#resource-limits)). A full diff of the
 check inventory is easiest to see in the [Rules Reference](rules.md#overview),
 which is generated from the rule sources.
+
+## Files over the resource limits are skipped
+
+malt now protects the machine from pathological input, and the limits are on by default: a file over 5 MiB (`max_file_size`) is **not read** and gets a `MALT_TOO_BIG` error at line 1 (exit code `1`); code nested more than 10,000 brackets (`max_nesting`) or 1,000 syntax-tree levels (`max_tree_depth`) gets `MALT_TOO_DEEP`; and `max_threads` (default: the number of cores) is now a total for the whole process, where before the file workers and the checks of one large file each used all the cores. Both IDs are malt's own, not MATLAB messages. If a project has files that large, either exclude them or raise the limit under `[lint.limits]`; read the warning in [Resource limits](configuration.md#resource-limits) first. The browser build (`malt-wasm`) defaults to 2 MiB and 200 levels.
 
 ## The default now mirrors MATLAB's factory configuration
 

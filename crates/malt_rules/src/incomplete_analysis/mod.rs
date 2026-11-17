@@ -32,9 +32,12 @@
 //! kept: `checkcode` raises an error instead of reporting them for a file that is
 //! not a `.m` file, so only the message text is taken from MATLAB.
 //!
-//! malt's own safety limit on the depth of the parse tree is not a MATLAB check.
-//! Code nested beyond it gets a `MALT_TOO_DEEP` diagnostic and is not analysed
-//! (see `Linter::lint`).
+//! malt's own safety limits are not MATLAB checks and are set under
+//! `[lint.limits]` (see the Resource limits section of the configuration page).
+//! Code nested beyond the depth of the parse tree (`max_tree_depth`), or with
+//! more nested brackets than `max_nesting`, gets a `MALT_TOO_DEEP` diagnostic;
+//! a file larger than `max_file_size` gets `MALT_TOO_BIG` and is not read. Neither
+//! is analysed (see `Linter::lint`).
 //!
 //! ## Check IDs
 //!

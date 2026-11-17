@@ -701,3 +701,40 @@ The browser build (`malt-wasm`) must report what the CLI reports. Two checks kee
 - `wasm-pkg/smoke-test.mjs` runs the built package in Node on realistic cases with the IDs the CLI reports, covers the three constructor forms, `fix`, the file-name-dependent checks, a malformed TOML, and a 5,000-level nesting that must not trap.
 
 One difference remains, on purpose: the wasm depth guard is 200 levels, the native one 1,000. The one fixture that nests 200 levels (`fix/incomplete__di200.m`) reports `MALT_TOO_DEEP` in wasm and is allowlisted in the host test. The guard stays low because of the measured stack: in the Node/V8 build a chain of about 750 binary operators (`x = 1+1+…`) traps (`memory access out of bounds`), while parentheses, calls, matrices, cells, `if`/`for` nesting, field chains and lambdas ran to 5,000 levels without a trap. Raising the guard to the native 1,000 is therefore not safe; with 200, every shape tested up to 5,000 levels ends in a diagnostic or a normal result, never a trap. Other engines (Safari, Firefox) have different stack sizes and were not measured.
+
+## Resource limits
+
+The `[lint.limits]` table of `.malt.toml` (`max_file_size`, `max_tree_depth`, `max_nesting`, `max_threads`; see [Resource limits](configuration.md#resource-limits)) was added after a pathological input made a malt process grow until the machine hung. The defaults come from these measurements: the release CLI (`target/release/malt`, one file per run, so one worker), each run under `timeout 60` and `ulimit -v 12000000`, inputs generated in `/tmp` (never committed), peak RSS from `/usr/bin/time -v`, 12 cores, WSL2. "n" is the nesting depth, the number of operands, or the megabytes. A run that hit the 60 s cap was killed and its peak is a lower bound.
+
+| Input | n | File size | Peak RSS | Wall time | Result |
+| --- | --- | --- | --- | --- | --- |
+| `x = ((((1))))` | 8,000 | 16 KB | 12 MB | 0.01 s | MDEEP (MATLAB's own check) |
+| same | 64,000 | 128 KB | 32 MB | 0.07 s | MDEEP |
+| same | 256,000 | 512 KB | 103 MB | 0.25 s | MDEEP |
+| `[[[[1]]]]` | 64,000 | 128 KB | 45 MB | 0.11 s | MDEEP |
+| `{ { { 1 } } }` | 64,000 | 128 KB | 44 MB | 0.10 s | MDEEP |
+| nested `if` / `for` in a function | 200 | 2 KB | 11 MB | 0.05 s / 0.28 s | analyzed |
+| nested `if` / `for` / `while` / `try` / `switch` | 400 to 30,000 | up to 600 KB | up to 80 MB | up to 0.28 s | NOSPC (MATLAB's own check) |
+| nested `@() @() …`, `a.b.b.b…`, nested functions | 30,000 | 60 to 650 KB | 29 to 95 MB | up to 0.28 s | MALT_TOO_DEEP or MATLAB's limit |
+| `%{` nested blocks | 30,000 | 180 KB | 9 MB | 0.01 s | DEEPC |
+| chain `1+1+1+…` | 400,000 | 800 KB | 212 MB | 0.55 s | MXASET |
+| one line `x = [1 1 1 …];` | 1,000 | 2 KB | 10 MB | 0.02 s | analyzed |
+| same | 100,000 | 200 KB | 142 MB | 1.0 s | analyzed |
+| same | 1,000,000 | 2 MB | 1,045 MB | 13 s | analyzed |
+| same | 4,000,000 | 8 MB | 3,630 MB | 60 s (killed) | not finished |
+| ordinary statements, 10,003 findings | 1 MB | 1 MB | 218 MB | 2.5 s | analyzed |
+| same | 4 MB | 4 MB | 789 MB | 10 s | analyzed |
+| same | 8 MB | 8 MB | 1,447 MB | 29 s | analyzed |
+| same | 16 MB | 16 MB | 2,549 MB | 51 s | analyzed |
+| same | 50 MB | 50 MB | 7,616 MB | 60 s (killed) | not finished |
+| empty lines | 1e5, 1e6, 1e7 | 0.1 to 10 MB | 9 to 19 MB | up to 0.54 s | analyzed |
+
+What the table decides:
+
+- **Nesting is cheap, size is not.** Parsing and the MATLAB limit checks cost about 0.4 KB of memory per level, linear to 256,000 levels (100 MB), and MATLAB's own checks (MDEEP, NOSPC, MXASET, DEEPC) answer for the nesting shapes before malt's analysis runs. The nesting bomb of the incident did not reproduce as a memory blow-up in the native CLI on any shape tried. What does scale is the input size: about 180 bytes of memory per input byte for ordinary statements (time super-linear, 2.5 s per MB growing to 3.5 s per MB) and about 500 bytes per byte for one huge matrix. Empty lines are nearly free.
+- **`max_file_size`: 5 MiB native, 2 MiB wasm.** At 5 MiB the worst measured shape (single-line matrix) needs about 2.5 GB and a statement file about 0.9 GB and 15 s, which a CI runner survives; at 16 MB the statement file already needs 2.5 GB and 50 s, and 50 MB did not finish within 60 s at 7.6 GB. 5 MiB is far above real MATLAB files (the largest fixture is below 1 MiB; MATLAB's own MBIG would start at 16 MB and MATLAB never reports it). The browser tab gets 2 MiB because its memory is smaller and a tab that hangs is worse than a skipped file.
+- **`max_tree_depth` stays 1,000 native and 200 wasm** (see 'WASM parity' above for why 200).
+- **`max_nesting`: 10,000 native, 1,000 wasm.** A backstop that stops the parse before it starts: 10,000 levels cost under 15 MB to parse, so the default is generous, and it is above MATLAB's MDEEP limit (33) and the tree-depth limit so that moderately deep input still gets MATLAB's own message. The scan counts brackets only, because `end` is ambiguous before the parse (`x(end)`); a test scans every conformance fixture and refuses none at either default.
+- **`max_threads`: the number of cores, as a total.** Before, each of the `cores` file workers also started `cores` check threads for a large file (all with 256 MiB of reserved stack), so one run could start cores squared threads. Now the workers and the per-file check threads share the budget (`workers * threads per file <= max_threads`); the memory of one run is bounded by the number of files in flight times the memory of a file. A budget of 1 runs on one thread. The many-worker memory sum was not measured (one file per run).
+
+Not verified: the effect of `max_threads` on peak memory with several large files in flight, the wasm limits in a browser (the host test and the V8 depth measurement above stand in), and shapes other than those listed (for example thousands of long lines of nested anonymous functions).

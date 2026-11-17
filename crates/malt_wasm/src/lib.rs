@@ -19,9 +19,6 @@ mod wasm {
     use malt_core::{fix_source, position_of, Config, Diagnostic, FixMode, RuleRegistry, Severity};
     use wasm_bindgen::prelude::*;
 
-    /// Deepest syntax tree analyzed in the browser (about 80 nested statements).
-    const WASM_MAX_TREE_DEPTH: usize = 200;
-
     /// A single diagnostic serialized for JavaScript consumers.
     #[derive(serde::Serialize)]
     struct JsWarning {
@@ -208,8 +205,10 @@ mod wasm {
         let registry = RuleRegistry::new(rules, &malt_config);
         let mut linter = malt_core::Linter::new(registry);
         linter.set_inline_suppression(malt_config.inline_suppression);
-        // About 1 MiB of stack and no thread to enlarge it: stop earlier than natively.
-        linter.set_max_tree_depth(WASM_MAX_TREE_DEPTH);
+        // About 1 MiB of stack, little memory and no thread to enlarge the stack:
+        // stop earlier than natively (200 levels, 2 MiB, 1,000 nested brackets)
+        // unless the config's `[lint.limits]` says otherwise.
+        linter.set_limits(malt_config.limits.resolve(malt_core::Limits::wasm()));
         Linter {
             linter,
             config_warnings: Vec::new(),
@@ -368,7 +367,7 @@ mod wasm {
                 .unwrap();
 
             // Known differences of the wasm build. `fix/incomplete__di200.m` nests 200 levels
-            // deep: the wasm depth guard (200, see WASM_MAX_TREE_DEPTH) reports MALT_TOO_DEEP
+            // deep: the wasm depth guard (200, see malt_core::limits::WASM_MAX_TREE_DEPTH) reports MALT_TOO_DEEP
             // where the native one (1,000) does not. A trap was measured at about 750
             // chained binary operators in V8, so the lower guard is deliberate.
             let found: BTreeSet<_> = found
@@ -414,6 +413,66 @@ mod wasm {
             );
             let clean = from_toml_str("[lint.rules]\nNOSEMI = \"warn\"\n").expect("valid TOML");
             assert_eq!(clean.get_config_warnings(), "[]");
+        }
+
+        #[test]
+        fn wasm_defaults_are_lower_than_native() {
+            // Over the wasm default of 2 MiB: refused without parsing.
+            let mut l = linter();
+            let big = "x = 1;\n".repeat(2 * 1024 * 1024 / 7 + 1);
+            let json = l.check(&big, None);
+            assert!(
+                json.contains("MALT_TOO_BIG"),
+                "{}",
+                &json[..json.len().min(300)]
+            );
+            assert!(json.contains("not a MATLAB message"));
+            // Nesting past the wasm default of 1,000 brackets: refused without parsing.
+            let nested = format!("x = {}1{};\n", "(".repeat(1_001), ")".repeat(1_001));
+            assert!(l.check(&nested, None).contains("MALT_TOO_DEEP"));
+        }
+
+        #[test]
+        fn from_toml_limits_override_the_wasm_defaults() {
+            let mut l = from_toml_str("[lint.limits]\nmax_file_size = \"1 KiB\"\n").unwrap();
+            assert!(l.get_config_warnings() == "[]");
+            let json = l.check(&"x = 1;\n".repeat(300), None);
+            assert!(
+                json.contains("MALT_TOO_BIG") && json.contains("1 KiB"),
+                "{json}"
+            );
+            assert!(!l.check("x = 1;\n", None).contains("MALT_TOO_BIG"));
+            // Raising the size leaves the other wasm defaults in place (the lint of a file of
+            // megabytes would take minutes in a debug test, so the boundary is tested small).
+            let mut l = from_toml_str("[lint.limits]\nmax_file_size = \"4 KiB\"\n").unwrap();
+            let src = "x = 1;\n".repeat(400);
+            assert!(!l.check(&src, None).contains("MALT_TOO_BIG"));
+            assert!(l
+                .check(&"x = 1;\n".repeat(700), None)
+                .contains("MALT_TOO_BIG"));
+            // A lower tree depth than 200.
+            let mut l = from_toml_str("[lint.limits]\nmax_tree_depth = 5\n").unwrap();
+            assert!(l
+                .check("if a\nif b\nif c\nx = 1;\nend\nend\nend\n", None)
+                .contains("MALT_TOO_DEEP"));
+        }
+
+        #[test]
+        fn from_toml_rejects_invalid_limits_and_warns_about_unknown_keys() {
+            for bad in [
+                "[lint.limits]\nmax_file_size = 0\n",
+                "[lint.limits]\nmax_tree_depth = -1\n",
+                "[lint.limits]\nmax_file_size = \"lots\"\n",
+            ] {
+                match from_toml_str(bad) {
+                    Err(e) => assert!(e.contains("[lint.limits]"), "{e}"),
+                    Ok(_) => panic!("{bad} must be rejected"),
+                }
+            }
+            let l = from_toml_str("[lint.limits]\nmax_file_sise = 1\n").unwrap();
+            let warnings: Vec<String> = serde_json::from_str(&l.get_config_warnings()).unwrap();
+            assert_eq!(warnings.len(), 1, "{warnings:?}");
+            assert!(warnings[0].contains("max_file_size"), "{warnings:?}");
         }
 
         #[test]

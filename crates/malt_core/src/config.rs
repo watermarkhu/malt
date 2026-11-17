@@ -25,6 +25,7 @@ use serde::de::DeserializeOwned;
 use serde::Deserialize;
 
 use crate::diagnostic::Severity;
+use crate::limits::LimitsConfig;
 use crate::preset::{self, PresetDef};
 use crate::rule::Category;
 
@@ -43,6 +44,9 @@ pub enum ConfigError {
 
     #[error("unknown preset '{0}' (expected one of: {1})")]
     UnknownPreset(String, String),
+
+    #[error("invalid resource limit: {0}")]
+    InvalidLimit(String),
 }
 
 // ---------------------------------------------------------------------------
@@ -88,6 +92,10 @@ pub struct LintSection {
     /// that this file layers over. Its path is relative to the working directory.
     #[serde(default)]
     pub matlab_config: Option<String>,
+
+    /// Resource limits (`[lint.limits]`): file size, tree depth, nesting, threads.
+    #[serde(default)]
+    pub limits: toml::Table,
 }
 
 impl Default for LintSection {
@@ -99,6 +107,7 @@ impl Default for LintSection {
             rules: HashMap::new(),
             categories: HashMap::new(),
             matlab_config: None,
+            limits: toml::Table::new(),
         }
     }
 }
@@ -178,6 +187,9 @@ pub struct Config {
     pub check_settings: HashMap<String, CheckSetting>,
     /// The MATLAB configuration file named by `[lint] matlab_config`, if any.
     pub matlab_config: Option<String>,
+    /// The `[lint.limits]` table; a key left out takes the host's default
+    /// (see [`LimitsConfig::resolve`]).
+    pub limits: LimitsConfig,
 }
 
 /// The candidate closest to `name` (ignoring case), when it is close enough to be a
@@ -219,6 +231,7 @@ impl Default for Config {
             inline_suppression: true,
             check_settings: HashMap::new(),
             matlab_config: None,
+            limits: LimitsConfig::default(),
         }
     }
 }
@@ -325,6 +338,7 @@ impl Config {
             inline_suppression: file.lint.inline_suppression,
             check_settings: HashMap::new(),
             matlab_config: file.lint.matlab_config,
+            limits: LimitsConfig::from_table(&file.lint.limits)?,
         })
     }
 

@@ -44,6 +44,10 @@ Until native editor integration is available, you can use malt as an external to
 2. Parse the output format (`file:line:column [severity] rule: message`) for diagnostics
 3. Many editors support this via "problem matcher" patterns
 
+## Large files
+
+malt refuses files over `max_file_size` (5 MiB by default; 2 MiB in the browser build) and code nested beyond its depth limits: the file gets a `MALT_TOO_BIG` or `MALT_TOO_DEEP` error at line 1 and is not analyzed, so a huge generated file cannot freeze the editor. Raising these limits in `[lint.limits]` can make malt use gigabytes of memory on such files; see [Resource limits](../configuration.md#resource-limits) before you do.
+
 ## Contributing
 
 If you'd like to help build editor integrations, see the [repository](https://github.com/watermarkhu/malt) for contribution guidelines.

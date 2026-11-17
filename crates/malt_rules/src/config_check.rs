@@ -15,7 +15,7 @@
 
 use std::collections::HashSet;
 
-use malt_core::{config::suggest, known_ids, Config};
+use malt_core::{config::suggest, known_ids, limits, Config};
 
 /// The parameters each engine reads with `rule_params`, by the engine's rule ID.
 const ENGINE_PARAMS: &[(&str, &[&str])] = &[
@@ -141,6 +141,13 @@ pub fn config_warnings(config: &Config) -> Vec<String> {
             warnings.push(format!("unknown parameter '{key}' for rule '{id}'{hint}"));
         }
     }
+    for key in &config.limits.unknown {
+        let hint = match suggest(key, limits::LIMIT_KEYS.iter().copied()) {
+            Some(s) => format!(" (did you mean '{s}'?)"),
+            None => format!(" (valid keys: {})", limits::LIMIT_KEYS.join(", ")),
+        };
+        warnings.push(format!("unknown key '{key}' in [lint.limits]{hint}"));
+    }
     warnings.sort();
     warnings
 }
@@ -238,6 +245,27 @@ mod tests {
     #[test]
     fn severity_shorthand_of_a_standalone_check_is_clean() {
         assert!(warnings("[lint.rules]\nNOPTS = \"error\"\n").is_empty());
+    }
+
+    #[test]
+    fn unknown_limit_key_gets_a_suggestion() {
+        let w = warnings("[lint.limits]\nmax_file_sise = \"1 MiB\"\nfoo = 1\nmax_threads = 2\n");
+        assert_eq!(w.len(), 2, "{w:?}");
+        assert!(
+            w[0].contains("'foo'") && w[0].contains("valid keys"),
+            "{w:?}"
+        );
+        assert!(
+            w[1].contains("'max_file_sise'") && w[1].contains("'max_file_size'"),
+            "{w:?}"
+        );
+    }
+
+    #[test]
+    fn valid_limits_are_clean() {
+        let toml = "[lint.limits]\nmax_file_size = \"8 MiB\"\nmax_tree_depth = 500\n\
+                    max_nesting = 5000\nmax_threads = 2\n";
+        assert!(warnings(toml).is_empty(), "{:?}", warnings(toml));
     }
 
     #[test]

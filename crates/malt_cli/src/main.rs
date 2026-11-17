@@ -188,20 +188,25 @@ fn run(mut cli: Cli, colours: Colours) -> Result<()> {
     let rules = malt_rules::active_rules(&config);
     let registry = Arc::new(RuleRegistry::new(rules, &config));
     let project = project_index(&cli, colours)?;
-    let cores = std::thread::available_parallelism().map_or(1, |n| n.get());
+    // `[lint.limits]`: `max_threads` is a budget for the whole process. The file
+    // workers share it with the threads that run the checks of one large file, so
+    // that nested parallelism never starts more threads than allowed.
+    let limits = config.limits.resolve(malt_core::Limits::native());
+    let (threads, per_file) = thread_plan(limits.max_threads, cli.files.len(), cli.fix);
+    let serial = threads <= 1;
     let new_linter = || {
         let mut linter = Linter::shared(registry.clone());
         linter.set_inline_suppression(config.inline_suppression);
         linter.set_project_index(project.clone());
-        // A large file also spreads its own checks over the cores.
-        linter.set_file_check_threads(cores, LINT_STACK_BYTES);
+        linter.set_limits(limits);
+        // A large file also spreads its own checks over the threads left to it.
+        linter.set_file_check_threads(per_file, LINT_STACK_BYTES);
         linter
     };
 
     let started = Instant::now();
     let mut summary = Summary::default();
-    let threads = cores.min(cli.files.len());
-    if cli.fix || threads <= 1 {
+    if serial {
         // `--fix` writes files and reports each fix as it goes, so it works
         // through them one by one, in order.
         let mut linter = new_linter();
@@ -277,6 +282,16 @@ fn run(mut cli: Cli, colours: Colours) -> Result<()> {
     Ok(())
 }
 
+/// How the `max_threads` budget is spent: `(file workers, check threads per
+/// worker)`. One worker lints serially (`--fix`, one file, or a budget of 1) and
+/// may give all of the budget to the file checks of a large file; otherwise
+/// the workers share the budget evenly, so `workers * per_worker <= budget`.
+fn thread_plan(budget: usize, files: usize, fix: bool) -> (usize, usize) {
+    let budget = budget.max(1);
+    let workers = if fix { 1 } else { budget.min(files).max(1) };
+    (workers, budget / workers)
+}
+
 /// Lint the files of `cli` on `threads` threads, each with its own linter from
 /// `new_linter`, and hand each file's outcome to `report` in the order of the
 /// command line (so the output does not depend on which thread is faster).
@@ -336,7 +351,8 @@ fn lint_in_parallel(
 
 /// What reading, linting and (with `--fix`) fixing one file gave.
 enum FileOutcome {
-    /// The file could not be read: its NOFIL or RDERR diagnostic.
+    /// The file was not analyzed: its NOFIL or RDERR diagnostic (it could not be
+    /// read), or MALT_TOO_BIG (it is over `max_file_size` and was not read).
     Unreadable(Diagnostic),
     /// The diagnostics that remain.
     Linted(Vec<Diagnostic>),
@@ -359,6 +375,16 @@ fn check_file(linter: &mut Linter, file_path: &Path, cli: &Cli) -> Result<Checke
 }
 
 fn check_file_untimed(linter: &mut Linter, file_path: &Path, cli: &Cli) -> Result<FileOutcome> {
+    // `max_file_size`: ask the file system for the size, so that a huge file is
+    // never read into memory.
+    let max_size = linter.limits().max_file_size;
+    if let Ok(meta) = fs::metadata(file_path) {
+        if meta.is_file() && meta.len() > max_size {
+            return Ok(FileOutcome::Unreadable(
+                malt_core::limits::too_big_diagnostic(meta.len(), max_size),
+            ));
+        }
+    }
     let source = match fs::read_to_string(file_path) {
         Ok(s) => s,
         Err(e) if e.kind() == io::ErrorKind::NotFound => {
@@ -699,4 +725,36 @@ fn read_matlab(
         );
     }
     Ok(matlab)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::thread_plan;
+
+    #[test]
+    fn the_thread_budget_is_never_exceeded() {
+        for budget in 1..=16 {
+            for files in 0..=40 {
+                for fix in [false, true] {
+                    let (workers, per_file) = thread_plan(budget, files, fix);
+                    assert!(workers >= 1 && per_file >= 1);
+                    assert!(workers * per_file <= budget, "{budget} {files} {fix}");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn a_budget_of_one_is_single_threaded() {
+        assert_eq!(thread_plan(1, 100, false), (1, 1));
+        assert_eq!(thread_plan(1, 1, true), (1, 1));
+    }
+
+    #[test]
+    fn few_files_leave_threads_to_their_checks() {
+        assert_eq!(thread_plan(8, 1, false), (1, 8));
+        assert_eq!(thread_plan(8, 2, false), (2, 4));
+        assert_eq!(thread_plan(8, 100, false), (8, 1));
+        assert_eq!(thread_plan(8, 100, true), (1, 8));
+    }
 }

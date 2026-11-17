@@ -189,6 +189,7 @@ pub fn layer(json: Config, toml: Config) -> Config {
         inline_suppression: toml.inline_suppression,
         check_settings: json.check_settings,
         matlab_config: toml.matlab_config,
+        limits: toml.limits,
     }
 }
 

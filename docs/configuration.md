@@ -141,6 +141,10 @@ COMPAT = "error"               # Escalate to error
 [lint.rules.GOOD_PRACTICES_ENGINE]   # Full table: severity + rule parameters
 severity = "warn"
 max_variable_name_length = 32
+
+[lint.limits]
+# Resource limits (see "Resource limits" below; raising them is risky)
+max_file_size = "5 MiB"
 ```
 
 ## `[lint]` Section
@@ -285,6 +289,55 @@ warning: .malt.toml: unknown parameter 'max_variable_nam_length' for rule 'GOOD_
 - **Presets and categories** are not warnings. An unknown `[lint] preset` or `[lint.categories]` key is an error (exit code `2`), as before.
 
 Add `--strict-config` to turn the warnings into an error: malt then prints the warnings and exits with code `2` without linting. Use it in CI to keep typos out of the configuration. Without it, the exit code does not depend on the warnings.
+
+## Resource limits
+
+`[lint.limits]` sets the limits that stop malt from using too much memory or time on a pathological input: a generated file of tens of megabytes, a single line of a million numbers, code nested thousands of levels deep. malt measures the input before it reads or parses it, and refuses what is over a limit.
+
+::: warning Raising a limit can crash the machine
+Memory and time grow with the **size** of a file, not with what the code does: malt used about 180 bytes of memory per byte of ordinary statements (a 16 MB file took 2.5 GB and 51 s) and about 500 bytes per byte of one huge matrix (a 2 MB line took 1 GB and 13 s, an 8 MB line did not finish in 60 s at 3.6 GB). A raised limit applies to every file malt reads, including hostile or machine-generated ones, and the process may then take all the memory of a CI runner, make a shared machine swap until it hangs, or crash an editor or a browser tab.
+
+The defaults are deliberately conservative. They protect shared CI runners and editors, where one file must not take the machine down. Raise a limit only for a project you trust, only as far as you need, and prefer `exclude` for generated files. The limits can be raised but not switched off: `0` is an error, there is no "unlimited".
+:::
+
+| Key | Default (native) | Default (wasm) | Beyond it | Protects against | Measured basis |
+| --- | --- | --- | --- | --- | --- |
+| `max_file_size` | `5 MiB` | `2 MiB` | The file is not read and gets a `MALT_TOO_BIG` error at line 1. | Memory and time that grow with file size. | 4 MiB of statements: 0.8 GB, 10 s; 2 MB single-line matrix: 1 GB, 13 s. |
+| `max_tree_depth` | `1000` | `200` | The file is parsed but not analyzed and gets a `MALT_TOO_DEEP` error. | Stack overflow and slow analyses on deeply nested code. | Real code stays below 100 levels; 200 levels in wasm are safe, a chain of about 750 binary operators traps V8. |
+| `max_nesting` | `10000` | `1000` | The file is not parsed and gets a `MALT_TOO_DEEP` error. | A nesting bomb such as `((((…` being parsed at all. | Parsing costs about 0.4 KB per bracket level (256,000 levels: 100 MB). |
+| `max_threads` | number of cores | `1` | Not a diagnostic: fewer threads run. | Memory that multiplies with every thread that analyzes a file at once. | Each worker holds the memory of its own file, so the total is the sum over the files in flight (one 8 MB file: 1.4 GB). |
+
+The values are whole numbers; sizes may also be strings with a unit: `"512 KiB"`, `"10 MiB"`, `"1 GiB"` (powers of 1024), or `"5 MB"` (powers of 1000), or a plain number of bytes. An invalid value (zero, negative, an unreadable size) is a configuration error and malt exits with code `2`. An unknown key is a warning, as for the other tables (an error with `--strict-config`).
+
+A file that stops the analysis gets one diagnostic and is skipped, and the run goes on with the other files; the exit code is `1`:
+
+```text
+big.m:1:1 [E] MALT_TOO_BIG: malt did not analyze this file: it is 6 MiB (6291456 bytes) and malt's limit is 5 MiB (5242880 bytes) (max_file_size). To analyze it, raise max_file_size under [lint.limits] in .malt.toml; larger files can use very large amounts of memory. This is not a MATLAB message.
+```
+
+`MALT_TOO_BIG` and `MALT_TOO_DEEP` are malt's own IDs; MATLAB has no such messages (it analyzes files of 16 MB and more). With `--fix` a refused file is left unchanged.
+
+- **`max_file_size`** is checked from the file's metadata before the file is read, so a huge file never enters memory. In the browser (`malt-wasm`), `check` compares the length of the content.
+- **`max_nesting`** is a scan of the text, in one pass and constant memory, that counts `(`, `[` and `{` and skips comments (`%`, `...`, `%{ … %}`) and strings. It does not count block keywords (`if`, `for`, …): `end` also closes an index, so they cannot be told apart reliably before the parse. Deeply nested blocks are bounded by `max_tree_depth` after the parse, which is cheap (30,000 nested `while` loops parse in 0.16 s and 47 MB), and MATLAB's own limits (NOSPC, MDEEP, MXASET) report most nesting bombs first.
+- **`max_threads`** is the total for the process: the workers that lint files side by side and the threads that check one large file share it, so the process never starts more. With `max_threads = 1` malt runs on one thread; the output is the same.
+- In `malt-wasm`, `Linter.from_toml` reads the same table. A key you leave out keeps the lower wasm default; raising `max_tree_depth` there can make the module trap.
+
+Raise a limit for one project, for example a repository with a generated data file of 8 MiB that you trust:
+
+```toml title=".malt.toml"
+[lint.limits]
+max_file_size = "16 MiB"
+```
+
+Lower them on a small shared runner:
+
+```toml title=".malt.toml"
+[lint.limits]
+max_file_size = "1 MiB"
+max_threads = 2
+```
+
+The measurements behind the defaults are in [VERIFY.md, Resource limits](VERIFY.md#resource-limits).
 
 ## `[index]` Section
 

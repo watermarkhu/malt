@@ -9,6 +9,7 @@ use std::sync::{Arc, Mutex};
 use tree_sitter::Parser;
 
 use crate::diagnostic::Diagnostic;
+use crate::limits::{self, Limits};
 use crate::registry::RuleRegistry;
 use crate::rule::{FileContext, NodeContext, ProjectIndex};
 use crate::suppression;
@@ -208,7 +209,8 @@ pub struct Linter {
     registry: Arc<RuleRegistry>,
     parser: Parser,
     inline_suppression: bool,
-    max_tree_depth: usize,
+    /// Resource limits: file size, tree depth, bracket nesting. See [`Limits`].
+    limits: Limits,
     /// Threads that run the file checks of a large file side by side; 1 (the
     /// default) runs them on the calling thread. See [`Linter::set_file_check_threads`].
     file_check_threads: usize,
@@ -230,7 +232,7 @@ const PARALLEL_MIN_NODES: usize = 20_000;
 /// take seconds even in a release build). Real code stays far below it: every
 /// nested statement adds two or three levels. Deeper input is reported, not
 /// analyzed, instead of crashing the process or hanging it.
-pub const DEFAULT_MAX_TREE_DEPTH: usize = 1_000;
+pub use crate::limits::DEFAULT_MAX_TREE_DEPTH;
 
 /// MATLAB stops generating messages at this count and reports TMMSG; the
 /// messages past it are deleted. malt keeps the first ones in source order.
@@ -289,7 +291,7 @@ impl Linter {
             registry,
             parser,
             inline_suppression: true,
-            max_tree_depth: DEFAULT_MAX_TREE_DEPTH,
+            limits: Limits::native(),
             file_check_threads: 1,
             file_check_stack: 0,
             project: None,
@@ -316,7 +318,18 @@ impl Linter {
     /// [`DEFAULT_MAX_TREE_DEPTH`]). Hosts with a small stack, such as
     /// WebAssembly, lower it.
     pub fn set_max_tree_depth(&mut self, depth: usize) {
-        self.max_tree_depth = depth;
+        self.limits.max_tree_depth = depth;
+    }
+
+    /// Set the resource limits (file size, tree depth, bracket nesting). The
+    /// thread limit is the host's to apply: see [`Linter::set_file_check_threads`].
+    pub fn set_limits(&mut self, limits: Limits) {
+        self.limits = limits;
+    }
+
+    /// The resource limits in force.
+    pub fn limits(&self) -> Limits {
+        self.limits
     }
 
     /// Enable or disable inline suppression directives (`%#ok<...>`).
@@ -339,6 +352,19 @@ impl Linter {
     /// Severity overrides from config are stamped onto diagnostics as they are
     /// collected during steps 2 and 3.
     pub fn lint(&mut self, source: &str, file_path: &Path) -> Result<Vec<Diagnostic>, LintError> {
+        // Resource limits come first, before the parse allocates: a file over
+        // `max_file_size`, or one that nests brackets past `max_nesting`, is
+        // reported and not parsed.
+        if source.len() as u64 > self.limits.max_file_size {
+            return Ok(vec![limits::too_big_diagnostic(
+                source.len() as u64,
+                self.limits.max_file_size,
+            )]);
+        }
+        if limits::exceeds_nesting(source, self.limits.max_nesting) {
+            return Ok(vec![limits::too_nested_diagnostic(self.limits.max_nesting)]);
+        }
+
         // Step 1: Parse
         note_parse();
         let tree = self
@@ -364,11 +390,11 @@ impl Linter {
             return Ok(limits);
         }
         let depth = tree_depth(&tree);
-        if depth > self.max_tree_depth {
+        if depth > self.limits.max_tree_depth {
             return Ok(vec![Self::too_deep_diagnostic(
                 source,
                 depth,
-                self.max_tree_depth,
+                self.limits.max_tree_depth,
             )]);
         }
 
@@ -523,7 +549,9 @@ impl Linter {
             rule_id: "MALT_TOO_DEEP",
             message: format!(
                 "malt did not analyze this file: the code is nested too deeply \
-                 ({depth} levels; malt stops at {limit}). This is not a MATLAB message."
+                 ({depth} levels; malt stops at {limit}, max_tree_depth). To analyze it, raise \
+                 max_tree_depth under [lint.limits] in .malt.toml; deeper trees can use very \
+                 large amounts of memory or stack. This is not a MATLAB message."
             ),
             severity: Severity::Error,
             byte_range: 0..source.len().min(1),
