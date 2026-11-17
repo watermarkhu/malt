@@ -1,0 +1,11 @@
+{
+  "schemaVersion": "1.1.0",
+  "checks": {
+    "NOPRT": {
+      "severity": "warning"
+    },
+    "NASGU": {
+      "severity": "info"
+    }
+  }
+}

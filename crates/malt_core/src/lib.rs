@@ -14,6 +14,7 @@ pub mod diagnostic;
 pub mod fix;
 pub mod known_ids;
 pub mod linter;
+pub mod matlab_config;
 pub mod preset;
 pub mod registry;
 pub mod rule;

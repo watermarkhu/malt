@@ -409,6 +409,10 @@ impl Linter {
         // parse messages for the file (probed: NOPTS and NASGU vanish, SEPEX and SYNER stay).
         drop_checks_after_eofer(&mut diagnostics, source);
 
+        // Per-check settings of a MATLAB configuration file, before the message limit
+        // counts the findings (MATLAB counts only the messages it reports).
+        self.registry.apply_check_settings(&mut diagnostics);
+
         // Step 3c: MATLAB stops at 10,000 messages (TMMSG), counting every rule's
         // messages before the %#ok directives remove any.
         limit_parse_errors(&mut diagnostics);

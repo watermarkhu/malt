@@ -30,6 +30,14 @@ pub struct PathIndex {
 /// directory's `.malt.toml` when it names none.
 pub fn load_settings(explicit: Option<&Path>) -> Result<PathConfig> {
     match explicit {
+        // A MATLAB configuration has no `[index]` table: the index is off.
+        Some(path)
+            if path
+                .extension()
+                .is_some_and(|ext| ext.eq_ignore_ascii_case("json")) =>
+        {
+            PathConfig::from_toml("").context("failed to read the default [index] settings")
+        }
         Some(path) => {
             let content = fs::read_to_string(path)
                 .with_context(|| format!("failed to read config: {}", path.display()))?;

@@ -14,7 +14,70 @@ malt looks for `.malt.toml` in the current working directory by default. You can
 malt --config path/to/config.toml src/**/*.m
 ```
 
-If no config file is found and `--config` is not specified, malt uses the built-in **`mathworks`** preset (see [Presets](#presets)).
+If no config file is found and `--config` is not specified, malt uses the built-in **`mathworks`** preset (see [Presets](#presets)). malt also reads MATLAB's own `resources/codeAnalyzerConfiguration.json`; see [MATLAB Code Analyzer configuration files](#matlab-code-analyzer-configuration-files).
+
+## MATLAB Code Analyzer configuration files
+
+MATLAB reads a project's `resources/codeAnalyzerConfiguration.json` (for `codeIssues` and the editor), and `checkcode(file, '-config=<path.json>')` takes such a file as well. malt reads the same format for the parts it implements. The schema version malt reads is `1.x` (`schemaVersion` is optional).
+
+```json title="resources/codeAnalyzerConfiguration.json"
+{
+  "schemaVersion": "1.1.0",
+  "checks": {
+    "NOPRT": { "enabled": false },
+    "NASGU": { "severity": "error" },
+    "CYCCOM": { "enabled": true, "limit": 10 },
+    "DAFSC": { "enabled": true }
+  },
+  "naming": {
+    "variable": { "maxLength": 20, "casing": "lowerCamelCase" }
+  },
+  "ignoredFiles": ["generated/*.m"]
+}
+```
+
+| JSON | malt |
+| ---- | ---- |
+| `checks.<ID>.enabled` | `false` drops that check's findings, whichever engine emits them. `true` turns on a custom check or a naming check (below). It does not turn on any other check that malt keeps off under `mathworks` (for example `ERTAG`, a gap listed in `docs/VERIFY.md`). |
+| `checks.<ID>.severity` | `"error"`, `"warning"` or `"info"` (case-sensitive) becomes the severity of that check's findings. |
+| `checks.<threshold>.limit` | The limit of a threshold check: `FCNIL`, `FCNOL`, `FCNLL`, `LLMNC`, `MNCSN`, `CYCCOM`, `MCYCCOM`, `SCYCCOM`, `MSCYCCOM`, `ACYCCOM`, `MACYCCOM`. The check also needs `"enabled": true`. Enabled without a `limit`, it reports nothing (as in MATLAB). |
+| `checks.<DAF>.enabled`, `checks.SYSBANG.enabled` | Switch on the disallow check (`DAFSC`, `DAFAF`, `DAFNF`, `DAFTC`, `DAFPV`, `DAFCO`, `DAFBR`, `DAFRT`, `DAFCF`, `DAFCV`, `DAFCVC`, `DAFVI`, `DAFVO`, `SYSBANG`). |
+| `naming.<group>.maxLength`, `minLength` | Integers from 1 to 2048. Groups: `class`, `enumeration`, `event`, `function`, `localFunction`, `method`, `nestedFunction`, `property`, `variable`. |
+| `naming.<group>.regularExpression` | The whole name must match (a non-empty string). |
+| `naming.<group>.casing` | `lowerCamelCase`, `UpperCamelCase`, `lowercase_with_underscores`, `UPPERCASE_WITH_UNDERSCORES`, `lowercase` or `UPPERCASE`. |
+| `naming.<group>.requiredPrefix`, `disallowedPrefix`, `disallowedPhrase`, `requiredSuffix`, `disallowedSuffix` | A non-empty string, or a non-empty array of strings. |
+| `ignoredFiles` | Patterns skipped by the run (below). |
+| `schemaVersion`, `baseConfiguration` | Checked; see the notes below. |
+
+Not supported, and reported as warnings that name the setting (an error under `--strict-config`): custom checks (a `rule` with a `template`), `messageText`, `formatting`. A custom check is ignored, so MATLAB's findings for it are missing from malt's output.
+
+Where malt differs from MATLAB:
+
+- **Invalid files.** A file MATLAB refuses (bad JSON, a value of the wrong type, an unsupported `schemaVersion`) is an error with exit code `2`. A value MATLAB only warns about (an unknown check or field, a bad severity, a casing style it does not know) is ignored, with a warning, and the rest of the file applies.
+- **Parent folders.** MATLAB looks for the file in the `resources` folder of the file's folder and its parents. malt reads one file per run: the one of the working directory (or the `--config` path). The `baseConfiguration` value is therefore not used to inherit from a parent: malt's base is always the `mathworks` preset.
+- **Naming and the file's folder.** The naming checks follow the file's own configuration, as MATLAB's do.
+- **Thresholds.** `MNCSN` is reported at the function's line rather than at the nested statement (MATLAB reports the statement). This is a known difference in the rule.
+
+Discovery and precedence, first match wins:
+
+1. `--config <path>`: a `.json` file is a MATLAB configuration and is used alone. Any other file is a `.malt.toml`.
+2. `.malt.toml` in the working directory. If it sets `[lint] matlab_config`, that file is read first and the TOML is layered over it (below). Otherwise the TOML is used alone, and `resources/codeAnalyzerConfiguration.json` is not read (`-v` says so).
+3. `resources/codeAnalyzerConfiguration.json` in the working directory.
+4. The defaults (`mathworks` preset).
+
+The layering is per key: a `[lint.rules]` or `[lint.categories]` entry in the TOML replaces the JSON's entry for the same rule or category. The check settings of the JSON (`enabled` and `severity` of a check ID) are not changed by the TOML, so a check the JSON disables stays disabled. `--preset` still overrides the preset.
+
+```toml title=".malt.toml"
+[lint]
+matlab_config = "resources/codeAnalyzerConfiguration.json"
+
+[lint.rules."naming.variable.maxLength"]
+max = 30          # overrides the JSON's maxLength for this check
+```
+
+`ignoredFiles` patterns are relative to the folder that holds the `resources` folder (for a file that is not in a `resources` folder, to its own folder). Each segment matches one folder level, with `*` and `?` inside a name: `generated/*.m` skips the `.m` files directly in `generated`. A skipped file is not linted, even when it is named on the command line (MATLAB's `codeIssues` skips it too; `checkcode` does not, and malt follows `codeIssues`). `-v` reports how many files were skipped.
+
+The evidence for each row is in `docs/VERIFY.md`, section 'MATLAB configuration file (5.8)'.
 
 ## Presets
 
@@ -97,6 +160,18 @@ exclude = [
 
 **Type:** Array of strings (glob patterns)
 **Default:** `[]` (no exclusions)
+
+### `matlab_config`
+
+The MATLAB Code Analyzer configuration file (`codeAnalyzerConfiguration.json`) that this file layers over. See [MATLAB Code Analyzer configuration files](#matlab-code-analyzer-configuration-files).
+
+```toml
+[lint]
+matlab_config = "resources/codeAnalyzerConfiguration.json"
+```
+
+**Type:** string (a path, relative to the working directory)
+**Default:** none
 
 ### `preset`
 

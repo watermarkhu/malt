@@ -15,7 +15,10 @@ use malt_core::{
 };
 
 mod colour;
+mod ignored;
 mod path_index;
+
+use ignored::IgnoredFiles;
 
 use colour::{paint, ColorWhen, Colours};
 
@@ -35,7 +38,9 @@ struct Cli {
     #[arg(long, requires = "fix")]
     unsafe_fixes: bool,
 
-    /// Path to config file (default: .malt.toml in current directory).
+    /// Path to a config file: a `.malt.toml`, or a MATLAB `codeAnalyzerConfiguration.json`
+    /// (by extension). Default: `.malt.toml` in the current directory, else
+    /// `resources/codeAnalyzerConfiguration.json` there. See the docs.
     #[arg(long, value_name = "PATH")]
     config: Option<PathBuf>,
 
@@ -130,9 +135,42 @@ fn main() {
     }
 }
 
-fn run(cli: Cli, colours: Colours) -> Result<()> {
+fn run(mut cli: Cli, colours: Colours) -> Result<()> {
     // Load configuration from .malt.toml (or --config path).
-    let mut config = load_config(cli.config.as_deref(), cli.strict_config, colours)?;
+    let loaded = load_config(&cli, colours)?;
+    let mut config = loaded.config;
+    if cli.verbose > 0 {
+        if let Some(path) = &loaded.matlab {
+            eprintln!(
+                "{} configuration: {}",
+                paint(colours.stderr, colour::dim(), "malt:"),
+                path.display()
+            );
+        }
+        if let Some(path) = &loaded.skipped_matlab {
+            eprintln!(
+                "{} not using {}: a .malt.toml is present (set matlab_config in it to use the file)",
+                paint(colours.stderr, colour::dim(), "malt:"),
+                path.display()
+            );
+        }
+    }
+    if let Some(ignored) = &loaded.ignored {
+        let before = cli.files.len();
+        cli.files.retain(|file| !ignored.matches(file));
+        if cli.verbose > 0 && cli.files.len() < before {
+            eprintln!(
+                "{} skipped {} file{} (ignoredFiles)",
+                paint(colours.stderr, colour::dim(), "malt:"),
+                before - cli.files.len(),
+                if before - cli.files.len() == 1 {
+                    ""
+                } else {
+                    "s"
+                }
+            );
+        }
+    }
 
     // A --preset override takes priority over the config file's `[lint] preset`.
     if let Some(name) = &cli.preset {
@@ -506,56 +544,159 @@ fn project_index(cli: &Cli, colours: Colours) -> Result<Option<Arc<dyn ProjectIn
     Ok(Some(Arc::new(index)))
 }
 
-/// Discover and load the configuration file.
+/// The MATLAB Code Analyzer configuration that a project uses, relative to the
+/// working directory: the file `codeIssues` reads.
+const MATLAB_CONFIG_PATH: &str = "resources/codeAnalyzerConfiguration.json";
+
+/// The configuration of this run and where it came from.
+struct Loaded {
+    config: Config,
+    /// The `ignoredFiles` patterns of the MATLAB configuration in use.
+    ignored: Option<IgnoredFiles>,
+    /// The MATLAB configuration in use (for `-v`).
+    matlab: Option<PathBuf>,
+    /// A MATLAB configuration that exists but is not used (for `-v`).
+    skipped_matlab: Option<PathBuf>,
+}
+
+/// Discover and load the configuration.
 ///
 /// Priority:
-/// 1. Explicit `--config` path (error if not found).
-/// 2. `.malt.toml` in the current working directory (silent default if missing).
+/// 1. Explicit `--config` path: a `.json` file is a MATLAB configuration, anything
+///    else a `.malt.toml` (error if not found).
+/// 2. `.malt.toml` in the current working directory. Its `[lint] matlab_config`, if
+///    set, names a MATLAB configuration that the TOML layers over.
+/// 3. `resources/codeAnalyzerConfiguration.json` in the current working directory.
+/// 4. Nothing: the defaults.
 ///
-/// Rule and parameter problems are reported on stderr. With `strict`, any problem is
-/// an error instead.
-fn load_config(
-    explicit_path: Option<&std::path::Path>,
-    strict: bool,
-    colours: Colours,
-) -> Result<Config> {
-    let config_path = if let Some(path) = explicit_path {
+/// Rule and parameter problems are reported on stderr. With `--strict-config`, any
+/// problem is an error instead.
+fn load_config(cli: &Cli, colours: Colours) -> Result<Loaded> {
+    let strict = cli.strict_config;
+    if let Some(path) = cli.config.as_deref() {
         if !path.exists() {
             anyhow::bail!("config file not found: {}", path.display());
         }
-        Some(path.to_path_buf())
-    } else {
-        let default_path = PathBuf::from(".malt.toml");
-        if default_path.exists() {
-            Some(default_path)
-        } else {
-            None
+        if is_json(path) {
+            return matlab_only(path, strict, colours);
         }
-    };
-
-    match config_path {
-        Some(path) => {
-            let content = fs::read_to_string(&path)
-                .with_context(|| format!("failed to read config: {}", path.display()))?;
-            let config = Config::from_toml(&content)
-                .with_context(|| format!("failed to parse config: {}", path.display()))?;
-            let warnings = malt_rules::config_check::config_warnings(&config);
-            for warning in &warnings {
-                eprintln!(
-                    "{} {}: {warning}",
-                    paint(colours.stderr, colour::warning(), "warning:"),
-                    path.display()
-                );
-            }
-            if strict && !warnings.is_empty() {
-                anyhow::bail!(
-                    "{} problem(s) in {} (--strict-config)",
-                    warnings.len(),
-                    path.display()
-                );
-            }
-            Ok(config)
-        }
-        None => Ok(Config::default()),
+        return toml_only(path, strict, colours);
     }
+
+    let toml_path = Path::new(".malt.toml");
+    let matlab_path = Path::new(MATLAB_CONFIG_PATH);
+    if toml_path.exists() {
+        let toml_config = read_toml(toml_path, strict, colours)?;
+        return match toml_config.matlab_config.clone() {
+            Some(name) => {
+                let path = PathBuf::from(name);
+                let matlab = read_matlab(&path, strict, colours)?;
+                Ok(Loaded {
+                    ignored: IgnoredFiles::new(&path, matlab.ignored_files),
+                    config: malt_core::matlab_config::layer(matlab.config, toml_config),
+                    matlab: Some(path),
+                    skipped_matlab: None,
+                })
+            }
+            None => Ok(Loaded {
+                config: toml_config,
+                ignored: None,
+                matlab: None,
+                skipped_matlab: matlab_path.is_file().then(|| matlab_path.to_path_buf()),
+            }),
+        };
+    }
+    if matlab_path.is_file() {
+        return matlab_only(matlab_path, strict, colours);
+    }
+    Ok(Loaded {
+        config: Config::default(),
+        ignored: None,
+        matlab: None,
+        skipped_matlab: None,
+    })
+}
+
+fn is_json(path: &Path) -> bool {
+    path.extension()
+        .is_some_and(|ext| ext.eq_ignore_ascii_case("json"))
+}
+
+/// A `.malt.toml` alone.
+fn toml_only(path: &Path, strict: bool, colours: Colours) -> Result<Loaded> {
+    Ok(Loaded {
+        config: read_toml(path, strict, colours)?,
+        ignored: None,
+        matlab: None,
+        skipped_matlab: None,
+    })
+}
+
+/// A MATLAB configuration alone.
+fn matlab_only(path: &Path, strict: bool, colours: Colours) -> Result<Loaded> {
+    let matlab = read_matlab(path, strict, colours)?;
+    Ok(Loaded {
+        ignored: IgnoredFiles::new(path, matlab.ignored_files),
+        config: matlab.config,
+        matlab: Some(path.to_path_buf()),
+        skipped_matlab: None,
+    })
+}
+
+/// Read a `.malt.toml`, reporting its rule and parameter problems.
+fn read_toml(path: &Path, strict: bool, colours: Colours) -> Result<Config> {
+    let content = fs::read_to_string(path)
+        .with_context(|| format!("failed to read config: {}", path.display()))?;
+    let config = Config::from_toml(&content)
+        .with_context(|| format!("failed to parse config: {}", path.display()))?;
+    let warnings = malt_rules::config_check::config_warnings(&config);
+    for warning in &warnings {
+        eprintln!(
+            "{} {}: {warning}",
+            paint(colours.stderr, colour::warning(), "warning:"),
+            path.display()
+        );
+    }
+    if strict && !warnings.is_empty() {
+        anyhow::bail!(
+            "{} problem(s) in {} (--strict-config)",
+            warnings.len(),
+            path.display()
+        );
+    }
+    Ok(config)
+}
+
+/// Read a MATLAB Code Analyzer configuration. A file MATLAB refuses is an error; its
+/// warnings are reported on stderr, and `--strict-config` makes them an error.
+fn read_matlab(
+    path: &Path,
+    strict: bool,
+    colours: Colours,
+) -> Result<malt_core::matlab_config::MatlabConfig> {
+    let content = fs::read_to_string(path)
+        .with_context(|| format!("failed to read config: {}", path.display()))?;
+    let matlab = match malt_core::matlab_config::parse(&content) {
+        Ok(matlab) => matlab,
+        Err(errors) => anyhow::bail!(
+            "invalid MATLAB configuration {}:\n  {}",
+            path.display(),
+            errors.join("\n  ")
+        ),
+    };
+    for warning in &matlab.warnings {
+        eprintln!(
+            "{} {}: {warning}",
+            paint(colours.stderr, colour::warning(), "warning:"),
+            path.display()
+        );
+    }
+    if strict && !matlab.warnings.is_empty() {
+        anyhow::bail!(
+            "{} problem(s) in {} (--strict-config)",
+            matlab.warnings.len(),
+            path.display()
+        );
+    }
+    Ok(matlab)
 }

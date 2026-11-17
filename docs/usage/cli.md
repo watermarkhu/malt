@@ -22,7 +22,7 @@ malt [OPTIONS] <FILES>...
 | --------------------- | ------------------------------------------------ |
 | `--fix`               | Apply safe automatic fixes, repeating until nothing changes |
 | `--unsafe-fixes`      | With `--fix`: also apply fixes that may change behaviour |
-| `--config <PATH>`     | Path to config file (default: `.malt.toml` in CWD) |
+| `--config <PATH>`     | Path to config file: a `.malt.toml`, or a MATLAB `codeAnalyzerConfiguration.json` (default: `.malt.toml` in CWD, else `resources/codeAnalyzerConfiguration.json` in CWD) |
 | `--preset <PRESET>`   | Preset to use (`all`, `mathworks`, `recommended`); overrides `[lint] preset` |
 | `--strict-config`     | Exit with code `2` when the config file has an unknown rule ID or parameter (each is a warning on stderr otherwise) |
 | `--index`             | Use the path index: checks that read the classes on the search path (MCEB) also report the value-class case MATLAB refuses to load. Overrides `[index] enabled` |
@@ -86,7 +86,7 @@ Fixes come in two kinds:
 
 ### Explicit configuration
 
-By default, malt looks for `.malt.toml` in the current working directory. Override with `--config`:
+By default, malt looks for `.malt.toml` in the current working directory, then for MATLAB's `resources/codeAnalyzerConfiguration.json` there. A `.json` file given to `--config` is read as a MATLAB configuration, alone. Override with `--config`:
 
 ```bash
 malt --config configs/strict.toml src/**/*.m

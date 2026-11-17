@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
-use crate::config::Config;
-use crate::diagnostic::Severity;
+use crate::config::{CheckSetting, Config};
+use crate::diagnostic::{Diagnostic, Severity};
 use crate::rule::Rule;
 
 // ---------------------------------------------------------------------------
@@ -28,6 +28,8 @@ pub struct RuleRegistry {
     node_type_index: HashMap<&'static str, Vec<usize>>,
     /// Indices of rules that implement file-level checking.
     file_check_indices: Vec<usize>,
+    /// Per-check settings from the config, keyed by check ID (see [`CheckSetting`]).
+    check_settings: HashMap<String, CheckSetting>,
 }
 
 impl RuleRegistry {
@@ -64,7 +66,26 @@ impl RuleRegistry {
             defaults,
             node_type_index,
             file_check_indices,
+            check_settings: config.check_settings.clone(),
         }
+    }
+
+    /// Apply the per-check settings to the findings of one file: drop the findings
+    /// of a check that is turned off, and give the others their configured severity.
+    /// A no-op without per-check settings.
+    pub fn apply_check_settings(&self, diagnostics: &mut Vec<Diagnostic>) {
+        if self.check_settings.is_empty() {
+            return;
+        }
+        diagnostics.retain_mut(|diag| match self.check_settings.get(diag.rule_id) {
+            Some(setting) => {
+                if let Some(severity) = setting.severity {
+                    diag.severity = severity;
+                }
+                setting.enabled != Some(false)
+            }
+            None => true,
+        });
     }
 
     /// Get indices of rules interested in the given node type.

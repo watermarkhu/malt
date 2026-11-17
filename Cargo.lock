@@ -359,7 +359,9 @@ dependencies = [
 name = "malt-core"
 version = "0.0.0"
 dependencies = [
+ "regex",
  "serde",
+ "serde_json",
  "thiserror",
  "toml",
  "tree-sitter",

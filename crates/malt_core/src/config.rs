@@ -83,6 +83,11 @@ pub struct LintSection {
     /// Values are severity strings ("off", "error", "warn", "info").
     #[serde(default)]
     pub categories: HashMap<String, String>,
+
+    /// The MATLAB Code Analyzer configuration file (`codeAnalyzerConfiguration.json`)
+    /// that this file layers over. Its path is relative to the working directory.
+    #[serde(default)]
+    pub matlab_config: Option<String>,
 }
 
 impl Default for LintSection {
@@ -93,6 +98,7 @@ impl Default for LintSection {
             preset: None,
             rules: HashMap::new(),
             categories: HashMap::new(),
+            matlab_config: None,
         }
     }
 }
@@ -136,6 +142,19 @@ impl Default for RuleConfig {
     }
 }
 
+/// A setting for one check ID, from a MATLAB Code Analyzer configuration file.
+///
+/// The linter drops the findings of a check whose `enabled` is `Some(false)` and
+/// gives the others the `severity` when it is set. Unlike [`RuleConfig`], which is
+/// keyed by the rule (engine) that emits the check, this is keyed by the check ID.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct CheckSetting {
+    /// `Some(false)` turns the check off; `None` leaves it as the rule configures it.
+    pub enabled: Option<bool>,
+    /// Severity override for the check's findings (None = the check's own severity).
+    pub severity: Option<Severity>,
+}
+
 /// The resolved configuration passed to rule factories and the lint engine.
 ///
 /// Constructed from a [`ConfigFile`] (parsed `.malt.toml`) via [`Config::from_toml`],
@@ -154,6 +173,11 @@ pub struct Config {
     /// Whether `%#ok<...>` inline suppression directives are honored.
     /// Defaults to `true`, mirroring MATLAB's inline suppression behavior.
     pub inline_suppression: bool,
+    /// Per-check settings (enable and severity by check ID), from a MATLAB
+    /// Code Analyzer configuration file. Empty unless one was read.
+    pub check_settings: HashMap<String, CheckSetting>,
+    /// The MATLAB configuration file named by `[lint] matlab_config`, if any.
+    pub matlab_config: Option<String>,
 }
 
 /// The candidate closest to `name` (ignoring case), when it is close enough to be a
@@ -193,6 +217,8 @@ impl Default for Config {
             categories: HashMap::new(),
             preset: preset::default_preset(),
             inline_suppression: true,
+            check_settings: HashMap::new(),
+            matlab_config: None,
         }
     }
 }
@@ -297,6 +323,8 @@ impl Config {
             categories,
             preset,
             inline_suppression: file.lint.inline_suppression,
+            check_settings: HashMap::new(),
+            matlab_config: file.lint.matlab_config,
         })
     }
 

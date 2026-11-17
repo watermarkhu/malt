@@ -1,0 +1,9 @@
+{
+  "schemaVersion": "1.1.0",
+  "checks": {
+    "NOPRT": {
+      "enabled": true,
+      "severity": "info"
+    }
+  }
+}
