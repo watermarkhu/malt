@@ -188,7 +188,14 @@ impl Live {
         let Some(dir) = std::env::var_os("MALT_MATLAB_FIXES") else {
             return Ok(None);
         };
-        let dir = PathBuf::from(dir);
+        let mut dir = PathBuf::from(dir);
+        if dir.is_relative() {
+            // Relative to the repository root, as the other MALT_MATLAB_* paths are: cargo
+            // runs a test in its crate folder.
+            dir = Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../..")
+                .join(dir);
+        }
         if !dir.is_dir() {
             bail!("MALT_MATLAB_FIXES: {} is not a folder", dir.display());
         }
