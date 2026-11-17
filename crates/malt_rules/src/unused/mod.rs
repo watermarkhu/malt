@@ -233,12 +233,12 @@ impl Rule for UnusedEngine {
         let table = SymbolTable::shared(|| ctx.tree.root_node(), ctx.source);
 
         // 2. Run symbol-based checks.
-        self.check_nasgu(&table, ctx.tree, ctx.source, &mut diagnostics);
+        let unreachable = check_unrch::unreachable_regions(ctx.tree, ctx.source);
+        self.check_nasgu(&table, ctx.tree, ctx.source, &unreachable, &mut diagnostics);
         self.check_unused_inputs(&table, ctx.tree, ctx.source, &mut diagnostics);
         self.check_nused(&table, &mut diagnostics);
         self.check_puse(&table, &mut diagnostics);
         self.check_setnu(&table, &mut diagnostics);
-        let unreachable = check_unrch::unreachable_regions(ctx.tree, ctx.source);
         self.check_preall(&table, &unreachable, &mut diagnostics);
         self.check_vanus(&table, &mut diagnostics);
         self.check_vunus(&table, ctx.tree, ctx.source, &mut diagnostics);

@@ -136,6 +136,13 @@ impl UnsetVariablesEngine {
             }
             // A name that is only a nested function (`@report`) is not a variable.
             let mut reads = may.undefined_reads;
+            // A classdef constructor's output is the object, which exists before the body
+            // runs: reading it first is not NODEF (probed, as for STOUT).
+            if Self::is_classdef_constructor(func_node, source, &scope.name) {
+                let mut names = HashSet::new();
+                crate::analysis::control_flow::collect_function_args(func_node, source, &mut names);
+                reads.retain(|u| !names.contains(&u.name));
+            }
             reads.retain(|u| {
                 scope
                     .defs
@@ -162,7 +169,9 @@ impl UnsetVariablesEngine {
             let mut reported: HashSet<String> = HashSet::new();
             for read in &reads {
                 let name = read.name.as_str();
-                if self.is_ignored(name) || reported.contains(name) {
+                // `varargout` is a variable when it is an output, so a read before its
+                // first assignment is NODEF (probed: `varargout{1} = varargout{1}`).
+                if (self.is_ignored(name) && name != "varargout") || reported.contains(name) {
                     continue;
                 }
                 // A nested function shares its parent's variables, even when it also
@@ -596,6 +605,63 @@ end
         );
         // Probe (v11): with no assignment, `ans` is NOANS only.
         assert!(nodef_lines("function f()\ny = ans;\nend\n").is_empty());
+    }
+
+    #[test]
+    fn output_read_before_assignment_is_nodef() {
+        // Probe (o1, o2, o4, o5, o9, o10, f5, f9): an output is not defined on entry.
+        assert_eq!(
+            undefined_lines("function y = f(x)\ny = y + x;\nend\n"),
+            vec![("NODEF", 2)]
+        );
+        assert_eq!(
+            undefined_lines("function y = f(x)\nz = numel(y);\ny = x;\nend\n"),
+            vec![("NODEF", 2)]
+        );
+        assert_eq!(
+            undefined_lines("function y = f(x)\nif x > 0\n  y = 1;\nelse\n  y = y;\nend\nend\n"),
+            vec![("NODEF", 5)]
+        );
+        // Probe (f2, f1): a definition on one branch, or in the loop that reads it, is silent.
+        assert!(
+            undefined_lines("function y = f(x)\nif x\n  y = 1;\nend\nz = y + 1;\nend\n").is_empty()
+        );
+        assert!(
+            undefined_lines("function y = f(x)\nfor i = 1:2\n  y = y + i;\nend\nend\n").is_empty()
+        );
+    }
+
+    #[test]
+    fn called_name_assigned_later_is_nodef() {
+        // Probe (c01, c02, c06): a name the function assigns is a variable everywhere in
+        // it, so `w(1)` before `w = ...`, and a builtin name shadowed later, are NODEF.
+        assert_eq!(
+            undefined_lines("function r = f(v)\nk = w(1) + v;\nw = [1 2];\nr = k;\nend\n"),
+            vec![("NODEF", 2)]
+        );
+        assert_eq!(
+            undefined_lines("function r = f(v)\nr = size(v);\nsize = 2;\nend\n"),
+            vec![("NODEF", 2)]
+        );
+        // A name the function never assigns is a function call.
+        assert!(undefined_lines("function r = f(v)\nr = size(v);\nend\n").is_empty());
+    }
+
+    #[test]
+    fn superclass_constructor_call_is_not_a_read_of_the_output() {
+        // Probe (corpus1 c_events_class, corpus4 l_circle): `obj@Base(...)` in a constructor.
+        let src = "classdef C < handle\n    methods\n        function obj = C(a)\n            obj@handle();\n            obj.A = a;\n        end\n    end\nend\n";
+        assert!(undefined_lines(src).is_empty());
+    }
+
+    #[test]
+    fn varargout_read_before_assignment_is_nodef() {
+        // Probe (f6): `varargout` is a variable when it is an output.
+        assert_eq!(
+            undefined_lines("function varargout = f(x)\nvarargout{1} = varargout{1};\nend\n"),
+            vec![("NODEF", 2)]
+        );
+        assert!(undefined_lines("function varargout = f(x)\nvarargout{1} = x;\nend\n").is_empty());
     }
 
     /// The NODEF, SVNODEF and STOUT findings of `src`, with their lines.

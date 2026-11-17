@@ -36,19 +36,37 @@ impl UnusedEngine {
                 if !is_overwritten_preallocation(scope, def) {
                     continue;
                 }
-                diagnostics.push(Diagnostic {
-                    rule_id: "PREALL",
-                    message: "The preallocated value assigned to variable might be unused."
-                        .to_string(),
-                    severity: Severity::Warning,
-                    byte_range: def.byte_range.clone(),
-                    line: def.line,
-                    column: def.column,
-                    fix: None,
-                });
+                diagnostics.push(preallocation_diagnostic(def));
             }
         }
     }
+}
+
+/// The PREALL diagnostic for a preallocation `def` whose value is unused.
+pub(crate) fn preallocation_diagnostic(def: &VarDef) -> Diagnostic {
+    Diagnostic {
+        rule_id: "PREALL",
+        message: "The preallocated value assigned to variable might be unused.".to_string(),
+        severity: Severity::Warning,
+        byte_range: def.byte_range.clone(),
+        line: def.line,
+        column: def.column,
+        fix: None,
+    }
+}
+
+/// Whether a preallocation `def` (a full assignment that is dead, see
+/// [`crate::analysis::liveness`]) is overwritten by a later full assignment of the
+/// same name, in any block. MATLAB reports such a dead preallocation as PREALL, not
+/// NASGU (probed: `x = zeros(n); if c, x = v; end`, and every branch of a `switch`
+/// or `try` overwriting it). The check is the caller's, since it needs the liveness.
+pub(crate) fn is_later_overwritten_preallocation(scope: &Scope, def: &VarDef) -> bool {
+    if !def.prealloc || def.kind != DefKind::Assignment || def.partial {
+        return false;
+    }
+    scope.defs_of(&def.name).into_iter().any(|d| {
+        d.byte_range.start > def.byte_range.start && d.kind == DefKind::Assignment && !d.partial
+    })
 }
 
 /// Whether the preallocation `def` is overwritten by a later full assignment in

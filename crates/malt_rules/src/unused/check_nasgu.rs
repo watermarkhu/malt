@@ -12,7 +12,9 @@
 //! (`x(i) = v`, `c{i} = v`) that is dead is NASGU. A field store (`s.f = v`) is
 //! STRNU, reported by the good-practices engine.
 
-use super::check_preall::is_overwritten_preallocation;
+use super::check_preall::{
+    is_later_overwritten_preallocation, is_overwritten_preallocation, preallocation_diagnostic,
+};
 use super::*;
 use crate::analysis::liveness::{is_field_store, shared_dead_stores};
 use malt_core::Fix;
@@ -24,11 +26,13 @@ impl UnusedEngine {
         table: &SymbolTable,
         tree: &tree_sitter::Tree,
         source: &str,
+        unreachable: &[std::ops::Range<usize>],
         diagnostics: &mut Vec<Diagnostic>,
     ) {
         let nasgu_off = self.is_check_disabled("NASGU");
         let asglu_off = self.is_check_disabled("ASGLU");
-        if nasgu_off && asglu_off {
+        let preall_off = self.is_check_disabled("PREALL");
+        if nasgu_off && asglu_off && preall_off {
             return;
         }
 
@@ -47,6 +51,19 @@ impl UnusedEngine {
                 }
                 // Probed: `x = zeros(n); x = v` reports PREALL only, not NASGU.
                 if is_overwritten_preallocation(scope, def) {
+                    continue;
+                }
+                // Probed: a dead preallocation that a later full assignment overwrites on
+                // some path (`x = zeros(n); if c, x = v; end`, or on every switch branch)
+                // is PREALL alone. A preallocation nothing overwrites stays NASGU.
+                if is_later_overwritten_preallocation(scope, def) {
+                    if !preall_off
+                        && !unreachable
+                            .iter()
+                            .any(|r| r.contains(&def.byte_range.start))
+                    {
+                        diagnostics.push(preallocation_diagnostic(def));
+                    }
                     continue;
                 }
                 if def.multi_output {
@@ -146,6 +163,32 @@ mod tests {
         let source = "uold = zeros(3,3);\nuold = ones(3);\ndisp(uold)\n";
         assert!(nasgu_lines(source).is_empty(), "got NASGU for {source:?}");
         assert!(has_id(&lint_file(&*engine(), source), "PREALL"));
+    }
+
+    #[test]
+    fn preall_fires_on_a_preallocation_overwritten_on_some_or_every_branch() {
+        // Probe (pb2, pa1, pa2, pb6): dead, and overwritten on one branch or on each.
+        let conditional =
+            "function out = f(n)\nx = zeros(1, n);\nif n\n  x = 2;\nend\nout = 1;\nend\n";
+        assert_eq!(nasgu_lines(conditional), vec![4]);
+        assert!(has_id(&lint_file(&*engine(), conditional), "PREALL"));
+        let both = "function out = f(k, a)\nout = zeros(size(a));\nif k == 1\n  out = a + 1;\nelse\n  out = a - 1;\nend\nend\n";
+        assert!(nasgu_lines(both).is_empty(), "got NASGU for {both:?}");
+        assert!(has_id(&lint_file(&*engine(), both), "PREALL"));
+        let switched = "function out = f(k, a)\nout = zeros(size(a));\nswitch k\n  case 1\n    out = a + 1;\n  otherwise\n    out = a - 1;\nend\nend\n";
+        assert!(
+            nasgu_lines(switched).is_empty(),
+            "got NASGU for {switched:?}"
+        );
+        assert!(has_id(&lint_file(&*engine(), switched), "PREALL"));
+    }
+
+    #[test]
+    fn nasgu_still_fires_on_a_preallocation_nothing_overwrites() {
+        // Probe (pb1): a dead preallocation that no later assignment replaces is NASGU.
+        let source = "function out = f(n)\nx = zeros(1, n);\nout = 1;\nend\n";
+        assert_eq!(nasgu_lines(source), vec![2]);
+        assert!(!has_id(&lint_file(&*engine(), source), "PREALL"));
     }
 
     #[test]

@@ -68,7 +68,7 @@ an old corpus (a measured corpus is no longer fresh).
 A fixture with zero findings is listed in `matlab_files.txt` and has no rows in
 `matlab_expected.tsv`. The conformance test then requires malt to report nothing on it. The
 live check (`checkcode_files.txt`) proves MATLAB checked it: a file that is listed but
-was not checked fails the live test. 97 of the 507 files have no rows at the moment.
+was not checked fails the live test. 156 of the 753 files have no rows at the moment.
 
 ## Running the checks
 

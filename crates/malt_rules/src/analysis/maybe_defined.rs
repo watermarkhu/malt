@@ -55,7 +55,21 @@ pub(crate) fn analyze_may_defined(func_node: Node, source: &str) -> MayDefined {
         defined: HashSet::new(),
         parfor_depth: 0,
     };
-    let mut state: State = Some(arguments.clone());
+    // Only the inputs are defined on entry: an output read before it is assigned is
+    // NODEF (probed: `y = y + x`, `disp(max(y, x))` and `numel(y)` with `y` an output).
+    let mut inputs = HashSet::new();
+    for args in named_children(func_node)
+        .into_iter()
+        .filter(|c| c.kind() == "function_arguments")
+    {
+        for param in named_children(args)
+            .into_iter()
+            .filter(|p| p.kind() == "identifier")
+        {
+            inputs.insert(node_text(param, source).to_string());
+        }
+    }
+    let mut state: State = Some(inputs);
     if let Some(body) = named_children(func_node)
         .into_iter()
         .find(|c| c.kind() == "block")
@@ -416,6 +430,7 @@ impl Walker<'_> {
         };
         let mut uses = Vec::new();
         collect_uses_in_expr(node, self.source, assigned, &mut uses);
+        collect_called_names(node, self.source, assigned, &mut uses);
         self.record(uses);
     }
 
@@ -450,6 +465,45 @@ impl Walker<'_> {
                 self.defined.insert(name);
             }
         }
+    }
+}
+
+/// The names in `name(...)` calls that no definition reaches, as reads. A call's name
+/// is not a read in general (it may be a function), but a name that the function
+/// assigns is a variable everywhere in it: `w(1)` before a later `w = ...`, and
+/// `size(v)` before a later `size = 2`, are NODEF (probed). The caller keeps only the
+/// names the function defines, so a plain function name is dropped there. Lambda
+/// bodies are skipped: their parameters shadow the names.
+fn collect_called_names(
+    node: Node,
+    source: &str,
+    assigned: &HashSet<String>,
+    uses: &mut Vec<PossiblyUnsetVar>,
+) {
+    match node.kind() {
+        "lambda" => return,
+        "function_call" => {
+            if let Some(name_node) = node.named_child(0).filter(|n| n.kind() == "identifier") {
+                let name = node_text(name_node, source);
+                // `obj@Base(...)` is a superclass constructor call on the output `obj`,
+                // not a read of it (probed: classdef constructors give no NODEF).
+                let superclass_call = source[name_node.end_byte()..].starts_with('@');
+                if !assigned.contains(name) && !superclass_call {
+                    let pos = name_node.start_position();
+                    uses.push(PossiblyUnsetVar {
+                        name: name.to_string(),
+                        use_byte_range: name_node.start_byte()..name_node.end_byte(),
+                        use_line: pos.row + 1,
+                        use_column: pos.column + 1,
+                    });
+                }
+            }
+        }
+        _ => {}
+    }
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        collect_called_names(child, source, assigned, uses);
     }
 }
 

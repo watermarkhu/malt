@@ -80,7 +80,7 @@ EXIST with two input arguments is generally faster and clearer than with one inp
 
 Severity: **info** · Auto-fix: **no**
 
-The entire array or structure VAR_NAME is a broadcast variable. This might result in unnecessary communication overhead.
+The entire array or structure 'VAR_NAME' is a broadcast variable. This might result in unnecessary communication overhead.
 
 ### CCAT
 

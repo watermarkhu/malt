@@ -38,7 +38,7 @@
 //! | GFLD | info | no | Use dynamic fieldnames with structures instead of GETFIELD. |
 //! | SFLD | info | no | Use dynamic fieldnames with structures instead of SETFIELD. |
 //! | EXIST | info | no | EXIST with two input arguments is generally faster and clearer than with one input argument. |
-//! | PFBNS | info | no | The entire array or structure VAR_NAME is a broadcast variable. This might result in unnecessary communication overhead. |
+//! | PFBNS | info | no | The entire array or structure 'VAR_NAME' is a broadcast variable. This might result in unnecessary communication overhead. |
 //! | CCAT | info | no | For improved performance, concatenate cell arrays using [] instead of extracting cell arrays and reconstructing them. |
 //! | CCAT1 | info | no | { A{I} } can usually be replaced by A(I) or A(I)', which can be much faster. |
 //! | ISMT | info | no | Using ISEMPTY is usually faster than comparing LENGTH to 0. |
@@ -198,7 +198,7 @@ const CHECKS: &[CheckMeta] = &[
     },
     CheckMeta {
         id: "PFBNS",
-        description: "The entire array or structure VAR_NAME is a broadcast variable. This might result in unnecessary communication overhead.",
+        description: "The entire array or structure 'VAR_NAME' is a broadcast variable. This might result in unnecessary communication overhead.",
     },
     CheckMeta {
         id: "CCAT",
@@ -629,7 +629,13 @@ fn check_broadcast_variables(root: tree_sitter::Node, source: &str, diags: &mut 
         // Variables assigned in the loop, through any target shape.
         let mut assigned: Vec<&str> = Vec::new();
         let mut bare_names: Vec<tree_sitter::Node> = Vec::new();
-        let mut inner = vec![n];
+        // The loop header runs once on the client, so only the body is broadcast
+        // (probed: `parfor k = 1:numel(v)` with `v(k)` in the body is silent).
+        let mut header_cursor = n.walk();
+        let Some(body) = n.children(&mut header_cursor).find(|c| c.kind() == "block") else {
+            continue;
+        };
+        let mut inner = vec![body];
         while let Some(m) = inner.pop() {
             if m.kind() == "assignment" {
                 if let Some(base) = m
@@ -1413,11 +1419,10 @@ mod tests {
         let src = "c = foo();\nparfor i = 1:N\n    a(i) = c(i,1);\n    b(i) = c(i,2);\nend\n";
         let d = lint_file(&*engine(), src);
         let p = d.iter().find(|d| d.rule_id == "PFBNS").expect("PFBNS");
-        assert!(
-            p.message.contains("variable c is") || p.message.contains(" c "),
-            "{}",
-            p.message
-        );
+        assert!(p.message.contains("'c' is a broadcast"), "{}", p.message);
+        // The loop header runs once on the client: a whole read there is not broadcast.
+        let src = "v = rand(1, 10);\nout = zeros(1, 10);\nparfor k = 1:numel(v)\n    out(k) = v(k) * 2;\nend\n";
+        assert!(!has_id(&lint_file(&*engine(), src), "PFBNS"));
         assert!(!p.message.contains("VAR_NAME"));
         let src = "c = foo();\nparfor i = 1:N\n    a(i) = c(i,1);\n    b(i) = c(i,1);\nend\n";
         assert!(!has_id(&lint_file(&*engine(), src), "PFBNS"));

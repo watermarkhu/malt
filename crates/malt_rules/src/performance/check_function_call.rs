@@ -184,6 +184,48 @@ fn is_unit_dims(arg: Node, source: &str) -> bool {
     items.peek().is_some() && items.all(|s| s == "1")
 }
 
+/// Whether a `getfield` or `setfield` call is the single-level form on a variable: two
+/// arguments for `getfield`, three for `setfield`, and a struct argument that is a
+/// variable or an index of one. MATLAB is silent on the path forms (`getfield(s, 'a',
+/// 'b')`), on a field expression (`u.m`, `s.inner`) and when the base name is not a
+/// variable (`getfield(f(1), 'a')` with `f` never assigned), probed on R2026b. A name
+/// the scope assigns anywhere is a variable there, even when the call comes first
+/// (`v = getfield(s, 'a')` with `s = ...` on the next line is reported).
+fn fieldfn_applies(func: &str, args: &[tree_sitter::Node], source: &str) -> bool {
+    use crate::analysis::symbols::{DefKind, SymbolTable};
+    let arity = if func == "getfield" { 2 } else { 3 };
+    if args.len() != arity {
+        return false;
+    }
+    let Some(&first) = args.first() else {
+        return false;
+    };
+    let base = match first.kind() {
+        "identifier" => first,
+        "function_call" | "cell_index" => match first.named_child(0) {
+            Some(name) if name.kind() == "identifier" => name,
+            _ => return false,
+        },
+        _ => return false,
+    };
+    let name = node_text(base, source);
+    let mut root = base;
+    while let Some(parent) = root.parent() {
+        root = parent;
+    }
+    let table = SymbolTable::shared(|| root, source);
+    table
+        .scopes
+        .iter()
+        .filter(|s| s.byte_range.contains(&base.start_byte()))
+        .min_by_key(|s| s.byte_range.len())
+        .is_some_and(|s| {
+            s.defs
+                .iter()
+                .any(|d| d.name == name && d.kind != DefKind::NestedFunction)
+        })
+}
+
 /// Reductions taking a DIM argument.
 const DIM_FUNCS: &[&str] = &[
     "sum", "prod", "max", "min", "mean", "median", "mode", "any", "all", "cumsum", "cumprod",
@@ -209,8 +251,12 @@ impl PerformanceEngine {
 
         match func_name {
             // GFLD / SFLD
-            "getfield" if on("GFLD") => diags.push(make_diag("GFLD", node)),
-            "setfield" if on("SFLD") => diags.push(make_diag("SFLD", node)),
+            "getfield" if on("GFLD") && fieldfn_applies("getfield", &args, source) => {
+                diags.push(make_diag("GFLD", node))
+            }
+            "setfield" if on("SFLD") && fieldfn_applies("setfield", &args, source) => {
+                diags.push(make_diag("SFLD", node))
+            }
             // EXIST: single-argument form
             "exist" if on("EXIST") && args.len() == 1 => diags.push(make_diag("EXIST", node)),
             // ST2NM
@@ -524,10 +570,44 @@ mod tests {
 
     #[test]
     fn gfld_sfld() {
-        assert!(fires("v = getfield(s, 'field');\n", "GFLD"));
+        assert!(fires("s = struct();\nv = getfield(s, 'field');\n", "GFLD"));
         assert!(!fires("v = s.field;\n", "GFLD"));
-        assert!(fires("setfield(s, 'field', v);\n", "SFLD"));
+        assert!(fires("s = struct();\nsetfield(s, 'field', v);\n", "SFLD"));
         assert!(!fires("s.field = v;\n", "SFLD"));
+    }
+
+    #[test]
+    fn gfld_sfld_only_on_the_single_level_form_of_a_variable() {
+        // Probe (sf2, sf7, gf2, gf6, g2, g4, g7, g11, g13): the field-expression base,
+        // the path forms, and a base that is not a variable are silent.
+        assert!(!fires(
+            "u.m = struct('a', 1);\nu.m = setfield(u.m, 'b', 2);\n",
+            "SFLD"
+        ));
+        assert!(!fires(
+            "u.m = struct('a', 1);\ng = getfield(u.m, 'a');\n",
+            "GFLD"
+        ));
+        assert!(!fires(
+            "s = struct('a', 1);\nt = getfield(s, 'a', 'b');\n",
+            "GFLD"
+        ));
+        assert!(!fires(
+            "s = struct('a', 1);\ns = setfield(s, 'a', 'b', 2);\n",
+            "SFLD"
+        ));
+        assert!(!fires(
+            "function g = f(s)\ng = getfield(h(1), 'a');\nend\n",
+            "GFLD"
+        ));
+        assert!(fires(
+            "s = struct('a', {1, 2});\ng = getfield(s(2), 'a');\n",
+            "GFLD"
+        ));
+        assert!(fires(
+            "c = {struct('a', 1)};\nc{1} = setfield(c{1}, 'a', 1);\n",
+            "SFLD"
+        ));
     }
 
     #[test]
