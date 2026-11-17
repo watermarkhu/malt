@@ -72,7 +72,10 @@ jobs:
         uses: actions-rust-lang/setup-rust-toolchain@a188e68d0fd2bd36ad51dccb2b07ba6e75105f30 # v2.0.1
 
       - name: Run tests
-        run: cargo test --workspace --locked
+        # malt-py is the PyO3 module: its tests are Python tests, run against the built wheel
+        # (build.yml), and linking it for `cargo test` needs a libpython that the macOS
+        # runner image does not always provide.
+        run: cargo test --workspace --exclude malt-py --locked
 
       - name: Run WASM binding host tests
         run: cargo test --locked -p malt_wasm --features wasm
@@ -94,6 +97,11 @@ jobs:
         with:
           persist-credentials: false
 
+      # Rust first: restoring its cache replaces target/, which would delete the files MATLAB
+      # writes there in the generation steps below.
+      - name: Setup Rust
+        uses: actions-rust-lang/setup-rust-toolchain@a188e68d0fd2bd36ad51dccb2b07ba6e75105f30 # v2.0.1
+
       - name: Setup MATLAB
         uses: matlab-actions/setup-matlab@f9e43010f1ae678f7cfa0542fe2a4f60f7d1ad8d # v3.1.0
         with:
@@ -113,9 +121,6 @@ jobs:
         uses: matlab-actions/run-command@bfa857648f4895aa98a446fe41c85e0788421ed5 # v3.3.0
         with:
           command: run('crates/malt_cli/tests/matlab/generate_checkcode.m')
-
-      - name: Setup Rust
-        uses: actions-rust-lang/setup-rust-toolchain@a188e68d0fd2bd36ad51dccb2b07ba6e75105f30 # v2.0.1
 
       # Phase 2, comparison: no MATLAB is started here.
       - name: Cross-check the path index against the MATLAB facts
