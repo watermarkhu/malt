@@ -18,7 +18,7 @@ fn project(name: &str, files: &[&str]) -> PathBuf {
         fs::write(path, "function y = f(x)\ny = x;\nend\n").unwrap();
     }
     fs::create_dir_all(&root).unwrap();
-    fs::canonicalize(&root).unwrap()
+    malt_index::fsutil::canonicalize(&root).unwrap()
 }
 
 /// The configuration with the given `paths`.

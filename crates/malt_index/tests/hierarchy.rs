@@ -16,7 +16,7 @@ fn project(name: &str, files: &[(&str, &str)]) -> PathBuf {
         fs::create_dir_all(path.parent().unwrap()).unwrap();
         fs::write(path, source).unwrap();
     }
-    fs::canonicalize(&root).unwrap()
+    malt_index::fsutil::canonicalize(&root).unwrap()
 }
 
 fn names(chain: &[malt_index::Ancestor]) -> Vec<&str> {

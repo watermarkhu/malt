@@ -41,7 +41,8 @@ pub fn entity_json(entity: &Entity, root: &Path) -> Value {
     );
     if let Some(path) = &entity.path {
         let shown = match path.strip_prefix(root) {
-            Ok(relative) => relative.to_string_lossy().into_owned(),
+            // Forward slashes on every platform, so the JSON does not depend on it.
+            Ok(relative) => relative.to_string_lossy().replace('\\', "/"),
             Err(_) => path.to_string_lossy().into_owned(),
         };
         out.insert("path".into(), json!(shown));

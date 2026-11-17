@@ -22,7 +22,7 @@ fn scratch(name: &str, files: &[(&str, &str)]) -> PathBuf {
         fs::write(path, text).unwrap();
     }
     fs::create_dir_all(&root).unwrap();
-    fs::canonicalize(&root).unwrap()
+    malt_index::fsutil::canonicalize(&root).unwrap()
 }
 
 fn scan(paths: &[PathBuf]) -> Index {
@@ -234,7 +234,7 @@ fn dotted_names_of_package_members_are_listed_as_maxx_lists_them() {
 
 #[test]
 fn golden_snapshot_of_the_sample_project() {
-    let root = fs::canonicalize(project()).unwrap();
+    let root = malt_index::fsutil::canonicalize(&project()).unwrap();
     let index = scan(std::slice::from_ref(&root));
     let mut value = dump(&index, &root).unwrap();
     value.as_object_mut().unwrap().remove("root");

@@ -32,7 +32,7 @@ fn main() -> ExitCode {
         eprintln!("usage: dump [--live | --plaintext] PATH [PATH ...]");
         return ExitCode::from(2);
     }
-    let root = match std::fs::canonicalize(&args[0]) {
+    let root = match malt_index::fsutil::canonicalize(&args[0]) {
         Ok(root) => root,
         Err(err) => {
             eprintln!("error: {}: {err}", args[0].display());
