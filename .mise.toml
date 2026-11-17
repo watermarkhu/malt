@@ -4,7 +4,8 @@
 [tools]
 # WASM toolchain for the browser/npm wasm package (pinned; Renovate updates).
 # 0.15.0 requires rustc >= 1.91 and the pinned toolchain (rust-toolchain.toml) is 1.100;
-# 0.13.1 is kept until the wasm build is re-verified with 0.15.
+# 0.13.1 is kept until the wasm build is re-verified with 0.15: `mise install` of 0.15.1 failed
+# locally on 2026-11-18 (it compiled with rustc 1.90: cargo-platform requires 1.91).
 "cargo:wasm-pack" = "0.13.1"
 # Node.js used for npm publishing and local tooling (pinned; Renovate updates).
 node = "24.22.3"
@@ -20,7 +21,7 @@ clang = "22.1.8"
 pinact = "latest"
 # Git hooks via hk (pinned; Renovate updates). Runs through `mise x` so every
 # contributor gets the pinned tools on PATH without activating mise.
-hk = "1.54.1"
+hk = "1.58.1"
 # Markdown linter for the docs (VitePress flavor) and GitHub Actions linter
 # (jactionlint, a security-aware fork of actionlint), used by the hk pre-commit
 # hooks. jactionlint runs shellcheck on the `run:` scripts of the workflows.
