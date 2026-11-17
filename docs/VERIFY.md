@@ -18,7 +18,7 @@ of how it got here is in git and in the plan's progress log.
 `tests/fixtures/matlab_expected.tsv` holds what MATLAB reports for every fixture
 (path, line, ID: facts only, no message text), recorded with the release named in
 `tests/fixtures/matlab_release.txt`. The test fails on any difference, a
-missed finding or an extra one: malt matches MATLAB on all 753 fixtures under the default configuration, among them
+missed finding or an extra one: malt matches MATLAB on all 773 fixtures under the default configuration, among them
 `corpus1/` to `corpus4/` (31, 31, 33 and 32 fresh files, written independently of the rules). A new fixture needs
 its MATLAB expectations and a line in `matlab_files.txt`; `crates/malt_cli/tests/fixtures/README.md` gives the steps.
 
@@ -638,3 +638,14 @@ Consecutive clean rounds: one (round 9). Rounds 5, 6, 7 and 8 are not clean, so 
 - `cargo fmt --all`, `cargo clippy --all-targets --locked -- -D warnings`: clean.
 - `MALT_MATLAB_REQUIRE=1 cargo test --workspace --locked --no-fail-fast`: every test passes, including the conformance test (753 fixtures) and the live check (2795 recorded findings agree with MATLAB 2026b, 0 message differences, 20 accepted). `MALT_EXTERNAL_TOOLKIT` was not set: `/tmp/probe/corpus5_src/repo` does not exist on this machine.
 - `bun docs/scripts/gen_rules_docs.ts --check`: passes after `bun run docs:gen` (the PFBNS text in `docs/rules/performance.md`).
+
+## Phase 4, rounds 10 onwards (2026-11-17)
+
+Same procedure as the rounds above: ten new files of the session's own writing per round, drawn under `/tmp/probe/round<N>/`, one `matlab_probe` run per round, malt with `--preset mathworks`, compared per file, line and ID and then per message text. Round 10 was classdef-heavy (property validation, dependent properties, events, enumeration with constructor arguments, abstract base, a package class, operator overloading and `subsref`, a `matlab.unittest` class, `inputParser`, an `arguments` block, `containers.Map`, handle copy semantics); round 11 was old-style and sloppy code (globals, `eval`, `findstr`, `str2num`, date functions, growth in loops, `inv(A) * b`, GUI callbacks with a nested function, `ode45` with events, error handling, `persistent` caches). Class and function names carry the fixture's letter prefix in the fixtures (`a_temperature_sensor`), as in the earlier corpora.
+
+| Round | Files | MATLAB findings | Before fixes | Result |
+| --- | --- | --- | --- | --- |
+| 10 | 10 (`corpus14/`) | 5 | none (5 matched, message text identical) | clean |
+| 11 | 10 (`corpus15/`; nine first, a tenth added before the diff) | 34 | none (34 matched, message text identical) | clean |
+
+Consecutive clean rounds: three (rounds 9, 10 and 11), so the exit criterion of the phase is met and no further round was run. Round 10 found little to compare (well-written class code gives MATLAB five findings), so it is the weakest of the three; round 11 is the stronger test. No malt change was needed, so there are no new fixes and no new known gaps. The files joined the fixtures as `corpus14/` and `corpus15/` (20 files; 773 in all).
