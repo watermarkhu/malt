@@ -18,7 +18,7 @@ impl Index {
     /// The folder at `dir` as an entity, if it is on the search path or below a folder on
     /// it. `None` otherwise (and for a path that does not exist).
     pub fn folder(&self, dir: impl AsRef<Path>) -> Result<Option<Entity>, IndexError> {
-        let Ok(dir) = fs::canonicalize(dir.as_ref()) else {
+        let Ok(dir) = crate::fsutil::canonicalize(dir.as_ref()) else {
             return Ok(None);
         };
         if !self.is_folder_path(&dir) {
@@ -30,7 +30,7 @@ impl Index {
     /// The entity at a path: the folder (as [`Index::folder`]), or the file's entity when
     /// the path is a file in such a folder. `None` for anything else.
     pub fn get_path(&self, path: impl AsRef<Path>) -> Result<Option<Entity>, IndexError> {
-        let Ok(path) = fs::canonicalize(path.as_ref()) else {
+        let Ok(path) = crate::fsutil::canonicalize(path.as_ref()) else {
             return Ok(None);
         };
         if path.is_dir() {

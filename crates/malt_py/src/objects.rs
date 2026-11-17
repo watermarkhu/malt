@@ -118,11 +118,7 @@ impl Object {
     /// non-public `Access` attribute (maxx's rule).
     #[getter]
     fn is_private(&self) -> bool {
-        let in_private = self
-            .entity
-            .path
-            .as_deref()
-            .is_some_and(|p| path_has_part(p, "private"));
+        let in_private = self.entity.path.as_deref().is_some_and(in_private_folder);
         let access = self.access();
         in_private || !matches!(access.as_str(), "public" | "immutable")
     }
@@ -799,6 +795,15 @@ pub(crate) fn wrap(
         Kind::Enumeration => Py::new(py, (Enumeration, object))?.into_any(),
         Kind::Function => Py::new(py, object)?.into_any(),
     })
+}
+
+/// Whether the file is directly in a `private` folder. Only the folder that holds the file
+/// counts: a `private` further up (macOS temporary folders live under `/private`) does not
+/// make the file private.
+fn in_private_folder(path: &Path) -> bool {
+    path.parent()
+        .and_then(Path::file_name)
+        .is_some_and(|name| name == "private")
 }
 
 /// Whether a path has a component called `part`.

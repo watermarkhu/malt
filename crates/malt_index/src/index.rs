@@ -191,8 +191,8 @@ impl Index {
         to_end: bool,
         recursive: bool,
     ) -> Result<(), IndexError> {
-        let path =
-            fs::canonicalize(path.as_ref()).map_err(|e| IndexError::io(path.as_ref(), &e))?;
+        let path = crate::fsutil::canonicalize(path.as_ref())
+            .map_err(|e| IndexError::io(path.as_ref(), &e))?;
         self.roots.retain(|r| r.path != path);
         let root = self.scan_root(path, recursive)?;
         if to_end {
@@ -207,7 +207,7 @@ impl Index {
     /// Remove a folder from the search path, and with `recursive` the folders below it.
     /// Returns whether it was on the path.
     pub fn rmpath(&mut self, path: impl AsRef<Path>, recursive: bool) -> bool {
-        let path = match fs::canonicalize(path.as_ref()) {
+        let path = match crate::fsutil::canonicalize(path.as_ref()) {
             Ok(p) => p,
             Err(_) => path.as_ref().to_path_buf(),
         };

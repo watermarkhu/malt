@@ -18,6 +18,7 @@ pub mod dump;
 pub mod error;
 pub mod expr;
 pub mod folder;
+pub mod fsutil;
 pub mod hierarchy;
 pub mod index;
 pub mod live;

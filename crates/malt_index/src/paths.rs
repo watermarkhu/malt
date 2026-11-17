@@ -264,7 +264,7 @@ fn name_of(path: &Path) -> String {
 }
 
 fn canonical(path: &Path) -> PathBuf {
-    fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf())
+    crate::fsutil::canonicalize(path).unwrap_or_else(|_| path.to_path_buf())
 }
 
 /// Match one name against a segment pattern: `*` (any run), `?` (one character) and

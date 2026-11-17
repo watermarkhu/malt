@@ -293,8 +293,10 @@ mod tests {
 
     #[test]
     fn normal_absolute_resolves_dot_dot() {
+        // Absolute on every platform: `/a` is rooted but has no drive on Windows.
+        let expected = std::path::absolute(Path::new("/a/c/d.m")).unwrap();
         let path = Path::new("/a/b/../c/./d.m");
-        assert_eq!(normal_absolute(path), Some(PathBuf::from("/a/c/d.m")));
+        assert_eq!(normal_absolute(path), Some(expected));
     }
 
     #[test]

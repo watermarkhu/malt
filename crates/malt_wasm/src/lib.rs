@@ -433,9 +433,11 @@ mod wasm {
 
         #[test]
         fn from_toml_reenables_default_off_engine() {
-            // A bare script triggers EMSCR (codegen) only when CODEGEN_ENGINE is on.
+            // A script marked `%#codegen` triggers EMSCR (codegen checks fire only there)
+            // when CODEGEN_ENGINE is on.
+            let source = "%#codegen\nx = 1\n";
             let mut default_linter = linter();
-            let default_warnings = default_linter.check("x = 1\n", None);
+            let default_warnings = default_linter.check(source, None);
             let default_parsed: Vec<serde_json::Value> =
                 serde_json::from_str(&default_warnings).unwrap();
             assert!(
@@ -445,7 +447,7 @@ mod wasm {
 
             let mut l =
                 from_toml_str("[lint.rules.CODEGEN_ENGINE]\nseverity = \"error\"\n").unwrap();
-            let warnings = l.check("x = 1\n", None);
+            let warnings = l.check(source, None);
             let parsed: Vec<serde_json::Value> = serde_json::from_str(&warnings).unwrap();
             assert!(
                 parsed.iter().any(|w| w["rule_id"] == "EMSCR"),

@@ -313,3 +313,16 @@ def test_top_level_members_keep_their_python_classes(project: Path) -> None:
     assert isinstance(paths.members["+pkg"], Namespace)
     assert isinstance(paths.members["Colour"], Class)
     assert isinstance(paths.members["Tint"], Class)
+
+
+def test_a_private_folder_above_the_project_does_not_make_objects_private(
+    tmp_path: Path,
+) -> None:
+    # macOS temporary folders live under /private: only the file's own folder counts.
+    folder = tmp_path / "private" / "proj"
+    folder.mkdir(parents=True)
+    (folder / "Box.m").write_text(
+        "classdef Box\n    properties (Hidden)\n        Count = 0;\n    end\nend\n"
+    )
+    count = parse_file(folder / "Box.m").members["Count"]
+    assert count.is_hidden and not count.is_private
