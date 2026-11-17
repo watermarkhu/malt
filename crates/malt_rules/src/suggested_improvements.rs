@@ -5,7 +5,7 @@
 //! title = "Suggested Improvements"
 //! category = "suggested-improvements"
 //! severity = "info"
-//! fix = false
+//! fix = true
 //! icon = "lucide/lightbulb"
 //! slug = "suggested-improvements"
 //! data_file = "suggested_improvements.toml"
@@ -21,6 +21,24 @@
 //! function-name lookup table, and emits diagnostics with the specific check
 //! ID from the matched entry (e.g. `CSVRD`, not the meta ID
 //! `SUGGESTED_IMPROVEMENTS`).
+//!
+//! ## Fix
+//!
+//! The entries whose replacement is a plain rename of the callee
+//! (`renames_call = true` in the data file; MATLAB marks these
+//! auto-fixable) carry a fix that rewrites the callee token and nothing
+//! else: `gop(@plus, x)` becomes `spmdReduce(@plus, x)` (DGOP),
+//! `labindex:numlabs:n` becomes `spmdIndex:spmdSize:n` (DLABINDEX,
+//! DNUMLABS), `caxis(limits)` becomes `clim(limits)` (CAXIS), `isdir(p)`
+//! becomes `isfolder(p)` (ISDIR), and `Simulink.Variant('a')` becomes
+//! `Simulink.VariantExpression('a')` (SIMVARIANT), all byte-identical to
+//! MATLAB's own fix. The rename is behaviour-preserving in the current
+//! release (the new name is the old function's new spelling), the name is
+//! already known not to be shadowed, and so `--fix` applies it. Entries
+//! whose replacement needs code changes (`-opengl` → `-image`,
+//! `hold('all')`, `datetime(now, 'ConvertFrom', 'datenum')`) carry no fix,
+//! and commands and handles carry none either: MATLAB's fix for them is
+//! not probed.
 //!
 //! On each `function_call` or `command` node the engine extracts the function
 //! name and performs an O(1) HashMap lookup, reporting the first matching
@@ -88,6 +106,12 @@ struct SuggestedEntry {
     message: &'static str,
     /// Recommended replacement function or syntax.
     replacement: &'static str,
+    /// The fix renames the callee token exactly to `replacement` (probed:
+    /// MATLAB's fix on `gop(@plus, x)` gives `spmdReduce(@plus, x)`); only the
+    /// entries whose replacement is a plain rename set this. Entries that
+    /// rewrite an argument (`-opengl`, `MasterSolverOptions`) or a call shape
+    /// (`hold('all')`, `datetime(now, ...)`) do not, so they carry no fix.
+    renames_call: bool,
     /// Non-empty for checks that need class tracking or a toolbox that is not
     /// installed. Such entries are not matched by name.
     pattern: &'static str,
@@ -839,10 +863,45 @@ impl Rule for SuggestedImprovementsEngine {
                 byte_range: node.start_byte()..node.end_byte(),
                 line: start.row + 1,
                 column: start.column + 1,
-                fix: None,
+                fix: entry
+                    .renames_call
+                    .then(|| callee_rename_fix(node, entry.replacement))
+                    .flatten(),
             })
             .collect()
     }
+}
+
+/// The rename fix for a `renames_call` entry: replace the callee token with the
+/// replacement, keeping the call, its arguments and the surrounding text as they
+/// are (probed: MATLAB's fix on `gop(@plus, x)` gives `spmdReduce(@plus, x)`,
+/// and on `Simulink.Variant('a')` the whole dotted path becomes
+/// `Simulink.VariantExpression`).
+fn callee_rename_fix(node: tree_sitter::Node, replacement: &'static str) -> Option<malt_core::Fix> {
+    if node.kind() == "function_call" {
+        let name = node
+            .child_by_field_name("name")
+            .filter(|n| n.kind() == "identifier")?;
+        // A dotted callee parses with the call at the tail of a field chain
+        // (`Simulink.Variant('a')`): the edit spans the chain up to the name,
+        // not just the tail identifier.
+        let mut outer = node;
+        while let Some(parent) = outer.parent().filter(|p| p.kind() == "field_expression") {
+            outer = parent;
+        }
+        let range = if outer.id() == node.id() {
+            name.byte_range()
+        } else {
+            outer.start_byte()..name.end_byte()
+        };
+        return Some(malt_core::Fix::new(range, replacement));
+    }
+    // A bare name (`labindex:numlabs:n`) or a dotted reference as a value
+    // (`pkg.f`): the node is the token to rewrite. Commands and handles are
+    // left alone: MATLAB's fix for them is not probed, and their node covers
+    // more than the name.
+    matches!(node.kind(), "identifier" | "field_expression")
+        .then(|| malt_core::Fix::new(node.byte_range(), replacement))
 }
 
 // ---------------------------------------------------------------------------
@@ -1850,5 +1909,50 @@ mod tests {
         assert!(rule_ids("[a, b] = sim(\"m\");\n").is_empty());
         assert!(rule_ids("[a, b] = sim(m);\n").is_empty());
         assert!(rule_ids("[a, b] = sim;\n").is_empty());
+    }
+}
+
+#[cfg(test)]
+mod rename_fix_tests {
+    use crate::test_util::lint_nodes;
+    use malt_core::{apply_fixes_with, FixMode};
+
+    pub(crate) fn engine() -> Box<dyn crate::Rule> {
+        super::SuggestedImprovementsEngine::from_config(&malt_core::Config::default())
+    }
+
+    #[test]
+    fn renames_call_fix_rewrites_only_the_callee() {
+        // Probed: MATLAB's fix on `gop(@plus, x)` gives `spmdReduce(@plus, x)`,
+        // and the bare names of a range (`labindex:numlabs:n`) rename in place.
+        let (src, fixed) = ("y = gop(@plus, x);\n", "y = spmdReduce(@plus, x);\n");
+        let diags = lint_nodes(&*engine(), src);
+        let out = apply_fixes_with(src, &diags, FixMode::Safe).0;
+        assert_eq!(out, fixed, "the rename is safe: {src}");
+
+        let (src, fixed) = (
+            "chunk = labindex:numlabs:nSamples;\n",
+            "chunk = spmdIndex:spmdSize:nSamples;\n",
+        );
+        let diags = lint_nodes(&*engine(), src);
+        let out = apply_fixes_with(src, &diags, FixMode::Safe).0;
+        assert_eq!(out, fixed, "{src}: {out:?}");
+
+        // A dotted callee renames whole; commands and handles carry no fix
+        // (MATLAB's fix for them is not probed).
+        let (src, fixed) = (
+            "q = Simulink.Variant('a');\n",
+            "q = Simulink.VariantExpression('a');\n",
+        );
+        let diags = lint_nodes(&*engine(), src);
+        let out = apply_fixes_with(src, &diags, FixMode::Safe).0;
+        assert_eq!(out, fixed, "{out:?}");
+        let diags = lint_nodes(&*engine(), "mlint('f.m');\n");
+        let fix = diags
+            .iter()
+            .find(|d| d.rule_id == "MLNT")
+            .and_then(|d| d.fix.as_ref())
+            .expect("the plain-call form carries the rename");
+        assert_eq!(fix.replacement, "checkcode");
     }
 }

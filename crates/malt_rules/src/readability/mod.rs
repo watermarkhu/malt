@@ -76,12 +76,18 @@
 //! - `repmat(c, x, y)` → `ones`/`zeros`/`true`/`false`/`Inf`/`NaN(x, y)`
 //!   (RPMT1, RPMT0, RPMTT, RPMTF, RPMTI, RPMTN).
 //! - `char(10)` and `sprintf('\n')` → `newline`; `logical(1)` → `true`.
-//! - `flipud(fliplr(x))` → `rot90(x, 2)`; `[scalar]` → `scalar`;
+//! - `flipud(fliplr(x))` → `rot90(x,2)` (as MATLAB's own fix writes it);
+//!   `[scalar]` loses only its two bracket tokens, keeping the inner text,
+//!   comments and spacing as they are (NBRAK2, MATLAB's fix is the same);
 //!   `disp(sprintf(...))` → `fprintf(...)`.
-//! - `isempty(strfind(s, p))`, `cellfun(@isempty, strfind(s, p))` →
-//!   `~contains(s, p)`; `if strfind(s, p)` → `if contains(s, p)`.
+//! - `isempty(strfind(s, p))` → `~contains(s, p)`, and the negated form
+//!   rewrites as a whole — `~isempty(strfind(s, p))` → `contains(s, p)` —
+//!   with the arguments reprinted verbatim, both as MATLAB's fix does;
+//!   `cellfun(@isempty, strfind(s, p))` → `~contains(s, p)`;
+//!   `if strfind(s, p)` → `if contains(s, p)`.
 //! - `strcmpi(lower(x), y)` → `strcmpi(x, y)` (STLOW).
-//! - `i`/`j` as the imaginary unit → `1i`/`1j` (IJCL).
+//! - `i`/`j` as the imaginary unit → `1i` (IJCL; MATLAB's fix writes `1i`
+//!   for `j` too, and `1i` and `1j` are the same constant).
 //! - A trailing comma before a newline in a matrix becomes a semicolon (COMNL).
 //! - An `(Input)` attribute is inserted into attribute-less `arguments`
 //!   blocks (FVINR).

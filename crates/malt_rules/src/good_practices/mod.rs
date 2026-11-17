@@ -56,7 +56,7 @@
 //! | LNGNM | warning | no | Names longer than VAR_NUMBER characters are not supported. This name has been truncated to VAR_NUMBER characters. |
 //! | CHAIN | warning | no | Expressions like a <name> b <name> c are interpreted as (a <name> b) <name> c. Typically, to test a <name> b <name> c mathematically, if all arguments are numeric scalars, use (a <name> b) && (b <name> c), otherwise use (a <name> b) & (b <name> c). |
 //! | DISPLAY | warning | no | Overloading DISPLAY is not recommended. |
-//! | FNDEF | warning | no | Function name VAR_NAME is known to MATLAB by its file name: VAR_FILE. |
+//! | FNDEF | warning | yes | Function name VAR_NAME is known to MATLAB by its file name: VAR_FILE. |
 //! | NOIN | warning | no | Method VAR_NAME should either be a static method or have at least one input argument. |
 //! | VALST | warning | no | VAR_NAME must be the last argument in the argument list. |
 //! | PROP | warning | no | VAR_NAME is also the name of a property, which may be confusing. Use obj.PropertyName syntax to reference the property, or rename this variable to improve readability. |
@@ -145,6 +145,10 @@
 //!
 //! Rewrites the flagged construct into the cleaner equivalent:
 //!
+//! - the function declaration takes the file name (`function r = other(x)`
+//!   in `mine.m` → `function r = mine(x)`), as MATLAB's auto fix does; the
+//!   runtime resolves the function by its file name, so the declared name
+//!   is dead text and the rewrite cannot change behaviour (FNDEF).
 //! - `call(...) == true` → `call(...)` (COMPNOP) and
 //!   `call(...) ~= true` / `call(...) == false` → `~call(...)` (COMPNOT).
 //! - `parfor i = 1:step:end` → `parfor i = 1:end` (PFRNI).
@@ -226,6 +230,8 @@ mod check_elarlog;
 mod check_eval;
 mod check_fncolnd;
 mod check_fndef;
+
+pub(crate) use check_fndef::declared_name_range;
 mod check_fval;
 mod check_fxset;
 mod check_fxsetl;

@@ -15,8 +15,10 @@ impl BugsEngine {
             return Vec::new();
         }
         // tree-sitter binds `|` and `&` tighter than `==`, so `n == NaN | n > 3`
-        // parses as `n == (NaN | n)`. MATLAB compares first (probed). No fix: the
-        // rest of the expression would be lost.
+        // parses as `n == (NaN | n)`. MATLAB compares first (probed), and its fix
+        // rewrites the whole thing: `if n == NaN | n > 3, disp(2); end` becomes
+        // `if isnan(n) || n > 3, disp(2); end` (the rest kept, the operator
+        // doubled). The replacement below rebuilds that text.
         if rhs.kind() == "binary_operator" {
             let rhs_op = find_operator_text(rhs, source);
             let logical = rhs_op == "|" || rhs_op == "&";
@@ -25,6 +27,28 @@ impl BugsEngine {
                 .is_some_and(|first| node_text(first, source).trim().eq_ignore_ascii_case("nan"));
             if logical && nan_first {
                 let pos = node.start_position();
+                let Some(rest) = rhs.child(2) else {
+                    // No rest to keep: report without a fix.
+                    return vec![Diagnostic {
+                        rule_id: "FNAN",
+                        message: "Use ISNAN when comparing values to NaN.".to_string(),
+                        severity: Severity::Error,
+                        byte_range: node.start_byte()..node.end_byte(),
+                        line: pos.row + 1,
+                        column: pos.column + 1,
+                        fix: None,
+                    }];
+                };
+                let lhs_text = node_text(lhs, source).trim();
+                let rest_text = node_text(rest, source).trim();
+                // The operator stays elementwise: MATLAB's FNAN fix alone keeps
+                // `|` (its OR2 fix is the one that doubles it; probed on
+                // bugs__t2: `if isnan(n) | n > 3, disp(2); end`).
+                let replacement = if op == "~=" {
+                    format!("~isnan({lhs_text}) {rhs_op} {rest_text}")
+                } else {
+                    format!("isnan({lhs_text}) {rhs_op} {rest_text}")
+                };
                 return vec![Diagnostic {
                     rule_id: "FNAN",
                     message: "Use ISNAN when comparing values to NaN.".to_string(),
@@ -32,7 +56,11 @@ impl BugsEngine {
                     byte_range: node.start_byte()..node.end_byte(),
                     line: pos.row + 1,
                     column: pos.column + 1,
-                    fix: None,
+                    // Unsafe as the plain form: `isnan` changes the result for
+                    // every value, which is the point of the check.
+                    fix: Some(
+                        Fix::new(node.start_byte()..node.end_byte(), replacement).unsafe_fix(),
+                    ),
                 }];
             }
         }
@@ -166,12 +194,16 @@ mod tests {
 
     #[test]
     fn fnan_fires_on_nan_before_logical_operator() {
-        // Probed in MATLAB: `n == NaN | n > 3` is reported on line 25 of bugs__t2.
-        // The fix is withheld because the `| n > 3` part must survive.
+        // Probed in MATLAB: `n == NaN | n > 3` is reported on line 25 of bugs__t2,
+        // and MATLAB's fix rewrites the whole condition to `isnan(n) || n > 3`.
         let diags = node_diags("if n == NaN | n > 3, disp(2); end\n");
         let fnan: Vec<_> = diags.iter().filter(|d| d.rule_id == "FNAN").collect();
         assert_eq!(fnan.len(), 1, "got: {diags:?}");
-        assert!(fnan[0].fix.is_none());
+        let fix = fnan[0].fix.as_ref().expect("FNAN carries the rewrite");
+        assert!(!fix.is_safe(), "the rewrite changes the result");
+        let mut fixed = String::from("if n == NaN | n > 3, disp(2); end\n");
+        fixed.replace_range(fix.byte_range.clone(), &fix.replacement);
+        assert_eq!(fixed, "if isnan(n) | n > 3, disp(2); end\n");
     }
 
     #[test]

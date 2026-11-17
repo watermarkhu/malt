@@ -230,7 +230,9 @@ Parfor reduction variable &lt;name&gt; must be used in the same position in each
 Rewrites the flagged construct into the safe equivalent. For example:
 
 - `&` → `&&` and `|` → `||` in boolean contexts.
-- `x == NaN` → `isnan(x)` (and `x ~= NaN` → `~isnan(x)`).
+- `x == NaN` → `isnan(x)` (and `x ~= NaN` → `~isnan(x)`); with an
+  elementwise operator behind it the rest is kept, as MATLAB's fix does
+  (`if n == NaN | n > 3` → `if isnan(n) | n > 3`).
 - `isempty(cond)` on a logical expression → `~any(cond, "all")`.
 
 ## Examples

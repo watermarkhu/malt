@@ -76,6 +76,29 @@ code `1`, or pre-filter with `--level`. `--level error` (or `warning`) hides
 findings below the level — hidden findings are not counted and do not set the
 exit code; `--fix` still fixes them.
 
+## The Safe fixes were curated against MATLAB's own fix
+
+`--fix` still applies only Safe fixes, but the set was re-curated with
+MATLAB's own `codeIssues(...).fix(ID)` as the oracle (see
+[`VERIFY.md`](./VERIFY.md), '5.5 Curated safe autofixes'). What changed
+for a plain `--fix`:
+
+| Check | Before | Now |
+| ----- | ------ | --- |
+| NOPTS, NOPRT | inserted a `;` in front of a comma, producing `x = 1;, y = 2` (which the Code Analyzer itself reports as NOCOMMA) | replaces the comma, as MATLAB's fix does (`x = 1; y = 2;`) |
+| NBRAK2 | replaced the whole bracket expression with the element text, dropping comments inside the brackets | strips only the two bracket tokens, keeping inner text, comments and spacing (MATLAB's fix is the same) |
+| FLUDLR | `rot90(x, 2)` | `rot90(x,2)`, byte-identical to MATLAB's fix |
+| FNDEF | no fix | renames the declaration to the file name, as MATLAB's auto fix does (Safe: the runtime resolves by file name) |
+| DLABINDEX, DNUMLABS, DGOP, CAXIS, ISDIR and the other direct-replacement renames | no fix | the callee token is renamed (`labindex` → `spmdIndex`, `caxis` → `clim`, ...) |
+
+New Unsafe fixes (only with `--fix --unsafe-fixes`): STREMP's negated form
+(`~isempty(strfind(s,p))` → `contains(s,p)`), FNAN with a logical operator
+behind it (`if n == NaN | n > 3` → `if isnan(n) | n > 3`), and MCFIL (renames
+the `classdef` and the constructor to the file name — a method that was never
+the constructor becomes one). IJCL now rewrites `j` to `1i` (as MATLAB's fix
+does; `1j` before), and AND2/OR2 replace exactly the reported operator, as
+MATLAB's fix does.
+
 ## Custom checks: `disallow_*` instead of `max_*`
 
 The old `CUSTOM_CHECKS` engine mapped MATLAB's *disallow* IDs (`DAFBR`, …) to

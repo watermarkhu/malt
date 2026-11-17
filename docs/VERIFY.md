@@ -18,7 +18,7 @@ of how it got here is in git and in the plan's progress log.
 `tests/fixtures/matlab_expected.tsv` holds what MATLAB reports for every fixture
 (path, line, ID: facts only, no message text), recorded with the release named in
 `tests/fixtures/matlab_release.txt`. The test fails on any difference, a
-missed finding or an extra one: malt matches MATLAB on all 773 fixtures under the default configuration, among them
+missed finding or an extra one: malt matches MATLAB on all 811 fixtures under the default configuration, among them
 `corpus1/` to `corpus4/` (31, 31, 33 and 32 fresh files, written independently of the rules). A new fixture needs
 its MATLAB expectations and a line in `matlab_files.txt`; `crates/malt_cli/tests/fixtures/README.md` gives the steps.
 
@@ -738,3 +738,78 @@ What the table decides:
 - **`max_threads`: the number of cores, as a total.** Before, each of the `cores` file workers also started `cores` check threads for a large file (all with 256 MiB of reserved stack), so one run could start cores squared threads. Now the workers and the per-file check threads share the budget (`workers * threads per file <= max_threads`); the memory of one run is bounded by the number of files in flight times the memory of a file. A budget of 1 runs on one thread. The many-worker memory sum was not measured (one file per run).
 
 Not verified: the effect of `max_threads` on peak memory with several large files in flight, the wasm limits in a browser (the host test and the V8 depth measurement above stand in), and shapes other than those listed (for example thousands of long lines of nested anonymous functions).
+
+## 5.5 Curated safe autofixes (2026-11-17)
+
+The fixes were re-curated with MATLAB's own fix as the oracle: for every fixture
+finding that MATLAB's Code Analyzer marks fixable, `codeIssues(file).fix(ID)` was
+applied to a copy of the fixture and its text compared with malt's fix for the same
+ID alone (the default configuration, that ID's fixes only, repeated until stable, as
+`--fix` does). Method: one `matlab -batch` call per bounded chunk, `codeIssues(...,
+CodeAnalyzerConfiguration="factory")`, `try`/`catch` per file, `Fixability` read per
+finding (`auto` = MATLAB offers a fix), the fixed text saved only from the copies.
+`checkcode` exposes no fixability; `codeIssues` is the only programmatic window onto
+it, and its `fix` is what the editor's quick-fix does.
+
+**Inventory.** 791 fixtures (the pre-5.5 set), 3,011 findings, 950 auto-fixable ones,
+53 check IDs with at least one auto-fixable finding, 521 unique (fixture, ID) pairs.
+Differential: 452 pairs byte-identical between malt's fix and MATLAB's, 61 where malt
+has no fix (see the table), 7 deliberate differences, 1 pair where malt reports but
+deliberately does not fix the assigned form (DSPSP).
+
+**The table.** malt's fix class before → after, and whether MATLAB's own fix produces
+the same text on the fixtures:
+
+| ID | MATLAB fixable | malt before | malt after | Agreement |
+| --- | --- | --- | --- | --- |
+| NOPTS, NOPRT | yes (auto) | safe, `;` inserted before a following comma (`x = 1;, y = 2`) | safe, the comma separator is **replaced** (`x = 1; y = 2;`) | now identical (43+64 pairs); the old text was valid MATLAB but `checkcode` reports NOCOMMA on it (probed) |
+| NOSEMI | yes | safe, deletes the `;` plus the blanks in front | unchanged (kept deliberately) | malt is **deeper**: `end;;` converges to `end` (MATLAB's fix leaves `end;`, which its own analyzer still flags); blank-taking differs on `y = 2; ;` (4 pairs) |
+| NBRAK2 | yes | safe, replaced the whole bracket expression with the element text — **comments inside the brackets were lost** (found by the differential on `y = [a  % comment ...]`) | safe, strips only the two bracket tokens; inner text, comments and spacing kept | now identical (10 pairs) |
+| NBRAK1, NOCOMMA, NCOMMA, ASGLU, FVINR, BADNE, TRIM2, RPMT1, MRPBW, ISCEL, ISCHR, STLOW | yes | safe rewrites | unchanged | identical on every pair |
+| FLUDLR | yes | safe, `rot90(x, 2)` (spacing) | safe, `rot90(x,2)` | identical (1 pair) |
+| DSPSP | yes | safe, statement form only | unchanged | malt fixes the statement form identically; MATLAB also fixes `w = disp(sprintf(...))` to `w = fprintf(...)` — which **assigns `fprintf`'s return count to `w`**, a behaviour change; malt keeps the conservative scope |
+| FNDEF | yes (128 pairs, the largest) | no fix | **safe**: the declaration is renamed to the file name; the runtime resolves by file name, so the declared name is dead text (recursion, handles and calls all resolve as before); a header broken by a later syntax error is handled too (the name token carries the fix there) | identical on all 128 |
+| MCFIL | yes (4) | no fix | **unsafe**: renames the `classdef` and every constructor to the file name in one edit; a method that was never the constructor becomes one, so constructing the object starts running it | identical text, unsafe by the reasoning above |
+| DLABINDEX, DNUMLABS, DGOP, CAXIS, ISDIR, MLNT, DEGTORAD, RADTODEG, WRITEFIS, GCAT, GPLUS, LAB* | yes | no fix | **safe**, data-driven (`renames_call = true` in `suggested_improvements.toml`): the callee token is renamed, arguments untouched; the entries that need code changes (`-opengl`, `hold('all')`, `datetime(now, ...)`) carry no fix | identical (DLABINDEX 6, DNUMLABS 3, DGOP 1, CAXIS 2, ISDIR 2 pairs, probed shapes) |
+| AND2, OR2 | yes (auto) | unsafe | unsafe; **one finding, one operator** (probed: MATLAB's AND2 fix on `if a & b | c` gives `if a && b | c`) | identical per finding; `(a | b) | c` differs because `codeIssues` reports a second, parenthesised finding that `checkcode` and malt do not (2 pairs, documented) |
+| FNAN | yes | unsafe, no fix when a logical operator followed (`n == NaN | n > 3`) | unsafe, the rest is kept as MATLAB's fix keeps it (`if isnan(n) | n > 3`; the operator stays elementwise — MATLAB's OR2 fix is the one that doubles it) | now identical (4 pairs) |
+| STREMP | yes | unsafe, `~isempty(strfind(a,b))` → `~(~contains(a, b))` (double negation, wrong anchor) | unsafe, the negation is rewritten whole (`contains(a,b)`), arguments reprinted verbatim | identical (5 pairs) |
+| IJCL | yes | unsafe, `j` → `1j` | unsafe, `i` and `j` both → `1i` (what MATLAB's fix writes; `1i` and `1j` are the same constant) | identical (5 pairs) |
+| STRCL1, STRCLFH, STRIFCND | **no** (manual) | unsafe rewrites | unchanged (kept: the `contains` rewrite returns a logical array where `isempty(strfind(...))` returned a scalar on cell input, so it is not provably equivalent) | MATLAB offers no fix; documented divergence |
+| INUSD | yes | unsafe (`~`) | unchanged | identical text (75 pairs); unsafe stays: `inputname(k)` of a `~` input changes, and MATLAB's fix shares that risk |
+| str2num→str2double, fliplr(sort(x)), the performance rewrites | **no** | unsafe / removed | unchanged | MATLAB offers no fix; kept unsafe where an equivalent exists, removed where none does (`deblank`, `strtrim`, `findstr`, `im2bw`, `x * 1`, `isa(x,'double')` — see `tests/unsafe_fixes.rs`) |
+
+**Where MATLAB offers a fix and malt does not (61 pairs, 21 IDs), kept as no-fix on
+purpose:** NUSED (removing a name from a `global` list: MATLAB's fix does it, malt's
+global model does not track that the name is file-locally dead — unprobed beyond the
+one shape), FVAL (`feval(@f, x)` → `f(x)`: equivalent where the handle is an inline
+literal, but the rewrite's interaction with shadowing and `inputname` is unprobed),
+ISMT (`length(x) == 0` → `isempty(x)`: equivalent for every array, unimplemented),
+ISCL, LOGEMP, MSNU, EFIND, FNDSB, STCI, NOPRC, ASSRT, DNUMLABS-adjacent shapes,
+STRQUOT, TNOW2, HOLDALL, PRTOG, PRTPT, EQEFF, STNCI, TWOCM, FORMATNOI and the rest
+(each is a meaning-changing suggestion — `find(x)` → `find(x, 1)`, `hold all` →
+`hold on`, `assert('msg')` → `error('msg')`, `a == 1` → `a = 1`, ... — or an
+unprobed shape; the inventory is in the session log, not the repository).
+
+**Regression tests.** `crates/malt_cli/tests/fix_matlab.rs` + `tests/fixtures/fix_matlab/`
+commit MATLAB's fixed text for the Safe-fix pairs (`<fixture>.<ID>.m`): the test applies
+malt's fix for that ID (default configuration, Safe only) and requires byte equality;
+a second test re-generates MATLAB's fixes (`tests/matlab/generate_fixes.m`, the same
+two-phase skip/REQUIRE contract as the checkcode generator, `MALT_MATLAB_FIXES`) and
+compares them with the committed ones, so the set cannot drift from live MATLAB.
+The expectation files are lint-able and are part of the conformance fixtures
+(`matlab_files.txt`, 811 files now). New fixtures for the changed and new fixes:
+`fix/formatting__sepcomma.m`, `fix/formatting__noprtsep.m`,
+`fix/readability__nbrak2fix.m`, `fix/readability__fludlrfix.m`,
+`fix/goodpractices__fndefix.m`, `fix/languagespec__mcfilfix.m`,
+`fix/suggested__renames.m`, `fix/bugs__fnanrest.m`, `fix/readability__strempneg.m`,
+`fix/readability__ijclfix.m`, each with its MATLAB expectations appended
+(2,953 recorded findings on 811 files). The `fix_safety` harness covers them all; `--fix` on any
+of them stays idempotent.
+
+Known gaps found by the probes, not fixed: `codeIssues` reports an OR2/AND2 for the
+parenthesised inner operand of `(a | b) && c` that `checkcode` does not (malt matches
+`checkcode`, so its fix does not fire there); OR2 chained without parentheses
+(`a | b | c`) has no fixture at the `checkcode` level; MATLAB's fix on the one-line
+`if a & b | c` shape doubles only the reported operator, but `codeIssues` reports
+both operators there, and its AND2/OR2 pair-fixes then produce `a && b || c`.

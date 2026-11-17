@@ -48,7 +48,7 @@ impl FormattingEngine {
             byte_range: node.start_byte()..node.end_byte(),
             line: start.row + 1,
             column: start.column + 1,
-            fix: Some(Fix::insert(end_byte, ";")),
+            fix: Some(super::check_nopts::semicolon_fix(end_byte, source)),
         });
     }
 }

@@ -17,12 +17,12 @@ icon: lucide/list-checks
 | [`FORMATTING_ENGINE`](rules/formatting.md) | Formatting | Formatting suggestion checks (NOCOMMA, NO4LP, ALIGN, NOPTS, NOPRT, NCOMMA) | Info | Yes |
 | [`GOOD_PRACTICES_ENGINE`](rules/good-practices.md) | Good Practices | Common best-practice checks for MATLAB code | Warning | Yes |
 | [`INCOMPLETE_ANALYSIS`](rules/incomplete-analysis.md) | Incomplete Analysis | Internal linter limits and analysis integrity checks | Error | No |
-| [`LANGUAGE_SPEC_ENGINE`](rules/language-spec.md) | Language Specification | Language specification constraint violation | Error | No |
+| [`LANGUAGE_SPEC_ENGINE`](rules/language-spec.md) | Language Specification | Language specification constraint violation | Error | Yes |
 | [`NAMING_ENGINE`](rules/naming.md) | Naming | Naming convention checks (81 sub-rules for 9 entity types x 9 check types) | Info | No |
 | [`NOSEMI`](rules/nosemi.md) | Formatting | Extra semicolon is unnecessary | Info | Yes |
 | [`PERFORMANCE_ENGINE`](rules/performance.md) | Performance | Performance improvement suggestions | Info | Yes |
 | [`READABILITY_ENGINE`](rules/readability.md) | Readability | Readability improvement checks for MATLAB code | Info | Yes |
-| [`SUGGESTED_IMPROVEMENTS`](rules/suggested-improvements.md) | Suggested Improvements | Not-recommended function or pattern with suggested replacement | Info | No |
+| [`SUGGESTED_IMPROVEMENTS`](rules/suggested-improvements.md) | Suggested Improvements | Not-recommended function or pattern with suggested replacement | Info | Yes |
 | [`SYNTAX_ERRORS_ENGINE`](rules/syntax-errors.md) | Syntax Errors | Parser-level and semantic syntax validation | Error | Yes |
 | [`SYSTEM_OBJECTS_ENGINE`](rules/system-objects.md) | System Objects | System object validation checks | Warning | No |
 | [`UNSET_VARIABLES_ENGINE`](rules/unset-variables.md) | Unset Variables | Detects variables that might not be defined before use | Warning | No |

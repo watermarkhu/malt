@@ -77,13 +77,19 @@ impl ReadabilityEngine {
                         | "parenthesis"
                 );
                 if scalar && !list_like {
+                    // MATLAB's own fix strips the two bracket tokens and keeps
+                    // everything between them verbatim (probed on the fixtures:
+                    // `[a(1) ]` becomes `y = a(1) ;`, and the comment inside
+                    // `[a  % comment ...]` survives). Replacing the whole node
+                    // range with the element text would drop such a comment.
                     results.push(self.diag(
                         "NBRAK2",
                         "Use of brackets [] is unnecessary.",
                         node,
-                        Some(Fix::new(
-                            node.start_byte()..node.end_byte(),
-                            inner_text.to_string(),
+                        Some(Fix::with_additional(
+                            node.start_byte()..node.start_byte() + 1,
+                            "",
+                            vec![Fix::new(node.end_byte() - 1..node.end_byte(), "")],
                         )),
                     ));
                 }
@@ -141,6 +147,42 @@ mod tests {
         ] {
             let diags = lint_nodes(&*engine(), source);
             assert!(has_id(&diags, "NBRAK2"), "{source}: got: {diags:?}");
+        }
+    }
+
+    #[test]
+    fn nbrak2_fix_strips_only_the_bracket_tokens() {
+        // Probed: MATLAB's own fix keeps everything between the brackets
+        // verbatim, comments and spacing included, and malt now does too
+        // (the old whole-node rewrite deleted the comment).
+        for (source, fixed) in [
+            ("x = [5];\n", "x = 5;\n"),
+            ("y = [a(1) ];\n", "y = a(1) ;\n"),
+            ("y = [a  % comment\n];\n", "y = a  % comment\n;\n"),
+            ("y = [ a ];\n", "y =  a ;\n"),
+        ] {
+            let diags = lint_nodes(&*engine(), source);
+            let d = diags
+                .iter()
+                .find(|d| d.rule_id == "NBRAK2")
+                .expect("NBRAK2");
+            let fix = d.fix.as_ref().expect("fix");
+            // Back to front, as the applier does, so offsets stay valid.
+            let mut edits: Vec<(std::ops::Range<usize>, String)> = fix
+                .additional_edits
+                .iter()
+                .map(|e| (e.byte_range.clone(), e.replacement.clone()))
+                .chain(std::iter::once((
+                    fix.byte_range.clone(),
+                    fix.replacement.clone(),
+                )))
+                .collect();
+            edits.sort_by_key(|(r, _)| std::cmp::Reverse(r.start));
+            let mut out = String::from(source);
+            for (range, text) in edits {
+                out.replace_range(range, &text);
+            }
+            assert_eq!(out, fixed, "{source}");
         }
     }
 

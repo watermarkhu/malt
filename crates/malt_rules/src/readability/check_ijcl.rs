@@ -60,10 +60,10 @@ impl ReadabilityEngine {
                 "IJCL",
                 "For improved robustness, consider replacing i and j by 1i.",
                 node,
-                Some(Fix::new(
-                    node.start_byte()..node.end_byte(),
-                    format!("1{name}"),
-                )),
+                // MATLAB's own fix always writes `1i`, for `i` and for `j`
+                // (probed: `b = i + j + 1i;` becomes `b = 1i + 1i + 1i;`).
+                // `1i` and `1j` are the same constant, so this is meaning-neutral.
+                Some(Fix::new(node.start_byte()..node.end_byte(), "1i")),
             ));
         }
     }
@@ -105,6 +105,17 @@ mod tests {
     #[test]
     fn ijcl_fix_uses_the_literal() {
         let src = "z = 3 + 2*i;\n";
+        let diags = lint_file(&*engine(), src);
+        let d = diags.iter().find(|d| d.rule_id == "IJCL").expect("IJCL");
+        let fix = d.fix.as_ref().expect("fix");
+        assert_eq!(&source_after(src, fix), "z = 3 + 2*1i;\n");
+    }
+
+    #[test]
+    fn ijcl_fix_rewrites_j_to_1i_as_matlab_does() {
+        // Probed: MATLAB's fix writes `1i` for `j` too (`b = i + j + 1i;` in
+        // fix/unset__g5.m became `b = 1i + 1i + 1i;`).
+        let src = "z = 3 + 2*j;\n";
         let diags = lint_file(&*engine(), src);
         let d = diags.iter().find(|d| d.rule_id == "IJCL").expect("IJCL");
         let fix = d.fix.as_ref().expect("fix");

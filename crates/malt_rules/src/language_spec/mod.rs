@@ -5,7 +5,7 @@
 //! title = "Language Specification Errors"
 //! category = "language-specification"
 //! severity = "error"
-//! fix = false
+//! fix = true
 //! icon = "lucide/book-marked"
 //! slug = "language-spec"
 //! ```
@@ -18,6 +18,17 @@
 //! detection, then runs class, arguments-block, global/persistent, and
 //! script-level checks over extracted file metadata. Each diagnostic carries
 //! the specific check ID (e.g. `PFPF`, `MCFIL`).
+//!
+//! ## Fix
+//!
+//! MCFIL renames the `classdef` and every constructor method to the file
+//! name, in one edit — as MATLAB's own fix does (`classdef Cls` in
+//! `t__Cls.m` becomes `classdef t__Cls`, and the constructor follows). The
+//! rewrite is UNSAFE: a method that was never the constructor (its name did
+//! not match the class the runtime uses, which is the file name) becomes
+//! one, so constructing the object starts running it; it is applied only
+//! with `--fix --unsafe-fixes`. Every other check of this engine reports
+//! without a fix.
 //!
 //! The checks are grouped into families:
 //!
@@ -103,7 +114,7 @@
 //! | SPBRK | error | no | The loop containing the BREAK or CONTINUE must be completely contained in the SPMD block. |
 //! | DUPNAMEARG | warning | no | This named argument was already provided. If this function does not allow or ignores repeated named arguments, remove one of the duplicated named arguments. |
 //! | SPGP | error | no | Setting the GLOBAL or PERSISTENT variable VAR_NAME in an SPMD block might fail because the set happens on a worker machine. |
-//! | MCFIL | error | no | Class name VAR_NAME and file name do not agree: VAR_FILE. Update the class name and constructor, if defined, or change the file name to match the class name. |
+//! | MCFIL | error | yes | Class name VAR_NAME and file name do not agree: VAR_FILE. Update the class name and constructor, if defined, or change the file name to match the class name. |
 //! | MCDIR | error | no | Class name VAR_NAME and @directory name do not agree: VAR_FILE. |
 //! | MCRED | error | no | Property, event, or enumeration names must be different from the name of the class VAR_NAME. |
 //! | MCCBD | error | no | Constructor must be fully defined in the class definition file. |

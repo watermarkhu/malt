@@ -74,9 +74,11 @@ impl ReadabilityEngine {
             "FLUDLR",
             "For readability, consider using rot90(x,2) instead of flipud(fliplr(x)) or fliplr(flipud(x)).",
             node,
+            // No space after the comma, as MATLAB's own fix writes it (probed:
+            // `q = flipud(fliplr(x));` becomes `q = rot90(x,2);`).
             Some(Fix::new(
                 node.start_byte()..node.end_byte(),
-                format!("rot90({inner_arg_text}, 2)"),
+                format!("rot90({inner_arg_text},2)"),
             )),
         ));
     }
@@ -139,10 +141,11 @@ mod tests {
             .find(|d| d.rule_id == "FLUDLR")
             .expect("FLUDLR should fire");
         let fix = diag.fix.as_ref().expect("FLUDLR should carry an auto-fix");
-        assert_eq!(fix.replacement, "rot90(x, 2)");
+        // No space after the comma, as MATLAB's own fix writes it.
+        assert_eq!(fix.replacement, "rot90(x,2)");
         let mut fixed = String::from(source);
         fixed.replace_range(fix.byte_range.clone(), &fix.replacement);
-        assert_eq!(fixed, "y = rot90(x, 2);\n", "got: {fixed:?}");
+        assert_eq!(fixed, "y = rot90(x,2);\n", "got: {fixed:?}");
     }
 
     #[test]

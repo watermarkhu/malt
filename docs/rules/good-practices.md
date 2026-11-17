@@ -166,7 +166,7 @@ Overloading DISPLAY is not recommended.
 
 ### FNDEF
 
-Severity: **warning** · Auto-fix: **no**
+Severity: **warning** · Auto-fix: **yes**
 
 Function name VAR_NAME is known to MATLAB by its file name: VAR_FILE.
 
@@ -672,6 +672,10 @@ The set method for the property VAR_NAME should not access another property (VAR
 
 Rewrites the flagged construct into the cleaner equivalent:
 
+- the function declaration takes the file name (`function r = other(x)`
+  in `mine.m` → `function r = mine(x)`), as MATLAB's auto fix does; the
+  runtime resolves the function by its file name, so the declared name
+  is dead text and the rewrite cannot change behaviour (FNDEF).
 - `call(...) == true` → `call(...)` (COMPNOP) and
   `call(...) ~= true` / `call(...) == false` → `~call(...)` (COMPNOT).
 - `parfor i = 1:step:end` → `parfor i = 1:end` (PFRNI).

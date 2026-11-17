@@ -5,7 +5,7 @@ icon: lucide/lightbulb
 # Suggested Improvements
 
 **Default severity:** Info
-**Auto-fix:** No
+**Auto-fix:** Yes
 **Category:** Suggested Improvements
 **Can be disabled:** Yes
 **Enabled by default:** Yes
@@ -20,14 +20,6 @@ check, a single `SuggestedImprovementsEngine` loads
 function-name lookup table, and emits diagnostics with the specific check
 ID from the matched entry (e.g. `CSVRD`, not the meta ID
 `SUGGESTED_IMPROVEMENTS`).
-
-On each `function_call` or `command` node the engine extracts the function
-name and performs an O(1) HashMap lookup, reporting the first matching
-entry for that name (some names map to several check IDs, e.g.
-`maketform` → MTFA1, MTFA2, MTFP1, MTFP2, MTFB). Entries with an empty
-`function_name` are "generic" checks that cannot be matched by name alone
-(they require AST pattern matching) and are skipped during the
-lookup-based check.
 
 ## Check IDs
 
@@ -278,6 +270,32 @@ lookup-based check.
 | <a id="mdfsva"></a>`MDFSVA` | warning | 'saveAttachment' method of 'mdf' class is not recommended. With appropriate code changes, use 'mdfSaveAttachment' function instead. |
 | <a id="minelv"></a>`MINELV` | warning | 'MinElevationAngle' is not recommended. Use 'MaskElevationAngle' instead, which is a direct replacement when specified as scalar values. Row vector values must be transposed. |
 | <a id="blchid"></a>`BLCHID` | warning | Specifying the channel ID as the second positional argument in 'blfread' is not recommended. With appropriate code changes, use the 'ChannelID' name-value argument instead. |
+
+## Automatic fixes
+
+The entries whose replacement is a plain rename of the callee
+(`renames_call = true` in the data file; MATLAB marks these
+auto-fixable) carry a fix that rewrites the callee token and nothing
+else: `gop(@plus, x)` becomes `spmdReduce(@plus, x)` (DGOP),
+`labindex:numlabs:n` becomes `spmdIndex:spmdSize:n` (DLABINDEX,
+DNUMLABS), `caxis(limits)` becomes `clim(limits)` (CAXIS), `isdir(p)`
+becomes `isfolder(p)` (ISDIR), and `Simulink.Variant('a')` becomes
+`Simulink.VariantExpression('a')` (SIMVARIANT), all byte-identical to
+MATLAB's own fix. The rename is behaviour-preserving in the current
+release (the new name is the old function's new spelling), the name is
+already known not to be shadowed, and so `--fix` applies it. Entries
+whose replacement needs code changes (`-opengl` → `-image`,
+`hold('all')`, `datetime(now, 'ConvertFrom', 'datenum')`) carry no fix,
+and commands and handles carry none either: MATLAB's fix for them is
+not probed.
+
+On each `function_call` or `command` node the engine extracts the function
+name and performs an O(1) HashMap lookup, reporting the first matching
+entry for that name (some names map to several check IDs, e.g.
+`maketform` → MTFA1, MTFA2, MTFP1, MTFP2, MTFB). Entries with an empty
+`function_name` are "generic" checks that cannot be matched by name alone
+(they require AST pattern matching) and are skipped during the
+lookup-based check.
 
 ## Examples
 

@@ -871,6 +871,7 @@ id = "CAXIS"
 function_name = "caxis"
 message = "'caxis' is not recommended. Use 'clim' instead, which is a direct replacement."
 replacement = "clim"
+renames_call = true
 
 [[checks]]
 id = "CDFEPOCH"
@@ -985,12 +986,14 @@ id = "DGTORD"
 function_name = "degtorad"
 message = "'degtorad' is not recommended. Use 'deg2rad' instead, which is a direct replacement."
 replacement = "deg2rad"
+renames_call = true
 
 [[checks]]
 id = "RDTODG"
 function_name = "radtodeg"
 message = "'radtodeg' is not recommended. Use 'rad2deg' instead, which is a direct replacement."
 replacement = "rad2deg"
+renames_call = true
 
 [[checks]]
 id = "EZCONTR"
@@ -1069,6 +1072,7 @@ id = "FISWRT"
 function_name = "writefis"
 message = "'writefis' is not recommended. Use 'writeFIS' instead, which is a direct replacement."
 replacement = "writeFIS"
+renames_call = true
 
 [[checks]]
 id = "FISADM"
@@ -1219,6 +1223,7 @@ id = "ISDIR"
 function_name = "isdir"
 message = "'isdir' is not recommended. Use 'isfolder' instead, which is a direct replacement."
 replacement = "isfolder"
+renames_call = true
 
 [[checks]]
 id = "DISEQN"
@@ -1231,66 +1236,77 @@ id = "DGCAT"
 function_name = "gcat"
 message = "'gcat' is not recommended. Use 'spmdCat' instead, which is a direct replacement."
 replacement = "spmdCat"
+renames_call = true
 
 [[checks]]
 id = "DGOP"
 function_name = "gop"
 message = "'gop' is not recommended. Use 'spmdReduce' instead, which is a direct replacement."
 replacement = "spmdReduce"
+renames_call = true
 
 [[checks]]
 id = "DGPLUS"
 function_name = "gplus"
 message = "'gplus' is not recommended. Use 'spmdPlus' instead, which is a direct replacement."
 replacement = "spmdPlus"
+renames_call = true
 
 [[checks]]
 id = "DLABBARRIER"
 function_name = "labBarrier"
 message = "'labBarrier' is not recommended. Use 'spmdBarrier' instead, which is a direct replacement."
 replacement = "spmdBarrier"
+renames_call = true
 
 [[checks]]
 id = "DLABBROADCAST"
 function_name = "labBroadcast"
 message = "'labBroadcast' is not recommended. Use 'spmdBroadcast' instead, which is a direct replacement."
 replacement = "spmdBroadcast"
+renames_call = true
 
 [[checks]]
 id = "DLABINDEX"
 function_name = "labindex"
 message = "'labindex' is not recommended. Use 'spmdIndex' instead, which is a direct replacement."
 replacement = "spmdIndex"
+renames_call = true
 
 [[checks]]
 id = "DLABPROBE"
 function_name = "labProbe"
 message = "'labProbe' is not recommended. Use 'spmdProbe' instead, which is a direct replacement."
 replacement = "spmdProbe"
+renames_call = true
 
 [[checks]]
 id = "DLABRECEIVE"
 function_name = "labReceive"
 message = "'labReceive' is not recommended. Use 'spmdReceive' instead, which is a direct replacement."
 replacement = "spmdReceive"
+renames_call = true
 
 [[checks]]
 id = "DLABSEND"
 function_name = "labSend"
 message = "'labSend' is not recommended. Use 'spmdSend' instead, which is a direct replacement."
 replacement = "spmdSend"
+renames_call = true
 
 [[checks]]
 id = "DLABSENDRECEIVE"
 function_name = "labSendReceive"
 message = "'labSendReceive' is not recommended. Use 'spmdSendReceive' instead, which is a direct replacement."
 replacement = "spmdSendReceive"
+renames_call = true
 
 [[checks]]
 id = "DNUMLABS"
 function_name = "numlabs"
 message = "'numlabs' is not recommended. Use 'spmdSize' instead, which is a direct replacement."
 replacement = "spmdSize"
+renames_call = true
 
 [[checks]]
 id = "AGRED"
@@ -1315,6 +1331,7 @@ id = "MLNT"
 function_name = "mlint"
 message = "'mlint' is not recommended. Use 'checkcode' instead, which is a direct replacement."
 replacement = "checkcode"
+renames_call = true
 
 [[checks]]
 id = "MNRFIT"
@@ -1597,6 +1614,7 @@ id = "SIMVARIANT"
 function_name = "Simulink.Variant"
 message = "'Simulink.Variant' is not recommended. Use 'Simulink.VariantExpression' instead, which is a direct replacement."
 replacement = "Simulink.VariantExpression"
+renames_call = true
 
 [[checks]]
 id = "COMBNK"

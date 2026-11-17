@@ -38,7 +38,12 @@
 //! - NCOMMA inserts a comma between space-separated output variables (`[a b]` → `[a, b]`).
 //! - NO4LP removes the parentheses around the `for` header (`for (i = 1:n)` → `for i = 1:n`).
 //! - ALIGN re-indents the `end` to the column of its keyword (only when the keyword starts its line).
-//! - NOPTS and NOPRT insert the missing semicolon after the statement (`x = 5` → `x = 5;`).
+//! - NOPTS and NOPRT add the missing semicolon as MATLAB's own fix does: a
+//!   comma separating the statement from the next is replaced
+//!   (`x = 1, y = 2` → `x = 1; y = 2;`), otherwise the semicolon is inserted
+//!   after the statement (`x = 5` → `x = 5;`). Inserting in front of a comma
+//!   would produce `x = 1;, y = 2`, which the Code Analyzer reports as
+//!   NOCOMMA (probed).
 //!
 //! ## Examples
 //!

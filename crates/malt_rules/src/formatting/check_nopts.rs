@@ -42,9 +42,26 @@ impl FormattingEngine {
             byte_range: node.start_byte()..node.end_byte(),
             line: start.row + 1,
             column: start.column + 1,
-            fix: Some(Fix::insert(end_byte, ";")),
+            fix: Some(semicolon_fix(end_byte, source)),
         });
     }
+}
+
+/// The MATLAB-parity fix of NOPTS and NOPRT: add a `;` where the Code Analyzer's
+/// own fix adds it (probed on the fixtures: MATLAB's `fix` on
+/// `x = 1, y = 2` produces `x = 1; y = 2;`, replacing the separating comma).
+/// Inserting in front of the comma instead produces `x = 1;, y = 2;`, which
+/// parses and runs but makes the Code Analyzer report NOCOMMA, so the comma is
+/// replaced. With no comma behind the statement, the `;` is inserted at its
+/// end, before any trailing blanks and comment.
+pub(crate) fn semicolon_fix(end_byte: usize, source: &str) -> Fix {
+    let line = source[end_byte..].split('\n').next().unwrap_or("");
+    if let Some(offset) = line.find(|c: char| !matches!(c, ' ' | '\t')) {
+        if line.as_bytes()[offset] == b',' {
+            return Fix::new(end_byte + offset..end_byte + offset + 1, ";");
+        }
+    }
+    Fix::insert(end_byte, ";")
 }
 
 /// Whether `node` is an expression statement that MATLAB echoes when it has no

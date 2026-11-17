@@ -41,13 +41,25 @@ impl GoodPracticesEngine {
             return Vec::new();
         }
 
-        let (name, line, byte_range) = match FileMeta::build(tree, source).main_function() {
-            Some(main) => (main.name.clone(), main.line, main.byte_range.clone()),
-            None => match broken_function_header(tree.root_node(), source) {
-                Some(header) => header,
-                None => return Vec::new(),
-            },
-        };
+        // The parsed path's byte range is the function node (the header line
+        // holds the name); the broken-header path (an ERROR root) gives the
+        // name token itself.
+        let (name, line, byte_range, name_range) =
+            match FileMeta::build(tree, source).main_function() {
+                Some(main) => {
+                    let range = main.byte_range.clone();
+                    (
+                        main.name.clone(),
+                        main.line,
+                        range.clone(),
+                        declared_name_range(source, range.start, &main.name),
+                    )
+                }
+                None => match broken_function_header(tree.root_node(), source) {
+                    Some((name, line, range)) => (name, line, range.clone(), Some(range)),
+                    None => return Vec::new(),
+                },
+            };
         if name.is_empty() || name == stem {
             return Vec::new();
         }
@@ -66,9 +78,41 @@ impl GoodPracticesEngine {
             byte_range,
             line,
             column,
-            fix: None,
+            // MATLAB's own fix renames the declaration to the file name
+            // (probed: `function y = f(x)` in sample_tiny.m becomes
+            // `function y = sample_tiny(x)`), and marks the issue auto-fixable.
+            // The rewrite is safe: MATLAB resolves the function by its FILE
+            // name, so the declared name is dead text — recursion, handles and
+            // calls all resolve exactly as before. No fix when the name is not
+            // found on the header's first line (a `...` continuation before it).
+            fix: name_range.map(|range| Fix::new(range, stem.to_string())),
         }]
     }
+}
+
+/// The byte range of the declared function `name` on the header line that holds
+/// `start`: after the `function` keyword, or after the `=` when the header has
+/// an output list. `None` (no fix) when the name is not on that first line.
+pub(crate) fn declared_name_range(
+    source: &str,
+    start: usize,
+    name: &str,
+) -> Option<std::ops::Range<usize>> {
+    let line = source[start..].lines().next()?;
+    let after_fn = line.find("function")? + "function".len();
+    let rest = &line[after_fn..];
+    let from = match rest.find('=') {
+        Some(eq) => after_fn + eq + 1,
+        None => after_fn,
+    };
+    let tail = &line[from..];
+    // Offsets inside `line` are relative to `start`; make them absolute.
+    let offset = start + from + tail.find(name)?;
+    let end = offset + name.len();
+    let word = |c: char| c.is_alphanumeric() || c == '_';
+    let before_ok = source[..offset].chars().last().is_none_or(|c| !word(c));
+    let after_ok = source[end..].chars().next().is_none_or(|c| !word(c));
+    (before_ok && after_ok).then_some(offset..end)
 }
 
 /// The 1-based column of `name` on the `function` line that holds byte `start`.
@@ -166,6 +210,24 @@ mod tests {
             "{}",
             m.message
         );
+        let fix = m.fix.as_ref().expect("FNDEF carries the rename fix");
+        assert!(fix.is_safe(), "the rename is behaviour-preserving");
+        let mut out = String::from("function r = other(x)\n r = x;\nend\n");
+        out.replace_range(fix.byte_range.clone(), &fix.replacement);
+        assert_eq!(out, "function r = mine(x)\n r = x;\nend\n");
+    }
+
+    #[test]
+    fn fndef_fix_targets_the_name_after_the_output_list() {
+        // `function [out] = other(x)`: the rewritten token is the name, not the
+        // output that happens to share it.
+        let src = "function out = other(out)\n out;\nend\n";
+        let d = fndef(src, "mine.m");
+        let m = d.iter().find(|d| d.rule_id == "FNDEF").expect("FNDEF");
+        let fix = m.fix.as_ref().expect("fix");
+        let mut out = String::from(src);
+        out.replace_range(fix.byte_range.clone(), &fix.replacement);
+        assert_eq!(out, "function out = mine(out)\n out;\nend\n");
     }
 
     #[test]
@@ -210,7 +272,8 @@ mod tests {
     #[test]
     fn fndef_fires_for_a_broken_header_with_a_later_syntax_error() {
         // MATLAB probe (readability__t3f): `function t3(x, ...)` in a file t3f.m
-        // gets FNDEF on line 1 although a later line is a parse error.
+        // gets FNDEF on line 1 although a later line is a parse error. The name
+        // token itself carries the fix there (there is no header line to scan).
         let src = "function t3(x)\nr1 = 1;\nz = fprintf' hi;\n";
         let d = fndef(src, "t3f.m");
         let m = d.iter().find(|d| d.rule_id == "FNDEF").expect("FNDEF");
@@ -220,6 +283,10 @@ mod tests {
             "{}",
             m.message
         );
+        let fix = m.fix.as_ref().expect("the rename fix");
+        let mut out = String::from(src);
+        out.replace_range(fix.byte_range.clone(), &fix.replacement);
+        assert_eq!(out, "function t3f(x)\nr1 = 1;\nz = fprintf' hi;\n");
     }
 
     #[test]

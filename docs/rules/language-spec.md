@@ -5,7 +5,7 @@ icon: lucide/book-marked
 # Language Specification Errors
 
 **Default severity:** Error
-**Auto-fix:** No
+**Auto-fix:** Yes
 **Category:** Language Specification
 **Can be disabled:** Yes
 **Enabled by default:** Yes
@@ -18,29 +18,6 @@ performs a full DFS traversal with context stacks for parfor/spmd/loop
 detection, then runs class, arguments-block, global/persistent, and
 script-level checks over extracted file metadata. Each diagnostic carries
 the specific check ID (e.g. `PFPF`, `MCFIL`).
-
-The checks are grouped into families:
-
-- **PF\*** — parfor restrictions, banned functions, and sliced-variable /
-  reduction classification.
-- **SP\*** — spmd block restrictions (`SPNST`, `SPRET`, `SPGP`, and the
-  transparency group `SPDEC`, `SPEVC`, `SPLD`, `SPNF`, `SPSV`, `SPWHOS`,
-  `SPBFN`).
-- **AT\*** — class, events, property, and method attribute validation.
-- **CLS\* / NOPRV** — class-file structure checks.
-- **VTP\*** — property validation function checks.
-- **MC\*** — class/OOP rules: naming, set/get signatures, constructor and
-  superclass calls, Constant/WeakHandle properties.
-- **FV\*** — `arguments` block validation (plus `TINVALDIM`,
-  `TTOOFEWDIMS`).
-- **Miscellaneous** — `FCONV`, `FCONF`, `GPFST`, `GPNES`, `NPERS`,
-  `ROWLN`, `FCNANS`, `CLANS`, `BRKFOR`, `CONTFOR`, `IDXCOLND`, `ERTXT`,
-  `WTXT`, `MHERIT`, `NCHKOS`, `CTOINE`, `CTORO`, `USESWNS`.
-
-With the opt-in path index (`[index] enabled = true`, or `--index`), MCEB is
-also reported for a class whose superclasses are all value classes found on
-the search path: MATLAB refuses to load such a class when it declares events.
-The Code Analyzer itself stays silent for any superclass.
 
 ## Check IDs
 
@@ -388,7 +365,7 @@ Setting the GLOBAL or PERSISTENT variable VAR_NAME in an SPMD block might fail b
 
 ### MCFIL
 
-Severity: **error** · Auto-fix: **no**
+Severity: **error** · Auto-fix: **yes**
 
 Class name VAR_NAME and file name do not agree: VAR_FILE. Update the class name and constructor, if defined, or change the file name to match the class name.
 
@@ -1009,6 +986,40 @@ Variable must be explicitly defined before first use.
 Severity: **error** · Auto-fix: **no**
 
 Specify a warning message with the message identifier.
+
+## Automatic fixes
+
+MCFIL renames the `classdef` and every constructor method to the file
+name, in one edit — as MATLAB's own fix does (`classdef Cls` in
+`t__Cls.m` becomes `classdef t__Cls`, and the constructor follows). The
+rewrite is UNSAFE: a method that was never the constructor (its name did
+not match the class the runtime uses, which is the file name) becomes
+one, so constructing the object starts running it; it is applied only
+with `--fix --unsafe-fixes`. Every other check of this engine reports
+without a fix.
+
+The checks are grouped into families:
+
+- **PF\*** — parfor restrictions, banned functions, and sliced-variable /
+  reduction classification.
+- **SP\*** — spmd block restrictions (`SPNST`, `SPRET`, `SPGP`, and the
+  transparency group `SPDEC`, `SPEVC`, `SPLD`, `SPNF`, `SPSV`, `SPWHOS`,
+  `SPBFN`).
+- **AT\*** — class, events, property, and method attribute validation.
+- **CLS\* / NOPRV** — class-file structure checks.
+- **VTP\*** — property validation function checks.
+- **MC\*** — class/OOP rules: naming, set/get signatures, constructor and
+  superclass calls, Constant/WeakHandle properties.
+- **FV\*** — `arguments` block validation (plus `TINVALDIM`,
+  `TTOOFEWDIMS`).
+- **Miscellaneous** — `FCONV`, `FCONF`, `GPFST`, `GPNES`, `NPERS`,
+  `ROWLN`, `FCNANS`, `CLANS`, `BRKFOR`, `CONTFOR`, `IDXCOLND`, `ERTXT`,
+  `WTXT`, `MHERIT`, `NCHKOS`, `CTOINE`, `CTORO`, `USESWNS`.
+
+With the opt-in path index (`[index] enabled = true`, or `--index`), MCEB is
+also reported for a class whose superclasses are all value classes found on
+the search path: MATLAB refuses to load such a class when it declares events.
+The Code Analyzer itself stays silent for any superclass.
 
 ## Examples
 

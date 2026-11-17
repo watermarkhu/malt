@@ -84,6 +84,46 @@ Fixes come in two kinds:
   expression; `a & b` → `a && b` errors on array operands). They are reported
   as fixable only with `--fix --unsafe-fixes`. Review the result before you commit it.
 
+A Safe fix is curated against MATLAB itself: for every check that MATLAB's own
+Code Analyzer fix (`codeIssues(...).fix(ID)`) rewrites, malt's fix produces the
+same text, byte for byte, on the conformance fixtures — a committed regression
+set (`tests/fixtures/fix_matlab/`) pins that. The Safe fixes by check ID:
+
+| Check | Rewrite | MATLAB's fix agrees |
+| ----- | ------- | ------------------ |
+| NOPTS, NOPRT | add the missing `;`, replacing the `,` separator when there is one (`x = 1, y = 2` → `x = 1; y = 2;`) | yes |
+| NOSEMI | delete the extra `;` (malt also takes the blanks in front and converges deeper than MATLAB's single-token deletion) | deeper |
+| NOCOMMA, NCOMMA | remove the extra comma, insert the missing one between output variables | yes (NOCOMMA), yes (NCOMMA) |
+| NBRAK1, NBRAK2 | brackets become parentheses (operand position) or are stripped token-by-token, keeping the inner text, comments included | yes (both) |
+| ASGLU | an unused assignment's target becomes `~` | yes |
+| FNDEF | the function declaration takes the file name (`function r = other(x)` in `mine.m` → `function r = mine(x)`); the runtime resolves by file name, so nothing else changes | yes |
+| FVINR | `(Input)` is added to an attribute-less `arguments` block | yes |
+| DSPSP | `disp(sprintf(...))` → `fprintf(...\n)` (statement form only: the assigned form would give the variable `fprintf`'s return count) | statement form |
+| FLUDLR | `flipud(fliplr(x))` → `rot90(x,2)` | yes |
+| ISCEL, ISCHR | `strcmp(class(x), 'cell')` → `iscell(x)`, ... | yes |
+| TRIM2, RPMT1, MRPBW, BADNE | the remaining single-shape rewrites (bracket to `cell` conversions, `repmat`-to-`ones`, `==` with no operands becomes `~=`) | yes |
+| DLABINDEX, DNUMLABS, DGOP, CAXIS, ISDIR, MLNT, DEGTORAD, RADTODEG, WRITEFIS, GCAT, GPLUS, LAB* and the other direct-replacement renames | the callee token is renamed (`labindex` → `spmdIndex`, `caxis` → `clim`, ...), nothing else | yes |
+
+Two Safe fixes have no MATLAB counterpart (MATLAB offers no fix for them): SEPEX
+inserts the separator a one-line header is missing (`if x y = 1 end` →
+`if x, y = 1, end`), and NO4LP and ALIGN drop the parentheses around a `for`
+header and re-indent an `end` to its keyword. Both are mechanical and
+meaning-preserving, and they stay Safe for that reason, not by MATLAB parity.
+
+The Unsafe ones (reported, applied only with `--fix --unsafe-fixes`):
+AND2, OR2 (`&`/`|` → `&&`/`||`), INUSD (an unused input becomes `~`),
+COMNOT, COMPNOP (`call(...) == true` shapes),
+FNAN (`x == NaN` → `isnan(x)` changes the result, which is the point),
+IJCL (`i`/`j` → `1i`), STLOW, STREMP, STRCL1, STRCLFH, STRIFCND, ISROW, ISCOL
+(`contains`/`strcmpi` rewrites differ on cell and non-text input), MCFIL (the
+renamed method becomes the constructor), the performance rewrites
+(`str2num` → `str2double`, `fliplr(sort(x))` → `sort(x, 'descend')`,
+`repmat`-to-`ones` and friends where sizes can differ), and the arithmetic
+`x * 1` family (removed: no equivalent). Where MATLAB marks an issue fixable
+but the rewrite is not behaviour-preserving, or the opposite (malt has a fix
+MATLAB does not offer), the divergence is recorded in
+[`docs/VERIFY.md`](../VERIFY.md), '5.5 Curated safe autofixes'.
+
 ### Explicit configuration
 
 By default, malt looks for `.malt.toml` in the current working directory, then for MATLAB's `resources/codeAnalyzerConfiguration.json` there. A `.json` file given to `--config` is read as a MATLAB configuration, alone. Override with `--config`:

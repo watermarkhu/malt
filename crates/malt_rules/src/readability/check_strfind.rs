@@ -7,6 +7,16 @@
 
 use super::*;
 
+/// The verbatim argument text of a two-argument `strfind(s, p)` call (`a,b`),
+/// with the spacing of the source. MATLAB's fix reprints the arguments this way.
+fn strfind_arg_text<'a>(n: tree_sitter::Node, source: &'a str) -> Option<&'a str> {
+    if n.kind() != "function_call" || call_path(n, source, Dotted::Skip) != Some("strfind") {
+        return None;
+    }
+    let args = call_args(n);
+    (args.len() == 2).then(|| &source[args[0].start_byte()..args[1].end_byte()])
+}
+
 /// The (text, text) arguments of a two-argument `strfind(s, p)` call.
 fn strfind_operands<'a>(n: tree_sitter::Node, source: &'a str) -> Option<(&'a str, &'a str)> {
     if n.kind() != "function_call" || call_path(n, source, Dotted::Skip) != Some("strfind") {
@@ -21,9 +31,10 @@ fn strfind_operands<'a>(n: tree_sitter::Node, source: &'a str) -> Option<(&'a st
     })
 }
 
-/// `~contains(s, p)`, parenthesised unless `node` already sits where a unary
-/// expression is unambiguous (statement, assignment value, argument, condition).
-fn not_contains(node: tree_sitter::Node, s: &str, p: &str) -> String {
+/// `~` in front of `replacement`, parenthesised unless `node` already sits where
+/// a unary expression is unambiguous (statement, assignment value, argument,
+/// condition).
+fn not_contains(node: tree_sitter::Node, replacement: &str) -> Fix {
     let bare = node.parent().is_none_or(|parent| {
         matches!(
             parent.kind(),
@@ -38,14 +49,24 @@ fn not_contains(node: tree_sitter::Node, s: &str, p: &str) -> String {
         )
     });
     if bare {
-        format!("~contains({s}, {p})")
+        Fix::new(
+            node.start_byte()..node.end_byte(),
+            format!("~{replacement}"),
+        )
     } else {
-        format!("(~contains({s}, {p}))")
+        Fix::new(
+            node.start_byte()..node.end_byte(),
+            format!("(~{replacement})"),
+        )
     }
 }
 
 impl ReadabilityEngine {
-    /// STREMP: `isempty(strfind(s, p))`.
+    /// STREMP: `isempty(strfind(s, p))`, negated or not.
+    ///
+    /// MATLAB's own fix rewrites the whole negated form: `~isempty(strfind(a,b))`
+    /// becomes `contains(a,b)` (probed), not `~(~contains(a,b))`. The arguments
+    /// are reprinted verbatim, with the spacing the source had.
     pub(crate) fn check_isempty_strfind(
         &self,
         node: tree_sitter::Node,
@@ -59,15 +80,28 @@ impl ReadabilityEngine {
         if args.len() != 1 {
             return;
         }
-        if let Some((s, p)) = strfind_operands(args[0], source) {
+        if let Some(arg_text) = strfind_arg_text(args[0], source) {
+            let negated = node.parent().is_some_and(|parent| {
+                parent.kind() == "not_operator"
+                    && parent
+                        .named_child(0)
+                        .is_some_and(|operand| operand.id() == node.id())
+            });
+            let fix = if negated {
+                // The `~` in front is part of the rewrite: span the not_operator.
+                let outer = node.parent().expect("checked above");
+                Fix::new(
+                    outer.start_byte()..outer.end_byte(),
+                    format!("contains({arg_text})"),
+                )
+            } else {
+                not_contains(node, &format!("contains({arg_text})"))
+            };
             results.push(self.diag(
                 "STREMP",
                 "For readability, use '~contains(str1, str2)' instead of 'isempty(strfind(str1, str2))'.",
                 node,
-                Some(Fix::new(
-                    node.start_byte()..node.end_byte(),
-                    not_contains(node, s, p),
-                )),
+                Some(fix),
             ));
         }
     }
@@ -105,10 +139,9 @@ impl ReadabilityEngine {
             id,
             message,
             node,
-            Some(Fix::new(
-                node.start_byte()..node.end_byte(),
-                not_contains(node, s, p),
-            )),
+            // MATLAB offers no fix for the cellfun forms (probed: manual), so the
+            // argument spacing here is malt's own.
+            Some(not_contains(node, &format!("contains({s}, {p})"))),
         ));
     }
 
@@ -188,6 +221,39 @@ mod tests {
         assert!(!d.fix.as_ref().expect("fix").is_safe());
         let (fixed, _) = malt_core::apply_fixes_with(src, &diags, malt_core::FixMode::All);
         assert_eq!(fixed, "x = ~contains(s, 'a');\n");
+    }
+
+    #[test]
+    fn stremp_negated_form_rewrites_the_whole_negation_as_matlab_does() {
+        // Probed: MATLAB's fix on `t = ~isempty(strfind(a,b));` produces
+        // `t = contains(a,b);` — the `~` is consumed, not doubled.
+        let src = "t = ~isempty(strfind(a,b));\n";
+        let diags = lint_nodes(&*engine(), src);
+        let d = diags
+            .iter()
+            .find(|d| d.rule_id == "STREMP")
+            .expect("STREMP");
+        let fix = d.fix.as_ref().expect("fix");
+        assert!(!fix.is_safe());
+        let mut fixed = String::from(src);
+        fixed.replace_range(fix.byte_range.clone(), &fix.replacement);
+        assert_eq!(fixed, "t = contains(a,b);\n");
+    }
+
+    #[test]
+    fn stremp_keeps_the_source_argument_spacing() {
+        // Probed: MATLAB reprints the strfind arguments verbatim (`a,b` stays
+        // `a,b`, not `a, b`).
+        let src = "x = isempty(strfind(a , 'a'));\n";
+        let diags = lint_nodes(&*engine(), src);
+        let d = diags
+            .iter()
+            .find(|d| d.rule_id == "STREMP")
+            .expect("STREMP");
+        let fix = d.fix.as_ref().expect("fix");
+        let mut fixed = String::from(src);
+        fixed.replace_range(fix.byte_range.clone(), &fix.replacement);
+        assert_eq!(fixed, "x = ~contains(a , 'a');\n");
     }
 
     #[test]

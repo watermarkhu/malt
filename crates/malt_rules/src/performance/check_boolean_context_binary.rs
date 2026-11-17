@@ -34,6 +34,12 @@ impl PerformanceEngine {
         }
 
         // OR2: | in boolean context
+        //
+        // The fix replaces exactly the reported operator, as MATLAB's does
+        // (probed: the AND2 fix on `if a & b | c, end` produces
+        // `if a && b | c, end`, leaving `|` alone; only the shapes where
+        // codeIssues reports a second parenthesised finding — which checkcode
+        // and malt do not — get both operators rewritten in one go).
         if self.is_enabled("OR2")
             && op == "|"
             && is_in_condition(node)
@@ -318,6 +324,31 @@ mod settled_tests {
         // MATLAB reports the column of the `|` (`if x > 1 | ...`: column 10).
         let cols = ids_and_columns("x = input('x');\nif x > 1 | x < 0.1\n    c = 1;\nend\n");
         assert_eq!(cols, vec![("OR2", 10)]);
+    }
+
+    #[test]
+    fn short_circuit_fix_replaces_only_the_reported_operator() {
+        // Probed: MATLAB's AND2 fix on `if a & b | c, end` produces
+        // `if a && b | c, end` — one finding, one operator; its OR2 fix is a
+        // separate finding. Unsafe: `&&` rejects non-scalar operands.
+        let src = "if a & b | c\n    d = 1;\nend\n";
+        let diags = lint_nodes(&*engine(), src);
+        let and2: Vec<_> = diags
+            .iter()
+            .filter(|d| d.rule_id == "AND2")
+            .cloned()
+            .collect();
+        let out = malt_core::apply_fixes_with(src, &and2, malt_core::FixMode::All).0;
+        assert_eq!(out, "if a && b | c\n    d = 1;\nend\n");
+        let or2: Vec<_> = diags
+            .iter()
+            .filter(|d| d.rule_id == "OR2")
+            .cloned()
+            .collect();
+        let out = malt_core::apply_fixes_with(src, &or2, malt_core::FixMode::All).0;
+        assert_eq!(out, "if a & b || c\n    d = 1;\nend\n");
+        let safe = malt_core::apply_fixes_with(src, &diags, malt_core::FixMode::Safe).0;
+        assert_eq!(safe, src, "the rewrite is unsafe");
     }
 
     #[test]
