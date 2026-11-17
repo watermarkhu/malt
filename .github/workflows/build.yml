@@ -246,7 +246,9 @@ jobs:
           - { name: linux-aarch64, runner: ubuntu-24.04-arm }
           - { name: macos-aarch64, runner: macos-latest }
           - { name: windows-x64, runner: windows-latest }
-          - { name: windows-arm64, runner: windows-11-arm }
+          # CPython has no native Windows ARM64 build before 3.11 (uv would pick an x86-64 one,
+          # which cannot install the ARM64 wheel).
+          - { name: windows-arm64, runner: windows-11-arm, pythons: '3.11 3.13' }
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -262,8 +264,10 @@ jobs:
       # Python 3.10 is the abi3 floor, 3.13 the newest: one wheel must serve both.
       - name: Install wheel and run the Python tests
         shell: bash
+        env:
+          PYTHONS: ${{ matrix.platform.pythons || '3.10 3.13' }}
         run: |
-          for py in 3.10 3.13; do
+          for py in ${PYTHONS}; do
             uv venv --python "${py}" --clear
             uv pip install --no-index --find-links dist malt-index
             uv pip install pytest

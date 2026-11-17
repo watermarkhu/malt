@@ -36,6 +36,8 @@ fn rel(root: &Path, dirs: &[PathBuf]) -> Vec<String> {
             d.strip_prefix(root)
                 .map(|p| p.display().to_string())
                 .unwrap_or_else(|_| d.display().to_string())
+                // `/` on every platform, so the expectations read the same everywhere.
+                .replace('\\', "/")
         })
         .map(|s| if s.is_empty() { ".".to_string() } else { s })
         .collect()
