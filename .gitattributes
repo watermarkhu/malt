@@ -1,0 +1,4 @@
+# Golden outputs are compared byte for byte, so they keep LF line endings on Windows
+# checkouts (git's autocrlf would otherwise turn them into CRLF).
+crates/malt_cli/tests/index_golden/*.txt text eol=lf
+crates/malt_index/tests/golden/*.json text eol=lf

@@ -159,6 +159,12 @@ impl PathsCollection {
     }
 }
 
+/// Whether `identifier` is a file or folder path (it has a separator), not a name:
+/// `/` everywhere, and `\` too on Windows (`\` is a name character nowhere else).
+fn is_path_identifier(identifier: &str) -> bool {
+    identifier.contains('/') || (cfg!(windows) && identifier.contains('\\'))
+}
+
 /// The object for `identifier`, looked up from `dir` (relative to the working directory)
 /// when it is given. The object's path is the identifier without a leading `+`. A path
 /// lookup (an identifier with `/`) is resolved as maxx does: an absolute path stays as it
@@ -172,7 +178,7 @@ fn lookup(
     let py = slf.py();
     let found = {
         let this = slf.borrow();
-        if identifier.contains('/') {
+        if is_path_identifier(identifier) {
             let candidate = this.working_directory.join(identifier);
             this.index
                 .get_path(&candidate)
