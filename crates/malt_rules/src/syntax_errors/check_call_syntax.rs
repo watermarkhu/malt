@@ -39,10 +39,13 @@ impl SyntaxErrorsEngine {
                 // A chained call `f(1)(2)` is reported at the `(` of the outer call's
                 // arguments, and so is `s.f(1)(2)`, whose name is a field expression
                 // (probed: `x = f(1)(2);` is column 9; `z = s.f(1)(2);` is column 11).
+                // `s.f{1}(v)` indexes a cell after the field (probed: silent in MATLAB).
                 let chained_field = name.kind() == "field_expression"
-                    && name
-                        .child_by_field_name("field")
-                        .is_some_and(|f| f.kind() == "function_call");
+                    && name.child_by_field_name("field").is_some_and(|f| {
+                        f.kind() == "function_call"
+                            && !(0..f.child_count())
+                                .any(|i| f.child(i).is_some_and(|c| c.kind() == "{"))
+                    });
                 if (name.kind() == "function_call" && !name_is_brace) || chained_field {
                     let pos = Self::arguments_child(node).unwrap_or(node).start_position();
                     diagnostics.push(Diagnostic {
@@ -146,6 +149,19 @@ mod tests {
     fn sbtmp_ok_on_cell_index() {
         let diags = lint_file(&*engine(), "x = y{1};\n");
         assert!(!has_id(&diags, "SBTMP"), "got: {diags:?}");
+    }
+
+    #[test]
+    fn sbtmp_ok_on_cell_brace_after_field() {
+        // Probed (b1, b4, b5, b9): `obj.Subscribers{k}(value);` and `s.f{1}(v);` are silent.
+        for src in [
+            "function f(obj, value)\nobj.Subscribers{1}(value);\nend\n",
+            "function f(s, v)\ns.f{1}(v);\nend\n",
+            "function f(obj, v)\nobj.cb{2}(v, 1);\nend\n",
+        ] {
+            let diags = lint_file(&*engine(), src);
+            assert!(!has_id(&diags, "SBTMP"), "{src:?} got: {diags:?}");
+        }
     }
 
     #[test]

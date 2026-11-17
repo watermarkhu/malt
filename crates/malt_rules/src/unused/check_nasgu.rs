@@ -364,6 +364,45 @@ mod tests {
     }
 
     #[test]
+    fn nasgu_catch_variable_kills_the_value_before_the_try() {
+        // Probed (e1, e2, e3, e4, e13, c2, c3, c5): `catch err` stores the error at the start
+        // of the catch, so `err = []` before a try whose body always errors is never read.
+        assert_eq!(
+            nasgu_lines(
+                "err = [];\ntry\n    error('a:b', 'Value %d', 42);\ncatch err\nend\ndisp(err)\n"
+            ),
+            vec![1]
+        );
+        assert_eq!(
+            nasgu_lines("x = 1;\ntry\n    error('a:b', 'm');\ncatch x\nend\ndisp(x)\n"),
+            vec![1]
+        );
+        // The try body can finish without an error, and then the value is read.
+        assert!(nasgu_lines("x = 1;\ntry\n    y = 2;\ncatch x\nend\ndisp(x)\n").is_empty());
+    }
+
+    #[test]
+    fn nasgu_throw_of_an_exception_ends_the_flow() {
+        // Probed (t1, t2, t6, t7): `throw(MException(...))` ends the flow like `error`.
+        assert_eq!(
+            nasgu_lines("function f(a)\nx = 1;\nif a\n    throw(MException('a:b', 'm'));\nend\nx = 2;\ndisp(x)\nend\n"),
+            vec![2]
+        );
+        assert_eq!(
+            nasgu_lines("function f()\nerr = [];\ntry\n    throw(MException('a:b', 'm'));\ncatch err\nend\ndisp(err)\nend\n"),
+            vec![2]
+        );
+    }
+
+    #[test]
+    fn nasgu_throw_of_a_variable_is_not_analysed() {
+        // `throw(ME)` with a variable is not followed (the scope is skipped, as before).
+        assert!(
+            nasgu_lines("function f(ME)\nx = 1;\nthrow(ME);\nx = 2;\ndisp(x)\nend\n").is_empty()
+        );
+    }
+
+    #[test]
     fn nasgu_script_try_body_store_read_by_nothing() {
         // The catch body does not read `a`, and the store after the try overwrites it.
         let source = "try\n    a = 1;\ncatch\nend\na = 2;\ndisp(a)\n";

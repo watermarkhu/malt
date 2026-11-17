@@ -68,28 +68,58 @@ fn find_end_as_function_argument(
             .filter(|p| p.kind() == "arguments")
             .and_then(|p| p.parent())
             .filter(|c| c.kind() == "function_call");
-        if let Some(name) = call.and_then(|c| c.child_by_field_name("name")) {
-            let callee = &source[name.start_byte()..name.end_byte()];
-            // `data.values(end)` indexes a field; only a bare name is a function call.
-            let is_field = source[..name.start_byte()].trim_end().ends_with('.');
-            if name.kind() == "identifier" && !is_field && !variables.contains(callee) {
-                let pos = node.start_position();
-                diagnostics.push(Diagnostic {
-                    rule_id: "FNCOLND",
-                    message: "Consider explicitly defining the array, and then using the END operator to index into it.".to_string(),
-                    severity: Severity::Warning,
-                    byte_range: node.start_byte()..node.end_byte(),
-                    line: pos.row + 1,
-                    column: pos.column + 1,
-                    fix: None,
-                });
-            }
+        if call.is_some_and(|c| plain_call(c, source, variables))
+            && !inside_index(node, source, variables)
+        {
+            let pos = node.start_position();
+            diagnostics.push(Diagnostic {
+                rule_id: "FNCOLND",
+                message: "Consider explicitly defining the array, and then using the END operator to index into it.".to_string(),
+                severity: Severity::Warning,
+                byte_range: node.start_byte()..node.end_byte(),
+                line: pos.row + 1,
+                column: pos.column + 1,
+                fix: None,
+            });
         }
     }
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
         find_end_as_function_argument(child, source, variables, in_function, diagnostics);
     }
+}
+
+/// A call of a bare name that the file does not assign: `numel(...)`, not `data.values(...)`
+/// and not `x(...)` for a variable `x`.
+fn plain_call(call: tree_sitter::Node, source: &str, variables: &HashSet<String>) -> bool {
+    if call.kind() != "function_call" {
+        return false;
+    }
+    let Some(name) = call.child_by_field_name("name") else {
+        return false;
+    };
+    let callee = &source[name.start_byte()..name.end_byte()];
+    // `data.values(end)` indexes a field; only a bare name is a function call.
+    let is_field = source[..name.start_byte()].trim_end().ends_with('.');
+    name.kind() == "identifier" && !is_field && !variables.contains(callee)
+}
+
+/// Whether an argument list around `node`, up to its function body, is not a plain call:
+/// `y(min(2, end))` and `c{min(2, end)}` index a variable, so MATLAB resolves `end` to that
+/// index and reports nothing.
+fn inside_index(node: tree_sitter::Node, source: &str, variables: &HashSet<String>) -> bool {
+    let mut current = node.parent();
+    while let Some(p) = current {
+        if p.kind() == "function_definition" {
+            break;
+        }
+        if p.kind() == "arguments" && !p.parent().is_some_and(|c| plain_call(c, source, variables))
+        {
+            return true;
+        }
+        current = p.parent();
+    }
+    false
 }
 
 #[cfg(test)]
@@ -109,6 +139,9 @@ mod tests {
             "function r = f(x)\nr = disp(end);\nend\n",
             "function r = f(x)\nr = numel(end);\nend\n",
             "function r = f(x)\nr = max(end, 1);\nend\n",
+            // Probed (fn04, fn07): no enclosing index of a variable.
+            "function r = f(y)\nr = foo(min(2, end));\nend\n",
+            "function r = f(y)\nr = min(end, 3);\nend\n",
         ] {
             let diags = lint_file(&*engine(), source);
             assert!(has_id(&diags, "FNCOLND"), "{source:?} got: {diags:?}");
@@ -123,6 +156,13 @@ mod tests {
             "function r = f(x)\nr = foo(x(end));\nend\n",
             "function r = f(x)\nr = num2str(s.values(end));\nend\n",
             "function r = f(x)\ny = zeros(3);\nr = y(end, 1);\nend\n",
+            // Probed (fn01, fn02, fn05, fn08, fn09, fn10, fn11, fn14): `end` inside a call
+            // nested in a variable index, a field index or a brace index is that index.
+            "function r = f(y)\nr = y(min(2, end));\nend\n",
+            "function r = f(y)\nz = y(3:end);\nr = z(min(2, end));\nend\n",
+            "function r = f(y)\nr = y(foo(end));\nend\n",
+            "function r = f(s)\nr = s.data(min(2, end));\nend\n",
+            "function r = f(c)\nr = c{min(2, end)};\nend\n",
         ] {
             let diags = lint_file(&*engine(), source);
             assert!(!has_id(&diags, "FNCOLND"), "{source:?} got: {diags:?}");

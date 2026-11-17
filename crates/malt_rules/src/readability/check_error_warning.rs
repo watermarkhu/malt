@@ -1,7 +1,8 @@
 //! # SPERR / SPWRN / NCHKE: redundant message construction in `error`/`warning`
 //!
-//! * SPERR / SPWRN: `error(sprintf(...))` / `warning(sprintf(...))`; both
-//!   functions take SPRINTF-like arguments directly.
+//! * SPERR / SPWRN: `error(sprintf(...))` / `warning(sprintf(...))`, and
+//!   `error('a:b', sprintf(...))` / `warning('a:b', sprintf(...))` with a literal
+//!   identifier first; both functions take SPRINTF-like arguments directly.
 //! * NCHKE: `error(nargchk(min, max, nargout))`; use `nargoutchk` instead.
 
 use super::*;
@@ -17,6 +18,22 @@ impl ReadabilityEngine {
         results: &mut Vec<Diagnostic>,
     ) {
         let args = call_args(node);
+        let message = if check_id == "SPERR" {
+            "ERROR takes SPRINTF-like arguments directly."
+        } else {
+            "WARNING takes SPRINTF-like arguments directly."
+        };
+        // `error('a:b', sprintf(...))`: with an identifier first, the second argument is the
+        // message, whatever the sprintf arguments (probed with error and warning).
+        if args.len() >= 2
+            && is_message_id(args[0], source)
+            && call_path(args[1], source, Dotted::Skip) == Some("sprintf")
+        {
+            if self.is_check_enabled(check_id) {
+                results.push(self.diag(check_id, message, node, None));
+            }
+            return;
+        }
         if args.len() != 1 || args[0].kind() != "function_call" {
             return;
         }
@@ -31,11 +48,6 @@ impl ReadabilityEngine {
                 if check_id == "SPERR" && call_args(inner).len() < 2 {
                     return;
                 }
-                let message = if check_id == "SPERR" {
-                    "ERROR takes SPRINTF-like arguments directly."
-                } else {
-                    "WARNING takes SPRINTF-like arguments directly."
-                };
                 // `error(sprintf(f, a))` -> `error(f, a)` is not exact when the
                 // text holds `%` or `\`: error(msg) does not process them but
                 // error(fmt, ...) does, so the rewrite is left to the user.
@@ -55,6 +67,29 @@ impl ReadabilityEngine {
     }
 }
 
+/// A literal message identifier such as `'a:b'` or `"Mod:Sub:Id"`: colon-separated
+/// components, each starting with a letter and holding letters, digits or underscores
+/// (probed: `a:1b`, `_a:b`, `a:_b`, `a.b:c`, `a:` and `a:b c` are not identifiers). A
+/// variable is not read: MATLAB also reports a parameter used as the identifier, but the
+/// rule for it is not established.
+fn is_message_id(node: tree_sitter::Node, source: &str) -> bool {
+    if node.kind() != "string" {
+        return false;
+    }
+    let text = &source[node.byte_range()];
+    let quoted = text.len() >= 2
+        && (text.starts_with('\'') || text.starts_with('"'))
+        && text.ends_with(text.get(..1).unwrap_or(""));
+    if !quoted {
+        return false;
+    }
+    text[1..text.len() - 1].split(':').count() >= 2
+        && text[1..text.len() - 1].split(':').all(|part| {
+            part.starts_with(|c: char| c.is_ascii_alphabetic())
+                && part.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+        })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -72,11 +107,46 @@ mod tests {
     }
 
     #[test]
+    fn sperr_identifier_then_sprintf_fires() {
+        // Probed (k1, k2, k3, s1, s3, s5, s9, i10, j1, j2, j6, j7, j9, j10): `error(ID, sprintf(...))`
+        // is SPERR at the call, with or without arguments to sprintf, with an extra argument.
+        for src in [
+            "error('MyComp:myID', sprintf('bad %d', n));\n",
+            "error('a:b', sprintf('x'));\n",
+            "error('a:b', sprintf('Value %d', 42), 3);\n",
+            "error(\"a:b\", sprintf('x %d', 1));\n",
+            "error('a_b:c', sprintf('x %d', 1));\n",
+            "error('a:b:c', sprintf('x %d', 1));\n",
+            "error('Mod:Sub:Id', sprintf('x %s', 'y'));\n",
+        ] {
+            let diags = lint_nodes(&*engine(), src);
+            assert!(has_id(&diags, "SPERR"), "{src} got: {diags:?}");
+        }
+    }
+
+    #[test]
+    fn sperr_non_identifier_first_argument_is_silent() {
+        // Probed (i2, i4, i11, i12, i15, j3, j4, j5, s2, s6, s11): with a format or a
+        // string that is not an identifier, the second argument is not the message.
+        for src in [
+            "error('Value %d', sprintf('x'));\n",
+            "error('Value: %d', sprintf('x %d', 1));\n",
+            "error('a:b c', sprintf('x %d', 1));\n",
+            "error('1a:b', sprintf('x %d', 1));\n",
+            "error('a:1b', sprintf('x %d', 1));\n",
+            "error('a:_b', sprintf('x %d', 1));\n",
+            "error('a.b:c', sprintf('x %d', 1));\n",
+            "error('a:', sprintf('x %d', 1));\n",
+        ] {
+            assert!(!has_id(&lint_nodes(&*engine(), src), "SPERR"), "{src}");
+        }
+    }
+
+    #[test]
     fn sperr_plain_error_calls_do_not_fire() {
         for src in [
             "error('my message');\n",
             "error('MyComp:myID', 'message');\n",
-            "error('MyComp:myID', sprintf('bad %d', n));\n",
             "error(sprintf('a:b'));\n",
         ] {
             assert!(!has_id(&lint_nodes(&*engine(), src), "SPERR"), "{src}");
@@ -87,6 +157,17 @@ mod tests {
     fn spwrn_warning_of_sprintf_fires() {
         let diags = lint_nodes(&*engine(), "warning(sprintf('bad %d', n));\n");
         assert!(has_id(&diags, "SPWRN"), "got: {diags:?}");
+    }
+
+    #[test]
+    fn spwrn_identifier_then_sprintf_fires() {
+        // Probed (k4, k5): `warning('a:b', sprintf(...))` is SPWRN, format only or not.
+        for src in [
+            "warning('a:b', sprintf('x'));\n",
+            "warning('a:b', sprintf('x %d', 2));\n",
+        ] {
+            assert!(has_id(&lint_nodes(&*engine(), src), "SPWRN"), "{src}");
+        }
     }
 
     #[test]

@@ -446,3 +446,156 @@ changed. Then bring `matlab_expected.tsv` in line with the live rows in `target/
 (path, line, ID; the `-` and `+` lines of the report are the rows to remove and to add). A change of
 release is a separate change: update `matlab_release.txt` and the header of `matlab_expected.tsv`
 together, after a live run on that release. No finding difference is allowlisted (message text has its own list, see 'Messages').
+
+## MATLAB configuration file (plan step 5.8)
+
+What MATLAB R2026b does with `resources/codeAnalyzerConfiguration.json`, probed with
+`matlab.codeanalysis.validateConfiguration` (about 270 files), `codeIssues` and
+`checkcode(file, '-id', '-config=<path>')`. Facts only: key names, enum values and the
+numbers that the messages give. The probe files and the message catalogue are not kept
+in the repository.
+
+### Format, as probed
+
+- **Discovery.** `codeIssues` reads the file of the file's folder or the closest parent
+  folder with a `resources` folder: a file in a subfolder without its own configuration
+  inherits the parent's. `checkcode(file)` reads no configuration (the factory checks
+  run even beside a disabling file). `checkcode(..., '-config=<path>')` overrides a
+  folder configuration. `validateConfiguration` accepts any path; outside `resources`
+  it only adds a `NotVisible` note.
+- **Top level.** `schemaVersion` is optional and a string `M.m.p`: `1.0.0` and `1.1.0`
+  are accepted, `1.9.0` gives a warning, `2.0.0` and a number are errors. `naming` is
+  applied under `1.0.0` too. `baseConfiguration` is `factory` or `closestParentFolder`;
+  absent, it is `closestParentFolder` (a child without it keeps the parent's disable,
+  `factory` ignores the parent, and a child can re-enable a parent-disabled check with
+  `enabled: true`). The fields of a check merge: a child's `severity` alone does not
+  re-enable a disabled check. An unknown top-level key is a warning.
+- **`ignoredFiles`.** A string or an array of strings, relative to the folder that holds
+  `resources`. `..` is an error, a leading `/` is an info (stripped). `sub/*.m` skips the
+  files of `sub` only; `s1.m` skips the top-level file only. `codeIssues` honours it
+  (also for a file named explicitly); `checkcode` does not.
+- **`checks`.** Each value is an object (`false` is an error). `enabled` is a boolean.
+  `severity` is `"error"`, `"warning"` or `"info"`, case-sensitive: `"warn"` and `"Error"`
+  are warnings and are ignored (the check keeps its severity). `limit` is a nonnegative
+  integer (`"x"`, `-1`, `1.5`, `true` are errors). `messageText` is accepted. Any other
+  field is a warning. An unknown check ID is a warning. `codeIssues` reports the severity
+  of a finding from the file: `error` gave an error, `warning` a warning.
+- **Thresholds.** `FCNLL`, `CYCCOM` and `MNCSN` report with a `limit` (`FCNLL` 3 lines
+  and `CYCCOM` 2 flagged the expected functions; a large function with no `limit` gave
+  nothing). `enabled: true` without a `limit` reports nothing (probed on a 2100-line
+  function, a 300-branch function and a 300-branch script). `limit` on a check without a
+  threshold is a warning (`CABE`).
+- **Disallow checks.** `DAFSC` (script) and `DAFAF` (anonymous function) report with
+  `enabled: true`. `SYSBANG`, `DAFTC`, `DAFPV`, `DAFCO`, `DAFBR`, `DAFRT`, `DAFCF`, `DAFNF`,
+  `DAFCV`, `DAFCVC`, `DAFVI`, `DAFVO` are mapped by their message text in
+  `crates/malt_core/src/matlab_config.rs`, not probed.
+- **`naming`.** A group object for each of `class`, `enumeration`, `event`, `function`,
+  `localFunction`, `method`, `nestedFunction`, `property`, `variable` (another key is a
+  warning). A check is a plain value, not an object: `maxLength`/`minLength` an integer
+  1 to 2048 (0 and 2049 are warnings; `"5"`, `-1` and `5.5` errors), `regularExpression`
+  a string (an invalid pattern is a warning, `""` an error), `casing` one of the six
+  styles (`camelCase`, `PascalCase`, `snake_case`, `UPPER_CASE` are warnings). The affix
+  checks are `requiredPrefix`, `disallowedPrefix`, `disallowedPhrase`, `requiredSuffix`,
+  `disallowedSuffix`: a non-empty string or a non-empty array of strings (an empty array,
+  a number or a mixed array are errors). Verified in `codeIssues` and `checkcode`:
+  `maxLength` 6 flagged `longVariableName` (16 characters) and `v_count` (7) on their
+  lines; `casing` `lowerCamelCase` flagged `v_count`; `requiredPrefix` `v_` and
+  `disallowedSuffix` `x` flagged the expected names; `regularExpression` `[a-z_]+` on a
+  function name stayed silent.
+- **Custom checks.** `checks.<name>.rule` with `template`. `functionCall` needs
+  `functionNames` (a string or an array); `variableName` needs `variableNames`. Other
+  template names are warnings; a template field missing is an error; a name that is not
+  a MATLAB identifier, or that is a built-in ID, is an error; a `rule` without a
+  template is an error. `functionCall` with `disp` reported an `error` at the call
+  (verified; malt does not implement templates).
+- **Invalid files.** Malformed JSON, a top-level array, a `checks` that is not an object,
+  and a duplicate key are errors. `codeIssues` throws `Invalid Configuration file`;
+  `checkcode -config` reports a `CFIG` at line 0 and analyses the file with the factory
+  checks. The four "configuration file" IDs in the table above are therefore emitted by
+  MATLAB only for `checkcode -config`; malt does not emit them.
+- **Message texts** are not recorded here (MathWorks content). The message catalogue is
+  `resources/CodeAnalyzer/en/caConfig.xml` in the MATLAB installation.
+
+### What malt implements
+
+| JSON | malt | Verified by |
+| ---- | ---- | ----------- |
+| `checks.<ID>.enabled` (any built-in ID) | drops that check's findings (`CheckSetting`, applied in the linter before the message limit) | `c01`, `c11`, `c15` |
+| `checks.<ID>.severity` | the check's findings get that severity | `c02`, `c03`, `c13` |
+| `checks.<threshold>.limit` with `enabled` | the `CUSTOM_CHECKS` parameter: `FCNIL` `max_function_inputs`, `FCNOL` `max_function_outputs`, `FCNLL` `max_function_lines`, `LLMNC` `max_line_length`, `MNCSN` `max_nesting_depth`, `CYCCOM`/`MCYCCOM` `max_cyclomatic_complexity`, `SCYCCOM`/`MSCYCCOM` `max_script_cyclomatic_complexity`, `ACYCCOM`/`MACYCCOM` `max_anonymous_cyclomatic_complexity` | `c04`, `c05`, `c06`, `c16` (`FCNLL`, `CYCCOM`; the rest mapped only) |
+| `checks.DAF*`, `checks.SYSBANG` with `enabled` | the `disallow_*` flag of `CUSTOM_CHECKS` | `c10` (`DAFSC`, `DAFAF`) |
+| `naming.<group>.<check>` | the parameters of `naming.<group>.<check>` (`max`, `min`, `pattern`, `prefix`, `suffix`, `phrase`, `style`) and `NAMING_ENGINE` on | `c07`, `c08`, `c09` |
+| `ignoredFiles` | the CLI skips matching files (`crates/malt_cli/src/ignored.rs`) | `c14`, the `ignored_files_*` test |
+| `schemaVersion`, `baseConfiguration` | validated; the base is always malt's `mathworks` preset | `c17` and the unit tests |
+
+Malt's own TOML is layered over the JSON: per rule and per category key, the TOML wins;
+check settings come from the JSON only. The precedence (`--config` JSON alone; `.malt.toml`
+with `[lint] matlab_config`, JSON first; `.malt.toml` alone; `resources/...` in the
+working directory; defaults) is in `docs/configuration.md`.
+
+### MATLAB comparison
+
+`crates/malt_cli/tests/matlab_config/expected.tsv` holds the recorded `codeIssues` output
+of 20 cases (`c00` to `c19`): line, check ID and severity, no message text. The
+`checkcode -config=` output agreed with `codeIssues` on IDs and lines in every case with a
+readable configuration, except `c14` (`ignoredFiles`, which `checkcode` ignores). `c16` and `c17`
+are refused by `codeIssues` and analysed with the factory checks by `checkcode`.
+`tests/matlab_config.rs` runs malt on each case and compares, and a live variant (`live_matlab_agrees_with_malt_on_every_case`, with
+the usual `common::matlab` skip) runs `codeIssues` now. Both pass, except for the known
+gaps `c18` and `c19`.
+
+### Gaps
+
+- **Default-off checks outside custom checks and naming.** `checks.ERTAG.enabled: true`
+  with `severity: error` made MATLAB report `ERTAG` on the line; malt reports nothing,
+  because the engine keeps the check off under `mathworks` (`off_under_mathworks` in
+  `malt_rules`). Closing it needs a per-check hook in the engines (a malt_rules change).
+- **`MNCSN` position.** MATLAB reports the control statement that exceeds the limit
+  (line 7 for a limit of 2 in `c19`); malt reports the function's line. A malt_rules fix.
+- **Custom checks (`rule`), `messageText`, `formatting`.** Warned and ignored. A custom
+  check's findings are missing from malt's output (`c18`).
+- **Parent folders.** MATLAB searches the parents of the file's folder; malt reads one
+  file per run (the working directory's, or `--config`).
+- **Not verified against MATLAB.** The mapping of `LLMNC`, `FCNIL`, `FCNOL`, `SCYCCOM`,
+  `ACYCCOM`, `MCYCCOM`, `MSCYCCOM`, `MACYCCOM`, `SYSBANG` and the other `DAF*` checks.
+  Their message texts give the threshold; the probes did not cover them.
+- **Earlier rows now superseded** (not edited here, as this section is appended): the
+  `DEBUGMSG`/`LLMCC` and `BDCFG`/`CFERR`/`BDOPT`/`CFIG` rows of 'Official IDs malt does
+  not emit', the paragraph 'Naming checks (Phase 2.4)' ("the schema ... comes from
+  validateConfiguration messages") and the Phase 2 close-out line that defers the JSON
+  configuration.
+
+## Phase 4, rounds (2026-11-17)
+
+Each round is ten new files of the session's own writing (scripts, functions, local and nested functions, classdefs with events and enumerations, a package folder, a GUI callback file, a deliberate syntax error in round 2), in 40 to 200 lines, drawn under `/tmp/probe/round<N>/`. MATLAB ran once per round over the set (`matlab_probe`), malt with the default preset, and the findings were compared per file, line and ID, then per message text. A round is clean only if the comparison showed no difference before any fix. The exit criterion (three consecutive clean rounds) is not met: round 1 is clean, rounds 2 to 4 are not, and the session stopped at four rounds.
+
+| Round | Files | MATLAB findings | Before fixes | Result |
+| --- | --- | --- | --- | --- |
+| 1 | 10 (34 to 72 lines; two extended before the diff) | 33 | none (33 matched, message text identical) | clean |
+| 2 | 10 (incl. `+c_geo/area.m`, `broken_if`) | 47 | MISS EXIST (`exist name` command form), MISS MINV (`M = inv(A); M*b`), EXTRA FNCOLND (`y(min(2, end))`) | fixed F1 to F3 |
+| 3 | 10 (abstract base, image pipeline, nested config, dates, stats, tables, varargout, legacy, error flow) | 50 | MISS NASGU at `err = [];` before `try ... catch err` (`r3_error_flow.m:28`) | fixed F4, F5 |
+| 4 | 10 (kernel, enumeration state machine, event bus, config parser, codegen, script harness, log rotation, error-heavy, grid plot, arguments block) | 42 | EXTRA SBTMP on `obj.Subscribers{k}(value)` | fixed F8 |
+
+After the fixes all four rounds compare with zero differences. Round 2 to 4 are recorded as not clean. Round 1 was also re-run after its two short files were extended, before any fix.
+
+Probes between the rounds (same procedure, minimal variants, one MATLAB call each) found the SPERR, catch-variable and throw cases that round 3 and 4 touched, and the SPERR identifier form. They are fixtures under `phase3/` (`nasgu_p4_*`, `sperr_p4_*`, `throw_p4_*`, `sbtmp_p4_*`, `exist_p4_*`, `fncolnd_p4_*`, `minv_p4_*`).
+
+### Fixes (MATLAB evidence)
+
+- **F1 EXIST, command form** (`performance/check_command.rs`). `exist foo`, `exist 'foo'`, `exist foo.bar` at statement level give EXIST in scripts and functions (probes ex02, ex03, ex05, ex06, ex08, ex11). `exist foo var` and `if exist foo` give none (ex04, ex10).
+- **F2 MINV on a variable** (`performance/check_binary_operator.rs`). `M = inv(A); c = M*b;` and `c = b*M;` give MINV at the variable (column of `M`: 5 and 7; mi01, mi02, mi03, mi09 inside an `if`, mi13 after a later `M = 2`, mi07 for the direct form, mi08 twice). Silent for a copy `N = M` (mi05), a reassignment before the product (mi06), `pinv` (mi10), `(M)*b` (mi11), `.*` (mi14). The rule uses `reaching_values`, so anything it cannot follow stays silent.
+- **F3 FNCOLND inside an index** (`good_practices/check_fncolnd.rs`). An `end` is the index of a variable when any enclosing argument list is a variable, field or brace index, however deep: `y(min(2, end))`, `y(foo(end))`, `s.data(min(2, end))`, `c{min(2, end)}`, `z(min(2, end))` (fn01, fn08, fn09, fn10, fn11). MATLAB reports only when no enclosing list belongs to a variable: `foo(min(2, end))` at column 16 and `min(end, 3)` at column 9 (fn04, fn07).
+- **F4 NASGU and a catch variable** (`analysis/liveness.rs`, `try_statement`). `catch err` stores the error when the catch body starts, so a value of `err` before the try is never read there. The name is removed from the catch's live set (e1 to e4, e13, c2, c3, c5). `try` bodies that can finish normally still keep it live (c1, c4, c7).
+- **F5 throw ends the flow** (`analysis/liveness.rs`). `throw(MException(...))` ends the flow like `error` (t1, t2, t6, t7, t8: NASGU for a store before it, UNRCH after it, as MATLAB). `throw(ME)` with a variable keeps the old rule (the scope is not analysed), and `obj.throw(...)` is a method, not a terminator.
+- **F6 SPERR and SPWRN, identifier form** (`readability/check_error_warning.rs`). `error('a:b', sprintf(...))` and `warning('a:b', sprintf(...))` are reported at the call whatever the sprintf arguments, format only or not (s1, s3, s4, s5, s9, s10, i3, i8, i10, i13, i14, j1, j2, j6, j7, j9, j10, k1 to k5). The identifier is colon-separated components, each starting with a letter and holding letters, digits or underscores (`a_b:c`, `a1:b`, `a:B2`, `Mod:Sub:Id`). Not reported: `'Value %d'`, `'a:b c'`, `'1a:b'`, `'a:1b'`, `'a:_b'`, `'a.b:c'`, `'a:'`, `':b'` (i2, i4, i11, i12, i15, j3 to j5, s2, s6, s11). The unit test `sperr_plain_error_calls_do_not_fire` asserted `error('MyComp:myID', sprintf(...))` silent; MATLAB reports it (k1 to k3), so that case moved to the fires test.
+- **F7 SPERR after an unconditional error** (`readability/mod.rs`). The `error` dispatch skips unreachable code, as `warning` already did (i18: MATLAB reports UNRCH, not SPERR, on the statement after an `error`).
+- **F8 SBTMP on a cell index after a field** (`syntax_errors/check_call_syntax.rs`). `obj.Subscribers{k}(value);` and `s.f{1}(v);` are a cell index followed by a call and are silent; the chained call `s.f(1)(2)` is still SBTMP (b1, b4, b5, b9; b2 `c{k}(value)` was already silent).
+
+### Known gaps found in these rounds (not fixed)
+
+- **CTPCT for a non-identifier first argument.** `error('msg', x)`, `error('A_1:b-2', x)`, `error('a:', x)`, `error(':b', x)`, `error('1a:b', x)`, `error('a.b:c', x)` and `warning('msg', sprintf(...))` give CTPCT in MATLAB ("The format might not agree with the argument count"); malt is silent on most of them (i1, i4, i5, i6, i11, i12, i17). Those files are not fixtures.
+- **SPERR with a non-literal first argument.** `error(['a:b'], sprintf(...))` gives SPERR (and NBRAK2) in MATLAB (i16); a parameter used as the identifier, `error(id, sprintf(...))`, gives SPERR too (i9, j8). malt is silent on both: the condition for a variable is not established (one shape each), and a bracket literal is not followed.
+- **LTARG for a bare `exist` in a condition.** `if exist foo ... end` gives LTARG ("Function might be called with too few arguments.") in MATLAB, a zero-argument call (ex10); malt gives SEPEX only. The file is not a fixture.
+- **`run` and a store before it.** `x = 1; run('foo.m'); x = 2;` gives NASGU for `x = 1` in MATLAB (t10). malt skips the scope because `run` is in `DYNAMIC_CALLS` and the reason for that is not known; not changed. Not a fixture.
+- **`throw(ME)` with a variable.** MATLAB analyses the scope (t9: NASGU for `y = 1` in a try body whose catch rethrows `ME`); malt skips it, as before F5. Not a fixture.
+- **MINV for a parameter operand.** `function c = f(M, b); c = M*b;` was not probed; malt is silent, which is the safe side.

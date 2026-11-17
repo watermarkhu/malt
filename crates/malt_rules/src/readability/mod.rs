@@ -300,7 +300,9 @@ impl ReadabilityEngine {
             "prod" if !in_unreachable_code(node, source) => {
                 self.check_prod_size(node, source, results)
             }
-            "error" => self.check_error_warning(node, source, "SPERR", results),
+            "error" if !in_unreachable_code(node, source) => {
+                self.check_error_warning(node, source, "SPERR", results)
+            }
             "warning" if !in_unreachable_code(node, source) => {
                 self.check_error_warning(node, source, "SPWRN", results)
             }

@@ -200,7 +200,7 @@ type Known = HashMap<String, bool>;
 /// follow. A scope that uses one is not analysed. Probed: `eval`, `evalc`,
 /// `evalin`, `assignin`, `save`, `who` and `whos` are not in this list, MATLAB
 /// reports the stores around them (see the module docs).
-const DYNAMIC_CALLS: &[&str] = &["run", "throw", "throwAsCaller", "exit", "quit"];
+const DYNAMIC_CALLS: &[&str] = &["run", "throwAsCaller", "exit", "quit"];
 
 /// Calls that may set variables by name. They do not stop the analysis, but
 /// the truth values known before them are forgotten.
@@ -506,7 +506,24 @@ fn scope_body<'t>(scope: &Scope, tree_root: Node<'t>) -> Option<Node<'t>> {
 /// be followed. Function definitions are skipped: local functions are separate
 /// scopes, and a nested function is excluded from the analysis of its parent.
 fn calls_dynamic(node: Node, source: &str) -> bool {
-    calls_any(node, source, DYNAMIC_CALLS)
+    calls_any(node, source, DYNAMIC_CALLS) || calls_throw_of_name(node, source)
+}
+
+/// Whether a `throw` under `node` takes a variable (`throw(ME)`). Such a call is not
+/// followed as a terminator (see `is_error_call`), so its scope is not analysed.
+fn calls_throw_of_name(node: Node, source: &str) -> bool {
+    if node.kind() == "function_definition" {
+        return false;
+    }
+    if matches!(node.kind(), "function_call" | "command")
+        && callee_word(node, source, Dotted::Trailing) == Some("throw")
+        && first_argument_is_name(node, source)
+    {
+        return true;
+    }
+    children(node)
+        .into_iter()
+        .any(|child| calls_throw_of_name(child, source))
 }
 
 /// Adds the variables that a compound assignment (`k += 1`) changes under `node`.
@@ -576,6 +593,8 @@ fn is_error_call(node: Node, source: &str) -> bool {
     match callee_word(node, source, Dotted::Trailing) {
         Some("rethrow") => true,
         Some("error") => !first_argument_is_name(node, source),
+        // `throw(MException(...))` ends the flow too (probed); `obj.throw(...)` is a method.
+        Some("throw") => !is_qualified_call(node) && !first_argument_is_name(node, source),
         _ => false,
     }
 }
@@ -1191,12 +1210,22 @@ impl Analysis<'_> {
             if child.kind() == "catch_clause" {
                 // `catch err` names the error on the same line; the rest is the body.
                 let mut parts = named(child);
+                let mut error_name = None;
                 if parts.first().is_some_and(|p| {
                     p.kind() == "identifier" && p.start_position().row == child.start_position().row
                 }) {
-                    parts.remove(0);
+                    error_name = Some(parts.remove(0));
                 }
-                catch_live = Some(self.branch(&parts, after.clone(), report));
+                let mut live = self.branch(&parts, after.clone(), report);
+                // `catch err` stores the error in err before the body runs: a value of
+                // err before the catch is never read there (probed: `x = 1; try error(..)
+                // catch x; end; disp(x)` reports the store of 1).
+                if let Some(name) = error_name {
+                    if let Some(id) = self.names.get(&self.source[name.byte_range()]) {
+                        live.remove(id);
+                    }
+                }
+                catch_live = Some(live);
             } else {
                 body.push(child);
             }

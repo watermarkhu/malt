@@ -16,6 +16,21 @@ impl PerformanceEngine {
             None => return diags,
         };
 
+        // EXIST: `exist foo` in command syntax is the one-argument form (MATLAB
+        // reports it in scripts and functions; not in a condition).
+        if cmd_name == "exist" {
+            let statement = node
+                .parent()
+                .is_some_and(|p| matches!(p.kind(), "source_file" | "block"));
+            if self.is_enabled("EXIST")
+                && statement
+                && extract_command_args(node, source).len() == 1
+            {
+                diags.push(make_diag("EXIST", node));
+            }
+            return diags;
+        }
+
         if cmd_name != "clear" {
             return diags;
         }
@@ -125,5 +140,28 @@ mod tests {
         assert!(!has_id(&diags, "CLFUNC"), "got: {diags:?}");
         assert!(!has_id(&diags, "CLJAVA"), "got: {diags:?}");
         assert!(!has_id(&diags, "CLMEX"), "got: {diags:?}");
+    }
+
+    #[test]
+    fn exist_command_with_one_word_fires() {
+        // Probed: `exist foo`, `exist 'foo'`, `exist foo.bar` in scripts and functions give EXIST.
+        for src in [
+            "exist foo\n",
+            "exist 'foo'\n",
+            "exist foo.bar\n",
+            "function f()\nexist foo\nend\n",
+        ] {
+            let diags = lint_nodes(&*engine(), src);
+            assert!(has_id(&diags, "EXIST"), "{src:?} got: {diags:?}");
+        }
+    }
+
+    #[test]
+    fn exist_command_is_silent_with_two_words_or_in_a_condition() {
+        // Probed: `exist foo var` and `if exist foo` give no EXIST in MATLAB.
+        for src in ["exist foo var\n", "if exist foo\n    disp('yes')\nend\n"] {
+            let diags = lint_nodes(&*engine(), src);
+            assert!(!has_id(&diags, "EXIST"), "{src:?} got: {diags:?}");
+        }
     }
 }
