@@ -3,9 +3,16 @@
 An ultra-fast, extensible linter for MATLAB, written in Rust.
 
 `malt` parses MATLAB with tree-sitter and runs every rule in a
-single pass over the syntax tree. It aims for parity with MATLAB's Code Analyzer
-and uses the same check IDs (`NOSEMI`, `AGROW`, `naming.class.casing`, ...), so
-existing `%#ok<...>` suppressions keep working.
+single pass over the syntax tree. Under its default configuration it reports
+**exactly what MATLAB R2026b's Code Analyzer reports** — verified fixture by
+fixture against a live `checkcode`, with the message text compared ([how malt
+is verified](https://watermarkhu.nl/malt/verification)) — and it uses the same
+check IDs (`NOSEMI`, `AGROW`, `naming.class.casing`, ...), so existing
+`%#ok<...>` suppressions keep working.
+
+Upgrading from an earlier malt? Read the
+[migration note](https://watermarkhu.nl/malt/migration): the default
+configuration, `--fix` and a few rule IDs changed.
 
 ## Install
 
@@ -39,7 +46,12 @@ NOSEMI = "off"
 ## Documentation
 
 Full documentation, the rule reference and an in-browser playground are at
-<https://watermarkhu.nl/malt>.
+<https://watermarkhu.nl/malt>. Two pages worth opening first:
+
+- [How malt is verified](https://watermarkhu.nl/malt/verification) — the
+  conformance suite, and which engines are verified versus best-effort
+- [Migration note](https://watermarkhu.nl/malt/migration) — breaking changes
+  from earlier malt releases
 
 ## License
 

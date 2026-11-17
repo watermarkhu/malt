@@ -31,6 +31,10 @@ icon: lucide/list-checks
 
 These rows are generated from the rule docstrings by `docs/scripts/gen_rules_docs.ts`. Rebuild the docs (`bun run docs:gen`) to refresh them.
 
+<!-- GENERATED: Check Counts -->
+
+**How many checks malt implements.** 2692 unique check IDs, counted from the rule sources whenever these pages are generated: 531 in the engine tables above, 81 `naming.<entity>.<check>` IDs, 1 single-check rule (`NOSEMI`), 1832 compatibility entries (920 compatibility, 7 forward-compatibility, 905 behavior-changes; 897 of them are low-reliability and off by default), 243 suggested-improvement entries (241 unique IDs), and 6 emitted outside the rule engines (`MSNE`, `MSNU`, `QUIT`, `NOFIL`, `RDERR`, `SZCLN`). Which of them are on by default, and which engines are verified against MATLAB, is on the [How malt is verified](verification.md) page.
+
 ## Data-Driven Check IDs
 
 These tables are generated from the TOML data files by the TypeScript
@@ -2160,7 +2164,12 @@ malt organizes rules into the same categories as MATLAB's Code Analyzer:
 | System Objects | `system-objects` | System object validation |
 | Unsupported | `unsupported` | Unsupported features |
 | Behavior Changes | `behavior-changes` | Behavior changes between MATLAB versions |
-| Configuration Issues | `configuration-issues` | Configuration file validation |
+
+The `configuration-issues` category has no checks: its engine was removed
+(the four configuration-file IDs `BDCFG`, `CFERR`, `BDOPT`, `CFIG` are reported
+by MATLAB only for `checkcode -config`, which malt does not read). The
+`[lint.categories]` key `configuration-issues` is still accepted, so old
+configuration files keep working; see the [migration note](migration.md).
 
 ## Severity Levels
 

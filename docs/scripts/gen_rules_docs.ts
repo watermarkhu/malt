@@ -554,6 +554,92 @@ function renderRuleTable(modules: RuleModule[]): string {
   return rows.join('\n') + '\n'
 }
 
+// ---------------------------------------------------------------------------
+// Check inventory
+// ---------------------------------------------------------------------------
+
+/**
+ * Check IDs emitted outside the rule modules, so the generated total counts
+ * them too:
+ * - `MSNE`, `MSNU`, `QUIT` — the linter core (`malt_core::linter`): suppression
+ *   directives and the diagnostic emitted when a rule panics.
+ * - `NOFIL`, `RDERR` — the CLI, for a file that cannot be read.
+ * - `SZCLN` — a hard-coded compatibility check (`compatibility/generic/check_szcln.rs`).
+ *
+ * Extend this list when one of them moves into a module's check table.
+ */
+const CORE_EMITTED_IDS: readonly string[] = [
+  'MSNE',
+  'MSNU',
+  'QUIT',
+  'NOFIL',
+  'RDERR',
+  'SZCLN',
+]
+
+/**
+ * The generated check-inventory paragraph of `docs/rules.md`: every unique
+ * check ID malt declares, and where each group comes from. Counted from the
+ * same sources the pages are generated from (module tables, `naming` product,
+ * the data files, the single-check rules), so the number cannot drift.
+ */
+function renderCheckCounts(modules: RuleModule[]): string {
+  const ids = new Set<string>()
+  let tableChecks = 0
+  let namingChecksCount = 0
+  let singleCheckRules: string[] = []
+  for (const mod of modules) {
+    if (mod.checks.length === 0) {
+      // A module with no check table is a single-check rule (its ID is the
+      // check it emits), unless it is data-driven (handled below).
+      if (!mod.frontmatter.data_file) singleCheckRules.push(mod.frontmatter.id)
+      continue
+    }
+    if (mod.frontmatter.generated === 'naming') {
+      namingChecksCount = mod.checks.length
+    } else if (!mod.frontmatter.data_file) {
+      tableChecks += mod.checks.length
+    }
+    for (const c of mod.checks) ids.add(c.id ?? '')
+  }
+  for (const id of singleCheckRules) ids.add(id)
+  for (const id of CORE_EMITTED_IDS) ids.add(id)
+
+  const compat = parseChecks(COMPAT_TOML)
+  const si = parseChecks(SI_TOML)
+  const byCategory = new Map<string, number>()
+  for (const entry of compat) {
+    const cat = entry.category || 'compatibility'
+    byCategory.set(cat, (byCategory.get(cat) ?? 0) + 1)
+  }
+  const lowReliability =
+    readFileSync(COMPAT_TOML, 'utf8').match(/^low_reliability = true$/gm)?.length ?? 0
+  const siUnique = new Set(si.map((e) => e.id)).size
+
+  const compatParts = [...byCategory.entries()]
+    .map(([cat, n]) => `${n} ${cat}`)
+    .join(', ')
+
+  return (
+    '<!-- GENERATED: Check Counts -->\n\n' +
+    `**How many checks malt implements.** ${ids.size} unique check IDs, ` +
+    `counted from the rule sources whenever these pages are generated: ` +
+    `${tableChecks} in the engine tables above` +
+    (namingChecksCount ? `, ${namingChecksCount} \`naming.<entity>.<check>\` IDs` : '') +
+    (singleCheckRules.length === 1
+      ? `, 1 single-check rule (\`${singleCheckRules[0]}\`)`
+      : singleCheckRules.length
+        ? `, ${singleCheckRules.length} single-check rules (${singleCheckRules.map((id) => `\`${id}\``).join(', ')})`
+        : '') +
+    `, ${compat.length} compatibility entries (${compatParts}; ${lowReliability} of them are low-reliability and off by default), ` +
+    `${si.length} suggested-improvement entries (${siUnique} unique IDs), ` +
+    `and ${CORE_EMITTED_IDS.length} emitted outside the rule engines ` +
+    `(${CORE_EMITTED_IDS.map((id) => `\`${id}\``).join(', ')}). ` +
+    'Which of them are on by default, and which engines are verified against MATLAB, ' +
+    'is on the [How malt is verified](verification.md) page.\n'
+  )
+}
+
 /**
  * MATLAB's official messages contain placeholders such as `<name>`, `<number>` and `<operator>`.
  * VitePress reads them as HTML tags, so escape them outside code spans and fences.
@@ -642,7 +728,9 @@ function writeRulesMd(modules: RuleModule[]): boolean {
     '\n\n' +
     renderRuleTable(modules) +
     '\n' +
-    'These rows are generated from the rule docstrings by `docs/scripts/gen_rules_docs.ts`. Rebuild the docs (`bun run docs:gen`) to refresh them.\n'
+    'These rows are generated from the rule docstrings by `docs/scripts/gen_rules_docs.ts`. Rebuild the docs (`bun run docs:gen`) to refresh them.\n' +
+    '\n' +
+    renderCheckCounts(modules)
 
   let newText: string
   if (tableStart === -1) {
@@ -698,7 +786,7 @@ function checkDrift(modules: RuleModule[], only?: string): boolean {
   const text = readFileSync(RULES_MD, 'utf8')
   const tableMarker = '<!-- GENERATED: Rule Table -->'
   const tableStart = text.indexOf(tableMarker)
-  const expectedTable = tableMarker + '\n\n' + renderRuleTable(modules) + '\n' + 'These rows are generated from the rule docstrings by `docs/scripts/gen_rules_docs.ts`. Rebuild the docs (`bun run docs:gen`) to refresh them.\n'
+  const expectedTable = tableMarker + '\n\n' + renderRuleTable(modules) + '\n' + 'These rows are generated from the rule docstrings by `docs/scripts/gen_rules_docs.ts`. Rebuild the docs (`bun run docs:gen`) to refresh them.\n' + '\n' + renderCheckCounts(modules)
   if (tableStart === -1 || !text.startsWith(expectedTable, tableStart)) {
     console.error('docs/rules.md generated Rule Table is out of date (run `bun run docs:gen`)')
     clean = false

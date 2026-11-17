@@ -319,7 +319,12 @@ When no `.malt.toml` is present:
 - The **`mathworks`** preset is active, so `custom-checks` and `naming` are off, as are the individual checks that
   MATLAB's default Code Analyzer never reports (for example `ERTAG`, `WNTAG`, `CTCH`, `BDLOG2`, `LOGSUM`, the
   forward-compatibility gates `FC*`, and the behavior-change entries MATLAB lists as low reliability). The `all`
-  preset turns them back on, and so does an explicit `[lint.rules]` entry
+  preset turns them back on. Per-check and per-category entries re-enable **some** of them — `[lint.rules]
+  FCDQS = "error"` (or the `forward-compatibility` category) turns an `FC*` gate back on, and the
+  `behavior-changes` category turns the low-reliability entries back on — but the engine off-list
+  (`ERTAG`, `WNTAG`, `CTCH`, `BDLOG2`, `LOGSUM`, …) has no per-check switch: only `preset = "all"` turns
+  those back on. The full list with the probe evidence is in
+  [docs/VERIFY.md](https://github.com/watermarkhu/malt/blob/main/docs/VERIFY.md#policy).
 - These specialized engines are **off by default** under every preset except
   `all` (opt in per rule or per category):
   - `CODEGEN_ENGINE` (`code-generation`) — MATLAB Coder constraints
