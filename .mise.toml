@@ -7,7 +7,7 @@
 # 0.13.1 is kept until the wasm build is re-verified with 0.15.
 "cargo:wasm-pack" = "0.13.1"
 # Node.js used for npm publishing and local tooling (pinned; Renovate updates).
-node = "24.19.0"
+node = "24.22.3"
 # Bun for the VitePress docs project (install, `bun run docs:*` scripts).
 bun = "latest"
 # uv for the Python wrapper (PyPI package `malt`, built with maturin).
