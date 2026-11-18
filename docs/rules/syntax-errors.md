@@ -51,7 +51,7 @@ Use of two dots (..) is an invalid MATLAB construction.
 
 ### TWOCM
 
-Severity: **error** · Auto-fix: **no**
+Severity: **error** · Auto-fix: **yes**
 
 A comma cannot immediately follow another comma.
 
@@ -321,11 +321,14 @@ Binary literal has too many digits.
 
 ## Automatic fixes
 
-Two checks carry automatic fixes:
+Three checks carry automatic fixes:
 
 - `BADNE` rewrites `!=` to `~=`, the MATLAB not-equal operator.
 - `SEPEXR` inserts a `;` between two statements that share a line with no
   separator.
+- `TWOCM` deletes the second comma of `,,` (`[1,,2]` → `[1,2]`, as MATLAB's
+  fix does). `[1,,2]` is a syntax error in MATLAB, so no running code
+  changes meaning.
 
 ## Examples
 

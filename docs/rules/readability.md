@@ -247,7 +247,9 @@ Rewrites the flagged construct into the clearer equivalent:
   `ndims(x) == 2` → `ismatrix(x)` (ISMAT).
 - `repmat(c, x, y)` → `ones`/`zeros`/`true`/`false`/`Inf`/`NaN(x, y)`
   (RPMT1, RPMT0, RPMTT, RPMTF, RPMTI, RPMTN).
-- `char(10)` and `sprintf('\n')` → `newline`; `logical(1)` → `true`.
+- `char(10)` and `sprintf('\n')` → `newline`; `logical(1)` → `true`, `logical(0)` → `false`; `logical(zeros(...))` →
+  `false(...)` and `logical(ones(...))` → `true(...)` (unsafe: an argument can be a
+  class name, which `false` rejects) (LOGL).
 - `flipud(fliplr(x))` → `rot90(x,2)` (as MATLAB's own fix writes it);
   `[scalar]` loses only its two bracket tokens, keeping the inner text,
   comments and spacing as they are (NBRAK2, MATLAB's fix is the same);

@@ -8,7 +8,7 @@ use std::sync::{Arc, Mutex};
 
 use tree_sitter::Parser;
 
-use crate::diagnostic::Diagnostic;
+use crate::diagnostic::{Diagnostic, Fix};
 use crate::limits::{self, Limits};
 use crate::registry::RuleRegistry;
 use crate::rule::{FileContext, NodeContext, ProjectIndex};
@@ -667,7 +667,7 @@ fn unused_suppressions(
     suppressions: &suppression::Suppressions,
     active: &HashSet<&'static str>,
 ) -> Vec<Diagnostic> {
-    suppressions
+    let unused: Vec<&suppression::NamedId> = suppressions
         .named_ids()
         .iter()
         .filter(|named| {
@@ -677,16 +677,60 @@ fn unused_suppressions(
                         && suppressions.suppresses_from(named.line, d.line, &named.id)
                 })
         })
-        .map(|named| Diagnostic {
-            rule_id: "MSNU",
-            message: MSNU_MESSAGE.to_string(),
-            severity: Severity::Info,
-            byte_range: named.byte_range.clone(),
-            line: named.line,
-            column: named.column,
-            fix: None,
+        .collect();
+    unused
+        .iter()
+        .map(|named| {
+            let same_directive = unused.iter().filter(|o| o.comment == named.comment).count();
+            Diagnostic {
+                rule_id: "MSNU",
+                message: MSNU_MESSAGE.to_string(),
+                severity: Severity::Info,
+                byte_range: named.byte_range.clone(),
+                line: named.line,
+                column: named.column,
+                fix: msnu_fix(named, same_directive),
+            }
         })
         .collect()
+}
+
+/// The MSNU fix for one unused ID of a `%#ok<...>` directive: MATLAB's own
+/// edit, probed on every shape below. Comment text only, so the code's
+/// behaviour cannot change; what it can change is which messages show (the
+/// directive was suppressing nothing).
+///
+/// * One ID and nothing after the `>`: the whole comment goes (`x = 1; %#ok<NOPRT>`
+///   becomes `x = 1; `).
+/// * One ID and a remark after it: only `#ok<ID>` goes, the `%` and the remark
+///   stay (`%#ok<NOPRT> note` becomes `% note`).
+/// * Several IDs: the ID goes with the comma after it, or with the comma in
+///   front when it is the last one (`<NOPRT,NASGU>` and `<NASGU,NOPRT>` both
+///   become `<NASGU>`; white space around the commas is left).
+///
+/// No fix when every ID of a multi-ID directive is unused (MATLAB's edit
+/// would leave `%#ok<>`; unprobed) or when the list is not well formed.
+fn msnu_fix(named: &suppression::NamedId, unused_in_directive: usize) -> Option<Fix> {
+    let end = named.list_end?;
+    if named.parts == 1 {
+        let range = if end == named.comment.end {
+            named.comment.clone()
+        } else {
+            named.comment.start + 1..end
+        };
+        return Some(Fix::new(range, ""));
+    }
+    if unused_in_directive >= named.parts {
+        return None;
+    }
+    let range = if named.index + 1 < named.parts {
+        // The comma after the ID.
+        named.part.start..named.part.end + 1
+    } else {
+        // The comma in front of the last ID.
+        named.part.start - 1..named.part.end
+    };
+    Some(Fix::new(range, ""))
 }
 
 /// Message of MATLAB's MSNE: a `%#ok<ID>` directive naming an ID MATLAB does not know.
@@ -731,7 +775,9 @@ fn unused_bare_suppressions(
             byte_range: bare.byte_range.clone(),
             line: bare.line,
             column: bare.column,
-            fix: None,
+            // MATLAB deletes the whole comment of a bare `%#ok` (probed:
+            // `y = 2 %#ok` becomes `y = 2 `); one with a remark is left alone.
+            fix: (bare.comment.len() == "%#ok".len()).then(|| Fix::new(bare.comment.clone(), "")),
         })
         .collect()
 }

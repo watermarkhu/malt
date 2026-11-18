@@ -40,7 +40,7 @@
 //! | WNTAG | warning | no | The first argument of WARNING should be a message identifier. Using a message identifier allows users better control over the message. |
 //! | ERTAG | warning | no | The first argument of ERROR should be a message identifier. |
 //! | STCMP | warning | no | Use STRCMP instead of == or ~= to compare character vectors, or convert character vectors to string scalars for direct comparison. |
-//! | STCI | warning | no | Use STRCMPI(str1,str2) instead of using UPPER/LOWER in a call to STRCMP. |
+//! | STCI | warning | yes (unsafe) | Use STRCMPI(str1,str2) instead of using UPPER/LOWER in a call to STRCMP. |
 //! | STISA | warning | no | Consider using ISA instead of comparing the class name. |
 //! | STRNU | warning | no | This variable, apparently a structure, is changed but the value might be unused. |
 //! | EVLCS | warning | no | 'eval' is inefficient and makes code less clear. Call the statement directly. |
@@ -61,7 +61,7 @@
 //! | VALST | warning | no | VAR_NAME must be the last argument in the argument list. |
 //! | PROP | warning | no | VAR_NAME is also the name of a property, which may be confusing. Use obj.PropertyName syntax to reference the property, or rename this variable to improve readability. |
 //! | CPROP | warning | no | VAR_NAME is also the name of a property, which may be confusing. Use obj.PropertyName syntax to reference the property, or rename the property to improve readability. |
-//! | FVAL | warning | no | Calling functions using 'feval' is usually not necessary. Call the function directly instead. |
+//! | FVAL | warning | yes | Calling functions using 'feval' is usually not necessary. Call the function directly instead. |
 //! | FNCOLND | warning | no | Consider explicitly defining the array, and then using the END operator to index into it. |
 //! | COMNC | warning | yes | Comment with percent (%) following comma acts as a row separator. Replace the comma with a semicolon to make the row separation clearer. Alternatively, replace the percent (%) with an ellipsis (...) to add a comment inside a row. |
 //! | ITERS | warning | no | The Code Analyzer type analysis may be incorrect here. |
@@ -154,6 +154,17 @@
 //! - `parfor i = 1:step:end` → `parfor i = 1:end` (PFRNI).
 //! - `%comment` → `% comment` (COMNC).
 //! - `(scalar)` → `scalar` (NBRAK1).
+//! - `feval('f', x)` and `feval(@f, x)` → `f(x)` (FVAL), the text MATLAB's own fix
+//!   writes (`@pkg.fn` and `"a.b"` become `pkg.fn(...)` and `a.b(...)`). The call
+//!   is the same call, so the fix is safe, and it is withheld when the name (or
+//!   its package) is a variable or a function of the file, where the direct call
+//!   would index the variable instead (MATLAB's fix does not look: on a script
+//!   with `psd = 5; feval('psd', 1)` it writes `psd(1)`). A variable or an
+//!   anonymous function as the first argument gets no fix.
+//! - `strcmp(lower(s), 'abc')` → `strcmpi(s, 'abc')` (STCI): unsafe, because
+//!   `lower`/`upper` and the case-insensitive comparison differ on some
+//!   non-ASCII text; when both arguments convert, only the first conversion
+//!   goes (`strcmpi(a, lower(b))`), as MATLAB's fix writes it.
 //!
 //! ## Examples
 //!

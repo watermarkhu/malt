@@ -102,6 +102,11 @@ set (`tests/fixtures/fix_matlab/`) pins that. The Safe fixes by check ID:
 | FLUDLR | `flipud(fliplr(x))` → `rot90(x,2)` | yes |
 | ISCEL, ISCHR | `strcmp(class(x), 'cell')` → `iscell(x)`, ... | yes |
 | TRIM2, RPMT1, MRPBW, BADNE | the remaining single-shape rewrites (bracket to `cell` conversions, `repmat`-to-`ones`, `==` with no operands becomes `~=`) | yes |
+| FVAL | `feval('f', x)` / `feval(@f, x)` → `f(x)` (also `@pkg.fn` and `"a.b"`); not offered when `f` is a variable or a function of the file, where MATLAB's own fix would index the variable | yes (no fix where MATLAB's would index a variable) |
+| MSNU | delete the `%#ok<ID>` directive that suppresses nothing: the whole comment, or just `#ok<ID>` when a remark follows, or the ID and one comma from a list; a list whose every ID is unused is left | yes |
+| TWOCM | delete the second comma of `,,` inside brackets (`[1,,2]` is a syntax error in MATLAB) | yes |
+| STRQUOT | `string('abc')` → `"abc"` (literal single-quoted argument only) | yes |
+| FORMATNOI | `format` → `format("default")` | yes |
 | DLABINDEX, DNUMLABS, DGOP, CAXIS, ISDIR, MLNT, DEGTORAD, RADTODEG, WRITEFIS, GCAT, GPLUS, LAB* and the other direct-replacement renames | the callee token is renamed (`labindex` → `spmdIndex`, `caxis` → `clim`, ...), nothing else | yes |
 
 Two Safe fixes have no MATLAB counterpart (MATLAB offers no fix for them): SEPEX
@@ -111,7 +116,11 @@ header and re-indent an `end` to its keyword. Both are mechanical and
 meaning-preserving, and they stay Safe for that reason, not by MATLAB parity.
 
 The Unsafe ones (reported, applied only with `--fix --unsafe-fixes`):
-AND2, OR2 (`&`/`|` → `&&`/`||`), INUSD (an unused input becomes `~`),
+ISMT, ISCL (`length(x) == 0` → `isempty(x)`, `numel(x) == 1` → `isscalar(x)`: a class can overload
+them), EFIND (`isempty(find(x))` → `isempty(find(x, 1))`), FNDSB (`x(find(L))` → `x(L)`:
+`L` must be logical), STCI, STNCI (`strcmp(lower(a), b)` → `strcmpi(a, b)`), LOGL on
+`logical(zeros(...))`, TNOW2, HOLDALL (`hold all` → `hold on`), PRTOG, PRTPT
+(`-opengl` → `-image`, `-painters` → `-vector`), AND2, OR2 (`&`/`|` → `&&`/`||`), INUSD (an unused input becomes `~`),
 COMNOT, COMPNOP (`call(...) == true` shapes),
 FNAN (`x == NaN` → `isnan(x)` changes the result, which is the point),
 IJCL (`i`/`j` → `1i`), STLOW, STREMP, STRCL1, STRCLFH, STRIFCND, ISROW, ISCOL
@@ -122,7 +131,9 @@ renamed method becomes the constructor), the performance rewrites
 `x * 1` family (removed: no equivalent). Where MATLAB marks an issue fixable
 but the rewrite is not behaviour-preserving, or the opposite (malt has a fix
 MATLAB does not offer), the divergence is recorded in
-[`docs/VERIFY.md`](../VERIFY.md), '5.5 Curated safe autofixes'.
+[`docs/VERIFY.md`](../VERIFY.md), '5.5 Curated safe autofixes'. MATLAB's fixes that malt
+deliberately does not have (NUSED, ASSRT, EQEFF, LOGEMP, NOPRC: each changes behaviour or
+leaves ragged text) are listed there too.
 
 ### Explicit configuration
 

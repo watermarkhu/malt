@@ -34,11 +34,23 @@
 //! `Simulink.VariantExpression('a')` (SIMVARIANT), all byte-identical to
 //! MATLAB's own fix. The rename is behaviour-preserving in the current
 //! release (the new name is the old function's new spelling), the name is
-//! already known not to be shadowed, and so `--fix` applies it. Entries
-//! whose replacement needs code changes (`-opengl` → `-image`,
-//! `hold('all')`, `datetime(now, 'ConvertFrom', 'datenum')`) carry no fix,
-//! and commands and handles carry none either: MATLAB's fix for them is
-//! not probed.
+//! already known not to be shadowed, and so `--fix` applies it. The renames of
+//! commands and handles carry no fix: MATLAB's fix for them is not probed.
+//!
+//! Entries whose replacement is a rewrite of an argument or of the call
+//! (`rewrite` in the data file) write the text MATLAB's fix writes, on every
+//! fixture and probed shape:
+//!
+//! - `string('abc')` → `"abc"` (STRQUOT, safe: a literal single-quoted
+//!   argument only, `''` becomes `'` and `"` is doubled; blanks inside the
+//!   parentheses stay) and `format` → `format("default")` (FORMATNOI, safe:
+//!   the documented meaning of the bare command).
+//! - Unsafe, needing `--unsafe-fixes`: `datetime(now, 'ConvertFrom',
+//!   'datenum')` → `datetime("now")` (TNOW2); `hold all` / `hold('all')` →
+//!   `hold on` / `hold('on')` (HOLDALL; the two agree in R2026b, not in
+//!   releases before R2014b); `-opengl` → `-image` (PRTOG) and `-painters`
+//!   → `-vector` (PRTPT), the argument only, in the command and call form
+//!   (the renderers are not the same program).
 //!
 //! On each `function_call` or `command` node the engine extracts the function
 //! name and performs an O(1) HashMap lookup, reporting the first matching
@@ -112,6 +124,16 @@ struct SuggestedEntry {
     /// rewrite an argument (`-opengl`, `MasterSolverOptions`) or a call shape
     /// (`hold('all')`, `datetime(now, ...)`) do not, so they carry no fix.
     renames_call: bool,
+    /// The fix of an entry that is not a plain rename: `"node"` replaces the
+    /// whole matched call or command with `rewrite_text`, `"literal"` replaces the
+    /// matched literal argument (inside its quotes when it has them), `"string"`
+    /// rewrites `string('abc')` to `"abc"`. Empty: no such fix. Every one is
+    /// the text MATLAB's own fix writes (probed per entry in the data file).
+    rewrite: &'static str,
+    /// The text `rewrite` puts in place.
+    rewrite_text: &'static str,
+    /// The rewrite can change behaviour, so it needs `--unsafe-fixes`.
+    rewrite_unsafe: bool,
     /// Non-empty for checks that need class tracking or a toolbox that is not
     /// installed. Such entries are not matched by name.
     pattern: &'static str,
@@ -866,10 +888,69 @@ impl Rule for SuggestedImprovementsEngine {
                 fix: entry
                     .renames_call
                     .then(|| callee_rename_fix(node, entry.replacement))
-                    .flatten(),
+                    .flatten()
+                    .or_else(|| rewrite_fix(entry, node, &args, ctx.source)),
             })
             .collect()
     }
+}
+
+/// The fix of an entry with a `rewrite` (see [`SuggestedEntry::rewrite`]).
+fn rewrite_fix(
+    entry: &SuggestedEntry,
+    node: tree_sitter::Node,
+    args: &[tree_sitter::Node],
+    source: &str,
+) -> Option<malt_core::Fix> {
+    let fix = match entry.rewrite {
+        "node" => malt_core::Fix::new(node.byte_range(), entry.rewrite_text),
+        "literal" => {
+            let arg = args.iter().find(|a| {
+                literal_text(**a, source).is_some_and(|t| {
+                    entry.literal_args.iter().any(|l| {
+                        if entry.literal_exact {
+                            *l == t
+                        } else {
+                            l.eq_ignore_ascii_case(t)
+                        }
+                    })
+                })
+            })?;
+            let range = if arg.kind() == "string" {
+                arg.start_byte() + 1..arg.end_byte() - 1
+            } else {
+                arg.byte_range()
+            };
+            malt_core::Fix::new(range, entry.rewrite_text)
+        }
+        "string" => {
+            // `string('abc')` is `"abc"`: the call and its parentheses go, the
+            // blanks inside them stay (probed), a `'` pair becomes `''` -> `'`
+            // and a `"` is doubled. Only a literal single-quoted argument.
+            let [arg] = args else { return None };
+            let text = &source[arg.byte_range()];
+            if arg.kind() != "string" || !text.starts_with('\'') || !text.ends_with('\'') {
+                return None;
+            }
+            let inner = text[1..text.len() - 1]
+                .replace("''", "'")
+                .replace('"', "\"\"");
+            let call = node.byte_range();
+            let open = source[call.start..arg.start_byte()].to_string();
+            let close = source[arg.end_byte()..call.end].to_string();
+            let before = open
+                .trim_start_matches(|c: char| c.is_alphanumeric())
+                .strip_prefix('(')?;
+            let after = close.strip_suffix(')')?;
+            malt_core::Fix::new(call, format!("{before}\"{inner}\"{after}"))
+        }
+        _ => return None,
+    };
+    Some(if entry.rewrite_unsafe {
+        fix.unsafe_fix()
+    } else {
+        fix
+    })
 }
 
 /// The rename fix for a `renames_call` entry: replace the callee token with the

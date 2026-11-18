@@ -36,19 +36,43 @@ impl ReadabilityEngine {
         if args.len() != 1 {
             return;
         }
-        // Probed: MATLAB also reports `logical(zeros(...))` and `logical(ones(...))`,
-        // which have no `true`/`false` rewrite.
-        let replacement = match &source[args[0].start_byte()..args[0].end_byte()] {
-            "1" => Some("true"),
-            "0" => Some("false"),
-            _ if is_zeros_or_ones_call(args[0], source) => None,
+        // Probed: MATLAB also reports `logical(zeros(...))` and `logical(ones(...))` and
+        // rewrites them to `false(...)` / `true(...)` with the arguments unchanged
+        // (`logical(ones(2, 3))` gives `true(2, 3)`). The literal forms are safe;
+        // the call forms are Unsafe: `zeros(2, cls)` with a class name in `cls`
+        // is a valid call whose `false(2, cls)` is not (probed: `false(2,
+        // 'uint8')` is an error), and the arguments are not known to be sizes.
+        let text = &source[args[0].start_byte()..args[0].end_byte()];
+        let fix = match text {
+            "1" => Some(Fix::new(node.byte_range(), "true")),
+            "0" => Some(Fix::new(node.byte_range(), "false")),
+            _ if is_zeros_or_ones_call(args[0], source) => {
+                let inner = call_args(args[0]);
+                match (inner.first(), inner.last()) {
+                    (Some(first), Some(last)) => {
+                        let name = if text.starts_with("zeros") {
+                            "false"
+                        } else {
+                            "true"
+                        };
+                        Some(
+                            Fix::new(
+                                node.byte_range(),
+                                format!("{name}({})", &source[first.start_byte()..last.end_byte()]),
+                            )
+                            .unsafe_fix(),
+                        )
+                    }
+                    _ => None,
+                }
+            }
             _ => return,
         };
         results.push(self.diag(
             "LOGL",
             "Use 'true' or 'false' instead of 'logical(1)' or 'logical(0)'.",
             node,
-            replacement.map(|r| Fix::new(node.start_byte()..node.end_byte(), r)),
+            fix,
         ));
     }
 
@@ -159,14 +183,19 @@ mod zeros_tests {
     }
 
     #[test]
-    fn logl_fires_on_logical_zeros_and_ones_without_fix() {
-        // Probed: `logical(zeros(n, 1))`, `logical(ones(2))` and `logical(zeros(1,3))` are LOGL.
-        for src in ["v = logical(zeros(n, 1));\n", "v = logical(ones(2));\n"] {
+    fn logl_zeros_and_ones_fix_is_unsafe() {
+        // Probed: `logical(zeros(n, 1))` and `logical(ones(2, 3))` are LOGL and
+        // MATLAB's fix gives `false(n, 1)` and `true(2, 3)`.
+        for (src, want) in [
+            ("v = logical(zeros(n, 1));\n", "v = false(n, 1);\n"),
+            ("v = logical(ones(2, 3));\n", "v = true(2, 3);\n"),
+        ] {
             let diags = lint_nodes(&*engine(), src);
             assert!(has_id(&diags, "LOGL"), "{src}: got: {diags:?}");
-            assert!(
-                diags.iter().all(|d| d.fix.is_none()),
-                "{src}: got: {diags:?}"
+            assert_eq!(malt_core::apply_fixes(src, &diags), src, "safe mode: {src}");
+            assert_eq!(
+                malt_core::apply_fixes_with(src, &diags, malt_core::FixMode::All).0,
+                want
             );
         }
     }

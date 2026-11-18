@@ -190,6 +190,9 @@ literal_args = ["datenum"]
 arg_text = "now"
 message = "'datetime(now, 'ConvertFrom', 'datenum')' is not recommended. Use 'datetime(\"now\")' instead, which is a direct replacement."
 replacement = "datetime"
+rewrite = "node"
+rewrite_text = "datetime(\"now\")"
+rewrite_unsafe = true
 
 [[checks]]
 id = "TTDAY1"
@@ -575,6 +578,7 @@ arg_kinds = ["text"]
 arg_sole_value = true
 message = "string('...') is not recommended. Use \"...\" instead."
 replacement = ""
+rewrite = "string"
 
 [[checks]]
 id = "STRCLQT"
@@ -675,6 +679,9 @@ function_name = "print"
 literal_args = ["-opengl"]
 message = "'-opengl' is not recommended. Use '-image' instead, which is a direct replacement."
 replacement = ""
+rewrite = "literal"
+rewrite_text = "-image"
+rewrite_unsafe = true
 
 [[checks]]
 id = "PRTPT"
@@ -683,6 +690,9 @@ function_name = "print"
 literal_args = ["-painters"]
 message = "'-painters' is not recommended. Use '-vector' instead, which is a direct replacement."
 replacement = ""
+rewrite = "literal"
+rewrite_text = "-vector"
+rewrite_unsafe = true
 
 [[checks]]
 id = "FORMATNOI"
@@ -693,6 +703,8 @@ not_assigned = true
 max_args = 0
 message = "'format' with no input or output arguments is not recommended. Use 'format(\"default\")' instead."
 replacement = ""
+rewrite = "node"
+rewrite_text = "format(\"default\")"
 
 [[checks]]
 id = "XFRWSB"
@@ -806,6 +818,9 @@ function_name = "hold"
 literal_args = ["all"]
 message = "'hold('all')' is not recommended. Use 'hold('on')' instead, which is a direct replacement."
 replacement = ""
+rewrite = "literal"
+rewrite_text = "on"
+rewrite_unsafe = true
 
 [[checks]]
 id = "MASSO"

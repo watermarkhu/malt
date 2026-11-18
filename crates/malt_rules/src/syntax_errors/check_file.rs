@@ -152,7 +152,10 @@ impl SyntaxErrorsEngine {
                     byte_range: i + 1..i + 2,
                     line,
                     column: i - line_start + 2,
-                    fix: None,
+                    // MATLAB's fix deletes the second comma (probed: `[1,,2]`
+                    // gives `[1,2]`, `[1,, 2]` gives `[1, 2]`). `[1,,2]` is an
+                    // error in MATLAB, so no running code changes meaning.
+                    fix: Some(malt_core::Fix::new(i + 1..i + 2, "")),
                 });
                 i += 2;
                 continue;

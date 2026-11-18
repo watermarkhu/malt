@@ -31,7 +31,7 @@
 //! | BDFIL | error | no | Invalid MATLAB file name. MATLAB file names must start with a letter, contain only letters, numbers, or underscores, and have no more than VAR_NUMBER characters. |
 //! | BADNE | error | yes | 'Not Equals' is spelled ~= in MATLAB, not !=. |
 //! | BADOT | error | no | Use of two dots (..) is an invalid MATLAB construction. |
-//! | TWOCM | error | no | A comma cannot immediately follow another comma. |
+//! | TWOCM | error | yes | A comma cannot immediately follow another comma. |
 //! | CLIS | error | no | Defining a class in script is not allowed. |
 //! | CLTWO | error | no | Only one class definition is allowed per file, and it must come at the head of the file. |
 //! | SOFOC | error | no | Statement outside a class definition is not allowed. |
@@ -79,11 +79,14 @@
 //!
 //! ## Fix
 //!
-//! Two checks carry automatic fixes:
+//! Three checks carry automatic fixes:
 //!
 //! - `BADNE` rewrites `!=` to `~=`, the MATLAB not-equal operator.
 //! - `SEPEXR` inserts a `;` between two statements that share a line with no
 //!   separator.
+//! - `TWOCM` deletes the second comma of `,,` (`[1,,2]` → `[1,2]`, as MATLAB's
+//!   fix does). `[1,,2]` is a syntax error in MATLAB, so no running code
+//!   changes meaning.
 //!
 //! ## Examples
 //!

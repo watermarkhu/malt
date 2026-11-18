@@ -92,6 +92,9 @@ const SUGGESTED_FIELDS: &[Field] = &[
     ("not_in_call_literal", Str, false),
     ("handle", BoolDefaultTrue, false),
     ("renames_call", Bool, false),
+    ("rewrite", Str, false),
+    ("rewrite_text", Str, false),
+    ("rewrite_unsafe", Bool, false),
     ("shadowed_command", Bool, false),
     ("not_all_arg_kinds", StrList, false),
 ];

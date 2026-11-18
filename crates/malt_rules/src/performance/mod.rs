@@ -41,12 +41,12 @@
 //! | PFBNS | info | no | The entire array or structure 'VAR_NAME' is a broadcast variable. This might result in unnecessary communication overhead. |
 //! | CCAT | info | no | For improved performance, concatenate cell arrays using [] instead of extracting cell arrays and reconstructing them. |
 //! | CCAT1 | info | no | { A{I} } can usually be replaced by A(I) or A(I)', which can be much faster. |
-//! | ISMT | info | no | Using ISEMPTY is usually faster than comparing LENGTH to 0. |
-//! | ISCL | info | no | To improve performance, use 'isscalar' instead of length comparison. |
+//! | ISMT | info | yes (unsafe) | Using ISEMPTY is usually faster than comparing LENGTH to 0. |
+//! | ISCL | info | yes (unsafe) | To improve performance, use 'isscalar' instead of length comparison. |
 //! | ST2NM | info | yes (unsafe) | If you are operating on scalar values, consider using 'str2double' for faster performance. |
 //! | FLPST | info | yes (unsafe) | For better performance in some cases, use SORT with the 'descend' option. |
 //! | MXFND | info | no | Use FIND with the 'first' or 'last' option. |
-//! | EFIND | info | no | To improve performance, replace ISEMPTY(FIND(X)) with ISEMPTY(FIND( X, 1 )). |
+//! | EFIND | info | yes (unsafe) | To improve performance, replace ISEMPTY(FIND(X)) with ISEMPTY(FIND( X, 1 )). |
 //! | UDIM | info | no | Instead of using transpose (' or .'), consider using a different DIMENSION input argument to VAR_NAME. |
 //! | FREAD | info | no | FREAD(FID,...,'*char') is more efficient than CHAR(FREAD(...)). |
 //! | N2UNI | info | no | Instead of using 'native2unicode' with 'fread', specify the character encoding scheme in the call to 'fopen'. |
@@ -67,9 +67,9 @@
 //! | TRIM1 | info | yes (unsafe) | Use STRTRIM(str) instead of nesting FLIPLR and DEBLANK calls. |
 //! | TRIM2 | info | yes (unsafe) | Use STRTRIM(str) instead of DEBLANK(STRJUST(str,'left')). |
 //! | STTOK | info | no | Use one call to 'split' instead of calling 'strtok' in a loop. |
-//! | STNCI | info | no | Use STRNCMPI(str1,str2) instead of using UPPER/LOWER in a call to STRNCMP. |
+//! | STNCI | info | yes (unsafe) | Use STRNCMPI(str1,str2) instead of using UPPER/LOWER in a call to STRNCMP. |
 //! | STCCS | info | no | It appears that STRCMPI/STRNCMPI can be replaced by a faster, case sensitive compare. |
-//! | FNDSB | info | no | For array or cell array, performance can be improved using logical indexing instead of 'find'. |
+//! | FNDSB | info | yes (unsafe) | For array or cell array, performance can be improved using logical indexing instead of 'find'. |
 //!
 //! ## Fix
 //!
@@ -82,6 +82,21 @@
 //! - `fliplr(sort(x))` → `sort(x, 'descend')` (FLPST).
 //! - `regionprops(bwlabel(bw), …)` → `regionprops(logical(bw), …)` (MRPBW).
 //! - nested `fliplr`/`deblank` and `deblank(strjust(s, 'left'))` → `strtrim(s)` (TRIM1, TRIM2).
+//! - `length(x) == 0` and `0 == length(x)` → `isempty(x)`, `length(x) ~= 0` and
+//!   `length(x) > 0` → `~isempty(x)`, `if length(x)` → `if ~isempty(x)`, in a
+//!   condition `length(x) == 0 & b` → `isempty(x) & b` (ISMT); `length(x) == 1`
+//!   and `numel(x) == 1` → `isscalar(x)` (ISCL). The text is MATLAB's own on
+//!   every fixture; unsafe because a class can overload `length`, `numel`
+//!   or `isempty`.
+//! - `isempty(find(x))` → `isempty(find(x, 1))` (EFIND); not offered when
+//!   `find` or `isempty` is a variable or a function of the file, where MATLAB's
+//!   own fix would break the call. Unsafe: a class may overload `find`.
+//! - `x(find(L))` → `x(L)` and `idx = find(L); x(idx)` → `idx = L; x(idx)`
+//!   (FNDSB). Unsafe: `L` has to be logical at runtime, and the two forms
+//!   do not fail alike when `x` is shorter than `L`.
+//! - `strncmp(lower(a), b, n)` → `strncmpi(a, b, n)` (STNCI); only the first
+//!   conversion goes, as MATLAB's fix leaves the other. Unsafe: case folding
+//!   differs for some non-ASCII text.
 //!
 //! ## Examples
 //!

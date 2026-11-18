@@ -42,7 +42,7 @@ impl GoodPracticesEngine {
             byte_range: node.start_byte()..node.end_byte(),
             line: pos.row + 1,
             column: pos.column + 1,
-            fix: None,
+            fix: crate::analysis::strcase::case_insensitive_fix(node, source, "strcmpi"),
         }]
     }
 }

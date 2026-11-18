@@ -112,6 +112,53 @@ fn known_verdict(value: &str, literal: &str, upper: bool) -> Option<StrcmpCase> 
     }
 }
 
+/// The fix of STCI and STNCI: the call `strcmp(...)` / `strncmp(...)` becomes
+/// `strcmpi(...)` / `strncmpi(...)` and the first direct `lower(x)` / `upper(x)`
+/// argument becomes `x`. Any other conversion stays, as MATLAB's own fix leaves
+/// it (probed: `strcmp(lower(a), lower(b))` gives `strcmpi(a, lower(b))`).
+/// Unsafe: `lower`/`upper` and the case-insensitive comparison fold case by
+/// different rules for some non-ASCII text, and a conversion also changes the
+/// class of non-text input.
+pub(crate) fn case_insensitive_fix(
+    call: tree_sitter::Node,
+    source: &str,
+    insensitive_name: &str,
+) -> Option<malt_core::Fix> {
+    let name = call.child_by_field_name("name")?;
+    let mut cursor = call.walk();
+    let args = call
+        .children(&mut cursor)
+        .find(|c| c.kind() == "arguments")?;
+    for index in 0..2 {
+        let arg = args.named_child(index)?;
+        if arg.kind() != "function_call" {
+            continue;
+        }
+        let callee = &source[arg.child_by_field_name("name")?.byte_range()];
+        if !matches!(callee, "lower" | "upper") {
+            continue;
+        }
+        let mut c = arg.walk();
+        let inner_args = arg.children(&mut c).find(|c| c.kind() == "arguments")?;
+        if inner_args.named_child_count() != 1 {
+            return None;
+        }
+        let inner = inner_args.named_child(0)?;
+        return Some(
+            malt_core::Fix::with_additional(
+                name.byte_range(),
+                insensitive_name.to_string(),
+                vec![malt_core::Fix::new(
+                    arg.byte_range(),
+                    source[inner.byte_range()].to_string(),
+                )],
+            )
+            .unsafe_fix(),
+        );
+    }
+    None
+}
+
 /// Whether the literal `s` differs in case from a conversion's output: a
 /// `upper` output has no lowercase letters, a `lower` output no uppercase ones.
 fn conflicts(s: &str, upper: bool) -> bool {

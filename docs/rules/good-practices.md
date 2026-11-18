@@ -70,7 +70,7 @@ Use STRCMP instead of == or ~= to compare character vectors, or convert characte
 
 ### STCI
 
-Severity: **warning** · Auto-fix: **no**
+Severity: **warning** · Auto-fix: **yes**
 
 Use STRCMPI(str1,str2) instead of using UPPER/LOWER in a call to STRCMP.
 
@@ -196,7 +196,7 @@ VAR_NAME is also the name of a property, which may be confusing. Use obj.Propert
 
 ### FVAL
 
-Severity: **warning** · Auto-fix: **no**
+Severity: **warning** · Auto-fix: **yes**
 
 Calling functions using 'feval' is usually not necessary. Call the function directly instead.
 
@@ -681,6 +681,17 @@ Rewrites the flagged construct into the cleaner equivalent:
 - `parfor i = 1:step:end` → `parfor i = 1:end` (PFRNI).
 - `%comment` → `% comment` (COMNC).
 - `(scalar)` → `scalar` (NBRAK1).
+- `feval('f', x)` and `feval(@f, x)` → `f(x)` (FVAL), the text MATLAB's own fix
+  writes (`@pkg.fn` and `"a.b"` become `pkg.fn(...)` and `a.b(...)`). The call
+  is the same call, so the fix is safe, and it is withheld when the name (or
+  its package) is a variable or a function of the file, where the direct call
+  would index the variable instead (MATLAB's fix does not look: on a script
+  with `psd = 5; feval('psd', 1)` it writes `psd(1)`). A variable or an
+  anonymous function as the first argument gets no fix.
+- `strcmp(lower(s), 'abc')` → `strcmpi(s, 'abc')` (STCI): unsafe, because
+  `lower`/`upper` and the case-insensitive comparison differ on some
+  non-ASCII text; when both arguments convert, only the first conversion
+  goes (`strcmpi(a, lower(b))`), as MATLAB's fix writes it.
 
 ## Examples
 

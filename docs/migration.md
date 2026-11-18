@@ -61,7 +61,10 @@ warning (below).
 - **Now:** `--fix` applies **safe** fixes only, repeating until nothing changes
   (a fix can enable another). Fixes that may change behaviour (`str2num` →
   `str2double`, `a & b` → `a && b`, …) are reported as
-  `N more with --fix --unsafe-fixes` and applied only with that flag.
+  `N more with --fix --unsafe-fixes` and applied only with that flag. Since the
+  second curation pass `--fix` also applies FVAL, MSNU (deleting a `%#ok`
+  directive that suppresses nothing), TWOCM, STRQUOT and FORMATNOI, with the
+  text MATLAB's own fix writes.
 
 Exit codes:
 

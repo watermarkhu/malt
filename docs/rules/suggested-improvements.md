@@ -283,11 +283,23 @@ becomes `isfolder(p)` (ISDIR), and `Simulink.Variant('a')` becomes
 `Simulink.VariantExpression('a')` (SIMVARIANT), all byte-identical to
 MATLAB's own fix. The rename is behaviour-preserving in the current
 release (the new name is the old function's new spelling), the name is
-already known not to be shadowed, and so `--fix` applies it. Entries
-whose replacement needs code changes (`-opengl` → `-image`,
-`hold('all')`, `datetime(now, 'ConvertFrom', 'datenum')`) carry no fix,
-and commands and handles carry none either: MATLAB's fix for them is
-not probed.
+already known not to be shadowed, and so `--fix` applies it. The renames of
+commands and handles carry no fix: MATLAB's fix for them is not probed.
+
+Entries whose replacement is a rewrite of an argument or of the call
+(`rewrite` in the data file) write the text MATLAB's fix writes, on every
+fixture and probed shape:
+
+- `string('abc')` → `"abc"` (STRQUOT, safe: a literal single-quoted
+  argument only, `''` becomes `'` and `"` is doubled; blanks inside the
+  parentheses stay) and `format` → `format("default")` (FORMATNOI, safe:
+  the documented meaning of the bare command).
+- Unsafe, needing `--unsafe-fixes`: `datetime(now, 'ConvertFrom',
+  'datenum')` → `datetime("now")` (TNOW2); `hold all` / `hold('all')` →
+  `hold on` / `hold('on')` (HOLDALL; the two agree in R2026b, not in
+  releases before R2014b); `-opengl` → `-image` (PRTOG) and `-painters`
+  → `-vector` (PRTPT), the argument only, in the command and call form
+  (the renderers are not the same program).
 
 On each `function_call` or `command` node the engine extracts the function
 name and performs an O(1) HashMap lookup, reporting the first matching

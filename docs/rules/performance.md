@@ -96,13 +96,13 @@ Severity: **info** · Auto-fix: **no**
 
 ### ISMT
 
-Severity: **info** · Auto-fix: **no**
+Severity: **info** · Auto-fix: **yes**
 
 Using ISEMPTY is usually faster than comparing LENGTH to 0.
 
 ### ISCL
 
-Severity: **info** · Auto-fix: **no**
+Severity: **info** · Auto-fix: **yes**
 
 To improve performance, use 'isscalar' instead of length comparison.
 
@@ -126,7 +126,7 @@ Use FIND with the 'first' or 'last' option.
 
 ### EFIND
 
-Severity: **info** · Auto-fix: **no**
+Severity: **info** · Auto-fix: **yes**
 
 To improve performance, replace ISEMPTY(FIND(X)) with ISEMPTY(FIND( X, 1 )).
 
@@ -252,7 +252,7 @@ Use one call to 'split' instead of calling 'strtok' in a loop.
 
 ### STNCI
 
-Severity: **info** · Auto-fix: **no**
+Severity: **info** · Auto-fix: **yes**
 
 Use STRNCMPI(str1,str2) instead of using UPPER/LOWER in a call to STRNCMP.
 
@@ -264,7 +264,7 @@ It appears that STRCMPI/STRNCMPI can be replaced by a faster, case sensitive com
 
 ### FNDSB
 
-Severity: **info** · Auto-fix: **no**
+Severity: **info** · Auto-fix: **yes**
 
 For array or cell array, performance can be improved using logical indexing instead of 'find'.
 
@@ -279,6 +279,21 @@ All rewrites are unsafe fixes (they can change behaviour):
 - `fliplr(sort(x))` → `sort(x, 'descend')` (FLPST).
 - `regionprops(bwlabel(bw), …)` → `regionprops(logical(bw), …)` (MRPBW).
 - nested `fliplr`/`deblank` and `deblank(strjust(s, 'left'))` → `strtrim(s)` (TRIM1, TRIM2).
+- `length(x) == 0` and `0 == length(x)` → `isempty(x)`, `length(x) ~= 0` and
+  `length(x) > 0` → `~isempty(x)`, `if length(x)` → `if ~isempty(x)`, in a
+  condition `length(x) == 0 & b` → `isempty(x) & b` (ISMT); `length(x) == 1`
+  and `numel(x) == 1` → `isscalar(x)` (ISCL). The text is MATLAB's own on
+  every fixture; unsafe because a class can overload `length`, `numel`
+  or `isempty`.
+- `isempty(find(x))` → `isempty(find(x, 1))` (EFIND); not offered when
+  `find` or `isempty` is a variable or a function of the file, where MATLAB's
+  own fix would break the call. Unsafe: a class may overload `find`.
+- `x(find(L))` → `x(L)` and `idx = find(L); x(idx)` → `idx = L; x(idx)`
+  (FNDSB). Unsafe: `L` has to be logical at runtime, and the two forms
+  do not fail alike when `x` is shorter than `L`.
+- `strncmp(lower(a), b, n)` → `strncmpi(a, b, n)` (STNCI); only the first
+  conversion goes, as MATLAB's fix leaves the other. Unsafe: case folding
+  differs for some non-ASCII text.
 
 ## Examples
 

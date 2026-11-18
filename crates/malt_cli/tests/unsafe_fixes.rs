@@ -41,6 +41,31 @@ const UNSAFE: &[(&str, &str)] = &[
         "y = strcmpi(lower(s), 'abc');\ndisp(y);\n",
         "strcmpi(s, 'abc')",
     ),
+    // A class can overload length, numel, isempty and find.
+    ("if length(x) == 0\n  disp(1);\nend\n", "isempty(x)"),
+    ("y = (numel(x) == 1);\ndisp(y);\n", "isscalar(x)"),
+    ("y = isempty(find(z));\ndisp(y);\n", "find(z, 1)"),
+    // A numeric L indexes by value, not by position of its nonzero entries.
+    ("a = rand(3);\nb = a(find(a > 1));\ndisp(b);\n", "a(a > 1)"),
+    // lower/upper and the case-insensitive comparisons fold case differently.
+    (
+        "y = strcmp(lower(s), 'abc');\ndisp(y);\n",
+        "strcmpi(s, 'abc')",
+    ),
+    (
+        "y = strncmp(upper(s), 'ABC', 2);\ndisp(y);\n",
+        "strncmpi(s, 'ABC', 2)",
+    ),
+    // An argument of zeros can be a class name, which false rejects.
+    ("v = logical(zeros(n, 1));\ndisp(v);\n", "false(n, 1)"),
+    // The replacement is documented as direct, not proven the same.
+    (
+        "z = datetime(now, 'ConvertFrom', 'datenum');\ndisp(z);\n",
+        "datetime(\"now\")",
+    ),
+    ("hold all\n", "hold on"),
+    ("print -opengl f.png\n", "-image"),
+    ("print -painters f.png\n", "-vector"),
 ];
 
 #[test]

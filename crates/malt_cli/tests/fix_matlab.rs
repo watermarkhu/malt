@@ -1,15 +1,17 @@
-//! malt's Safe autofixes checked against MATLAB's own `fix`, on the same pairs.
+//! malt's autofixes checked against MATLAB's own `fix`, on the same pairs.
 //!
 //! `fixtures/fix_matlab/<fixture>.<ID>.m` holds the text MATLAB's
 //! `codeIssues(...).fix(ID)` produces for the fixture `<fixture>.m`. Every
-//! committed pair is one of malt's Safe fixes that must equal MATLAB's output
-//! byte for byte: the default `--fix` applies them, so a difference here is
-//! what a user would see. Unsafe fixes (AND2, OR2, IJCL, STREMP, FNAN, MCFIL,
-//! ...) are deliberately not committed: their rewrites are right in the common
-//! case and can change behaviour, and the shapes where malt is knowingly
+//! committed pair is a fix of malt's, Safe or Unsafe, that must equal MATLAB's
+//! output byte for byte (two to three representative fixtures per check ID; the
+//! full inventory is in `docs/VERIFY.md`, '5.5 Curated safe autofixes'). The
+//! Unsafe ones (ISMT, AND2, OR2, IJCL, STREMP, FNAN, MCFIL, ...) are applied in
+//! the comparison with `--unsafe-fixes` on: what they write is MATLAB's text,
+//! and they are Unsafe because the rewrite can change behaviour in some
+//! situation, which the default `--fix` does not accept. Where malt is knowingly
 //! deeper or shallower than MATLAB (NOSEMI's convergence, DSPSP's
-//! statement-only form) are documented in `docs/VERIFY.md`, '5.5 Curated safe
-//! autofixes'.
+//! statement-only form, FVAL on a name that is a variable in the file) the
+//! pair is not committed; those are documented in the same section.
 //!
 //! Two phases, as in `matlab_live.rs`. Generation:
 //! `tests/matlab/generate_fixes.m` copies each committed pair's fixture under
@@ -100,8 +102,8 @@ fn visit(dir: &Path, f: &mut impl FnMut(&Path)) -> Result<()> {
 }
 
 /// malt's fixed text for one pair: the default configuration, only the fixes
-/// of `id` (Safe only — the committed pairs are Safe fixes), repeated until
-/// the source stops changing, as `fix_source` does.
+/// of `id` (Safe and Unsafe), repeated until the source stops changing, as
+/// `fix_source` does.
 fn malt_fixed(source: &str, path: &Path, id: &str) -> String {
     let mut linter = linter();
     let mut current = source.to_string();
@@ -112,8 +114,7 @@ fn malt_fixed(source: &str, path: &Path, id: &str) -> String {
             .filter(|d| d.rule_id == id)
             .cloned()
             .collect();
-        let (next, applied) =
-            malt_core::apply_fixes_with(&current, &mine, malt_core::FixMode::Safe);
+        let (next, applied) = malt_core::apply_fixes_with(&current, &mine, malt_core::FixMode::All);
         if applied == 0 || next == current {
             return current;
         }
@@ -130,9 +131,9 @@ fn linter() -> malt_core::Linter {
     linter
 }
 
-/// The pairs where malt's Safe fix does not reproduce MATLAB's text.
+/// The pairs where malt's fix does not reproduce MATLAB's text.
 #[test]
-fn malt_safe_fixes_equal_matlab_fix_texts() {
+fn malt_fixes_equal_matlab_fix_texts() {
     let problems: Vec<String> = std::thread::Builder::new()
         .stack_size(256 * 1024 * 1024)
         .spawn(|| -> Vec<String> {
@@ -159,7 +160,7 @@ fn malt_safe_fixes_equal_matlab_fix_texts() {
         .unwrap();
     assert!(
         problems.is_empty(),
-        "{} committed pair(s) where malt's Safe fix is not MATLAB's:\n{}",
+        "{} committed pair(s) where malt's fix is not MATLAB's:\n{}",
         problems.len(),
         problems.join("\n")
     );

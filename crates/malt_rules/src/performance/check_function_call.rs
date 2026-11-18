@@ -3,7 +3,9 @@
 //! TRIM1, TRIM2, STTOK, STNCI, STCCS) and on `cell` nodes (CCAT, CCAT1).
 
 use super::*;
+use crate::analysis::callee::{is_shadowed, Visibility};
 use crate::analysis::control_flow::in_unreachable_code;
+use crate::analysis::symbols::SymbolTable;
 
 type Node<'a> = tree_sitter::Node<'a>;
 
@@ -41,6 +43,25 @@ fn string_literal<'a>(node: Node<'a>, source: &'a str) -> Option<&'a str> {
     let b = t.as_bytes();
     (t.len() >= 2 && (b[0] == b'\'' || b[0] == b'"') && b[b.len() - 1] == b[0])
         .then(|| &t[1..t.len() - 1])
+}
+
+/// The FNDSB fix: `A(find(L))` becomes `A(L)` and the assignment
+/// `idx = find(L)` becomes `idx = L` (probed on both forms; the direct form is
+/// reported at the `find`, the variable form at the subscript that reads
+/// `idx`). The `find(...)` node is replaced by its single argument, verbatim.
+///
+/// Unsafe: the rewrite keeps the selected elements only when `L` is a logical
+/// array at runtime — a numeric `L` makes `A(L)` index by the *values* of `L`
+/// instead of the positions of its nonzero entries — and logical indexing
+/// errors earlier than `find`-indexing when `A` is shorter than `L`'s source
+/// array, because `A(idx)` only rejects indices past `numel(A)` while `A(L)`
+/// requires `numel(A) >= numel(L)`.
+fn find_subscript_fix<'a>(find: Node<'a>, source: &'a str) -> Fix {
+    let arg = &source[find.start_byte()..find.end_byte()];
+    // `find(<arg>)`: keep the text between the parens verbatim.
+    let open = arg.find('(').map(|o| o + 1).unwrap_or(0);
+    let close = arg.rfind(')').unwrap_or(arg.len());
+    Fix::new(find.byte_range(), &arg[open..close]).unsafe_fix()
 }
 
 /// Whether `node` is inside a `while` loop (within the current function).
@@ -300,7 +321,26 @@ impl PerformanceEngine {
         if on("EFIND") && func_name == "isempty" && args.len() == 1 {
             if let Some(find_args) = call_to(args[0], source, "find") {
                 if find_args.len() == 1 {
-                    diags.push(make_diag("EFIND", node));
+                    // MATLAB's fix inserts `, 1` before the closing paren of
+                    // `find` (probed: `isempty(find(z))` becomes
+                    // `isempty(find(z, 1))`, also as a condition). Unsafe: for
+                    // arrays the two agree on every input, but a class that
+                    // overloads `find` may not accept the count argument.
+                    // Not offered when `find` or `isempty` is shadowed in the
+                    // file: MATLAB's own fix ignores a local `function y =
+                    // find(x)` and rewrites the call to two arguments, which
+                    // the local function rejects (probed), and it is silent
+                    // when `find` is a variable (probed).
+                    let mut root = node;
+                    while let Some(parent) = root.parent() {
+                        root = parent;
+                    }
+                    let table = SymbolTable::shared(|| root, source);
+                    let shadowed = is_shadowed(node, "isempty", &table, Visibility::WithScript)
+                        || is_shadowed(args[0], "find", &table, Visibility::WithScript);
+                    let fix = (!shadowed)
+                        .then(|| Fix::insert(args[0].end_byte() - 1, ", 1").unsafe_fix());
+                    diags.push(make_diag_with_fix("EFIND", node, fix));
                 }
             }
         }
@@ -328,7 +368,11 @@ impl PerformanceEngine {
             });
             if let Some(name) = parent_call.and_then(|c| call_path(c, source, Dotted::Skip)) {
                 if is_known_variable(node, source, name) {
-                    diags.push(make_diag("FNDSB", node));
+                    diags.push(make_diag_with_fix(
+                        "FNDSB",
+                        node,
+                        Some(find_subscript_fix(node, source)),
+                    ));
                 }
             }
         }
@@ -336,7 +380,11 @@ impl PerformanceEngine {
         // FNDSB, variable form: reported at the one subscript that reads `idx = find(L)`
         if on("FNDSB") && func_name == "find" && args.len() == 1 {
             if let Some(use_node) = find_index_use(node, source) {
-                diags.push(make_diag("FNDSB", use_node));
+                diags.push(make_diag_with_fix(
+                    "FNDSB",
+                    use_node,
+                    Some(find_subscript_fix(node, source)),
+                ));
             }
         }
 
@@ -458,7 +506,8 @@ impl PerformanceEngine {
             && crate::analysis::strcase::strcmp_case(node, source)
                 == Some(crate::analysis::strcase::StrcmpCase::Insensitive)
         {
-            diags.push(make_diag("STNCI", node));
+            let fix = crate::analysis::strcase::case_insensitive_fix(node, source, "strncmpi");
+            diags.push(make_diag_with_fix("STNCI", node, fix));
         }
 
         // STCCS: strcmpi/strncmpi against a literal that has no letters

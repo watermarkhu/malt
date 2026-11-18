@@ -1,5 +1,8 @@
 use super::*;
+use crate::analysis::callee::{is_shadowed, Visibility};
 use crate::analysis::reaching::resolved_values;
+use crate::analysis::symbols::SymbolTable;
+use malt_core::Fix;
 
 impl GoodPracticesEngine {
     /// FVAL: `feval` with a literal function name or handle, which can be a
@@ -10,6 +13,7 @@ impl GoodPracticesEngine {
         }
 
         let mut diagnostics = Vec::new();
+        let table = SymbolTable::shared(|| tree.root_node(), source);
         let mut stack = vec![tree.root_node()];
         while let Some(node) = stack.pop() {
             if node.kind() == "function_call" && is_literal_feval(node, source) {
@@ -22,7 +26,7 @@ impl GoodPracticesEngine {
                     byte_range: node.byte_range(),
                     line: pos.row + 1,
                     column: pos.column + 1,
-                    fix: None,
+                    fix: fval_fix(node, source, &table),
                 });
             }
             let mut cursor = node.walk();
@@ -31,6 +35,108 @@ impl GoodPracticesEngine {
         diagnostics.sort_by_key(|d| d.byte_range.start);
         diagnostics
     }
+}
+
+/// The FVAL fix: `feval('f', x)` and `feval(@f, x)` become `f(x)`; the callee
+/// name replaces `feval` and the first argument goes with the comma and the
+/// blanks (or continuation) up to the next argument. This is the text MATLAB's
+/// own fix writes (probed: `feval( @sin , 1 )` gives `sin( 1 )`, `feval(@sin)`
+/// gives `sin()`, `feval(@sin, ...\n 1)` gives `sin(1)`, `@pkg.fn` and
+/// `"a.b"` give `pkg.fn(...)` and `a.b(...)`; a variable or an anonymous
+/// function as the first argument gets no fix).
+///
+/// Safe because the call is the same call: `feval` resolves the name when it
+/// runs, as the direct call does, the arguments are evaluated in the same order
+/// and passed unchanged (`varargin{:}` included), the number of outputs is
+/// whatever the context asks for either way, and the callee's `inputname`
+/// sees the same names (probed). What could differ is only a name that means
+/// something else as a direct call: a variable called `f` (indexed instead of
+/// called) or a keyword. The fix is not offered when the name, or the first
+/// segment of a dotted name, is a variable or a function defined in the file,
+/// when `feval` itself is shadowed, or when the written name is not a plain
+/// (dotted) identifier.
+fn fval_fix(call: Node, source: &str, table: &SymbolTable) -> Option<Fix> {
+    let name_node = call.child_by_field_name("name")?;
+    let mut cursor = call.walk();
+    let args = call
+        .children(&mut cursor)
+        .find(|c| c.kind() == "arguments")?;
+    let first = args.named_child(0)?;
+    let text = &source[first.byte_range()];
+    let callee = match first.kind() {
+        "string" => {
+            let inner = text.get(1..text.len().checked_sub(1)?)?;
+            if !(text.starts_with('\'') && text.ends_with('\'')
+                || text.starts_with('"') && text.ends_with('"'))
+            {
+                return None;
+            }
+            inner
+        }
+        "handle_operator" => text.strip_prefix('@')?,
+        _ => return None,
+    };
+    if !is_plain_dotted_name(callee) || is_keyword(callee) {
+        return None;
+    }
+    let head = callee.split('.').next()?;
+    if is_shadowed(call, head, table, Visibility::WithScript)
+        || is_shadowed(call, "feval", table, Visibility::WithScript)
+    {
+        return None;
+    }
+    // Delete from the first argument to the start of the next one, or just the
+    // first argument when it is alone.
+    let delete_end = args
+        .named_child(1)
+        .map_or(first.end_byte(), |second| second.start_byte());
+    Some(Fix::with_additional(
+        name_node.byte_range(),
+        callee.to_string(),
+        vec![Fix::new(first.start_byte()..delete_end, "")],
+    ))
+}
+
+/// `name` or `pkg.name` with identifier segments only.
+fn is_plain_dotted_name(text: &str) -> bool {
+    !text.is_empty()
+        && text.split('.').all(|seg| {
+            let mut chars = seg.chars();
+            chars.next().is_some_and(|c| c.is_ascii_alphabetic())
+                && chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
+        })
+}
+
+/// MATLAB's reserved words, which cannot be called.
+fn is_keyword(text: &str) -> bool {
+    matches!(
+        text,
+        "break"
+            | "case"
+            | "catch"
+            | "classdef"
+            | "continue"
+            | "else"
+            | "elseif"
+            | "end"
+            | "for"
+            | "function"
+            | "global"
+            | "if"
+            | "otherwise"
+            | "parfor"
+            | "persistent"
+            | "return"
+            | "spmd"
+            | "switch"
+            | "try"
+            | "while"
+            | "arguments"
+            | "enumeration"
+            | "events"
+            | "methods"
+            | "properties"
+    )
 }
 
 /// `feval(<char literal | @name>, ...)`: the callee is known statically.

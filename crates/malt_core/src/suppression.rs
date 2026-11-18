@@ -42,6 +42,17 @@ pub struct NamedId {
     pub column: usize,
     /// Byte range of the same position in the source.
     pub byte_range: Range<usize>,
+    /// Byte range of the whole directive comment (`%#ok<...>` and what follows).
+    pub comment: Range<usize>,
+    /// Byte range of this ID inside the `<...>` list; empty for a bare `%#ok`.
+    pub part: Range<usize>,
+    /// Number of entries in the `<...>` list (wildcards included).
+    pub parts: usize,
+    /// Index of this ID in the list.
+    pub index: usize,
+    /// Byte offset just past the closing `>`, when the list is well formed
+    /// (closed, no empty entry); only such a directive gets an MSNU fix.
+    pub list_end: Option<usize>,
 }
 
 /// Suppression directives parsed from a source buffer, keyed by 1-indexed line.
@@ -243,6 +254,11 @@ fn read_directive(source: &str, comment: Node, out: &mut Suppressions) {
                 line,
                 column: column_of(source, start),
                 byte_range: start..start + 1,
+                comment: comment.byte_range(),
+                part: start..start,
+                parts: 0,
+                index: 0,
+                list_end: None,
             });
         }
         return;
@@ -263,6 +279,10 @@ fn read_directive(source: &str, comment: Node, out: &mut Suppressions) {
     }
 
     let single = names.len() == 1;
+    let closed = body.contains('>');
+    let list_end = (closed && content.split(',').all(|p| !p.is_empty()))
+        .then(|| comment.start_byte() + "%#ok<".len() + content.len() + 1);
+    let parts = content.split(',').count();
     for (name_start, name) in names {
         if let Some(id) = name.strip_prefix('*') {
             out.file_wide.insert(id.to_string());
@@ -287,6 +307,12 @@ fn read_directive(source: &str, comment: Node, out: &mut Suppressions) {
             line,
             column: column_of(source, byte),
             byte_range: byte..byte + width,
+            comment: comment.byte_range(),
+            part: comment.start_byte() + "%#ok<".len() + name_start
+                ..comment.start_byte() + "%#ok<".len() + name_start + name.len(),
+            parts,
+            index: content[..name_start].matches(',').count(),
+            list_end,
         });
     }
 }
