@@ -33,7 +33,7 @@
 //! | PREALL | warning | no | The preallocated value assigned to variable might be unused. |
 //! | INUSA | warning | no | Input argument might be unused after the function arguments block(s). |
 //! | INUSD | warning | no | Input argument might be unused. Consider replacing the argument with ~ instead. |
-//! | VANUS | warning | no | Input argument 'varargin' might be unused. Not emitted: MATLAB reported none in its probes. |
+//! | VANUS | warning | no | Input argument 'varargin' might be unused. Reported only when enabled (off under `mathworks`): MATLAB reports it with every check on. |
 //! | VUNUS | warning | no | <operator> produces a value that might be unused. |
 //! | DEFNU | warning | no | Function might be unused. |
 //! | UNRCH | warning | no | This statement (and possibly following ones) cannot be reached. |

@@ -2,9 +2,11 @@
 
 use super::*;
 
-/// VANUS is not emitted: MATLAB reported no unused `varargin` in about nine probes
-/// (functions, methods and scripts; with `nargin`, `varargout`, `error` or no use).
-const VANUS_REPORTED: bool = false;
+/// VANUS is emitted, and off under the `mathworks` preset (see `UnusedEngine::from_config`):
+/// MATLAB's default analysis never reports an unused `varargin` (about nine probes), but with the
+/// check enabled in a configuration file it does (35 lines over the conformance fixtures,
+/// `docs/VERIFY.md`, 'Preset all against MATLAB').
+const VANUS_REPORTED: bool = true;
 
 impl UnusedEngine {
     /// Run VANUS check: a `varargin` input argument that is never used.
@@ -52,9 +54,12 @@ mod tests {
     // -- VANUS: unused `varargin` input argument -----------------------------
 
     #[test]
-    fn vanus_silent_on_unused_varargin() {
-        // Probed: MATLAB reports no unused varargin, so the check is not emitted.
+    fn vanus_fires_on_unused_varargin_when_enabled() {
         let diags = lint_file(&*engine(), "function foo(varargin)\nend\n");
+        assert!(has_id(&diags, "VANUS"), "got: {diags:?}");
+        // Off under the default (`mathworks`) preset, where MATLAB is silent.
+        let default = UnusedEngine::from_config(&Config::default());
+        let diags = lint_file(&*default, "function foo(varargin)\nend\n");
         assert!(!has_id(&diags, "VANUS"), "got: {diags:?}");
     }
 

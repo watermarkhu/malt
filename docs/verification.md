@@ -56,6 +56,22 @@ then the test compares against the recorded file without starting MATLAB
 (licensing: only the `run-*` actions license MATLAB on a public repository).
 Locally, the test starts MATLAB itself when one is on `PATH`.
 
+## The all-checks run
+
+The default comparison cannot see the experimental checks: they are off under `mathworks`, and MATLAB
+does not report them by default either. A second recording closes that gap with the same machinery.
+`tests/matlab/generate_checkcode_all.m` runs `checkcode(file, '-id', '-config=<json>')` over the same
+fixtures with a generated configuration that enables **every** check of the catalogue (the
+`-allmsg` listing), the thresholds at malt's defaults. `fixtures/matlab_expected_all.tsv` records the
+result (path, line, ID); `matlab_conformance_all.rs` compares it with malt's `--preset all`, and
+`matlab_live_all.rs` checks the recording against live MATLAB (the CI `matlab` job runs both, in the
+same two phases). The differences that are not fixed are in `tests/matlab/all_preset_allowlist.tsv`,
+each with a reason, and an entry that matches nothing fails, so the list can only shrink. The limits:
+naming is not compared (MATLAB needs values for it, malt has other defaults), nor are the `CABE`
+metrics, `LLMCC`, the configuration messages and the `DAF*` checks; message text is compared by hand
+for the promotion candidates only. The results, per engine, are in
+[Verification: preset all against MATLAB](VERIFY.md#preset-all-against-matlab).
+
 ## Probing rounds
 
 Beyond fixtures, each engine was audited with systematic probe files: small
@@ -91,11 +107,11 @@ The same pattern covers MATLAB's `codeAnalyzerConfiguration.json`:
 | Area | Status |
 | ---- | ------ |
 | Everything the default analysis reports: syntax errors, language specification, bugs, good practices, readability, formatting, performance, unused/unset variables, incomplete analysis, suggested improvements and the non-object compatibility entries | **Verified**: nearly 800 fixtures with recorded expectations, live `checkcode` parity in CI including message text, and the probing rounds above |
-| The `mathworks` off-list (checks MATLAB never reports by default) and the low-reliability compatibility entries | Off under the default preset (see [the policy](VERIFY.md#policy)); their on-side under `--preset all` is **not** compared with MATLAB |
+| The `mathworks` off-list (checks MATLAB never reports by default) and the low-reliability compatibility entries | Off under the default preset (see [the policy](VERIFY.md#policy)); their on-side under `--preset all` is compared with MATLAB with every check enabled ([the all-checks run](#the-all-checks-run)): most agree, and the ones MATLAB never reports are demotion candidates |
 | Naming (`naming.*`) | MATLAB reports naming checks **only** through a code analyzer configuration, so they are off under `mathworks`; the engine was probed with configured probes, and a few semantics (parent-scope variables, script-level local functions) remain unprobed |
 | Compatibility entries with `pattern = "object"` (~166) and `pattern = "unverified"` | **Best effort**: MATLAB reports the object entries only on a variable of the class, which needs class tracking; `unverified` entries were silent in every probe form |
-| Code generation, deployment, fixed point | **Best effort**: `checkcode` never emitted them in the probes (they need toolboxes and `%#codegen`); the engines are verified against MathWorks' documentation index only, and EMSCR/EMTC/EMIMP are gated on `%#codegen` |
-| The custom-check mappings of `LLMNC`, `FCNIL`, `FCNOL`, `SCYCCOM`, `ACYCCOM`, `MCYCCOM`, `MSCYCCOM`, `MACYCCOM`, `SYSBANG` and the other `DAF*` limits | Mapped from MATLAB's message text; **not verified** against a live configuration |
+| Code generation, deployment, fixed point | **Best effort**: `checkcode` never emitted them in the default probes (they need toolboxes and `%#codegen`); with every check enabled it reports the deployment (`MC*`) and some fixed-point checks, which now agree with malt on the fixtures (all-checks run); the rest are verified against MathWorks' documentation index only, and EMSCR/EMTC/EMIMP are gated on `%#codegen` |
+| The custom-check mappings of `LLMNC`, `FCNIL`, `FCNOL`, `SCYCCOM`, `ACYCCOM`, `MCYCCOM`, `MSCYCCOM`, `MACYCCOM`, `SYSBANG` and the other `DAF*` limits | `FCNLL`, `CYCCOM`, `MCYCCOM`, `SCYCCOM`, `MSCYCCOM`, `LLMNC`, `MNCSN` and `SYSBANG` are compared with MATLAB at malt's default limits in the all-checks run (`MNCSN` now reports the statement one level past the limit, as MATLAB does); the other mappings are **not verified** against a live configuration |
 | Check counts on this site | The total in the [Rules Reference](rules.md#overview) is generated from the rule sources; the preset numbers below were counted by hand from the same sources on 2026-11-17 |
 
 Each check also carries a **maturity** (`stable` or `experimental`), listed per check on the
@@ -131,6 +147,8 @@ low-reliability flags and the never-emitted IDs live in the rule sources and in
 ```bash
 cargo test --workspace --locked                      # includes the conformance suite
 MALT_MATLAB_REQUIRE=1 cargo test -p malt-cli --locked --test matlab_live
+cargo test -p malt-cli --locked --test matlab_conformance_all   # malt --preset all against MATLAB, every check on
+MALT_MATLAB_REQUIRE=1 cargo test -p malt-cli --locked --test matlab_live_all
 ```
 
 The second command needs a local MATLAB R2026b (`matlab` on `PATH`); without

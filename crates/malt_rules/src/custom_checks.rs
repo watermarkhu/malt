@@ -23,6 +23,11 @@
 //!   configuration disallows. They are controlled by boolean `disallow_*`
 //!   options. As in MATLAB, all `DAF*` checks are off by default; `SYSBANG`
 //!   is on by default.
+//! * `MNCSN` is reported, as in MATLAB, on each control statement one level
+//!   past the limit (the level is in the message), not once per function; a
+//!   `try` block counts once toward the complexity checks, and so does each
+//!   `&` and `|` in an `if`, `elseif` or `while` condition (not inside call
+//!   arguments). Script complexity is reported on line 1.
 //!
 //! `LLMCC` (line length excluding comments) is not implemented.
 //!
@@ -279,13 +284,27 @@ fn diag_at(rule_id: &'static str, message: String, node: Node) -> Diagnostic {
     }
 }
 
+/// A script-level metric finding: MATLAB reports it on line 1, whatever the file starts with.
+fn script_diag(rule_id: &'static str, message: String) -> Diagnostic {
+    Diagnostic {
+        rule_id,
+        message,
+        severity: Severity::Warning,
+        byte_range: 0..0,
+        line: 1,
+        column: 1,
+        fix: None,
+    }
+}
+
 fn text<'a>(node: Node, source: &'a str) -> &'a str {
     &source[node.start_byte()..node.end_byte()]
 }
 
 /// McCabe cyclomatic complexity of `node`, as `(standard, modified)`.
 ///
-/// Decision points: `if`/`elseif`/`for`/`while`/`catch` and the short-circuit
+/// Decision points: `if`/`elseif`/`for`/`while`/`try` (one per `try` block, with or without
+/// a `catch`, as MATLAB counts it), `&`/`|` in a condition and the short-circuit
 /// operators `&&` / `||`. Standard complexity adds one per `case`; modified
 /// complexity counts a whole `switch` as a single decision. Nested functions
 /// and (when `skip_lambdas`) anonymous functions are analysed separately.
@@ -294,6 +313,27 @@ fn complexity(node: Node, skip_lambdas: bool) -> (usize, usize) {
     let mut modified = 1;
     count_decisions(node, true, skip_lambdas, &mut std, &mut modified);
     (std, modified)
+}
+
+/// The `&` and `|` operators of a condition, not counting the ones inside the arguments of a
+/// call or an index (`any(a | b)`, `isempty(a > 1 & b < 2)`: MATLAB does not count those).
+fn element_wise_operators(node: Node) -> usize {
+    if matches!(node.kind(), "lambda" | "function_call") {
+        return 0;
+    }
+    let mut n = 0;
+    if matches!(node.kind(), "binary_operator" | "boolean_operator") {
+        let mut c = node.walk();
+        n += node
+            .children(&mut c)
+            .filter(|ch| ch.kind() == "&" || ch.kind() == "|")
+            .count();
+    }
+    let mut c = node.walk();
+    for child in node.children(&mut c) {
+        n += element_wise_operators(child);
+    }
+    n
 }
 
 fn count_decisions(
@@ -308,9 +348,19 @@ fn count_decisions(
         return;
     }
     match kind {
-        "if_statement" | "elseif_clause" | "for_statement" | "while_statement" | "catch_clause" => {
+        "if_statement" | "elseif_clause" | "for_statement" | "while_statement"
+        | "try_statement" => {
             *std += 1;
             *modified += 1;
+            // MATLAB also counts each non-short-circuit `&` and `|` in an `if`, `elseif` or
+            // `while` condition (probed: `if x & x` adds two, `y = x & x` none).
+            if matches!(kind, "if_statement" | "elseif_clause" | "while_statement") {
+                if let Some(cond) = node.child_by_field_name("condition") {
+                    let n = element_wise_operators(cond);
+                    *std += n;
+                    *modified += n;
+                }
+            }
         }
         "switch_statement" => *modified += 1,
         "case_clause" => *std += 1,
@@ -332,23 +382,33 @@ fn count_decisions(
     }
 }
 
-/// Deepest nesting of control statements below `node` (not entering nested
-/// functions).
-fn nesting_depth(node: Node, current: usize, is_root: bool) -> usize {
+/// The control statements below `node` that sit exactly one level deeper than `limit`, where a
+/// control statement (`if`, `for`/`parfor`, `while`, `switch`, `try`) opens a level and the first
+/// one in a function is level 1. MATLAB reports MNCSN on each of those (not on the ones nested
+/// further) with the level in the message, and does not enter nested functions.
+fn too_deep_statements<'a>(
+    node: Node<'a>,
+    current: usize,
+    limit: usize,
+    is_root: bool,
+    out: &mut Vec<Node<'a>>,
+) {
     if !is_root && node.kind() == "function_definition" {
-        return current;
+        return;
     }
     let nests = matches!(
         node.kind(),
         "if_statement" | "for_statement" | "while_statement" | "switch_statement" | "try_statement"
     );
-    let depth = if nests { current + 1 } else { current };
-    let mut best = depth;
+    let level = if nests { current + 1 } else { current };
+    if nests && level == limit + 1 {
+        out.push(node);
+        return;
+    }
     let mut c = node.walk();
     for child in node.children(&mut c) {
-        best = best.max(nesting_depth(child, depth, false));
+        too_deep_statements(child, level, limit, false, out);
     }
-    best
 }
 
 /// Is `node` a single-quoted character vector literal?
@@ -578,13 +638,17 @@ impl CustomChecksEngine {
                 func,
             ));
         }
-        let depth = nesting_depth(func, 0, true);
-        if over(depth, cfg.max_nesting_depth) {
-            out.push(diag_at(
-                "MNCSN",
-                format!("This control statement is deeply nested (nesting level = {depth}) and might have more deeply nested control statements. This makes the code difficult to understand and maintain."),
-                func,
-            ));
+        if cfg.max_nesting_depth > 0 {
+            let mut deep = Vec::new();
+            too_deep_statements(func, 0, cfg.max_nesting_depth, true, &mut deep);
+            let level = cfg.max_nesting_depth + 1;
+            for stmt in deep {
+                out.push(diag_at(
+                    "MNCSN",
+                    format!("This control statement is deeply nested (nesting level = {level}) and might have more deeply nested control statements. This makes the code difficult to understand and maintain."),
+                    stmt,
+                ));
+            }
         }
         let (std, modified) = complexity(func, true);
         let limit = cfg.max_cyclomatic_complexity;
@@ -667,17 +731,15 @@ impl Rule for CustomChecksEngine {
             let (std, modified) = complexity(root, true);
             let limit = self.config.max_script_cyclomatic_complexity;
             if over(std, limit) {
-                diagnostics.push(diag_at(
+                diagnostics.push(script_diag(
                     "SCYCCOM",
                     format!("Script has a McCabe cyclomatic complexity of more than {limit}. This makes the script difficult to understand and maintain."),
-                    first,
                 ));
             }
             if over(modified, limit) {
-                diagnostics.push(diag_at(
+                diagnostics.push(script_diag(
                     "MSCYCCOM",
                     format!("Script has a modified cyclomatic complexity of more than {limit}. This makes the script difficult to understand and maintain."),
-                    first,
                 ));
             }
         }
@@ -796,6 +858,53 @@ mod tests {
         let shallow =
             "function f()\n    if a\n        if b\n            x = 1;\n        end\n    end\nend\n";
         assert!(!has_id(&lint_file(&*e, shallow), "MNCSN"));
+    }
+
+    #[test]
+    fn mncsn_reports_each_statement_one_level_past_the_limit() {
+        // MATLAB: the statements at level limit + 1 (here 3), not the ones nested deeper.
+        let e = engine_with("max_nesting_depth = 2");
+        let src = "function f(x)\nif x\n if x\n  if x, y = 1; end\n  for k = 1:2\n   if x, y = 2; end\n  end\n end\nend\nend\n";
+        let lines: Vec<usize> = lint_file(&*e, src)
+            .iter()
+            .filter(|d| d.rule_id == "MNCSN")
+            .map(|d| d.line)
+            .collect();
+        assert_eq!(lines, vec![4, 5]);
+    }
+
+    #[test]
+    fn try_counts_once_with_or_without_catch() {
+        let e = engine_with("max_cyclomatic_complexity = 2");
+        let with = "function f()\ntry\n x = 1;\ncatch\n x = 2;\nend\nend\n";
+        let without = "function f()\ntry\n x = 1;\nend\nend\n";
+        assert!(!has_id(&lint_file(&*e, with), "CYCCOM"));
+        assert!(!has_id(&lint_file(&*e, without), "CYCCOM"));
+        let two = "function f()\ntry\n x = 1;\nend\ntry\n x = 1;\nend\nend\n";
+        assert!(has_id(&lint_file(&*e, two), "CYCCOM"));
+    }
+
+    #[test]
+    fn element_wise_operators_in_a_condition_count() {
+        let e = engine_with("max_cyclomatic_complexity = 2");
+        // 1 + if + `&` = 3 > 2; the same operator in an assignment adds nothing.
+        assert!(has_id(
+            &lint_file(&*e, "function f(x)\nif x & x, y = 1; end\nend\n"),
+            "CYCCOM"
+        ));
+        assert!(!has_id(
+            &lint_file(&*e, "function f(x)\nif x, y = x & x; end\nend\n"),
+            "CYCCOM"
+        ));
+    }
+
+    #[test]
+    fn script_complexity_is_reported_on_line_one() {
+        let e = engine_with("max_script_cyclomatic_complexity = 2");
+        let src = "% header\n\nif a, x = 1; end\nif b, x = 2; end\n";
+        let d = lint_file(&*e, src);
+        let scyccom = d.iter().find(|d| d.rule_id == "SCYCCOM").expect("SCYCCOM");
+        assert_eq!(scyccom.line, 1);
     }
 
     // -- DAF* -------------------------------------------------------------

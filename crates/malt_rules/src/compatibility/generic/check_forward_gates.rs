@@ -133,7 +133,7 @@ impl CompatibilityEngine {
         push_diag("FCFAV", FCFAV_MSG, node, Severity::Error, diagnostics);
     }
 
-    /// FCCPV: a class property with validation (type constraint).
+    /// FCCPV: a class property with validation (type constraint), reported on the property's line.
     fn check_fccpv(&self, node: Node, diagnostics: &mut Vec<Diagnostic>) {
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
@@ -146,8 +146,7 @@ impl CompatibilityEngine {
                     .skip(1)
                     .any(|c| !matches!(c.kind(), "default_value" | "comment"));
                 if validated {
-                    push_diag("FCCPV", FCCPV_MSG, node, Severity::Error, diagnostics);
-                    return;
+                    push_diag("FCCPV", FCCPV_MSG, child, Severity::Error, diagnostics);
                 }
             }
         }

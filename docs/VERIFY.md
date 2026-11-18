@@ -1131,8 +1131,95 @@ Stay stable without a recording (22 IDs), with the reason:
 
 ### Comparing `--preset all` with MATLAB
 
-Not built. A cheap way exists: `matlab_probe.m` runs `checkcode(path, '-id')` with MATLAB's default configuration only, so the experimental IDs would need `checkcode(path, '-config=...')` with a settings file that turns every check on (`codeAnalyzerConfiguration.json`, which malt already reads) and a second expectation file for `--preset all`. The packed trigger files (`recorded/compat_NN.m`, `si_NN.m`) already hold one shape per entry, so they would be the fixtures of that run.
+Built since: see 'Preset all against MATLAB' at the end of this file. The plan was: a cheap way exists: `matlab_probe.m` runs `checkcode(path, '-id')` with MATLAB's default configuration only, so the experimental IDs would need `checkcode(path, '-config=...')` with a settings file that turns every check on (`codeAnalyzerConfiguration.json`, which malt already reads) and a second expectation file for `--preset all`. The packed trigger files (`recorded/compat_NN.m`, `si_NN.m`) already hold one shape per entry, so they would be the fixtures of that run.
 
 ### Gates
 
 `cargo fmt --all --check`, `cargo clippy --all-targets --locked -- -D warnings`, `MALT_MATLAB_REQUIRE=1 cargo test --workspace --exclude malt-py --locked --no-fail-fast`, `cargo test --locked -p malt_wasm --features wasm`, `bun docs/scripts/gen_rules_docs.ts --check`, `bun run docs:build` and `rumdl` pass (see the final report of the session).
+
+## Preset all against MATLAB
+
+Follow-up of 'Recording the stable checks' ('Comparing `--preset all` with MATLAB'). The default comparison cannot see the experimental checks: they are off under `mathworks`, and so are they in MATLAB's default analysis. This section compares `--preset all` with MATLAB's `checkcode` with **every check enabled**, over the same 1,133 fixtures.
+
+### Method
+
+1. **Generator.** `crates/malt_cli/tests/matlab/generate_checkcode_all.m` (two-phase, same pattern as `generate_checkcode.m`: no arguments, paths from `mfilename`, `MALT_CHECKCODE_ALL_OUT` overrides the TSV, a `.release` sidecar, a per-file `try`/`catch` giving `PROBE_ERROR`, never `restoredefaultpath`). It reads the catalogue with `checkcode('-allmsg', file)` (the call needs a file name; the result is one struct whose `message` is the whole catalogue: a section header per group, then lines `ID severity text`; 2,646 IDs without dots plus 81 `naming.*` IDs), writes a temporary JSON configuration (deleted at the end) with `checks.<ID>.enabled = true` for 2,621 IDs and runs `checkcode(file, '-id', '-struct', '-config=<json>')` over every fixture (about 30 seconds for the 1,133 files). Output: `target/matlab/checkcode_all.tsv` (path, line with 0 read as 1, ID), `checkcode_all.release`, `checkcode_all_messages.tsv` (MathWorks content: never committed) and `checkcode_all_files.txt`.
+2. **Thresholds** carry the limit of malt's `CUSTOM_CHECKS` defaults (what `--preset all` uses): `FCNIL` 7, `FCNOL` 7, `FCNLL` 200, `LLMNC` 120, `MNCSN` 5, `CYCCOM` and `MCYCCOM` 15, `SCYCCOM` and `MSCYCCOM` 20, `ACYCCOM` and `MACYCCOM` 10. `SYSBANG` is enabled (malt's `disallow_bang` is on by default).
+3. **Left out of the configuration**, and so of the comparison: the 81 naming checks (MATLAB reports them only for values; malt's defaults are other values, so a difference would say nothing about the engine; the naming engine stays compared through `tests/matlab_config.rs`), the metrics `CABE`, `SCABE`, `ACABE`, `MCABE`, `SMCABE`, `AMCABE` (severity 5 information, one per function; malt has no such check), `LLMCC` (malt does not implement it), the configuration messages `BDCFG`, `CFERR`, `BDOPT`, `CFIG` and the example `DEBUGMSG`, and the `DAF*` disallow checks (malt's switches are off by default; both sides keep them off).
+4. **Recording.** `crates/malt_cli/tests/fixtures/matlab_expected_all.tsv`: 13,130 rows (IDs and lines only, no message text), same format as `matlab_expected.tsv`.
+5. **Tests.** `matlab_conformance_all.rs` lints with `preset = "all"` (the library API, as `matlab_conformance.rs`) and requires the differences to be exactly the allowlist `tests/matlab/all_preset_allowlist.tsv` (path, line, ID, direction `malt-only`/`matlab-only`, reason; `*` for path and line accepts a whole check and direction; an entry that matches no difference fails). `matlab_live_all.rs` is the two-phase live variant: it reads `MALT_MATLAB_CHECKCODE_ALL` (and `MALT_MATLAB_CHECKCODE_ALL_FILES`) when set, else starts MATLAB through `common::matlab` with the skip/`MALT_MATLAB_REQUIRE` contract, and checks the release (`matlab_release.txt`), the recorded findings and the list of files checked. The CI `matlab` job has a fourth generation step (`matlab-actions/run-command`, the same pinned SHA) and a comparison step with the two variables, after the existing ones.
+6. **Facts probed on the way** (MATLAB R2026b, `-config` with everything on): `enabled: true` is enough for the default-off checks; the 12 threshold checks need their `limit`. With everything on, MATLAB reports `FPASE` and `MFAMB` (the first one 878 times, the second 6,137 times over the fixtures; see below), `ERTAG`, `WNTAG`, `VANUS`, `SUSENS`, `MC*` (deployment), `FC*` (forward-compatibility gates), `LLMNC`, `SCYCCOM`.
+
+### Counts, per engine
+
+Triples (path, line, ID) over the fixtures. Before: HEAD, `--preset all`; after: this change. `?` are IDs outside the rule pages' tables (`NOSEMI`, `MSNU`, `FVOOOV`, `VINONA`).
+
+| Engine | Agree (before, after) | malt-only (before, after) | matlab-only (before, after) |
+| --- | --- | --- | --- |
+| `bugs` | 67, 67 | 4, 4 | 0, 0 |
+| `codegen` | 0, 0 | 0, 0 | 878, 878 (`FPASE`) |
+| `compatibility` | 1,099, 1,238 | 156, 66 | 143, 4 |
+| `custom-checks` | 45, 57 | 7, 0 | 15, 3 |
+| `deployment` | 19, 25 | 6, 1 | 7, 1 |
+| `formatting` | 302, 302 | 0, 0 | 0, 0 |
+| `good-practices` | 657, 669 | 122, 60 | 14, 2 |
+| `incomplete-analysis` | 7, 7 | 0, 0 | 0, 0 |
+| `language-spec` | 310, 310 | 46, 46 | 0, 0 |
+| `performance` | 426, 426 | 8, 8 | 0, 0 |
+| `readability` | 216, 216 | 27, 27 | 6,133, 6,133 (`MFAMB`) |
+| `suggested-improvements` | 656, 656 | 0, 0 | 0, 0 |
+| `syntax-errors` | 212, 212 | 0, 0 | 0, 0 |
+| `unset-variables` | 96, 96 | 15, 15 | 23, 23 |
+| `unsupported` | 19, 19 | 0, 0 | 0, 0 |
+| `unused` | 1,618, 1,652 | 0, 0 | 35, 1 |
+| `?` | 130, 130 | 1, 1 | 3, 3 |
+| **Total** | **5,879, 6,082** | **392, 228** | **7,251, 7,048** |
+
+Differences: 7,643 before, 7,276 after (228 malt-only, 7,048 matlab-only). Without `MFAMB` (6,141 lines) and `FPASE` (878), 624 before and 257 after. The default (`mathworks`) comparison is untouched: `matlab_conformance` and `matlab_live` pass unchanged.
+
+### Fixes (MATLAB evidence; probe sets of 4 to 24 files, one MATLAB call each, with the configuration of `generate_checkcode_all.m`)
+
+| ID | MATLAB | Change |
+| --- | --- | --- |
+| `FCCPV` | one finding per validated property, on the property's line (139 lines) | per property, not per `properties` block |
+| `SCYCCOM`, `MSCYCCOM` | line 1 whatever the file starts with (a leading comment) | script metrics on line 1 |
+| `CYCCOM`, `MCYCCOM` | each `try` block counts one, with or without `catch` (13 ifs plus one `try` is 15, plus two is 16); each `&` and `\|` in an `if`/`elseif`/`while` condition counts one (not inside call or index arguments: `any(a \| b)` adds none; not in an assignment) | `try_statement` instead of `catch_clause`; condition operators |
+| `MNCSN` | the control statements at level limit + 1, each, with `nesting level = limit + 1` in the message (`if`, `for`/`parfor`, `while`, `switch`, `try` open a level, `case` does not; deeper ones are not reported; nested functions are separate) | the engine reported one finding on the function line with the maximum depth |
+| `VANUS` | an unused `varargin` is reported when the check is enabled (35 lines); never by default | emitted (still off under `mathworks`) |
+| `ERTAG`, `WNTAG` | the first argument is a string literal that is not a message identifier `[A-Za-z]\w*(:\w+)+` (`'a: b'`, `'a:b c'`, `'a:b-c'`, `'1a:b'`, `'Result: %d'` are reported), `warning('off', ...)`, `warning('on', ...)`, `warning('')` are not; `error(x)`, `error(s.message)` and `error(['a' x])` with one argument are reported, with two or more arguments (`error(x, 3)`, `error(sprintf(..), 3)`, `error(['a:b' ':c'], ..)`) and `error(struct(..))` not; statements after an unconditional `error` are not reported | rewritten: `ERTAG` malt-only 26 to 2 and matlab-only 9 to 2, `WNTAG` malt-only 38 to 0 and matlab-only 5 to 0 |
+| `MCABF` | `fopen('/abs')` only; `addpath('/abs')` and `addpath /abs` never | `addpath` is not a file function |
+| `MCKBD`, `MCMLR`, `MCPRD` | the bare names count as calls: `matlabroot`, `r = matlabroot;`, `h = @() keyboard;`, `printdlg`; `obj.keyboard()` does not | identifier and command forms; method calls are not functions |
+
+### Allowlist (`tests/matlab/all_preset_allowlist.tsv`: 109 lines, all with a reason)
+
+- **Known gaps, whole check** (`*` entries): `MFAMB` matlab-only 6,133 lines: with the check enabled MATLAB reports, per function or script scope, the **last** use of each name that is not a variable (calls, bare names, `end`, `nargin`; not anonymous-function bodies, fields, `@name` handles or command arguments; `clear` alone counts, `hold on` does not), which malt's narrower `MFAMB` (a callee that is also a variable) does not do; `FPASE` matlab-only 878: MATLAB infers a possible fixed-point type by data flow (probed: a reassignment is reported depending on the type of the value just before, `y = a + 1` and `zeros(2)` and `[1 2]` and `{1}` and `true` yes, `y = 2` or `y = a` no), malt reports only after `fi(...)`; and the experimental checks malt reports and MATLAB never does (below), where an ID has 15 or more lines.
+- **Other** (per line): `SUSENS` 23 matlab-only and 13 malt-only (script-scope unset analysis: index and cell expressions on one side, growth patterns and `strtok` on the other), `ERTAG` 4 (a variable that holds a valid identifier, `x = 'a:b'; error(x)`, which MATLAB resolves; and `error(s)` with a struct argument that MATLAB does not treat as ending the flow), `MNCSN` 3 (files that hit the depth limit), `FCLFS` 3, `FCDQS` 2, `FCHBL` 2, `FCNVA`, `FCCPV` (a `x @double` shape), `FVOOOV` 2 and `VINONA` (validation checks not implemented), `MCKBD` (a variable named `keyboard`), `MCTBX` (`fullfile(matlabroot, 'toolbox', ...)`), `VANUS` 1, `MSNU` 1, `COLMP` 3, `CTOINW` 26 and `LOGSUM` 17 (malt's broader `CTOINW_CALL` and `LOGSUM_ANY`).
+
+### Promotion candidates (experimental IDs where MATLAB agrees under all-on: same line and same message text, on at least one fixture line)
+
+38 IDs; counts are fixture lines with the same message. These are candidates only: promotion also needs a default-config decision, and the maturity table and the presets are unchanged. Caution: `ERTAG`, `WNTAG`, `VANUS`, `SCYCCOM`, `MSCYCCOM`, `MCYCCOM`, `FCCPV` and the `MC*` rows were corrected in this change against the same fixtures (and a probe set of 4 to 24 files each), so their agreement is in-sample.
+
+| Group | IDs (lines) |
+| --- | --- |
+| Forward-compatibility gates | `FCCPV` (139), `FCDQS` (153), `FCFAV` (153), `FCHBL` (6), `FCLEN` (1), `FCLFS` (39), `FCNVA` (3) |
+| Good practices | `CTCH` (32), `ERTAG` (57), `WNTAG` (15), `COLMP` (3) |
+| Unused | `VANUS` (34) |
+| Custom checks | `LLMNC` (11), `MCYCCOM` (16), `SCYCCOM` (5), `MSCYCCOM` (5), `SYSBANG` (1) |
+| Deployment (`MC*`) | `MCABF` (1), `MCCD` (4), `MCHLP` (2), `MCKBD` (8), `MCLL` (2), `MCMFL` (1), `MCMLR` (3), `MCPRD` (2), `MCSVP` (2) |
+| Compatibility | `AWTIUD`, `AXCHUD`, `FEATUD`, `FNDPUD`, `HGCNUD`, `IMPKG`, `ISMBUD`, `MIPKG`, `SEPTUD`, `SYDEUD`, `UIRSUD`, `UISUUD` (1 to 7 each) |
+
+Experimental IDs with the same line but another message: `MFAMB` and `SUSENS` (message text with another name or scope).
+
+### Demotion or removal candidates (experimental IDs malt reports under `all`, MATLAB never reports, with every check enabled)
+
+31 IDs, 1 to 41 lines each: `IDISVARHIGH` (41), `USESWNS` (36), `SIMPT` (21), `GRIDD` (7), `IDISVARLOW` (7), `PFUTVR` (5), `GPNES` (3), `LTARG` (3), `MIPC1` (3), `ITERS` (2), `NOV6` (2), `PFMLTI` (2), `USENS` (2), and one line each of `ADAPPREF`, `CMDAND`, `CMDOR`, `COEFF1`, `GTARG`, `ISROW`, `LSRET`, `MOCUP`, `NCHKE`, `NSTIMP`, `READSZR`, `REPUDD`, `SHOCIRF`, `SMPLMODE`, `STCCS`, `SUBSINDEX`, `V2MTX`, `WEBBEHAVE`. Several were already silent in the earlier probes (`CMDAND`, `CMDOR`, `NCHKE`, `PFMLTI`, `STCCS`, `SUBSINDEX`, `ISROW`, `ADAPPREF`, `MIPC1`, ...): the all-on run confirms they are false positives and not just checks MATLAB leaves off. Partly agreeing, with extra malt lines: `LOGSUM` (17 more than MATLAB), `CTOINW` (26), `COLMP` (3), `MSNU` (1). In-scope but not on any fixture, so neither promoted nor demoted: the Coder, Compiler (except `MC*`), System Object and Unsupported engines' other IDs.
+
+### Not compared, and what remains
+
+- Naming (excluded, above), the `CABE` metrics, `LLMCC`, the `DAF*` checks.
+- `MFAMB` and `FPASE` (6,133 and 878 lines): the probes above give the semantics; an implementation needs scope-level last-use tracking (`MFAMB`) and a fixed-point type propagation (`FPASE`); both are experimental and off by default.
+- Message text is compared for the candidates only (a by-hand join of malt's output with `checkcode_all_messages.tsv`); a live message test for the all run is not built.
+
+### Gates
+
+`cargo fmt --all --check`, `cargo clippy --all-targets --locked -- -D warnings`, `MALT_MATLAB_REQUIRE=1 cargo test --workspace --exclude malt-py --locked --no-fail-fast`, `cargo test --locked -p malt_wasm --features wasm`, `bun docs/scripts/gen_rules_docs.ts --check`, `bun run docs:build`, `rumdl` and `mise x -- jactionlint .github/workflows/qualify.yml` (see the final report of the session).

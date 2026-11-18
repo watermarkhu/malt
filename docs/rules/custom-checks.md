@@ -24,6 +24,11 @@ Configurable code-complexity and style checks from MATLAB's Code Analyzer
   configuration disallows. They are controlled by boolean `disallow_*`
   options. As in MATLAB, all `DAF*` checks are off by default; `SYSBANG`
   is on by default.
+* `MNCSN` is reported, as in MATLAB, on each control statement one level
+  past the limit (the level is in the message), not once per function; a
+  `try` block counts once toward the complexity checks, and so does each
+  `&` and `|` in an `if`, `elseif` or `while` condition (not inside call
+  arguments). Script complexity is reported on line 1.
 
 `LLMCC` (line length excluding comments) is not implemented.
 

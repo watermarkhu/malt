@@ -86,7 +86,7 @@ Input argument might be unused. Consider replacing the argument with ~ instead.
 
 Severity: **warning** · Auto-fix: **no** · Maturity: **experimental**
 
-Input argument 'varargin' might be unused. Not emitted: MATLAB reported none in its probes.
+Input argument 'varargin' might be unused. Reported only when enabled (off under `mathworks`): MATLAB reports it with every check on.
 
 ### VUNUS
 

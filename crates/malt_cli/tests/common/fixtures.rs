@@ -1,5 +1,6 @@
 //! The conformance fixtures, read and linted by malt the way the MATLAB tests read them: every
-//! `.m` file under `tests/fixtures` at any depth, with the default configuration (`mathworks`).
+//! `.m` file under `tests/fixtures` at any depth, with the default configuration (`mathworks`),
+//! or another one for the `--preset all` comparison.
 
 use std::collections::BTreeSet;
 use std::fs;
@@ -59,10 +60,16 @@ pub fn relative(path: &Path) -> String {
 /// with the message text, normalised as `normalise_message` does. A message appears once per
 /// finding, so one triple can have several.
 pub fn lint_fixtures() -> Vec<(Triple, String)> {
+    lint_fixtures_with(Config::default)
+}
+
+/// Like [`lint_fixtures`], with the configuration `make_config` builds (it runs on the linting
+/// thread): `matlab_conformance_all.rs` lints with the `all` preset.
+pub fn lint_fixtures_with(make_config: fn() -> Config) -> Vec<(Triple, String)> {
     std::thread::Builder::new()
         .stack_size(STACK)
-        .spawn(|| {
-            let config = Config::default();
+        .spawn(move || {
+            let config = make_config();
             let registry = RuleRegistry::new(malt_rules::active_rules(&config), &config);
             let mut linter = Linter::new(registry);
             let mut found = Vec::new();

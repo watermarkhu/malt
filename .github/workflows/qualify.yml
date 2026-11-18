@@ -131,6 +131,14 @@ jobs:
         with:
           command: run('crates/malt_cli/tests/matlab/generate_fixes.m')
 
+      # MATLAB's checkcode with EVERY check enabled (a generated configuration) over the same fixtures:
+      # target/matlab/checkcode_all.tsv, checkcode_all.release and checkcode_all_files.txt. A fourth
+      # run-command step, one MATLAB session each, so a failure names the step.
+      - name: Generate the MATLAB checkcode reports with every check enabled
+        uses: matlab-actions/run-command@bfa857648f4895aa98a446fe41c85e0788421ed5 # v3.3.0
+        with:
+          command: run('crates/malt_cli/tests/matlab/generate_checkcode_all.m')
+
       # Phase 2, comparison: no MATLAB is started here.
       - name: Cross-check the path index against the MATLAB facts
         env:
@@ -144,6 +152,14 @@ jobs:
           MALT_MATLAB_CHECKCODE_MESSAGES: target/matlab/checkcode_messages.tsv
           MALT_MATLAB_CHECKCODE_FILES: target/matlab/checkcode_files.txt
         run: cargo test -p malt-cli --locked --test matlab_live -- --nocapture
+
+      # The recorded all-checks expectations (matlab_expected_all.tsv, the base of the `--preset all`
+      # comparison) against the live reports with every check enabled (and the release).
+      - name: Check the recorded all-checks MATLAB expectations against the live reports
+        env:
+          MALT_MATLAB_CHECKCODE_ALL: target/matlab/checkcode_all.tsv
+          MALT_MATLAB_CHECKCODE_ALL_FILES: target/matlab/checkcode_all_files.txt
+        run: cargo test -p malt-cli --locked --test matlab_live_all -- --nocapture
 
       # malt's Safe fixes against MATLAB's own fix() output on the same pairs.
       - name: Check malt's safe fixes against the MATLAB fix reports

@@ -4,8 +4,10 @@
 use super::*;
 
 /// Functions that read or write files, for the absolute-path check (MCABF).
+///
+/// `addpath` is not one: MATLAB (R2026b, every fixture with an absolute `addpath`) never reports
+/// MCABF on it, while it does on `fopen`.
 const FILE_FUNCTIONS: &[&str] = &[
-    "addpath",
     "fopen",
     "load",
     "save",
@@ -38,7 +40,8 @@ impl DeploymentEngine {
     ) -> Vec<Diagnostic> {
         let mut diags = Vec::new();
 
-        let Some(func_name) = call_path(node, source, Dotted::Trailing) else {
+        // A call on an object (`obj.keyboard()`) is a method, not the function.
+        let Some(func_name) = call_path(node, source, Dotted::Skip) else {
             return diags;
         };
         let args = call_args(node);
@@ -140,6 +143,12 @@ mod tests {
     }
 
     #[test]
+    fn addpath_absolute_is_not_mcabf_and_methods_are_not_functions() {
+        assert!(!ids("addpath('/abs/path');\n").contains(&"MCABF"));
+        assert!(!ids("x = obj.keyboard();\n").contains(&"MCKBD"));
+    }
+
+    #[test]
     fn addpath_relative_not_flagged() {
         assert!(ids("addpath('src');\n").is_empty());
         assert!(ids("path(p);\n").is_empty());
@@ -158,7 +167,7 @@ mod tests {
     #[test]
     fn mcabf_fires_on_absolute_paths() {
         assert!(ids("fid = fopen('/home/user/a.txt');\n").contains(&"MCABF"));
-        assert!(ids("addpath('C:\\mytools');\n").contains(&"MCABF"));
+        assert!(ids("fid = fopen('C:\\mytools\\a.txt');\n").contains(&"MCABF"));
         assert!(!ids("fid = fopen('data/a.txt');\n").contains(&"MCABF"));
         assert!(!ids("disp('/not/a/file');\n").contains(&"MCABF"));
     }

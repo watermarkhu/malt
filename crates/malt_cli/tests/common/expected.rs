@@ -55,3 +55,57 @@ pub fn parse_triples(text: &str) -> BTreeSet<Triple> {
 pub fn only_in(left: &BTreeSet<Triple>, right: &BTreeSet<Triple>) -> BTreeSet<Triple> {
     left.difference(right).cloned().collect()
 }
+
+/// One line of an allowlist of differences with MATLAB: where, which way, and why. A path of `*`
+/// matches every file and a line of `*` every line: `*\t*\tID\tmalt-only` accepts every
+/// malt-only finding of that check (a whole check that is known to differ).
+#[derive(Debug, Clone)]
+pub struct AllowEntry {
+    /// The path relative to the fixtures folder, or `None` for `*`.
+    pub path: Option<String>,
+    /// The line, or `None` for `*`.
+    pub line: Option<usize>,
+    /// The check ID.
+    pub id: String,
+    /// `"malt-only"` (malt reports, MATLAB does not) or `"matlab-only"`.
+    pub direction: String,
+    /// The reason the difference is accepted (never empty).
+    pub reason: String,
+}
+
+impl AllowEntry {
+    /// Whether this entry accepts the difference `direction` of `triple`.
+    pub fn matches(&self, direction: &str, triple: &Triple) -> bool {
+        self.direction == direction
+            && self.id == triple.2
+            && self.path.as_ref().is_none_or(|p| *p == triple.0)
+            && self.line.is_none_or(|l| l == triple.1)
+    }
+}
+
+/// The allowlist of `tests/matlab/all_preset_allowlist.tsv`. Columns, tab-separated: path, line,
+/// ID, direction, reason. Panics on a malformed line.
+pub fn parse_allowlist(text: &str, what: &str) -> Vec<AllowEntry> {
+    let mut out = Vec::new();
+    for line in text
+        .lines()
+        .filter(|l| !l.starts_with('#') && !l.trim().is_empty())
+    {
+        let cols: Vec<&str> = line.splitn(5, '\t').collect();
+        let reason = cols.get(4).map_or("", |r| r.trim());
+        assert!(
+            cols.len() == 5
+                && !reason.is_empty()
+                && (cols[3] == "malt-only" || cols[3] == "matlab-only"),
+            "{what}: each line is path, line, ID, malt-only|matlab-only and a reason: {line}"
+        );
+        out.push(AllowEntry {
+            path: (cols[0] != "*").then(|| cols[0].to_string()),
+            line: (cols[1] != "*").then(|| cols[1].parse().expect("a line number or *")),
+            id: cols[2].to_string(),
+            direction: cols[3].to_string(),
+            reason: reason.to_string(),
+        });
+    }
+    out
+}

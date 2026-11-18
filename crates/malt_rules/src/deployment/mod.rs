@@ -178,7 +178,7 @@ pub struct DeploymentEngine {
 }
 
 /// Node types for node-level dispatch.
-const TARGET_NODES: &[&str] = &["function_call", "command"];
+const TARGET_NODES: &[&str] = &["function_call", "command", "identifier"];
 
 impl DeploymentEngine {
     /// Factory constructor called by the rule registry.
@@ -225,6 +225,7 @@ impl Rule for DeploymentEngine {
         match ctx.node.kind() {
             "function_call" => self.check_function_call(ctx.node, ctx.source),
             "command" => self.check_command(ctx.node, ctx.source),
+            "identifier" => self.check_identifier(ctx.node, ctx.source),
             _ => Vec::new(),
         }
     }
