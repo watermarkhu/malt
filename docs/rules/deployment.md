@@ -9,6 +9,7 @@ icon: lucide/package
 **Category:** Deployment
 **Can be disabled:** Yes
 **Enabled by default:** No (opt in per rule or per category)
+**Maturity:** Experimental
 
 ## What this rule does
 
@@ -24,72 +25,78 @@ own severity.
 
 ### MCCD
 
-Severity: **error** · Auto-fix: **no**
+Severity: **warning** · Auto-fix: **no** · Maturity: **experimental**
 
 MCC use of the CD function is problematic.
 
 ### MCPRD
 
-Severity: **error** · Auto-fix: **no**
+Severity: **error** · Auto-fix: **no** · Maturity: **experimental**
 
 MCC allows only one argument in the PRINTDLG function.
 
 ### MCHLP
 
-Severity: **warning** · Auto-fix: **no**
+Severity: **error** · Auto-fix: **no** · Maturity: **experimental**
 
 MCC does not permit the HELP function.
 
 ### MCKBD
 
-Severity: **warning** · Auto-fix: **no**
+Severity: **error** · Auto-fix: **no** · Maturity: **experimental**
 
 MCC does not permit the KEYBOARD function.
 
 ### MCSVP
 
-Severity: **warning** · Auto-fix: **no**
+Severity: **error** · Auto-fix: **no** · Maturity: **experimental**
 
 MCC does not permit the SAVEPATH function.
 
 ### MCMLR
 
-Severity: **warning** · Auto-fix: **no**
+Severity: **warning** · Auto-fix: **no** · Maturity: **experimental**
 
 MCC use of the MATLABROOT function is problematic.
 
 ### MCABF
 
-Severity: **error** · Auto-fix: **no**
+Severity: **warning** · Auto-fix: **no** · Maturity: **experimental**
 
 MCC use of absolute file names is likely to fail.
 
 ### MCMFL
 
-Severity: **warning** · Auto-fix: **no**
+Severity: **warning** · Auto-fix: **no** · Maturity: **experimental**
 
 MCC allows writing .m files, but they cannot be executed by the deployed application.
 
 ### MCTBX
 
-Severity: **warning** · Auto-fix: **no**
+Severity: **warning** · Auto-fix: **no** · Maturity: **experimental**
 
 MCC use of toolbox folder file names is likely to fail.
 
 ### MCLL
 
-Severity: **error** · Auto-fix: **no**
+Severity: **warning** · Auto-fix: **no** · Maturity: **experimental**
 
 MCC does not allow C++ files to be read directly using LOADLIBRARY.
+
+## Maturity
+
+Experimental checks are off by default and run with `[lint] experimental = true`, the `all` preset, or an explicit rule setting (see [Experimental checks](../configuration.md#experimental-checks)).
+
+`MCCD`, `MCPRD`, `MCHLP`, `MCKBD`, `MCSVP`, `MCMLR`, `MCABF`, `MCMFL`, `MCTBX`, `MCLL`: MATLAB Compiler checks: never emitted by checkcode in the probes; verified against the documentation index only. The engine is off by default.
 
 ## Examples
 
 ### Incorrect
 
 ```matlab
-cd /tmp;              % MCCD
-addpath('/abs/path'); % MCABF
-doc plot;             % MCHLP
+cd /tmp;                  % MCCD
+fopen('/abs/data.bin');   % MCABF
+help plot;                % MCHLP
 ```
 
 ### Correct

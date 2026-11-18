@@ -9,7 +9,7 @@ impl CodegenEngine {
     ) -> Vec<Diagnostic> {
         let mut diags = Vec::new();
 
-        let cmd_name = match extract_command_name(node, source) {
+        let cmd_name = match command_path(node, source) {
             Some(n) => n,
             None => return diags,
         };
@@ -17,6 +17,11 @@ impl CodegenEngine {
         // EMIMP: import command
         if self.is_enabled("EMIMP") && cmd_name == "import" {
             diags.push(make_diag("EMIMP", node));
+        }
+
+        // EMLOAD: command-syntax load never assigns its output.
+        if self.is_enabled("EMLOAD") && cmd_name == "load" {
+            diags.push(make_diag("EMLOAD", node));
         }
 
         // EMFCN: unsupported commands (clear, load, etc.)
@@ -30,8 +35,8 @@ impl CodegenEngine {
 
 #[cfg(test)]
 mod tests {
+    use super::test_util::{has_id, lint_nodes};
     use super::*;
-    use crate::test_util::{has_id, lint_nodes};
 
     // -- EMIMP ----------------------------------------------------------------
 
@@ -47,5 +52,18 @@ mod tests {
         let src = "x = 1;\n";
         let diags = lint_nodes(&*engine(), src);
         assert!(!has_id(&diags, "EMIMP"), "got: {diags:?}");
+    }
+}
+
+#[cfg(test)]
+mod load_tests {
+    use super::test_util::{has_id, lint_nodes};
+    use super::*;
+
+    #[test]
+    fn emload_fires_on_command_syntax_load() {
+        let src = "load data.mat\n";
+        let diags = lint_nodes(&*engine(), src);
+        assert!(has_id(&diags, "EMLOAD"), "got: {diags:?}");
     }
 }

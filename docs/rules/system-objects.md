@@ -9,6 +9,7 @@ icon: lucide/boxes
 **Category:** System Objects
 **Can be disabled:** Yes
 **Enabled by default:** No (opt in per rule or per category)
+**Maturity:** Experimental
 
 ## What this rule does
 
@@ -16,67 +17,73 @@ Validates MATLAB System object usage. System objects (classes inheriting
 from `matlab.System`) have specific lifecycle constraints that static
 analysis can partially verify. Since full type information is not available
 to a static linter, these checks use pattern-based heuristics — detecting
-System object patterns by class inheritance, lifecycle method calls
-(`step`, `setup`, `release`, `reset`), and property access conventions.
-All 9 checks share a single `SystemObjectsEngine` that dispatches node-level
-checks on `function_call` nodes plus file-level class analysis; each
+System object classes by their `matlab.System` superclass and inspecting
+their `properties` blocks and `stepImpl` / `resetImpl` methods.
+All 9 checks share a single `SystemObjectsEngine` that performs
+checks over `matlab.System` class definitions (file-level analysis); each
 diagnostic carries the specific check ID (e.g. `SONUMIN`, `SOTUNPROP3`).
 
 ## Check IDs
 
 ### SONUMIN
 
-Severity: **error** · Auto-fix: **no**
+Severity: **error** · Auto-fix: **no** · Maturity: **experimental**
 
 If 'stepImpl' accepts variable number of inputs, then you must define a 'getNumInputsImpl' method.
 
 ### SONUMOUT
 
-Severity: **error** · Auto-fix: **no**
+Severity: **error** · Auto-fix: **no** · Maturity: **experimental**
 
 If 'stepImpl' returns variable number of outputs, then you must define a 'getNumOutputsImpl' method.
 
 ### SODEPPROP
 
-Severity: **warning** · Auto-fix: **no**
+Severity: **warning** · Auto-fix: **no** · Maturity: **experimental**
 
 Dependent properties are not supported for MATLAB System blocks. VAR_NAME property is not included on System block.
 
 ### SOINITPROP
 
-Severity: **warning** · Auto-fix: **no**
+Severity: **warning** · Auto-fix: **no** · Maturity: **experimental**
 
 Initialize DiscreteState property VAR_NAME within a 'resetImpl' method.
 
 ### SODFLTVAL
 
-Severity: **error** · Auto-fix: **no**
+Severity: **error** · Auto-fix: **no** · Maturity: **experimental**
 
 Invalid initialization of DiscreteState property VAR_NAME. Initialize property within a 'resetImpl' method.
 
 ### SORSRVDNM
 
-Severity: **warning** · Auto-fix: **no**
+Severity: **warning** · Auto-fix: **no** · Maturity: **experimental**
 
 VAR_NAME property is a reserved name.
 
 ### SOTUNPROP1
 
-Severity: **warning** · Auto-fix: **no**
+Severity: **warning** · Auto-fix: **no** · Maturity: **experimental**
 
 Logical attribute not supported for tunable properties on MATLAB System blocks. VAR_NAME property is made Nontunable on System block.
 
 ### SOTUNPROP3
 
-Severity: **warning** · Auto-fix: **no**
+Severity: **warning** · Auto-fix: **no** · Maturity: **experimental**
 
 Tunable properties on MATLAB System blocks must be numeric. VAR_NAME property is made Nontunable on System block because it is a char.
 
 ### SOTUNPROP4
 
-Severity: **warning** · Auto-fix: **no**
+Severity: **warning** · Auto-fix: **no** · Maturity: **experimental**
 
 Tunable properties on MATLAB System blocks must be numeric. VAR_NAME property is made Nontunable on System block because it is a string.
+
+## Maturity
+
+Experimental checks are off by default and run with `[lint] experimental = true`, the `all` preset, or an explicit rule setting (see [Experimental checks](../configuration.md#experimental-checks)).
+
+`SONUMIN`, `SONUMOUT`, `SODEPPROP`, `SOINITPROP`, `SODFLTVAL`, `SORSRVDNM`, `SOTUNPROP1`, `SOTUNPROP3`, `SOTUNPROP4`: System object checks: silent in 13 probe shapes; verified against the documentation index only. The engine is off by default.
 
 ## Examples
 
@@ -85,31 +92,42 @@ Tunable properties on MATLAB System blocks must be numeric. VAR_NAME property is
 ```matlab
 classdef MySystem < matlab.System
     properties
-        Gain = rand();      % SODFLTVAL: function-call default value
-        Flag logical = false % SOTUNPROP1: logical tunable property
+        Flag logical = false    % SOTUNPROP1: logical tunable property
+        Label char = 'x'         % SOTUNPROP3: char tunable property
     end
-    methods
-        function step(obj)   % SORSRVDNM: reserved method name
+    properties (DiscreteState)
+        Count = 0;              % SODFLTVAL: DiscreteState default value
+    end
+    methods (Access = protected)
+        function y = stepImpl(obj, varargin)  % SONUMIN: no getNumInputsImpl
+            y = 1;
         end
     end
 end
-step(); % SONUMIN: step() called without inputs
 ```
 
 ### Correct
 
 ```matlab
 classdef MySystem < matlab.System
-    properties
-        Gain = 1;
-        Flag = false;
+    properties (Nontunable)
+        Label char = 'x'
     end
-    methods
-        function stepImpl(obj) % use the *Impl override, not 'step'
+    properties (DiscreteState)
+        Count
+    end
+    methods (Access = protected)
+        function y = stepImpl(obj, varargin)
+            y = 1;
+        end
+        function n = getNumInputsImpl(obj)
+            n = 2;
+        end
+        function resetImpl(obj)
+            obj.Count = 0;
         end
     end
 end
-step(obj, input); % pass the object and the input signal
 ```
 
 ## Configuration

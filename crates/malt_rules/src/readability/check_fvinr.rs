@@ -4,6 +4,38 @@
 //! `(Output)` attribute and inserts `(Input)` for readability.
 
 use super::*;
+use crate::analysis::metadata::attributes_text_contains;
+
+/// Whether an `arguments` block carries an `(Output)` attribute. A substring of the
+/// attribute text, as before: `(Input = "Output")` counts too.
+fn has_output_attribute(block: tree_sitter::Node, source: &str) -> bool {
+    attributes_text_contains(block, source, "Output")
+}
+
+/// Whether another `arguments` block with an `(Output)` attribute sits in the
+/// same function. The search covers the whole subtree, since a file with a
+/// syntax error can nest the blocks under an error node.
+fn output_block_in_scope(node: tree_sitter::Node, source: &str) -> bool {
+    let mut scope = node;
+    while let Some(parent) = scope.parent() {
+        scope = parent;
+        if scope.kind() == "function_definition" {
+            break;
+        }
+    }
+    let mut stack = vec![scope];
+    while let Some(current) = stack.pop() {
+        if current.id() != node.id()
+            && current.kind() == "arguments_statement"
+            && has_output_attribute(current, source)
+        {
+            return true;
+        }
+        let mut cursor = current.walk();
+        stack.extend(current.named_children(&mut cursor));
+    }
+    false
+}
 
 impl ReadabilityEngine {
     /// FVINR: Add `(Input)` attribute to `arguments` block for readability.
@@ -18,6 +50,14 @@ impl ReadabilityEngine {
             .named_children(&mut node.walk())
             .any(|c| c.kind() == "attributes");
         if has_attributes {
+            return;
+        }
+
+        // MATLAB reports an unattributed block only when the function also has an
+        // `arguments (Output)` block. A lone block, or two unattributed blocks,
+        // is silent (probes fv1, fv6 and q6).
+        let has_output_block = output_block_in_scope(node, ctx.source);
+        if !has_output_block {
             return;
         }
 
@@ -54,9 +94,17 @@ mod tests {
 
     #[test]
     fn fvinr_no_attribute_fires() {
-        let source = "function f(a)\n    arguments\n        a (1,1)\n    end\nend\n";
+        let source = "function f(a)\n    arguments\n        a (1,1)\n    end\n    arguments (Output)\n    end\nend\n";
         let diags = lint_nodes(&*engine(), source);
         assert!(has_id(&diags, "FVINR"), "got: {diags:?}");
+    }
+
+    #[test]
+    fn fvinr_lone_block_does_not_fire() {
+        // MATLAB is silent on a lone unattributed block (probe fv1).
+        let source = "function f(a)\n    arguments\n        a (1,1)\n    end\nend\n";
+        let diags = lint_nodes(&*engine(), source);
+        assert!(!has_id(&diags, "FVINR"), "got: {diags:?}");
     }
 
     #[test]
@@ -79,14 +127,14 @@ mod tests {
             Config::from_toml("[lint.rules.READABILITY_ENGINE]\ndisabled_checks = [\"FVINR\"]\n")
                 .expect("valid config");
         let rule = ReadabilityEngine::from_config(&config);
-        let source = "function f(a)\n    arguments\n        a (1,1)\n    end\nend\n";
+        let source = "function f(a)\n    arguments\n        a (1,1)\n    end\n    arguments (Output)\n    end\nend\n";
         let diags = lint_nodes(&*rule, source);
         assert!(!has_id(&diags, "FVINR"), "got: {diags:?}");
     }
 
     #[test]
     fn fvinr_fix_inserts_input_attribute() {
-        let source = "function f(a)\n    arguments\n        a (1,1)\n    end\nend\n";
+        let source = "function f(a)\n    arguments\n        a (1,1)\n    end\n    arguments (Output)\n    end\nend\n";
         let diags = lint_nodes(&*engine(), source);
         let diag = diags
             .iter()

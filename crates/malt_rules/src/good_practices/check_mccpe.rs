@@ -40,6 +40,18 @@ mod tests {
     use super::*;
 
     #[test]
+    fn test_mccpe_silent_on_local_variable_named_like_a_property() {
+        // Plan 6.2 (dogfooding): an assigned or input name is a variable there.
+        for source in [
+            "classdef Foo\n    properties\n        Time\n    end\n    methods\n        function go(obj)\n            Time(1, 1) = obj.Time;\n            Time(2) = 3;\n        end\n    end\nend\n",
+            "classdef Foo\n    properties\n        make\n    end\n    methods\n        function go(obj, make)\n            y = make(obj);\n        end\n    end\nend\n",
+        ] {
+            let tree = parse(source);
+            assert!(engine().check_mccpe(&tree, source).is_empty(), "{source}");
+        }
+    }
+
+    #[test]
     fn test_mccpe_fires_on_property_called_as_function() {
         let source = "classdef Foo\n    properties\n        Color\n    end\n    methods\n        function go(obj)\n            y = Color(1);\n        end\n    end\nend\n";
         let tree = parse(source);

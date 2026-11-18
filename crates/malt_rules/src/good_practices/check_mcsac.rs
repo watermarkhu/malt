@@ -16,14 +16,8 @@ impl GoodPracticesEngine {
         let mut diagnostics = Vec::new();
 
         for (block_idx, block) in class.properties_blocks.iter().enumerate() {
-            let has_constant = block
-                .attributes
-                .iter()
-                .any(|a| a.name == "Constant" && !a.negated);
-            let has_set_access = block
-                .attributes
-                .iter()
-                .any(|a| a.name == "SetAccess" && !a.negated);
+            let has_constant = Attributes(&block.attributes).is_present("Constant");
+            let has_set_access = Attributes(&block.attributes).is_present("SetAccess");
             if !has_constant || !has_set_access {
                 continue;
             }

@@ -1,52 +1,118 @@
-//! NASGU check: variable is assigned but never used.
+//! NASGU check: value assigned to a variable might be unused.
+//!
+//! An assignment is reported when no path from it reads the variable before
+//! another full assignment or `clear` replaces it. Scripts keep their final
+//! values in the workspace; a function reports a value that reaches its end
+//! unread, except for its output arguments. The analysis is in
+//! [`crate::analysis::liveness`], which reports nothing for a scope whose
+//! control flow it cannot see through.
+//!
+//! One element of a `[a, b] = f()` output list that is dead is ASGLU, not NASGU
+//! (probed: MATLAB replaces the variable with `~`). An indexed partial store
+//! (`x(i) = v`, `c{i} = v`) that is dead is NASGU. A field store (`s.f = v`) is
+//! STRNU, reported by the good-practices engine.
 
+use super::check_preall::{
+    is_later_overwritten_preallocation, is_overwritten_preallocation, preallocation_diagnostic,
+};
 use super::*;
+use crate::analysis::liveness::{is_field_store, shared_dead_stores};
+use malt_core::Fix;
 
 impl UnusedEngine {
-    /// Run NASGU check: variable assigned but never used.
-    pub(crate) fn check_nasgu(&self, table: &SymbolTable, diagnostics: &mut Vec<Diagnostic>) {
-        if self.is_check_disabled("NASGU") {
+    /// Run NASGU and ASGLU checks: a value assigned to a variable might be unused.
+    pub(crate) fn check_nasgu(
+        &self,
+        table: &SymbolTable,
+        tree: &tree_sitter::Tree,
+        source: &str,
+        unreachable: &[std::ops::Range<usize>],
+        diagnostics: &mut Vec<Diagnostic>,
+    ) {
+        let nasgu_off = self.is_check_disabled("NASGU");
+        let asglu_off = self.is_check_disabled("ASGLU");
+        let preall_off = self.is_check_disabled("PREALL");
+        if nasgu_off && asglu_off && preall_off {
             return;
         }
 
-        for scope in &table.scopes {
-            // Collect output argument names for this scope (they are "used" externally).
-            let output_args: HashSet<&str> = scope
-                .defs
-                .iter()
-                .filter(|d| d.kind == DefKind::OutputArg)
-                .map(|d| d.name.as_str())
-                .collect();
-
-            for def in &scope.defs {
-                // Only check assignment defs.
-                if def.kind != DefKind::Assignment {
+        for index in 0..table.scopes.len() {
+            let Some(dead) = shared_dead_stores(table, index, tree, source) else {
+                continue;
+            };
+            let scope = &table.scopes[index];
+            // `varargout` is only live as an output (probed: `varargout{1} = 1`
+            // in a function without it as output is NASGU). `varargin` is an
+            // ordinary variable once stored: a dead `varargin = {}` is NASGU
+            // (plan 6.2: `varargin = varargin{2:nargin}` and five more shapes).
+            let ignored = |name: &str| {
+                !matches!(name, "varargout" | "varargin") && self.should_ignore_name(name)
+            };
+            for def_index in dead.full {
+                let def = &scope.defs[def_index];
+                if ignored(&def.name) {
                     continue;
                 }
-                let name = &def.name;
-
-                // Skip if this variable is an output arg (returned externally).
-                if output_args.contains(name.as_str()) {
+                // Probed: `x = zeros(n); x = v` reports PREALL only, not NASGU.
+                if is_overwritten_preallocation(scope, def) {
                     continue;
                 }
-                // Skip ignored names.
-                if self.should_ignore_name(name) {
+                // Probed: a dead preallocation that a later full assignment overwrites on
+                // some path (`x = zeros(n); if c, x = v; end`, or on every switch branch)
+                // is PREALL alone. A preallocation nothing overwrites stays NASGU.
+                if is_later_overwritten_preallocation(scope, def) {
+                    if !preall_off
+                        && !unreachable
+                            .iter()
+                            .any(|r| r.contains(&def.byte_range.start))
+                    {
+                        diagnostics.push(preallocation_diagnostic(def));
+                    }
                     continue;
                 }
-                // Check if the variable has any uses in scope.
-                if !scope.is_used(name) {
-                    diagnostics.push(Diagnostic {
-                        rule_id: "NASGU",
-                        message: "Value assigned to variable might be unused.".to_string(),
-                        severity: Severity::Warning,
-                        byte_range: def.byte_range.clone(),
-                        line: def.line,
-                        column: def.column,
-                        fix: None,
-                    });
+                if def.multi_output {
+                    if !asglu_off {
+                        diagnostics.push(Diagnostic {
+                            rule_id: "ASGLU",
+                            message: "Value assigned to variable might be unused. Consider replacing the variable with ~ instead.".to_string(),
+                            severity: Severity::Warning,
+                            byte_range: def.byte_range.clone(),
+                            line: def.line,
+                            column: def.column,
+                            fix: Some(Fix::new(def.byte_range.clone(), "~")),
+                        });
+                    }
+                } else if !nasgu_off {
+                    diagnostics.push(nasgu_diagnostic(def));
                 }
             }
+            for def_index in dead.partial {
+                let def = &scope.defs[def_index];
+                // Field stores are STRNU; a dead output of a multi-output store
+                // has no official probe, so it is left alone.
+                if nasgu_off
+                    || def.multi_output
+                    || ignored(&def.name)
+                    || is_field_store(tree, def.byte_range.clone())
+                {
+                    continue;
+                }
+                diagnostics.push(nasgu_diagnostic(def));
+            }
         }
+    }
+}
+
+/// The NASGU diagnostic for a dead assignment `def`.
+fn nasgu_diagnostic(def: &crate::analysis::symbols::VarDef) -> Diagnostic {
+    Diagnostic {
+        rule_id: "NASGU",
+        message: "Value assigned to variable might be unused.".to_string(),
+        severity: Severity::Warning,
+        byte_range: def.byte_range.clone(),
+        line: def.line,
+        column: def.column,
+        fix: None,
     }
 }
 
@@ -60,12 +126,876 @@ mod tests {
         UnusedEngine::from_config(&Config::default())
     }
 
-    // -- NASGU: assigned but never used -------------------------------------
+    // Probed (plan 6.2): a dead store to `varargin` is NASGU; a read keeps it live.
+    #[test]
+    fn nasgu_on_dead_store_to_varargin() {
+        for source in [
+            "function k1(varargin)\nvarargin = {};\nend\n",
+            "function k2(a, varargin)\nvarargin = varargin{2:nargin};\nend\n",
+            "function r = k5(varargin)\nr = 1;\nif r\n    varargin = {};\nend\nend\n",
+            "function r = k7(varargin)\nr = numel(varargin);\nvarargin = {};\nend\n",
+        ] {
+            assert!(has_id(&lint_file(&*engine(), source), "NASGU"), "{source}");
+        }
+        let live = "function r = k8(varargin)\nr = 1;\nvarargin = 5;\ndisp(varargin)\nend\n";
+        assert!(!has_id(&lint_file(&*engine(), live), "NASGU"));
+    }
+
+    // Probed: an unused name in a `syms` declaration in a function is NASGU at
+    // its column; a name read later, the assumption keyword `real` and script
+    // declarations are not.
+    #[test]
+    fn nasgu_on_unused_syms_name_in_function() {
+        let source = "function f()\nsyms a b\ndisp(a)\nend\n";
+        assert_eq!(nasgu_lines(source), vec![2]);
+        let diags = lint_file(&*engine(), source);
+        let col = diags
+            .iter()
+            .find(|d| d.rule_id == "NASGU")
+            .map(|d| d.column);
+        assert_eq!(col, Some(8));
+    }
+
+    #[test]
+    fn nasgu_silent_on_syms_name_read_later_or_assumption_keyword() {
+        let source =
+            "function f()\nsyms t x(t) m w0 real\nassume(m > 0)\ny = m*diff(x, t);\ndisp(y)\nend\n";
+        assert_eq!(nasgu_lines(source), vec![2], "w0 only: {source:?}");
+        assert!(nasgu_lines("function f()\nsyms a real\ndisp(a)\nend\n").is_empty());
+    }
+
+    #[test]
+    fn nasgu_silent_on_syms_in_script() {
+        assert!(nasgu_lines("syms w0 real\ndisp(1)\n").is_empty());
+    }
+
+    // Probed: `a = zeros(n,1); a = v` reports PREALL only, not NASGU.
+    #[test]
+    fn nasgu_silent_on_preallocation_overwritten_in_function() {
+        let source = "function f()\na = zeros(3,1);\na = 5;\ndisp(a)\nend\n";
+        assert!(nasgu_lines(source).is_empty(), "got NASGU for {source:?}");
+        assert!(has_id(&lint_file(&*engine(), source), "PREALL"));
+    }
+
+    #[test]
+    fn nasgu_silent_on_preallocation_overwritten_in_script() {
+        let source = "uold = zeros(3,3);\nuold = ones(3);\ndisp(uold)\n";
+        assert!(nasgu_lines(source).is_empty(), "got NASGU for {source:?}");
+        assert!(has_id(&lint_file(&*engine(), source), "PREALL"));
+    }
+
+    #[test]
+    fn preall_fires_on_a_preallocation_overwritten_on_some_or_every_branch() {
+        // Probe (pb2, pa1, pa2, pb6): dead, and overwritten on one branch or on each.
+        let conditional =
+            "function out = f(n)\nx = zeros(1, n);\nif n\n  x = 2;\nend\nout = 1;\nend\n";
+        assert_eq!(nasgu_lines(conditional), vec![4]);
+        assert!(has_id(&lint_file(&*engine(), conditional), "PREALL"));
+        let both = "function out = f(k, a)\nout = zeros(size(a));\nif k == 1\n  out = a + 1;\nelse\n  out = a - 1;\nend\nend\n";
+        assert!(nasgu_lines(both).is_empty(), "got NASGU for {both:?}");
+        assert!(has_id(&lint_file(&*engine(), both), "PREALL"));
+        let switched = "function out = f(k, a)\nout = zeros(size(a));\nswitch k\n  case 1\n    out = a + 1;\n  otherwise\n    out = a - 1;\nend\nend\n";
+        assert!(
+            nasgu_lines(switched).is_empty(),
+            "got NASGU for {switched:?}"
+        );
+        assert!(has_id(&lint_file(&*engine(), switched), "PREALL"));
+    }
+
+    #[test]
+    fn nasgu_still_fires_on_a_preallocation_nothing_overwrites() {
+        // Probe (pb1): a dead preallocation that no later assignment replaces is NASGU.
+        let source = "function out = f(n)\nx = zeros(1, n);\nout = 1;\nend\n";
+        assert_eq!(nasgu_lines(source), vec![2]);
+        assert!(!has_id(&lint_file(&*engine(), source), "PREALL"));
+    }
+
+    #[test]
+    fn nasgu_still_fires_on_overwritten_plain_assignment() {
+        let source = "function f()\na = 1;\na = 2;\ndisp(a)\nend\n";
+        assert_eq!(nasgu_lines(source), vec![2]);
+    }
+
+    #[test]
+    fn nasgu_silent_on_preallocation_that_is_read_first() {
+        let source = "function f()\na = zeros(3,1);\ndisp(a)\na = 5;\ndisp(a)\nend\n";
+        assert!(nasgu_lines(source).is_empty(), "got NASGU for {source:?}");
+    }
+
+    /// The lines NASGU reports for `source`, sorted.
+    fn nasgu_lines(source: &str) -> Vec<usize> {
+        let mut lines: Vec<usize> = lint_file(&*engine(), source)
+            .iter()
+            .filter(|d| d.rule_id == "NASGU")
+            .map(|d| d.line)
+            .collect();
+        lines.sort_unstable();
+        lines
+    }
+
+    #[test]
+    fn nasgu_save_named_variable_is_a_read() {
+        // Probe g1: `save(file, 'x')` reads `x`; MATLAB reports no store of it.
+        let source =
+            "function g(fileName)\nsettings = struct('a', 1);\nsave(fileName, 'settings');\nend\n";
+        assert!(nasgu_lines(source).is_empty());
+    }
+
+    #[test]
+    fn nasgu_save_reads_only_the_names_it_lists() {
+        // Probe g3: `other` is read by the save, `settings` is not (MATLAB reports line 2).
+        let source =
+            "function g(fileName)\nsettings = 1;\nother = 2;\nsave(fileName, 'other');\nend\n";
+        assert_eq!(nasgu_lines(source), vec![2]);
+    }
+
+    #[test]
+    fn nasgu_save_without_names_reads_nothing() {
+        // Probe g2: `save(file)` names no variable, so the store is reported.
+        let source = "function g(fileName)\nsettings = 1;\nsave(fileName);\nend\n";
+        assert_eq!(nasgu_lines(source), vec![2]);
+    }
+
+    #[test]
+    fn nasgu_for_range_variable_is_a_read() {
+        // Probe e1 (c_bit_logic:78): `for p = positions` reads `positions`.
+        let source =
+            "function f()\npositions = [0 3 5 7];\nfor p = positions\n    disp(p)\nend\nend\n";
+        assert!(nasgu_lines(source).is_empty());
+    }
+
+    // -- Probes: MATLAB R2026b checkcode, scripts ----------------------------
+
+    #[test]
+    fn nasgu_script_overwritten_before_use() {
+        assert_eq!(nasgu_lines("a = 1;\na = 2;\ndisp(a)\n"), vec![1]);
+    }
+
+    #[test]
+    fn nasgu_load_named_variable_is_a_store() {
+        // Probe: `x = 1` is dead because `load` stores `x`; MATLAB reports the
+        // store at the opening quote of the name, `'x'` on line 3 column 14.
+        let source = "function f()\nx = 1;\nload('a.mat', 'x')\nend\n";
+        assert_eq!(nasgu_lines(source), vec![2, 3]);
+    }
+
+    #[test]
+    fn nasgu_load_command_form_stores_named_variable() {
+        // Probe: `load a.mat x` reports the name `x` on line 3 column 12.
+        let source = "function f()\nx = 1;\nload a.mat x\nend\n";
+        assert_eq!(nasgu_lines(source), vec![2, 3]);
+    }
+
+    #[test]
+    fn nasgu_load_with_output_stores_nothing() {
+        // Probe: `y = load(...)` stores no variable by name, so `x = 1` is kept
+        // alive by nothing and reported; MATLAB also reports the unused `y`.
+        let source = "function f()\nx = 1;\ny = load('a.mat', 'x');\nend\n";
+        assert_eq!(nasgu_lines(source), vec![2, 3]);
+    }
+
+    #[test]
+    fn nasgu_load_read_after_keeps_store_alive() {
+        // Probe: `x = 1; load('a.mat', 'x'); disp(x)` reports only `x = 1`.
+        let source = "function f()\nx = 1;\nload('a.mat', 'x');\ndisp(x)\nend\n";
+        assert_eq!(nasgu_lines(source), vec![2]);
+    }
+
+    #[test]
+    fn nasgu_in_function_whose_header_is_a_syntax_error() {
+        // Probe (readability__t3f): a later statement with a parse error made the
+        // whole file an error node; the function body is still analysed, and only
+        // the broken statements are dropped by the linter (line 4 here).
+        let source = "function t3(x)\nr1 = 1;\nfprintf'hi %d', 3;\nw = fprintf'hi';\n";
+        assert!(nasgu_lines(source).contains(&2));
+    }
+
+    // Probes (checkcode R2026b): a stray `elseif x, c=2; end` after a closed
+    // `if` ends the function at its `end`. The statements after it are a
+    // script's: their stores are reported only when overwritten.
+
+    #[test]
+    fn stray_elseif_keeps_function_stores_before_it() {
+        // `a = 1` is overwritten; `c = 2` is never read in the function.
+        let src = "function t12(x)\na = 1;\na = 2;\ndisp(a);\nif x, disp(1); end\nelseif x, c=2; end\nb = 4;\n[p,q] = 5;\n[p,q] = x;\n";
+        assert_eq!(nasgu_lines(src), vec![2, 6]);
+    }
+
+    #[test]
+    fn stray_elseif_multi_output_overwritten_after_is_asglu() {
+        // MATLAB: ASGLU at 8:2 and 8:4, the first store of `[p, q]`.
+        let src = "function t13(x)\na = 1;\na = 2;\ndisp(a);\nif x, disp(1); end\nelseif x, c=2; end\nc = a || a;\n[p,q] = 5;\n[p,q] = x;\n";
+        assert_eq!(asglu_positions(src), vec![(8, 2), (8, 4)]);
+    }
+
+    #[test]
+    fn stray_elseif_final_stores_after_it_stay_in_workspace() {
+        // MATLAB: `b = 4`, `[p, q] = 5` and `r = 6` are live at the end of the
+        // script part, so nothing is reported for them.
+        let src = "function t8(x)\na = 1;\na = 2;\ndisp(a);\nif x, disp(1); end\nelseif x, c=2; end\nb = 4;\n[p,q] = 5;\nr = 6;\n";
+        assert_eq!(nasgu_lines(src), vec![2, 6]);
+        assert!(asglu_positions(src).is_empty());
+    }
+
+    #[test]
+    fn nasgu_script_cleared_before_use() {
+        assert_eq!(nasgu_lines("e = 7;\nclear e\n"), vec![1]);
+    }
+
+    #[test]
+    fn nasgu_script_final_value_stays_in_workspace() {
+        assert!(nasgu_lines("x = 3;\n").is_empty());
+    }
+
+    #[test]
+    fn nasgu_script_loop_store_overwritten_in_same_pass() {
+        let source = "for i = 1:3\n    t = i;\n    t = i * 2;\n    disp(t)\nend\n";
+        assert_eq!(nasgu_lines(source), vec![2]);
+    }
+
+    #[test]
+    fn nasgu_script_chain_of_overwrites() {
+        assert_eq!(nasgu_lines("x = 1;\nx = 2;\nx = 3;\ndisp(x)\n"), vec![1, 2]);
+    }
+
+    #[test]
+    fn nasgu_script_clear_then_store() {
+        assert_eq!(nasgu_lines("x = 1;\nclear x\nx = 2;\ndisp(x)\n"), vec![1]);
+    }
+
+    #[test]
+    fn nasgu_script_break_keeps_value_in_workspace() {
+        let source = "for i = 1:3\n    t = i;\n    if i == 2, break; end\n    t = 0;\nend\n";
+        assert!(nasgu_lines(source).is_empty());
+    }
+
+    #[test]
+    fn nasgu_script_while_may_skip_store() {
+        let source = "k = 2;\na = 1;\nwhile k > 0\n    a = 2;\n    k = k - 1;\nend\n";
+        assert!(nasgu_lines(source).is_empty());
+    }
+
+    #[test]
+    fn nasgu_script_conditional_store_does_not_kill() {
+        let source = "k = rand > 0.5;\na = 1;\nif k, a = 2; end\ndisp(a)\n";
+        assert!(nasgu_lines(source).is_empty());
+    }
+
+    #[test]
+    fn nasgu_script_both_branches_overwrite() {
+        let source = "k = rand > 0.5;\na = 1;\nif k, a = 2; else, a = 3; end\ndisp(a)\n";
+        assert_eq!(nasgu_lines(source), vec![2]);
+    }
+
+    #[test]
+    fn nasgu_script_while_body_store_not_dead() {
+        assert!(nasgu_lines("a = 1;\nwhile rand > 0.5, a = 2; end\ndisp(a)\n").is_empty());
+    }
+
+    #[test]
+    fn nasgu_script_loop_final_store_is_workspace_value() {
+        assert!(nasgu_lines("for i = 1:3\n    a = i;\nend\n").is_empty());
+    }
+
+    #[test]
+    fn nasgu_script_clear_in_branch_kills() {
+        let source = "a = 1;\nif rand > 0.5, clear a; end\na = 2;\ndisp(a)\n";
+        assert_eq!(nasgu_lines(source), vec![1]);
+    }
+
+    #[test]
+    fn nasgu_script_read_on_one_path_keeps_value() {
+        let source = "a = 1;\nif rand > 0.5, disp(a); end\na = 2;\ndisp(a)\n";
+        assert!(nasgu_lines(source).is_empty());
+    }
+
+    #[test]
+    fn nasgu_try_body_store_read_only_in_catch_is_dead() {
+        // Probed: `s = 1` is the last statement of the try body, and only the catch
+        // reads `s`. The catch is entered before `s = 1`, not after it. The store
+        // before the try is read by the catch, so it is live (not reported).
+        let source = "function f()\ns = 0;\ntry\n    s = 1;\ncatch\n    disp(s)\nend\nend\n";
+        assert_eq!(nasgu_lines(source), vec![4]);
+    }
+
+    #[test]
+    fn nasgu_try_body_store_read_after_try_is_live() {
+        // Probed: a read after the try keeps the stores of the try body and before it.
+        let source = "function f()\ns = 0;\ntry\n    s = 1;\ncatch\nend\ndisp(s)\nend\n";
+        assert!(nasgu_lines(source).is_empty());
+    }
+
+    #[test]
+    fn nasgu_catch_variable_kills_the_value_before_the_try() {
+        // Probed (e1, e2, e3, e4, e13, c2, c3, c5): `catch err` stores the error at the start
+        // of the catch, so `err = []` before a try whose body always errors is never read.
+        assert_eq!(
+            nasgu_lines(
+                "err = [];\ntry\n    error('a:b', 'Value %d', 42);\ncatch err\nend\ndisp(err)\n"
+            ),
+            vec![1]
+        );
+        assert_eq!(
+            nasgu_lines("x = 1;\ntry\n    error('a:b', 'm');\ncatch x\nend\ndisp(x)\n"),
+            vec![1]
+        );
+        // The try body can finish without an error, and then the value is read.
+        assert!(nasgu_lines("x = 1;\ntry\n    y = 2;\ncatch x\nend\ndisp(x)\n").is_empty());
+    }
+
+    #[test]
+    fn nasgu_throw_of_an_exception_ends_the_flow() {
+        // Probed (t1, t2, t6, t7): `throw(MException(...))` ends the flow like `error`.
+        assert_eq!(
+            nasgu_lines("function f(a)\nx = 1;\nif a\n    throw(MException('a:b', 'm'));\nend\nx = 2;\ndisp(x)\nend\n"),
+            vec![2]
+        );
+        assert_eq!(
+            nasgu_lines("function f()\nerr = [];\ntry\n    throw(MException('a:b', 'm'));\ncatch err\nend\ndisp(err)\nend\n"),
+            vec![2]
+        );
+    }
+
+    #[test]
+    fn nasgu_throw_of_a_variable_is_not_analysed() {
+        // `throw(ME)` with a variable is not followed (the scope is skipped, as before).
+        assert!(
+            nasgu_lines("function f(ME)\nx = 1;\nthrow(ME);\nx = 2;\ndisp(x)\nend\n").is_empty()
+        );
+    }
+
+    #[test]
+    fn nasgu_script_try_body_store_read_by_nothing() {
+        // The catch body does not read `a`, and the store after the try overwrites it.
+        let source = "try\n    a = 1;\ncatch\nend\na = 2;\ndisp(a)\n";
+        assert_eq!(nasgu_lines(source), vec![2]);
+    }
+
+    #[test]
+    fn nasgu_one_line_if_body_reads_value() {
+        // A single-line `if` body is a statement of its own, not a block.
+        assert!(nasgu_lines("a = 1;\nk = true;\nif k, disp(a), end\n").is_empty());
+    }
+
+    #[test]
+    fn nasgu_one_line_if_store_read_later() {
+        let source = "function y = f(tol)\n    if nargin < 3, tol = 1e-8; end\n    y = tol;\nend\n";
+        assert!(nasgu_lines(source).is_empty());
+    }
+
+    #[test]
+    fn nasgu_if_condition_is_a_read() {
+        let source = "function f()\n    a = 1;\n    if a > 0\n        disp(2);\n    end\nend\n";
+        assert!(nasgu_lines(source).is_empty());
+    }
+
+    #[test]
+    fn nasgu_while_condition_is_a_read() {
+        let source =
+            "function f()\n    n = 3;\n    while n > 0\n        n = n - 1;\n    end\nend\n";
+        assert!(nasgu_lines(source).is_empty());
+    }
+
+    #[test]
+    fn nasgu_script_eval_does_not_stop_analysis() {
+        // Probed: MATLAB reports line 1; eval does not stop the analysis.
+        assert_eq!(nasgu_lines("a = 1;\neval('disp(2)');\na = 2;\n"), vec![1]);
+    }
+
+    // -- Probes: functions ---------------------------------------------------
+
+    /// The ASGLU diagnostics for `source`, as (line, column), sorted.
+    fn asglu_positions(source: &str) -> Vec<(usize, usize)> {
+        let mut found: Vec<(usize, usize)> = lint_file(&*engine(), source)
+            .iter()
+            .filter(|d| d.rule_id == "ASGLU")
+            .map(|d| (d.line, d.column))
+            .collect();
+        found.sort_unstable();
+        found
+    }
+
+    // -- ASGLU: an output of a multi-output call that is dead ----------------
+
+    #[test]
+    fn asglu_fires_on_unused_output_element() {
+        let src = "function foo(x)\n    [a, b] = size(x);\n    disp(a);\nend\n";
+        assert_eq!(asglu_positions(src), vec![(2, 9)]);
+        let diags = lint_file(&*engine(), src);
+        let d: Vec<_> = diags.iter().filter(|d| d.rule_id == "ASGLU").collect();
+        assert_eq!(&src[d[0].byte_range.clone()], "b");
+        assert_eq!(d[0].fix.as_ref().unwrap().replacement, "~");
+        assert!(!has_id(&diags, "NASGU"), "disjoint from NASGU: {diags:?}");
+    }
+
+    #[test]
+    fn asglu_message_is_the_official_one() {
+        let diags = lint_file(
+            &*engine(),
+            "function foo(x)\n    [a, b] = size(x);\n    disp(a);\nend\n",
+        );
+        let d = diags.iter().find(|d| d.rule_id == "ASGLU").unwrap();
+        assert_eq!(
+            d.message,
+            "Value assigned to variable might be unused. Consider replacing the variable with ~ instead."
+        );
+    }
+
+    #[test]
+    fn asglu_both_outputs_unused_at_function_end() {
+        assert_eq!(
+            asglu_positions("function f(x)\n    [a, b] = size(x);\nend\n"),
+            vec![(2, 6), (2, 9)]
+        );
+    }
+
+    #[test]
+    fn asglu_fires_on_first_element_overwritten_before_read() {
+        // Probed: MATLAB reports the first `a` and the first `b`, not the last stores.
+        assert_eq!(
+            asglu_positions(
+                "function f(x)\n    [a, b] = size(x);\n    a = 1;\n    disp(a + b);\nend\n"
+            ),
+            vec![(2, 6)]
+        );
+        assert_eq!(
+            asglu_positions(
+                "function f(x)\n    [a, b] = size(x);\n    disp(a);\n    b = 2;\nend\n"
+            ),
+            vec![(2, 9)]
+        );
+    }
+
+    #[test]
+    fn asglu_silent_in_a_script_when_value_stays_in_workspace() {
+        // Probed: MATLAB keeps the final values of a script in the workspace.
+        assert!(asglu_positions("[a, b] = size(1);\n").is_empty());
+        assert!(asglu_positions("[a, b] = size(1);\ndisp(a)\n").is_empty());
+    }
+
+    #[test]
+    fn asglu_script_overwritten_before_read() {
+        assert_eq!(
+            asglu_positions("[a, b] = size(1);\nb = 3;\ndisp(a + b)\n"),
+            vec![(1, 5)]
+        );
+    }
+
+    #[test]
+    fn asglu_silent_for_tilde_and_used_outputs() {
+        assert!(
+            asglu_positions("function f(x)\n    [~, b] = size(x);\n    disp(b);\nend\n").is_empty()
+        );
+        assert!(
+            asglu_positions("function f(x)\n    [a, b] = size(x);\n    disp(a + b);\nend\n")
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn asglu_dynamic_feval_call_is_a_multi_output_call() {
+        assert_eq!(
+            asglu_positions("function f(x)\n    [a, b] = feval('size', x);\n    disp(a);\nend\n"),
+            vec![(2, 9)]
+        );
+    }
+
+    #[test]
+    fn asglu_reported_when_eval_is_in_scope() {
+        // Probed: MATLAB reports `b` (eval does not stop the analysis).
+        assert_eq!(
+            asglu_positions(
+                "function f(x)\n    [a, b] = size(x);\n    eval('1');\n    disp(a);\nend\n"
+            ),
+            vec![(2, 9)]
+        );
+    }
+
+    // -- Partial stores: dead indexed stores are NASGU -----------------------
+
+    #[test]
+    fn nasgu_fires_on_dead_indexed_store_at_function_end() {
+        // Probed: `x(3) = 1` and `c{1} = 2` are NASGU, not STRNU.
+        assert_eq!(
+            nasgu_lines("function f()\n    x = zeros(1, 3);\n    x(2) = 1;\nend\n"),
+            vec![3]
+        );
+        assert_eq!(nasgu_lines("function f()\n    c{1} = 2;\nend\n"), vec![2]);
+    }
+
+    #[test]
+    fn nasgu_fires_on_indexed_store_overwritten_as_a_whole() {
+        assert_eq!(nasgu_lines("x(3) = 1;\nx = 2;\ndisp(x)\n"), vec![1]);
+    }
+
+    #[test]
+    fn nasgu_partial_store_read_later_is_not_dead() {
+        assert!(
+            nasgu_lines("function f()\n    x = 1;\n    x(2) = 2;\n    disp(x)\nend\n").is_empty()
+        );
+    }
+
+    #[test]
+    fn nasgu_ignores_field_stores() {
+        // Field stores are STRNU (check_strnu), so NASGU stays silent on them.
+        assert!(nasgu_lines("function f()\n    s.a = 1;\nend\n").is_empty());
+    }
 
     #[test]
     fn nasgu_fires_on_unused_assignment() {
         let diags = lint_file(&*engine(), "function foo()\n    x = 1;\nend\n");
         assert!(has_id(&diags, "NASGU"), "got: {diags:?}");
+    }
+
+    #[test]
+    fn nasgu_function_store_at_end_is_dead() {
+        assert_eq!(nasgu_lines("function f01()\n    b = 3;\nend\n"), vec![2]);
+    }
+
+    #[test]
+    fn nasgu_function_overwritten_before_use() {
+        let source = "function f02()\n    b = 3;\n    b = 4;\n    disp(b)\nend\n";
+        assert_eq!(nasgu_lines(source), vec![2]);
+    }
+
+    #[test]
+    fn nasgu_function_output_overwritten_only_earlier_store() {
+        let source = "function y = f03()\n    y = 3;\n    y = 4;\nend\n";
+        assert_eq!(nasgu_lines(source), vec![2]);
+    }
+
+    #[test]
+    fn nasgu_function_output_value_is_read_by_caller() {
+        assert!(nasgu_lines("function y = f04()\n    y = 3;\nend\n").is_empty());
+    }
+
+    #[test]
+    fn nasgu_function_final_store_after_read() {
+        let source = "function f05()\n    a = 1;\n    disp(a);\n    a = 2;\nend\n";
+        assert_eq!(nasgu_lines(source), vec![4]);
+    }
+
+    #[test]
+    fn nasgu_function_conditional_store_at_end() {
+        let source = "function f06(k)\n    c = 5;\n    if k, c = 6; end\nend\n";
+        assert_eq!(nasgu_lines(source), vec![2, 3]);
+    }
+
+    #[test]
+    fn nasgu_function_self_reference_is_read() {
+        // `x = x + 1` reads the old value; the new value is never read.
+        let source = "function f07()\n    x = 1;\n    x = x + 1;\nend\n";
+        assert_eq!(nasgu_lines(source), vec![3]);
+    }
+
+    #[test]
+    fn nasgu_function_loop_accumulator_is_read_next_pass() {
+        let source =
+            "function f08()\n    s = 0;\n    for i = 1:3\n        s = s + i;\n    end\nend\n";
+        assert!(nasgu_lines(source).is_empty());
+    }
+
+    #[test]
+    fn nasgu_function_loop_store_unread_at_end() {
+        let source = "function f09()\n    for i = 1:2\n        t = i;\n    end\nend\n";
+        assert_eq!(nasgu_lines(source), vec![3]);
+    }
+
+    #[test]
+    fn nasgu_function_clear_kills() {
+        assert_eq!(
+            nasgu_lines("function f10()\n    a = 1;\n    clear a;\nend\n"),
+            vec![2]
+        );
+    }
+
+    #[test]
+    fn nasgu_function_two_stores_unread() {
+        let source = "function f11()\n    a = 1;\n    a = 2;\nend\n";
+        assert_eq!(nasgu_lines(source), vec![2, 3]);
+    }
+
+    #[test]
+    fn nasgu_function_global_is_not_reported() {
+        assert!(nasgu_lines("function f12()\n    global g\n    g = 1;\nend\n").is_empty());
+    }
+
+    #[test]
+    fn nasgu_function_eval_does_not_stop_analysis() {
+        // Probed: MATLAB reports the store that only eval reads.
+        let source = "function f13()\n    a = 1;\n    eval('disp(a)');\nend\n";
+        assert_eq!(nasgu_lines(source), vec![2]);
+    }
+
+    #[test]
+    fn nasgu_function_constant_true_if_kills_earlier_store() {
+        // Probed: `if 1` always runs its body, so the store before it is dead.
+        let source = "function r = f(x)\nr = 0;\nif 1\n  r = 1;\nend\nend\n";
+        assert_eq!(nasgu_lines(source), vec![2]);
+    }
+
+    #[test]
+    fn nasgu_function_constant_variable_condition() {
+        // Probed: `k = 1; if k` runs its body; the store before it is dead.
+        let source = "function r = f(x)\nr = 0;\nk = 1;\nif k\n  r = 1;\nend\nend\n";
+        assert_eq!(nasgu_lines(source), vec![2]);
+    }
+
+    #[test]
+    fn nasgu_function_unknown_variable_condition_keeps_store() {
+        // Probed: `k` is assigned under a condition, so it is not constant.
+        let source =
+            "function r = f(x)\nr = 0;\nk = 1;\nif x\n  k = 0;\nend\nif k\n  r = 1;\nend\nend\n";
+        assert!(nasgu_lines(source).is_empty());
+    }
+
+    #[test]
+    fn nasgu_function_constant_false_branch_is_not_reported() {
+        // Probed: the store in `if 0` is unreachable, and so reports nothing.
+        assert!(nasgu_lines("function r = f(x)\nr = 0;\nif 0\n  r = 1;\nend\nend\n").is_empty());
+    }
+
+    #[test]
+    fn nasgu_function_comparison_is_not_folded() {
+        // Probed: `1 == 1` is not evaluated, so the store before it stays live.
+        assert!(
+            nasgu_lines("function r = f(x)\nr = 0;\nif 1 == 1\n  r = 1;\nend\nend\n").is_empty()
+        );
+    }
+
+    #[test]
+    fn nasgu_function_constant_true_else_is_dead() {
+        // Probed: the `else` of `if 1` never runs, so both stores before the end are kept only by the body.
+        let source = "function r = f(x)\nr = 0;\nif 1\n  r = 1;\nelse\n  r = 2;\nend\nend\n";
+        assert_eq!(nasgu_lines(source), vec![2]);
+    }
+
+    #[test]
+    fn nasgu_function_while_true_store_before_break() {
+        // Probed: a `while 1` body always runs, so the store before it is dead.
+        let source = "function r = f(x)\nr = 0;\nwhile 1\n  r = 1;\n  break;\nend\nend\n";
+        assert_eq!(nasgu_lines(source), vec![2]);
+    }
+
+    #[test]
+    fn nasgu_function_on_cleanup_is_not_reported() {
+        // Probed: MATLAB does not report a dead `onCleanup` object.
+        assert!(nasgu_lines("function f()\n    c = onCleanup(@() disp(1));\nend\n").is_empty());
+    }
+
+    #[test]
+    fn nasgu_function_arguments_block_does_not_stop_analysis() {
+        // Probed (codegen fixture): MATLAB reports the dead store after an `arguments` block.
+        let source = "function r = f2(a)\narguments\n    a (1,1) double\nend\np = mobileRobotPRM;\nr = a;\nend\n";
+        assert_eq!(nasgu_lines(source), vec![5]);
+    }
+
+    #[test]
+    fn nasgu_function_method_named_save_is_not_dynamic() {
+        // Probed (codegen fixture): `obj.save(1)` is a method call, not the function `save`.
+        let source = "function f()\n    y = 1;\n    z = obj.save(1);\nend\n";
+        assert_eq!(nasgu_lines(source), vec![2, 3]);
+    }
+
+    #[test]
+    fn nasgu_function_after_infinite_loop_is_unreachable() {
+        // Probed: MATLAB reports nothing after a `while true` without `break`.
+        let source =
+            "function f()\n    k = 1;\n    while true\n        disp(k)\n    end\n    a = 2;\nend\n";
+        assert!(nasgu_lines(source).is_empty());
+    }
+
+    #[test]
+    fn nasgu_function_try_catch_keeps_value() {
+        let source = "function y = f14(k)\n    a = 1;\n    try\n        a = 2;\n    catch\n    end\n    y = a;\nend\n";
+        assert!(nasgu_lines(source).is_empty());
+    }
+
+    #[test]
+    fn nasgu_function_constant_if_both_stores() {
+        let source = "function f15()\n    a = 1;\n    if true\n        a = 2;\n    end\nend\n";
+        assert_eq!(nasgu_lines(source), vec![2, 4]);
+    }
+
+    #[test]
+    fn nasgu_function_partial_store_is_not_reported() {
+        // The partial store reads `x`, so the later full store is still read by disp.
+        let source = "function f16()\n    x.a = 1;\n    x = 2;\n    disp(x)\nend\n";
+        assert!(nasgu_lines(source).is_empty());
+    }
+
+    #[test]
+    fn nasgu_fires_on_varargout_store_when_not_an_output() {
+        // Probe t11: `varargout{1} = 1` is unused when `varargout` is not an output.
+        let source = "function v = f()\nv = 1;\nvarargout{1} = 1;\nend\n";
+        assert_eq!(nasgu_lines(source), vec![3]);
+    }
+
+    #[test]
+    fn nasgu_silent_on_varargout_store_when_an_output() {
+        // Probe t12: the outputs are live at the end of the function.
+        let source = "function varargout = f()\nvarargout{1} = 1;\nend\n";
+        assert!(nasgu_lines(source).is_empty());
+    }
+
+    #[test]
+    fn nasgu_function_read_before_later_overwrite() {
+        let source = "function f17()\n    a = 1;\n    b = a;\n    a = 2;\n    disp(b)\nend\n";
+        assert_eq!(nasgu_lines(source), vec![4]);
+    }
+
+    #[test]
+    fn nasgu_function_lambda_capture_reads_value_at_creation() {
+        // Probed: `v = 1; f = @() v; v = 2; disp(f())` reports only the store after the lambda.
+        let source = "function f18()\n    a = 1;\n    g = @() a;\n    a = 2;\n    disp(g())\nend\n";
+        assert_eq!(nasgu_lines(source), vec![4]);
+    }
+
+    #[test]
+    fn nasgu_function_store_before_lambda_capture_is_reported() {
+        // Probed: `u = 1; u = 2; f = @() u` reports the store the lambda does not capture.
+        let source = "function f29()\n    u = 1; u = 2;\n    f = @() u;\n    disp(f())\nend\n";
+        assert_eq!(nasgu_lines(source), vec![2]);
+    }
+
+    #[test]
+    fn nasgu_function_compound_assignment_silences_variable() {
+        // Probed: `k = 1; k = 2; k += 1` reports nothing: the variable is not checked.
+        let source = "function f30()\n    k = 1;\n    k = 2;\n    k += 1;\n    disp(k)\nend\n";
+        assert!(nasgu_lines(source).is_empty());
+    }
+
+    #[test]
+    fn nasgu_function_assignin_is_analysed() {
+        // Probed: `assignin` does not stop the analysis, MATLAB reports both stores.
+        let source = "function f19()\n    a = 1;\n    assignin('base', 'z', 1);\n    a = 2;\nend\n";
+        assert_eq!(nasgu_lines(source), vec![2, 4]);
+    }
+
+    #[test]
+    fn nasgu_function_persistent_is_not_reported() {
+        assert!(nasgu_lines("function f20()\n    persistent p\n    p = 1;\nend\n").is_empty());
+    }
+
+    #[test]
+    fn nasgu_function_evalin_is_analysed() {
+        // Probed: `evalin('base', ...)` does not stop the analysis: MATLAB reports both stores.
+        let source =
+            "function f21()\n    a = 1;\n    evalin('base', 'disp(1)');\n    a = 2;\nend\n";
+        assert_eq!(nasgu_lines(source), vec![2, 4]);
+    }
+
+    #[test]
+    fn nasgu_function_save_and_who_are_analysed() {
+        // Probed: MATLAB reports the stores around `save` and `who`, which read no variable.
+        let source =
+            "function f31()\n    u = 1; u = 2; disp(u);\n    save('a.mat')\n    v = 3;\nend\n";
+        assert_eq!(nasgu_lines(source), vec![2, 4]);
+    }
+
+    #[test]
+    fn nasgu_parfor_body_store_is_reported() {
+        // Probed: MATLAB reports the dead store inside the parfor body, not the one it reads.
+        let source =
+            "function f32(n)\n    parfor i = 1:n\n        a = 1; a = 2; disp(a)\n    end\nend\n";
+        assert_eq!(nasgu_lines(source), vec![3]);
+    }
+
+    #[test]
+    fn nasgu_parfor_store_before_loop_is_dead_when_overwritten() {
+        // Probed: `q = 0` is dead, the loop always stores `q` and `q` is not read after it.
+        let source =
+            "function f33(n)\n    q = 0;\n    parfor i = 1:n\n        q = i;\n    end\nend\n";
+        assert_eq!(nasgu_lines(source), vec![2, 4]);
+    }
+
+    #[test]
+    fn nasgu_parfor_reduction_not_read_after_loop_is_reported() {
+        // Probed: `s = 0` is read by the body; the reduction in the body is dead after the loop.
+        let source =
+            "function f34(n)\n    s = 0;\n    parfor i = 1:n\n        s = s + i;\n    end\nend\n";
+        assert_eq!(nasgu_lines(source), vec![4]);
+    }
+
+    #[test]
+    fn nasgu_spmd_block_is_a_sequence() {
+        // Probed: an spmd block runs once, so its stores are checked in order.
+        let source = "function f35()\n    spmd\n        a = 1; a = 2; disp(a)\n        b = 3;\n    end\n    c = 4;\nend\n";
+        assert_eq!(nasgu_lines(source), vec![3, 4, 6]);
+    }
+
+    #[test]
+    fn nasgu_function_output_overwritten_before_return() {
+        let source = "function y = f22()\n    y = 1;\n    y = 2;\n    return;\nend\n";
+        assert_eq!(nasgu_lines(source), vec![2]);
+    }
+
+    #[test]
+    fn nasgu_function_return_path_reads_value() {
+        let source =
+            "function f23()\n    a = 1;\n    if rand > 0.5, return; end\n    disp(a)\nend\n";
+        assert!(nasgu_lines(source).is_empty());
+    }
+
+    #[test]
+    fn nasgu_function_return_path_leaves_value_unread() {
+        let source =
+            "function f24()\n    a = 1;\n    if rand > 0.5, return; end\n    a = 2;\nend\n";
+        assert_eq!(nasgu_lines(source), vec![2, 4]);
+    }
+
+    #[test]
+    fn nasgu_function_break_leaves_loop_value_unread() {
+        let source = "function f25()\n    for i = 1:3\n        t = i;\n        if i == 2, break; end\n    end\nend\n";
+        assert_eq!(nasgu_lines(source), vec![3]);
+    }
+
+    #[test]
+    fn nasgu_function_nested_function_is_not_analysed() {
+        let source = "function f26()\n    a = 1;\n    g();\n    a = 2;\n    disp(a)\n    function g()\n        disp(a)\n    end\nend\n";
+        assert!(nasgu_lines(source).is_empty());
+    }
+
+    #[test]
+    fn nasgu_function_input_overwritten_unread() {
+        assert_eq!(nasgu_lines("function f27(x)\n    x = 1;\nend\n"), vec![2]);
+    }
+
+    #[test]
+    fn nasgu_function_try_body_read_in_catch_keeps_value() {
+        let source = "function f28()\n    a = 1;\n    try\n        disp(a);\n    catch\n    end\n    a = 2;\n    disp(a)\nend\n";
+        assert!(nasgu_lines(source).is_empty());
+    }
+
+    #[test]
+    fn nasgu_ignores_script_workspace_variables() {
+        // The values of a script remain in the workspace afterwards.
+        let diags = lint_file(&*engine(), "x = linspace(0, 1, 10);\ny = x * 2;\n");
+        assert!(!has_id(&diags, "NASGU"), "got: {diags:?}");
+    }
+
+    #[test]
+    fn nasgu_script_break_outside_loop_leaves_nothing_live() {
+        // Probed: `x = 1; break` reports `x = 1`, and so does the loop store
+        // before a top-level `break`. `return` keeps the workspace live instead.
+        assert_eq!(nasgu_lines("x = 1;\nbreak\n"), vec![1]);
+        let source = "for i = 1:2\n  y = i;\nend\nbreak\nw = 4;\n";
+        assert_eq!(nasgu_lines(source), vec![2]);
+        assert!(nasgu_lines("x = 1;\nreturn\n").is_empty());
+    }
+
+    #[test]
+    fn nasgu_nested_function_store_is_reported() {
+        // Probed: MATLAB reports `qq` in the nested function (naming__a).
+        let source = "function f37()\n    nested_one()\n    function nested_one()\n        qq = 1;\n    end\nend\n";
+        assert_eq!(nasgu_lines(source), vec![4]);
+    }
+
+    #[test]
+    fn nasgu_nested_function_shared_variable_is_not_reported() {
+        // Probed: `a` is shared with the parent, so the nested store is read by `disp(a)`.
+        let source = "function f38()\n    nested_one()\n    disp(a)\n    function nested_one()\n        a = 2;\n    end\nend\n";
+        assert!(nasgu_lines(source).is_empty());
     }
 
     #[test]
@@ -75,5 +1005,86 @@ mod tests {
             "function foo()\n    x = 1;\n    disp(x);\nend\n",
         );
         assert!(!has_id(&diags, "NASGU"), "got: {diags:?}");
+    }
+
+    #[test]
+    fn nasgu_rethrow_ends_the_flow_like_error() {
+        // Probes rt1 to rt4: MATLAB reports the stores before `rethrow` as it does before `error`.
+        assert_eq!(
+            nasgu_lines("function rt1()\na = 1;\nrethrow(MException('a:b', 'c'));\nend\n"),
+            vec![2]
+        );
+        assert_eq!(
+            nasgu_lines(
+                "function rt3(x)\ns = [];\ntry\n    s = x;\n    disp(s);\ncatch err\n    rethrow(err)\nend\nend\n"
+            ),
+            vec![2]
+        );
+        assert_eq!(
+            nasgu_lines(
+                "function rt4(x)\ntry\n    y = x + 1;\ncatch err\n    z = 2;\n    rethrow(err)\nend\ndisp(y);\nend\n"
+            ),
+            vec![5]
+        );
+    }
+}
+
+#[cfg(test)]
+mod clear_and_load_tests {
+    use super::*;
+    use crate::test_util::{has_id, lint_file};
+    use malt_core::Config;
+
+    fn nasgu(src: &str) -> bool {
+        has_id(
+            &lint_file(&*UnusedEngine::from_config(&Config::default()), src),
+            "NASGU",
+        )
+    }
+
+    // Probed: `clearvars` no longer silences the whole script; the first assignment is
+    // NASGU because the second one replaces it.
+    #[test]
+    fn clearvars_does_not_silence_the_scope() {
+        assert!(nasgu("x = 1;\nclearvars;\nx = 2;\ndisp(x)\n"));
+    }
+
+    // Probed: `load(file, 'x')` stores `x` when the file name is a variable too.
+    #[test]
+    fn load_with_a_variable_file_name_stores_its_names() {
+        assert!(nasgu("f = 'a.mat';\nx = 1;\nload(f, 'x');\ndisp(x)\n"));
+        assert!(!nasgu("x = 1;\ndisp(x)\n"));
+    }
+
+    /// NASGU lines of `source`, for the tests appended below.
+    fn nasgu_at(source: &str) -> Vec<usize> {
+        let rule = UnusedEngine::from_config(&malt_core::Config::default());
+        lint_file(&*rule, source)
+            .iter()
+            .filter(|d| d.rule_id == "NASGU")
+            .map(|d| d.line)
+            .collect()
+    }
+
+    #[test]
+    fn nasgu_silent_on_save_command_reading_variable() {
+        // Probed (xce10, xcn05): `save f q` reads `q` in command syntax, as `save('f', 'q')` does.
+        assert!(nasgu_at("function f()\nq = 1;\nsave f q\nq = 2;\ndisp(q)\nend\n").is_empty());
+    }
+
+    #[test]
+    fn nasgu_error_with_variable_argument_does_not_end_flow() {
+        // Probed (xcn38, xcz05): `error(ME.message)` in a catch block does not end the flow, so
+        // the try body's store of `x` stays live. `error('b')` ends it.
+        assert!(nasgu_at(
+            "function r = f(msg)\nx = 1;\ntry\n    x = 2;\ncatch ME\n    error(ME.message);\nend\nr = x;\nend\n"
+        )
+        .is_empty());
+        assert_eq!(
+            nasgu_at(
+                "function r = f()\nx = 1;\ntry\n    x = 2;\ncatch ME\n    error('b');\nend\nr = x;\nend\n"
+            ),
+            vec![2]
+        );
     }
 }

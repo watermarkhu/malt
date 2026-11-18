@@ -46,14 +46,12 @@ impl SyntaxErrorsEngine {
         // Direct `=` tokens inside arguments (name=value parses cleanly only
         // for valid identifier names).
         if let Some(a) = args {
-            for i in 0..a.child_count() {
-                if let Some(eq) = a.child(i) {
-                    if eq.kind() != "=" {
-                        continue;
-                    }
-                    if let Some(name) = eq.prev_named_sibling() {
-                        self.push_name_value_diagnostic(name, source, diagnostics);
-                    }
+            for eq in crate::analysis::symbols::children_of(a) {
+                if eq.kind() != "=" {
+                    continue;
+                }
+                if let Some(name) = eq.prev_named_sibling() {
+                    self.push_name_value_diagnostic(name, source, diagnostics);
                 }
             }
         }

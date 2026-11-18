@@ -7,7 +7,10 @@ impl GoodPracticesEngine {
             return Vec::new();
         }
 
-        let globals = collect_global_persistent_vars(root_node_of(node), source);
+        // Declarations of the enclosing function only (probed: another function's
+        // `global G` does not make `G = 1` here a GLOBAL write).
+        let scope = enclosing_function(node).unwrap_or_else(|| root_node_of(node));
+        let globals = collect_global_persistent_vars(scope, source);
         if globals.is_empty() {
             return Vec::new();
         }
@@ -21,29 +24,38 @@ impl GoodPracticesEngine {
         let mut seen = std::collections::HashSet::new();
         let mut diagnostics = Vec::new();
         for assign in assignments {
-            let lhs = match assign.child_by_field_name("left") {
-                Some(l) => l,
-                None => continue,
-            };
-            let name = match lhs_base_name(lhs, source) {
-                Some(n) => n,
-                None => continue,
-            };
-            if !globals.contains(&name) || !seen.insert(name.clone()) {
+            let Some(lhs) = assign.child_by_field_name("left") else {
                 continue;
+            };
+            // `[G, H] = ...` assigns each name in the list (probed: PFGP on G and H).
+            let targets: Vec<Node> = if lhs.kind() == "multioutput_variable" {
+                let mut cursor = lhs.walk();
+                lhs.named_children(&mut cursor)
+                    .filter(|t| t.kind() == "identifier")
+                    .collect()
+            } else {
+                vec![lhs]
+            };
+            for target in targets {
+                let Some(name) = lhs_base_name(target, source) else {
+                    continue;
+                };
+                if !globals.contains(&name) || !seen.insert(name.clone()) {
+                    continue;
+                }
+                let pos = target.start_position();
+                diagnostics.push(Diagnostic {
+                    rule_id: "PFGP",
+                    message: format!(
+                        "Avoid assigning to GLOBAL or PERSISTENT variable '{name}' inside a PARFOR loop."
+                    ),
+                    severity: Severity::Warning,
+                    byte_range: target.start_byte()..target.end_byte(),
+                    line: pos.row + 1,
+                    column: pos.column + 1,
+                    fix: None,
+                });
             }
-            let pos = lhs.start_position();
-            diagnostics.push(Diagnostic {
-                rule_id: "PFGP",
-                message: format!(
-                    "Avoid assigning to GLOBAL or PERSISTENT variable {name} inside a PARFOR loop."
-                ),
-                severity: Severity::Warning,
-                byte_range: lhs.start_byte()..lhs.end_byte(),
-                line: pos.row + 1,
-                column: pos.column + 1,
-                fix: None,
-            });
         }
         diagnostics
     }
@@ -52,6 +64,33 @@ impl GoodPracticesEngine {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_pfgp_ignores_another_functions_global() {
+        // Probed: `G = 1` in a function without `global G` is not PFGP, even when
+        // another function in the file declares `G` global.
+        let engine =
+            crate::good_practices::GoodPracticesEngine::from_config(&malt_core::Config::default());
+        let src = "function f()\nparfor i = 1:2\n  G = 1;\nend\nend\nfunction g()\nglobal G\nend\n";
+        let diags = crate::test_util::lint_nodes(&*engine, src);
+        assert!(diags.iter().all(|d| d.rule_id != "PFGP"), "{diags:?}");
+    }
+
+    #[test]
+    fn test_pfgp_fires_on_each_name_of_a_multi_assignment() {
+        // Probed: `[G, H] = deal(i, i)` gives PFGP for G and for H (pg10).
+        let engine =
+            crate::good_practices::GoodPracticesEngine::from_config(&malt_core::Config::default());
+        let src = "function f()\nglobal G H\nparfor i = 1:4\n    [G, H] = deal(i, i);\nend\nend\n";
+        let diags = crate::test_util::lint_nodes(&*engine, src);
+        let names: Vec<&str> = diags
+            .iter()
+            .filter(|d| d.rule_id == "PFGP")
+            .map(|d| d.message.as_str())
+            .collect();
+        assert_eq!(names.len(), 2, "{diags:?}");
+        assert!(names[1].contains("variable 'H'"), "{names:?}");
+    }
 
     #[test]
     fn test_pfgp_fires_on_global_assignment() {

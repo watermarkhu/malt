@@ -28,6 +28,9 @@ impl LanguageSpecEngine {
             return;
         };
         match name.as_str() {
+            "clear" | "clearvars" => {
+                self.push_diag(node, "SPBFN", "Use of this function is invalid inside an SPMD block because it accesses or modifies the workspace in a non-transparent way.", diagnostics);
+            }
             "load" => {
                 self.push_diag(node, "SPLD", "To avoid a transparency violation, assign the output of LOAD to a variable in SPMD blocks.", diagnostics);
             }

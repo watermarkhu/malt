@@ -18,6 +18,11 @@ impl LanguageSpecEngine {
             if prop_has_ignored(*prop) || prop_has_name_value(*prop) {
                 continue;
             }
+            // `opts.?Class` is a name-value structure; the parser may not expose
+            // it as a name-value property, so the dotted form is checked here.
+            if node_text(*prop, source).contains(".?") {
+                continue;
+            }
             let Some(name) = prop_plain_name(*prop, source) else {
                 continue;
             };
@@ -54,6 +59,24 @@ end
         assert!(
             !filter_by_id(&diags, "FVDAP").is_empty(),
             "FVDAP should fire when a positional argument is declared twice"
+        );
+    }
+
+    #[test]
+    fn test_fvdap_no_fire_name_value_struct_classes() {
+        let source = "\
+function f(a, opts)
+    arguments (Input)
+        a
+        opts.?matlab.graphics.chart.primitive.Line
+        opts.?double
+    end
+end
+";
+        let diags = check_source(source, "f.m");
+        assert!(
+            filter_by_id(&diags, "FVDAP").is_empty(),
+            "FVDAP should NOT fire for repeated .? name-value structures"
         );
     }
 

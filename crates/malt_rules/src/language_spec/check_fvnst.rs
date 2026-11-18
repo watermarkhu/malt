@@ -21,21 +21,23 @@ impl LanguageSpecEngine {
             if child.kind() == "function_definition" {
                 if depth > 0 {
                     // This is a nested function; check for arguments blocks
+                    // MATLAB reports only the first arguments block of each nested function.
                     let mut inner_cursor = child.walk();
-                    for inner in child.children(&mut inner_cursor) {
-                        if inner.kind() == "arguments_statement" {
-                            let pos = inner.start_position();
-                            diagnostics.push(Diagnostic {
-                                rule_id: "FVNST",
-                                message: "Arguments blocks in nested function declarations are not supported."
-                                    .to_string(),
-                                severity: Severity::Error,
-                                byte_range: inner.start_byte()..inner.end_byte(),
-                                line: pos.row + 1,
-                                column: pos.column + 1,
-                                fix: None,
-                            });
-                        }
+                    let block = child
+                        .children(&mut inner_cursor)
+                        .find(|n| n.kind() == "arguments_statement");
+                    if let Some(inner) = block {
+                        let pos = inner.start_position();
+                        diagnostics.push(Diagnostic {
+                            rule_id: "FVNST",
+                            message: "Arguments blocks in nested function declarations are not supported."
+                                .to_string(),
+                            severity: Severity::Error,
+                            byte_range: inner.start_byte()..inner.end_byte(),
+                            line: pos.row + 1,
+                            column: pos.column + 1,
+                            fix: None,
+                        });
                     }
                 }
                 // Recurse into the function definition at depth+1
@@ -53,6 +55,31 @@ impl LanguageSpecEngine {
 mod tests {
 
     use crate::language_spec::tests::{check_source, filter_by_id};
+
+    #[test]
+    fn test_fvnst_reports_first_block_only() {
+        // MATLAB reports one FVNST per nested function, at its first arguments block (probed).
+        let source = "\
+function outer()
+    x = inner(1);
+    function y = inner(a, b)
+        arguments (Input)
+            a double
+        end
+        arguments (Output)
+            y double
+        end
+        y = a + 1;
+    end
+end
+";
+        let diags = check_source(source, "outer.m");
+        let lines: Vec<usize> = filter_by_id(&diags, "FVNST")
+            .iter()
+            .map(|d| d.line)
+            .collect();
+        assert_eq!(lines, vec![4]);
+    }
 
     #[test]
     fn test_fvnst_arguments_in_nested() {

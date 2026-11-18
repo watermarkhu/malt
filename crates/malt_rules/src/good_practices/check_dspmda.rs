@@ -39,15 +39,30 @@ mod tests {
 
     #[test]
     fn test_dspmda_fires_on_distributed_constructors_in_spmd() {
-        let source = "spmd\n    d = distributed(zeros(100));\n    g = gpuArray(1);\n    c = codistributed(2);\nend\n";
+        let source = "spmd\n    d = distributed(zeros(100));\n    g = gpuArray(1);\n    c = codistributed(2);\n    e = distributed.ones(2);\nend\n";
         let tree = parse(source);
         let root = tree.root_node();
         let eng = engine();
 
         let spmd = find_child_of_kind(root, "spmd_statement").unwrap();
         let diags = eng.check_dspmda(spmd, source);
-        assert_eq!(diags.len(), 3);
+        // `distributed(...)` and `distributed.ones(...)`; gpuArray and
+        // codistributed are silent (probed).
+        assert_eq!(diags.len(), 2);
         assert!(diags.iter().all(|d| d.rule_id == "DSPMDA"));
+    }
+
+    #[test]
+    fn test_dspmda_fires_on_distributed_constructor_methods() {
+        // Probed: every `distributed.X(...)` constructor is reported, but
+        // `codistributed.zeros` and `zeros(3, 'distributed')` are not.
+        let source = "spmd\n    a = distributed.zeros(3);\n    b = distributed.rand(2);\n    c = distributed.eye(3);\n    d = codistributed.zeros(3);\n    e = zeros(3, 'distributed');\nend\n";
+        let tree = parse(source);
+        let root = tree.root_node();
+        let eng = engine();
+
+        let spmd = find_child_of_kind(root, "spmd_statement").unwrap();
+        assert_eq!(eng.check_dspmda(spmd, source).len(), 3);
     }
 
     #[test]

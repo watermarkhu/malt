@@ -1,0 +1,940 @@
+{
+  "members": {
+    "+geo": {
+      "attributes": [],
+      "docstring": "Geometry package: points, distances and shapes.",
+      "endlineno": null,
+      "kind": "namespace",
+      "lineno": null,
+      "members": {
+        "Point": {
+          "attributes": [],
+          "bases": [
+            "handle"
+          ],
+          "declares_constructor": true,
+          "docstring": "A point in the plane.",
+          "endlineno": 16,
+          "events": [],
+          "kind": "class",
+          "lineno": 1,
+          "members": {
+            "Point": {
+              "arguments": [
+                {
+                  "default": null,
+                  "dimensions": null,
+                  "docstring": null,
+                  "kind": "positional-only",
+                  "name": "x",
+                  "type": null,
+                  "validators": null
+                },
+                {
+                  "default": null,
+                  "dimensions": null,
+                  "docstring": null,
+                  "kind": "positional-only",
+                  "name": "y",
+                  "type": null,
+                  "validators": null
+                }
+              ],
+              "attributes": [],
+              "docstring": null,
+              "endlineno": 11,
+              "is_getter": false,
+              "is_setter": false,
+              "kind": "function",
+              "lineno": 8,
+              "members": {},
+              "name": "Point",
+              "path": "+geo/Point.m",
+              "returns": [
+                {
+                  "default": null,
+                  "dimensions": null,
+                  "docstring": null,
+                  "kind": "positional-only",
+                  "name": "obj",
+                  "type": null,
+                  "validators": null
+                }
+              ]
+            },
+            "X": {
+              "attributes": [],
+              "default": "0",
+              "dimensions": null,
+              "docstring": null,
+              "endlineno": 4,
+              "kind": "property",
+              "lineno": 4,
+              "members": {},
+              "name": "X",
+              "path": "+geo/Point.m",
+              "type": "double",
+              "validators": null
+            },
+            "Y": {
+              "attributes": [],
+              "default": "0",
+              "dimensions": null,
+              "docstring": null,
+              "endlineno": 5,
+              "kind": "property",
+              "lineno": 5,
+              "members": {},
+              "name": "Y",
+              "path": "+geo/Point.m",
+              "type": "double",
+              "validators": null
+            },
+            "norm": {
+              "arguments": [],
+              "attributes": [],
+              "docstring": null,
+              "endlineno": 14,
+              "is_getter": false,
+              "is_setter": false,
+              "kind": "function",
+              "lineno": 12,
+              "members": {},
+              "name": "norm",
+              "path": "+geo/Point.m",
+              "returns": [
+                {
+                  "default": null,
+                  "dimensions": null,
+                  "docstring": null,
+                  "kind": "positional-only",
+                  "name": "d",
+                  "type": null,
+                  "validators": null
+                }
+              ]
+            }
+          },
+          "name": "Point",
+          "path": "+geo/Point.m"
+        },
+        "distance": {
+          "arguments": [
+            {
+              "default": null,
+              "dimensions": null,
+              "docstring": null,
+              "kind": "positional-only",
+              "name": "a",
+              "type": null,
+              "validators": null
+            },
+            {
+              "default": null,
+              "dimensions": null,
+              "docstring": null,
+              "kind": "positional-only",
+              "name": "b",
+              "type": null,
+              "validators": null
+            }
+          ],
+          "attributes": [],
+          "docstring": "DISTANCE Euclidean distance between two points.",
+          "endlineno": 4,
+          "is_getter": false,
+          "is_setter": false,
+          "kind": "function",
+          "lineno": 1,
+          "members": {},
+          "name": "distance",
+          "path": "+geo/distance.m",
+          "returns": [
+            {
+              "default": null,
+              "dimensions": null,
+              "docstring": null,
+              "kind": "positional-only",
+              "name": "d",
+              "type": null,
+              "validators": null
+            }
+          ]
+        },
+        "shape": {
+          "attributes": [],
+          "docstring": null,
+          "endlineno": null,
+          "kind": "namespace",
+          "lineno": null,
+          "members": {
+            "Circle": {
+              "attributes": [],
+              "bases": [
+                "geo.Point"
+              ],
+              "declares_constructor": false,
+              "docstring": "A circle: a point and a radius.",
+              "endlineno": 6,
+              "events": [],
+              "kind": "class",
+              "lineno": 1,
+              "members": {
+                "Radius": {
+                  "attributes": [],
+                  "default": "1",
+                  "dimensions": [
+                    "1",
+                    "1"
+                  ],
+                  "docstring": null,
+                  "endlineno": 4,
+                  "kind": "property",
+                  "lineno": 4,
+                  "members": {},
+                  "name": "Radius",
+                  "path": "+geo/+shape/Circle.m",
+                  "type": "double",
+                  "validators": "{mustBeNonnegative}"
+                }
+              },
+              "name": "Circle",
+              "path": "+geo/+shape/Circle.m"
+            }
+          },
+          "name": "shape",
+          "path": "+geo/+shape"
+        }
+      },
+      "name": "geo",
+      "path": "+geo"
+    },
+    "+geo.shape": {
+      "attributes": [],
+      "docstring": null,
+      "endlineno": null,
+      "kind": "namespace",
+      "lineno": null,
+      "members": {
+        "Circle": {
+          "attributes": [],
+          "bases": [
+            "geo.Point"
+          ],
+          "declares_constructor": false,
+          "docstring": "A circle: a point and a radius.",
+          "endlineno": 6,
+          "events": [],
+          "kind": "class",
+          "lineno": 1,
+          "members": {
+            "Radius": {
+              "attributes": [],
+              "default": "1",
+              "dimensions": [
+                "1",
+                "1"
+              ],
+              "docstring": null,
+              "endlineno": 4,
+              "kind": "property",
+              "lineno": 4,
+              "members": {},
+              "name": "Radius",
+              "path": "+geo/+shape/Circle.m",
+              "type": "double",
+              "validators": "{mustBeNonnegative}"
+            }
+          },
+          "name": "Circle",
+          "path": "+geo/+shape/Circle.m"
+        }
+      },
+      "name": "shape",
+      "path": "+geo/+shape"
+    },
+    "Account": {
+      "attributes": [],
+      "docstring": "A bank account.",
+      "endlineno": null,
+      "kind": "class",
+      "lineno": null,
+      "members": {
+        "Account": {
+          "arguments": [
+            {
+              "default": null,
+              "dimensions": null,
+              "docstring": null,
+              "kind": "positional-only",
+              "name": "opening",
+              "type": null,
+              "validators": null
+            }
+          ],
+          "attributes": [],
+          "docstring": null,
+          "endlineno": 9,
+          "is_getter": false,
+          "is_setter": false,
+          "kind": "function",
+          "lineno": 7,
+          "members": {},
+          "name": "Account",
+          "path": "@Account/Account.m",
+          "returns": [
+            {
+              "default": null,
+              "dimensions": null,
+              "docstring": null,
+              "kind": "positional-only",
+              "name": "obj",
+              "type": null,
+              "validators": null
+            }
+          ]
+        },
+        "Balance": {
+          "attributes": [],
+          "default": "0",
+          "dimensions": null,
+          "docstring": null,
+          "endlineno": 4,
+          "kind": "property",
+          "lineno": 4,
+          "members": {},
+          "name": "Balance",
+          "path": "@Account/Account.m",
+          "type": null,
+          "validators": null
+        },
+        "deposit": {
+          "arguments": [
+            {
+              "default": null,
+              "dimensions": null,
+              "docstring": null,
+              "kind": "positional-only",
+              "name": "acc",
+              "type": null,
+              "validators": null
+            },
+            {
+              "default": null,
+              "dimensions": null,
+              "docstring": null,
+              "kind": "positional-only",
+              "name": "amount",
+              "type": null,
+              "validators": null
+            }
+          ],
+          "attributes": [],
+          "docstring": "DEPOSIT Add money to an account.",
+          "endlineno": 4,
+          "is_getter": false,
+          "is_setter": false,
+          "kind": "function",
+          "lineno": 1,
+          "members": {},
+          "name": "deposit",
+          "path": "@Account/deposit.m",
+          "returns": []
+        }
+      },
+      "name": "Account",
+      "path": "@Account"
+    },
+    "Account.deposit": {
+      "arguments": [
+        {
+          "default": null,
+          "dimensions": null,
+          "docstring": null,
+          "kind": "positional-only",
+          "name": "acc",
+          "type": null,
+          "validators": null
+        },
+        {
+          "default": null,
+          "dimensions": null,
+          "docstring": null,
+          "kind": "positional-only",
+          "name": "amount",
+          "type": null,
+          "validators": null
+        }
+      ],
+      "attributes": [],
+      "docstring": "DEPOSIT Add money to an account.",
+      "endlineno": 4,
+      "is_getter": false,
+      "is_setter": false,
+      "kind": "function",
+      "lineno": 1,
+      "members": {},
+      "name": "deposit",
+      "path": "@Account/deposit.m",
+      "returns": []
+    },
+    "Broken": {
+      "attributes": [],
+      "docstring": null,
+      "endlineno": null,
+      "kind": "script",
+      "lineno": null,
+      "members": {},
+      "name": "Broken",
+      "path": "Broken.m"
+    },
+    "ScriptFile": {
+      "attributes": [],
+      "docstring": "SCRIPTFILE Run the demo and print the result.",
+      "endlineno": null,
+      "kind": "script",
+      "lineno": null,
+      "members": {},
+      "name": "ScriptFile",
+      "path": "ScriptFile.m"
+    },
+    "Shapes": {
+      "arguments": [
+        {
+          "default": null,
+          "dimensions": [
+            "1",
+            "1"
+          ],
+          "docstring": null,
+          "kind": "positional-only",
+          "name": "kind",
+          "type": "string",
+          "validators": "{mustBeNonempty}"
+        },
+        {
+          "default": "1",
+          "dimensions": [
+            "1",
+            ":"
+          ],
+          "docstring": null,
+          "kind": "optional",
+          "name": "scale",
+          "type": "double",
+          "validators": null
+        },
+        {
+          "default": null,
+          "dimensions": null,
+          "docstring": null,
+          "kind": "varargin",
+          "name": "varargin",
+          "type": null,
+          "validators": null
+        },
+        {
+          "default": "'m'",
+          "dimensions": null,
+          "docstring": null,
+          "kind": "keyword-only",
+          "name": "Units",
+          "type": "char",
+          "validators": null
+        },
+        {
+          "default": null,
+          "dimensions": null,
+          "docstring": null,
+          "kind": "keyword-only",
+          "name": "opts",
+          "type": "Other.Prop",
+          "validators": null
+        }
+      ],
+      "attributes": [],
+      "docstring": "SHAPES Area of a named shape.\nLong description of the function.",
+      "endlineno": 18,
+      "is_getter": false,
+      "is_setter": false,
+      "kind": "function",
+      "lineno": 1,
+      "members": {},
+      "name": "Shapes",
+      "path": "Shapes.m",
+      "returns": [
+        {
+          "default": null,
+          "dimensions": null,
+          "docstring": null,
+          "kind": "positional-only",
+          "name": "area",
+          "type": "double",
+          "validators": null
+        },
+        {
+          "default": null,
+          "dimensions": null,
+          "docstring": null,
+          "kind": "positional-only",
+          "name": "varargout",
+          "type": null,
+          "validators": null
+        }
+      ]
+    },
+    "Widget": {
+      "attributes": [
+        "Sealed"
+      ],
+      "bases": [
+        "handle",
+        "matlab.mixin.Copyable"
+      ],
+      "declares_constructor": true,
+      "docstring": "WIDGET A widget with a size and a name.\n\nBlock text.\n  Indented.",
+      "endlineno": 47,
+      "events": [
+        "Changed"
+      ],
+      "kind": "class",
+      "lineno": 1,
+      "members": {
+        "Count": {
+          "attributes": [
+            "Access=private",
+            "Constant"
+          ],
+          "default": "3",
+          "dimensions": [
+            "1",
+            "1"
+          ],
+          "docstring": null,
+          "endlineno": 10,
+          "kind": "property",
+          "lineno": 10,
+          "members": {},
+          "name": "Count",
+          "path": "Widget.m",
+          "type": "double",
+          "validators": null
+        },
+        "Green": {
+          "attributes": [],
+          "docstring": null,
+          "endlineno": 41,
+          "kind": "enumeration",
+          "lineno": 41,
+          "members": {},
+          "name": "Green",
+          "path": "Widget.m"
+        },
+        "Name": {
+          "attributes": [
+            "Access=private",
+            "Constant"
+          ],
+          "default": null,
+          "dimensions": null,
+          "docstring": null,
+          "endlineno": 11,
+          "kind": "property",
+          "lineno": 11,
+          "members": {},
+          "name": "Name",
+          "path": "Widget.m",
+          "type": "char",
+          "validators": null
+        },
+        "Red": {
+          "attributes": [],
+          "docstring": "the green one",
+          "endlineno": 39,
+          "kind": "enumeration",
+          "lineno": 39,
+          "members": {},
+          "name": "Red",
+          "path": "Widget.m"
+        },
+        "Size": {
+          "attributes": [
+            "Dependent"
+          ],
+          "default": null,
+          "dimensions": null,
+          "docstring": null,
+          "endlineno": 15,
+          "kind": "property",
+          "lineno": 15,
+          "members": {},
+          "name": "Size",
+          "path": "Widget.m",
+          "type": null,
+          "validators": null
+        },
+        "Widget": {
+          "arguments": [
+            {
+              "default": null,
+              "dimensions": null,
+              "docstring": null,
+              "kind": "positional-only",
+              "name": "v",
+              "type": null,
+              "validators": null
+            }
+          ],
+          "attributes": [],
+          "docstring": null,
+          "endlineno": 27,
+          "is_getter": false,
+          "is_setter": false,
+          "kind": "function",
+          "lineno": 25,
+          "members": {},
+          "name": "Widget",
+          "path": "Widget.m",
+          "returns": [
+            {
+              "default": null,
+              "dimensions": null,
+              "docstring": null,
+              "kind": "positional-only",
+              "name": "obj",
+              "type": null,
+              "validators": null
+            }
+          ]
+        },
+        "make": {
+          "arguments": [
+            {
+              "default": null,
+              "dimensions": null,
+              "docstring": null,
+              "kind": "positional-only",
+              "name": "x",
+              "type": null,
+              "validators": null
+            }
+          ],
+          "attributes": [
+            "Static"
+          ],
+          "docstring": null,
+          "endlineno": 21,
+          "is_getter": false,
+          "is_setter": false,
+          "kind": "function",
+          "lineno": 19,
+          "members": {},
+          "name": "make",
+          "path": "Widget.m",
+          "returns": [
+            {
+              "default": null,
+              "dimensions": null,
+              "docstring": null,
+              "kind": "positional-only",
+              "name": "w",
+              "type": null,
+              "validators": null
+            }
+          ]
+        },
+        "show": {
+          "arguments": [
+            {
+              "default": null,
+              "dimensions": null,
+              "docstring": null,
+              "kind": "positional-only",
+              "name": "x",
+              "type": null,
+              "validators": null
+            },
+            {
+              "default": null,
+              "dimensions": null,
+              "docstring": null,
+              "kind": "positional-only",
+              "name": "y",
+              "type": null,
+              "validators": null
+            }
+          ],
+          "attributes": [],
+          "docstring": "shows the widget",
+          "endlineno": 35,
+          "is_getter": false,
+          "is_setter": false,
+          "kind": "function",
+          "lineno": 33,
+          "members": {},
+          "name": "show",
+          "path": "Widget.m",
+          "returns": []
+        }
+      },
+      "name": "Widget",
+      "path": "Widget.m"
+    },
+    "geo.Point": {
+      "attributes": [],
+      "bases": [
+        "handle"
+      ],
+      "declares_constructor": true,
+      "docstring": "A point in the plane.",
+      "endlineno": 16,
+      "events": [],
+      "kind": "class",
+      "lineno": 1,
+      "members": {
+        "Point": {
+          "arguments": [
+            {
+              "default": null,
+              "dimensions": null,
+              "docstring": null,
+              "kind": "positional-only",
+              "name": "x",
+              "type": null,
+              "validators": null
+            },
+            {
+              "default": null,
+              "dimensions": null,
+              "docstring": null,
+              "kind": "positional-only",
+              "name": "y",
+              "type": null,
+              "validators": null
+            }
+          ],
+          "attributes": [],
+          "docstring": null,
+          "endlineno": 11,
+          "is_getter": false,
+          "is_setter": false,
+          "kind": "function",
+          "lineno": 8,
+          "members": {},
+          "name": "Point",
+          "path": "+geo/Point.m",
+          "returns": [
+            {
+              "default": null,
+              "dimensions": null,
+              "docstring": null,
+              "kind": "positional-only",
+              "name": "obj",
+              "type": null,
+              "validators": null
+            }
+          ]
+        },
+        "X": {
+          "attributes": [],
+          "default": "0",
+          "dimensions": null,
+          "docstring": null,
+          "endlineno": 4,
+          "kind": "property",
+          "lineno": 4,
+          "members": {},
+          "name": "X",
+          "path": "+geo/Point.m",
+          "type": "double",
+          "validators": null
+        },
+        "Y": {
+          "attributes": [],
+          "default": "0",
+          "dimensions": null,
+          "docstring": null,
+          "endlineno": 5,
+          "kind": "property",
+          "lineno": 5,
+          "members": {},
+          "name": "Y",
+          "path": "+geo/Point.m",
+          "type": "double",
+          "validators": null
+        },
+        "norm": {
+          "arguments": [],
+          "attributes": [],
+          "docstring": null,
+          "endlineno": 14,
+          "is_getter": false,
+          "is_setter": false,
+          "kind": "function",
+          "lineno": 12,
+          "members": {},
+          "name": "norm",
+          "path": "+geo/Point.m",
+          "returns": [
+            {
+              "default": null,
+              "dimensions": null,
+              "docstring": null,
+              "kind": "positional-only",
+              "name": "d",
+              "type": null,
+              "validators": null
+            }
+          ]
+        }
+      },
+      "name": "Point",
+      "path": "+geo/Point.m"
+    },
+    "geo.distance": {
+      "arguments": [
+        {
+          "default": null,
+          "dimensions": null,
+          "docstring": null,
+          "kind": "positional-only",
+          "name": "a",
+          "type": null,
+          "validators": null
+        },
+        {
+          "default": null,
+          "dimensions": null,
+          "docstring": null,
+          "kind": "positional-only",
+          "name": "b",
+          "type": null,
+          "validators": null
+        }
+      ],
+      "attributes": [],
+      "docstring": "DISTANCE Euclidean distance between two points.",
+      "endlineno": 4,
+      "is_getter": false,
+      "is_setter": false,
+      "kind": "function",
+      "lineno": 1,
+      "members": {},
+      "name": "distance",
+      "path": "+geo/distance.m",
+      "returns": [
+        {
+          "default": null,
+          "dimensions": null,
+          "docstring": null,
+          "kind": "positional-only",
+          "name": "d",
+          "type": null,
+          "validators": null
+        }
+      ]
+    },
+    "geo.shape.Circle": {
+      "attributes": [],
+      "bases": [
+        "geo.Point"
+      ],
+      "declares_constructor": false,
+      "docstring": "A circle: a point and a radius.",
+      "endlineno": 6,
+      "events": [],
+      "kind": "class",
+      "lineno": 1,
+      "members": {
+        "Radius": {
+          "attributes": [],
+          "default": "1",
+          "dimensions": [
+            "1",
+            "1"
+          ],
+          "docstring": null,
+          "endlineno": 4,
+          "kind": "property",
+          "lineno": 4,
+          "members": {},
+          "name": "Radius",
+          "path": "+geo/+shape/Circle.m",
+          "type": "double",
+          "validators": "{mustBeNonnegative}"
+        }
+      },
+      "name": "Circle",
+      "path": "+geo/+shape/Circle.m"
+    },
+    "helper": {
+      "arguments": [
+        {
+          "default": null,
+          "dimensions": null,
+          "docstring": null,
+          "kind": "positional-only",
+          "name": "x",
+          "type": null,
+          "validators": null
+        }
+      ],
+      "attributes": [],
+      "docstring": "HELPER Scale the input by two.",
+      "endlineno": 8,
+      "is_getter": false,
+      "is_setter": false,
+      "kind": "function",
+      "lineno": 1,
+      "members": {
+        "scale_it": {
+          "arguments": [
+            {
+              "default": null,
+              "dimensions": null,
+              "docstring": null,
+              "kind": "positional-only",
+              "name": "v",
+              "type": null,
+              "validators": null
+            }
+          ],
+          "attributes": [],
+          "docstring": null,
+          "endlineno": 7,
+          "is_getter": false,
+          "is_setter": false,
+          "kind": "function",
+          "lineno": 5,
+          "members": {},
+          "name": "scale_it",
+          "path": "helper.m",
+          "returns": [
+            {
+              "default": null,
+              "dimensions": null,
+              "docstring": null,
+              "kind": "positional-only",
+              "name": "y",
+              "type": null,
+              "validators": null
+            }
+          ]
+        }
+      },
+      "name": "helper",
+      "path": "helper.m",
+      "returns": [
+        {
+          "default": null,
+          "dimensions": null,
+          "docstring": null,
+          "kind": "positional-only",
+          "name": "out",
+          "type": null,
+          "validators": null
+        }
+      ]
+    }
+  }
+}

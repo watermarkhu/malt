@@ -1,0 +1,6 @@
+sub_nobase.m:2:1 [E] MCEB: Events can be defined only in a handle class.
+obs_none.m:2:5 [W] MCPO: SetObservable property has no effect in a value class.
+plain.m:2:3 [I] NOPRT: Add a semicolon after the statement to hide the output (in a function).
+
+Found 3 issues in 3 files.
+1 fixable with the `--fix` option.

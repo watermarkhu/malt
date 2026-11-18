@@ -12,22 +12,24 @@ impl GoodPracticesEngine {
         let Some(class) = meta.class.as_ref() else {
             return Vec::new();
         };
-        if class.is_handle() {
+        // Probed: silent with any superclass (`handle`, `matlab.mixin.Copyable`,
+        // a value superclass, `handle & matlab.mixin.SetGet`), so only a class
+        // with no superclass at all is reported.
+        if !class.superclasses.is_empty() {
             return Vec::new();
         }
 
         let class_node = find_child_of_kind(tree.root_node(), "class_definition");
         let mut diagnostics = Vec::new();
 
+        // Probed: MATLAB never reports `AbortSet` in a value class, only
+        // `SetObservable` and `GetObservable`.
         for (block_idx, block) in class.properties_blocks.iter().enumerate() {
-            let attr_name = ["SetObservable", "GetObservable", "AbortSet"]
-                .iter()
-                .find(|name| {
-                    block
-                        .attributes
-                        .iter()
-                        .any(|a| &a.name == *name && !a.negated)
-                });
+            let attr_name = ["SetObservable", "GetObservable"].iter().find(|name| {
+                block.attributes.iter().any(|a| {
+                    &a.name == *name && !a.negated && a.value.as_deref().is_none_or(|v| v == "true")
+                })
+            });
             let Some(attr_name) = attr_name else {
                 continue;
             };
@@ -65,6 +67,45 @@ mod tests {
     }
 
     #[test]
+    fn test_mcpo_fires_on_get_observable_value_class() {
+        // Probed: `GetObservable` is reported like `SetObservable`.
+        let source =
+            "classdef ValClass\n    properties (GetObservable)\n        Data\n    end\nend\n";
+        let diags = engine().check_mcpo(&parse(source), source);
+        assert_eq!(diags.len(), 1);
+        assert_eq!(
+            diags[0].message,
+            "GetObservable property has no effect in a value class."
+        );
+    }
+
+    #[test]
+    fn test_mcpo_silent_on_abort_set_in_value_class() {
+        // Probed: `AbortSet` is never reported, with or without a superclass.
+        let source = "classdef ValClass\n    properties (AbortSet)\n        Data\n    end\nend\n";
+        assert!(engine().check_mcpo(&parse(source), source).is_empty());
+    }
+
+    #[test]
+    fn test_mcpo_silent_with_any_superclass() {
+        // Probed (l_data_container.m:8, :13): each superclass list silences MCPO.
+        for header in [
+            "classdef C < matlab.mixin.Copyable & matlab.mixin.SetGet",
+            "classdef C < matlab.mixin.SetGet",
+            "classdef C < matlab.mixin.Copyable",
+            "classdef C < handle & matlab.mixin.SetGet",
+            "classdef C < SomeValueBase",
+        ] {
+            let source =
+                format!("{header}\n    properties (SetObservable)\n        Data\n    end\nend\n");
+            assert!(
+                engine().check_mcpo(&parse(&source), &source).is_empty(),
+                "{header}: reported"
+            );
+        }
+    }
+
+    #[test]
     fn test_mcpo_silent_on_handle_class() {
         let source = "classdef HClass < handle\n    properties (SetObservable)\n        Data\n    end\nend\n";
         let tree = parse(source);
@@ -84,5 +125,32 @@ mod tests {
             "classdef ValClass\n    properties (SetObservable)\n        Data\n    end\nend\n";
         let tree = parse(source);
         assert!(eng.check_mcpo(&tree, source).is_empty());
+    }
+}
+
+#[cfg(test)]
+mod probe_p2a_tests {
+    use crate::test_util::lint_file;
+    use malt_core::Config;
+
+    /// Lines of the `id` diagnostics that the default (mathworks) engine reports for `src`.
+    fn lines(src: &str, id: &str) -> Vec<usize> {
+        let e = crate::good_practices::GoodPracticesEngine::from_config(&Config::default());
+        lint_file(&*e, src)
+            .iter()
+            .filter(|d| d.rule_id == id)
+            .map(|d| d.line)
+            .collect()
+    }
+
+    #[test]
+    fn mcpo_ignores_an_observable_attribute_set_to_false() {
+        // Probed: `SetObservable = false` (32) and `~SetObservable` (31) are silent.
+        let off = "classdef C\n properties (SetObservable = false)\n  Data\n end\nend\n";
+        let negated = "classdef C\n properties (~SetObservable)\n  Data\n end\nend\n";
+        let on = "classdef C\n properties (SetObservable)\n  Data\n end\nend\n";
+        assert!(lines(off, "MCPO").is_empty());
+        assert!(lines(negated, "MCPO").is_empty());
+        assert_eq!(lines(on, "MCPO"), vec![2]);
     }
 }

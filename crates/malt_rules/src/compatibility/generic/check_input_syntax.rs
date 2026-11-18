@@ -11,9 +11,10 @@
 //!   `'Western Europe'`).
 //! - **NOV6** — `'v6'` format argument.
 //! - **FROPT/FROPTX** — removed print options `'-dill'`, `'-adobecset'`.
-//! - **RESOU** — a `resources` folder reference (reserved folder).
+//! - **RESOU** — a file whose own folder is named `resources`; reported from
+//!   `CompatibilityEngine::check_file` (it depends on the path, not the code).
 //! - **REPUDD** — `schema.*` class-definition functions.
-//! - **MCATP** — `@` used for class property restriction.
+//! - **MCATP** — `@` used for class property restriction (`x @double`).
 //! - **FGREN/FGREM** — removed `'Renderer'`/`'RendererMode'` name-value args.
 
 use super::super::CompatibilityEngine;
@@ -36,7 +37,7 @@ const REMOVED_ARGS: &[(&str, &str, &str)] = &[
 ];
 
 /// RESOU message.
-const RESOU_MSG: &str = "'resources' is a reserved folder. Running MATLAB files located in a folder named 'resources' is not supported.";
+pub(crate) const RESOU_MSG: &str = "'resources' is a reserved folder. Running MATLAB files located in a folder named 'resources' is not supported.";
 /// REPUDD message.
 const REPUDD_MSG: &str = "Classes defined using schema.m files are no longer supported. Use MATLAB Classes defined using the classdef keyword instead.";
 /// MCATP message.
@@ -58,25 +59,34 @@ pub(crate) fn collect_checks(
         "command" => engine.check_command(node, source, diagnostics),
         "command_argument" => engine.check_command_arg(node, source, diagnostics),
         "field_expression" => engine.check_schema(node, source, diagnostics),
-        "arguments" => engine.check_at_restriction(node, diagnostics),
+        "property" => engine.check_at_restriction(node, diagnostics),
         _ => {}
     }
 }
 
 impl CompatibilityEngine {
     /// Removed string input arguments / print options (function-call form).
+    ///
+    /// Each argument is reported only inside the call MATLAB reports it in (probed
+    /// in R2026b): the toolbox renames in `ver` and `verLessThan`, the regions in
+    /// `hereHDLMConfiguration`, the print options in `print`, `'RendererMode'` in
+    /// `figure`. `license`, `save`, `rand` and the like stay silent in MATLAB.
     fn check_removed_arg(&self, node: Node, source: &str, diagnostics: &mut Vec<Diagnostic>) {
         let text = unquoted(node, source);
         for (name, id, msg) in REMOVED_ARGS {
             if text == *name {
+                let owners = removed_arg_callees(id);
+                if !owners.is_empty() && !owners.iter().any(|f| call_includes(node, f, source)) {
+                    return;
+                }
                 push_diag(id, msg, node, Severity::Warning, diagnostics);
                 return;
             }
         }
-        // 'Renderer' / 'RendererMode' name-value args on figure/set/get.
+        // 'Renderer' / 'RendererMode' name-value args on figure.
         if text == "Renderer" && call_includes(node, "figure", source) {
             push_diag("FGREN", FGREN_MSG, node, Severity::Warning, diagnostics);
-        } else if text == "RendererMode" {
+        } else if text == "RendererMode" && call_includes(node, "figure", source) {
             push_diag("FGREM", FGREM_MSG, node, Severity::Warning, diagnostics);
         }
     }
@@ -98,13 +108,18 @@ impl CompatibilityEngine {
         let stripped = text.trim().trim_matches('\'').trim_matches('"');
         for (name, id, msg) in REMOVED_ARGS {
             if stripped == *name {
+                let owners = removed_arg_callees(id);
+                let command = node
+                    .parent()
+                    .and_then(|p| p.child(0))
+                    .map(|n| node_text(n, source))
+                    .unwrap_or("");
+                if !owners.is_empty() && !owners.contains(&command) {
+                    return;
+                }
                 push_diag(id, msg, node, Severity::Warning, diagnostics);
                 return;
             }
-        }
-        // RESOU: `resources` folder reference (cd / addpath / import).
-        if stripped == "resources" || text.contains("resources/") || text.contains("resources\\") {
-            push_diag("RESOU", RESOU_MSG, node, Severity::Error, diagnostics);
         }
     }
 
@@ -116,11 +131,15 @@ impl CompatibilityEngine {
         }
     }
 
-    /// MCATP: an `@` sign used for property restriction in arguments.
+    /// MCATP: an `@` sign used for a class property restriction (`x @double` in a
+    /// `properties` block). In a function `arguments` block MATLAB reports FVSYN instead.
     fn check_at_restriction(&self, node: Node, diagnostics: &mut Vec<Diagnostic>) {
         // Look for an `@` token followed by a type name (not a function handle
         // `@(args)...`). In an arguments block, `x @double` appears as an `@`
         // token between the name and a type.
+        if node.parent().is_none_or(|p| p.kind() != "properties") {
+            return;
+        }
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
             if child.kind() == "@" {
@@ -133,6 +152,20 @@ impl CompatibilityEngine {
                 }
             }
         }
+    }
+}
+
+/// The functions MATLAB reports a removed argument in (empty: no restriction known).
+/// NOV6 has no known function (`save`, `load`, `rand`, `griddata` are silent), so it
+/// never fires by default (its data entry is flagged `low_reliability`).
+fn removed_arg_callees(id: &str) -> &'static [&'static str] {
+    match id {
+        "FPRENAME" | "XPCRENAME" | "SLRTRENAME" | "PSRENAME" | "DCRENAME" | "SERENAME" => {
+            &["ver", "verLessThan"]
+        }
+        "HHCNA" | "HHCWE" => &["hereHDLMConfiguration"],
+        "FROPT" | "FROPTX" => &["print"],
+        _ => &[],
     }
 }
 
@@ -198,45 +231,57 @@ mod tests {
     use crate::test_util::{has_id, lint_file};
     use malt_core::Config;
 
+    /// The engine with the low-reliability checks on (the `all` preset): the checks MATLAB
+    /// stayed silent on are off by default.
+    fn all_engine() -> Box<dyn malt_core::Rule> {
+        let config = Config::from_toml("[lint]\npreset = \"all\"\n").unwrap();
+        CompatibilityEngine::from_config(&config)
+    }
+
     fn engine() -> Box<dyn malt_core::Rule> {
         CompatibilityEngine::from_config(&Config::default())
     }
 
     #[test]
     fn fprename_fixpoint_fires() {
-        let d = lint_file(&*engine(), "x = fixpoint('fixpoint');\n");
+        let d = lint_file(&*engine(), "x = ver('fixpoint');\n");
         assert!(has_id(&d, "FPRENAME"), "got: {d:?}");
     }
 
     #[test]
     fn fprename_other_arg_not_fires() {
-        let d = lint_file(&*engine(), "x = fixpoint('foo');\n");
+        let d = lint_file(&*engine(), "x = ver('foo');\n");
         assert!(!has_id(&d, "FPRENAME"), "got: {d:?}");
     }
 
     #[test]
     fn xpcrename_xpc_fires() {
-        let d = lint_file(&*engine(), "xpc('xpc');\n");
+        let d = lint_file(&*engine(), "ver('xpc');\n");
         assert!(has_id(&d, "XPCRENAME"), "got: {d:?}");
     }
 
     #[test]
     fn slrtrename_slrt_command_fires() {
-        let d = lint_file(&*engine(), "slrt 'slrt'\n");
+        let d = lint_file(&*engine(), "ver 'slrt'\n");
         assert!(has_id(&d, "SLRTRENAME"), "got: {d:?}");
     }
 
     #[test]
     fn hhcna_north_america_fires() {
-        let d = lint_file(&*engine(), "hrn('North America', 'Western Europe');\n");
+        let d = lint_file(
+            &*engine(),
+            "hereHDLMConfiguration('North America', 'Western Europe');\n",
+        );
         assert!(has_id(&d, "HHCNA"), "got: {d:?}");
         assert!(has_id(&d, "HHCWE"), "got: {d:?}");
     }
 
     #[test]
     fn nov6_v6_fires() {
-        let d = lint_file(&*engine(), "save('file.mat', 'v6');\n");
+        let d = lint_file(&*all_engine(), "save('file.mat', 'v6');\n");
         assert!(has_id(&d, "NOV6"), "got: {d:?}");
+        let d = lint_file(&*engine(), "save('file.mat', 'v6');\n");
+        assert!(!has_id(&d, "NOV6"), "off by default: {d:?}");
     }
 
     #[test]
@@ -246,15 +291,20 @@ mod tests {
     }
 
     #[test]
-    fn resou_resources_command_fires() {
+    fn resou_is_not_a_command_argument_check() {
         let d = lint_file(&*engine(), "cd resources\n");
-        assert!(has_id(&d, "RESOU"), "got: {d:?}");
+        assert!(!has_id(&d, "RESOU"), "got: {d:?}");
     }
 
     #[test]
     fn repudd_schema_prop_fires() {
-        let d = lint_file(&*engine(), "schema.prop('MyClass', 'prop', 'double');\n");
+        let d = lint_file(
+            &*all_engine(),
+            "schema.prop('MyClass', 'prop', 'double');\n",
+        );
         assert!(has_id(&d, "REPUDD"), "got: {d:?}");
+        let d = lint_file(&*engine(), "schema.prop('MyClass', 'prop', 'double');\n");
+        assert!(!has_id(&d, "REPUDD"), "off by default: {d:?}");
     }
 
     #[test]
@@ -264,8 +314,32 @@ mod tests {
     }
 
     #[test]
-    fn fgrem_renderermode_fires() {
-        let d = lint_file(&*engine(), "set(gcf, 'RendererMode', 'manual');\n");
+    fn fgrem_renderermode_fires_in_figure_only() {
+        let d = lint_file(&*engine(), "figure('RendererMode', 'manual');\n");
         assert!(has_id(&d, "FGREM"), "got: {d:?}");
+        let d = lint_file(&*engine(), "set(gcf, 'RendererMode', 'manual');\n");
+        assert!(!has_id(&d, "FGREM"), "got: {d:?}");
+    }
+
+    #[test]
+    fn mcatp_class_property_at_restriction_fires() {
+        let d = lint_file(
+            &*engine(),
+            "classdef C\n properties\n  x @double\n end\nend\n",
+        );
+        assert!(has_id(&d, "MCATP"), "got: {d:?}");
+        let d = lint_file(
+            &*engine(),
+            "classdef C\n properties\n  x double\n end\nend\n",
+        );
+        assert!(!has_id(&d, "MCATP"), "got: {d:?}");
+    }
+
+    #[test]
+    fn toolbox_renames_fire_in_ver_only() {
+        let d = lint_file(&*engine(), "license('test', 'distcomp');\n");
+        assert!(!has_id(&d, "DCRENAME"), "got: {d:?}");
+        let d = lint_file(&*engine(), "hereHDLMReader('North America');\n");
+        assert!(!has_id(&d, "HHCNA"), "got: {d:?}");
     }
 }

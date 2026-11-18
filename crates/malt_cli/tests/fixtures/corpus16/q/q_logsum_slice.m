@@ -1,0 +1,6 @@
+function r = q_logsum_slice(v, w, k)
+% sum of a comparison of a slice with a number literal.
+r = [sum(v(:) > 3), sum(3 < v(:)), sum(v(:, k) >= 3.5), sum(v(1, :) ~= 0), ...
+    sum(v(:) == 2), sum(v(:) < 1), ...
+    sum(v(:) > w), sum(v(:) > -1), sum(v(:, :) > 3), sum(v > 3), sum(v(2) > 3)];
+end

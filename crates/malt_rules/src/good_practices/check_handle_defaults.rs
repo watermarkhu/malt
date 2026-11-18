@@ -5,9 +5,10 @@
 //! instance, which is almost always unintended.
 //!
 //! - MCHDP fires when the default value *directly constructs* a handle: a
-//!   known handle class constructor call (e.g. `handle()`, `onCleanup(...)`,
-//!   `containers.Map(...)`) or a constructor call to the file's own class when
-//!   that class derives from `handle`.
+//!   known handle class constructor call (e.g. `containers.Map(...)`). Probed
+//!   silent: `handle()`, `onCleanup(...)`, `figure()`, a bare `timer`, a
+//!   constant property, and a constructor call to the file's own class (MATLAB
+//!   reports MCPIN there).
 //! - MCHDT fires when the default value is a bare identifier/expression that
 //!   the type environment proves to be a handle-typed value.
 //!
@@ -22,22 +23,7 @@ use crate::analysis::typing::{TypeEnv, TypeKind};
 /// Built-in / toolbox handle classes whose constructor calls are recognized by
 /// MCHDP. A default value whose text starts with one of these names followed
 /// by `(` is treated as a direct handle instantiation.
-const KNOWN_HANDLE_CLASSES: &[&str] = &[
-    "handle",
-    "onCleanup",
-    "timer",
-    "containers.Map",
-    "serial",
-    "serialport",
-    "webcam",
-    "audiorecorder",
-    "audioplayer",
-    "videoinput",
-    "figure",
-    "uifigure",
-    "matlab.ui.Figure",
-    "matlab.ui.control.UIFigure",
-];
+const KNOWN_HANDLE_CLASSES: &[&str] = &["containers.Map"];
 
 impl GoodPracticesEngine {
     /// MCHDP / MCHDT: property default values that are (or resolve to) handle
@@ -54,20 +40,31 @@ impl GoodPracticesEngine {
 
         let meta = FileMeta::build(tree, source);
         let env = TypeEnv::build(tree, source);
-        let own_class = meta.class.as_ref().map(|c| c.name.clone());
-        let own_is_handle = meta.class.as_ref().map(|c| c.is_handle()).unwrap_or(false);
+        // MATLAB is silent on the default of a constant property (probed).
+        let constants: std::collections::HashSet<&str> = meta
+            .class
+            .as_ref()
+            .map(|c| {
+                c.properties_blocks
+                    .iter()
+                    .filter(|pb| Attributes(&pb.attributes).is_present("Constant"))
+                    .flat_map(|pb| pb.properties.iter().map(|p| p.name.as_str()))
+                    .collect()
+            })
+            .unwrap_or_default();
 
         let mut diagnostics = Vec::new();
         for prop in meta.all_properties() {
+            if constants.contains(prop.name.as_str()) {
+                continue;
+            }
             let Some(default) = prop.default_value.as_deref() else {
                 continue;
             };
             let text = default.trim();
 
             // MCHDP: direct handle construction as the default value.
-            if self.is_check_enabled("MCHDP")
-                && is_handle_constructor_default(text, &own_class, own_is_handle)
-            {
+            if self.is_check_enabled("MCHDP") && is_handle_constructor_default(text) {
                 diagnostics.push(Diagnostic {
                     rule_id: "MCHDP",
                     message: "A property default value that is a handle will cause all instances \
@@ -87,7 +84,7 @@ impl GoodPracticesEngine {
             // MCHDT: the default is an identifier that resolves to a handle.
             if self.is_check_enabled("MCHDT")
                 && is_simple_identifier(text)
-                && env.type_of(text).kind == TypeKind::Handle
+                && env.known_kind(text) == Some(TypeKind::Handle)
             {
                 diagnostics.push(Diagnostic {
                     rule_id: "MCHDT",
@@ -111,24 +108,10 @@ impl GoodPracticesEngine {
 
 /// Whether a property default value text directly constructs a handle:
 /// a known handle class (or the file's own handle class) followed by `(`.
-fn is_handle_constructor_default(
-    text: &str,
-    own_class: &Option<String>,
-    own_is_handle: bool,
-) -> bool {
-    for class in KNOWN_HANDLE_CLASSES {
-        if text.starts_with(class) && text[class.len()..].trim_start().starts_with('(') {
-            return true;
-        }
-    }
-    if own_is_handle {
-        if let Some(name) = own_class {
-            if text.starts_with(name.as_str()) && text[name.len()..].trim_start().starts_with('(') {
-                return true;
-            }
-        }
-    }
-    false
+fn is_handle_constructor_default(text: &str) -> bool {
+    KNOWN_HANDLE_CLASSES
+        .iter()
+        .any(|class| text.starts_with(class) && text[class.len()..].trim_start().starts_with('('))
 }
 
 /// Whether a default value text is a plain identifier (no call, indexing, or
@@ -172,8 +155,10 @@ classdef Foo < handle
     end
 end
 ";
+        // Probed: only `containers.Map()` is reported; `handle()` (P2c01), `onCleanup`
+        // (P2c02), `timer()` (P2c03) and the own-class default (P2a115, MCPIN) are silent.
         let ids = handle_ids(source, "MCHDP");
-        assert_eq!(ids.len(), 5, "got: {:?}", handle_ids(source, "MCHDP"));
+        assert_eq!(ids.len(), 1, "got: {:?}", handle_ids(source, "MCHDP"));
     }
 
     #[test]
@@ -266,5 +251,35 @@ end
 ";
         let tree = parse(source);
         assert!(eng.check_handle_defaults(&tree, source).is_empty());
+    }
+}
+
+#[cfg(test)]
+mod probe_p2a_tests {
+    use crate::test_util::lint_file;
+    use malt_core::Config;
+
+    /// Lines of the `id` diagnostics that the default (mathworks) engine reports for `src`.
+    fn lines(src: &str, id: &str) -> Vec<usize> {
+        let e = crate::good_practices::GoodPracticesEngine::from_config(&Config::default());
+        lint_file(&*e, src)
+            .iter()
+            .filter(|d| d.rule_id == id)
+            .map(|d| d.line)
+            .collect()
+    }
+
+    #[test]
+    fn mchdp_is_silent_on_constants_and_on_handles_other_than_containers_map() {
+        // Probed: `containers.Map()` (113) fires; a constant (118), `onCleanup` (114),
+        // `figure()` (119) and an own-class handle default (115) are silent.
+        let map = "classdef C\n properties\n  H = containers.Map()\n end\nend\n";
+        let constant = "classdef C\n properties (Constant)\n  H = containers.Map()\n end\nend\n";
+        let cleanup = "classdef C\n properties\n  H = onCleanup(@() 1)\n end\nend\n";
+        let own = "classdef C < handle\n properties\n  H = C()\n end\nend\n";
+        assert_eq!(lines(map, "MCHDP"), vec![3]);
+        assert!(lines(constant, "MCHDP").is_empty());
+        assert!(lines(cleanup, "MCHDP").is_empty());
+        assert!(lines(own, "MCHDP").is_empty());
     }
 }

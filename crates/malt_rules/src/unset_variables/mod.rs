@@ -17,7 +17,7 @@
 //! definite-assignment analysis to find variables used on code paths where
 //! they may never have been assigned. It covers 6 checks from MATLAB's "Unset
 //! Variables" category; each diagnostic carries the specific check ID (e.g.
-//! `NODEF`, `PSET`, `STOUT`).
+//! `NODEF`, `STOUT`).
 //!
 //! ## Check IDs
 //!
@@ -25,7 +25,6 @@
 //! | --- | --- | --- | --- |
 //! | NODEF | warning | no | Variable might be used before it is defined. |
 //! | USENS | warning | no | Explicitly initialize this variable to avoid a potential uninitialized variable, or use a valid syntax for function call on line VAR_NUMBER. |
-//! | PSET | warning | no | Persistent variable is used, but might be unset. |
 //! | SUSENS | warning | no | Variable is used, but might be unset (within a script). |
 //! | SVNODEF | warning | no | Variable might not have a value, because variable definition may not be executed. |
 //! | STOUT | warning | no | Function return value might be unset. |
@@ -70,7 +69,7 @@
 //! ignore = ["myGlobalWorkspaceVar"]
 //! ```
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use malt_core::{Category, Config, Diagnostic, FileContext, Rule, Severity};
 use serde::Deserialize;
@@ -83,11 +82,8 @@ use crate::analysis::symbols::SymbolTable;
 // ---------------------------------------------------------------------------
 
 mod check_function_scopes;
-mod check_if_pset;
 mod check_output_args;
-mod check_partial_branch_assignment;
 mod check_script_scopes;
-mod check_switch_pset;
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -111,8 +107,10 @@ pub(crate) const MATLAB_BUILTINS: &[&str] = &[
     "nargout",
     "varargin",
     "varargout",
-    "ans",
 ];
+
+// `ans` is not in the list: MATLAB reports NODEF for it only when the function
+// assigns `ans` after the use (probed: `ans` with no assignment is NOANS alone).
 
 // ---------------------------------------------------------------------------
 // Rule-specific configuration
@@ -139,6 +137,11 @@ pub struct UnsetVariablesEngine {
     _config: UnsetVariablesConfig,
     /// Precomputed set of ignored names (builtins + user-configured).
     ignore_set: HashSet<String>,
+    /// Whether SUSENS runs. MATLAB never reports it with its default
+    /// configuration, so it is off under the `mathworks` preset.
+    script_checks_on: bool,
+    /// Whether USENS runs. Off under the `mathworks` preset (never reported).
+    usens_on: bool,
 }
 
 impl UnsetVariablesEngine {
@@ -153,49 +156,14 @@ impl UnsetVariablesEngine {
         Box::new(Self {
             _config: rule_config,
             ignore_set,
+            script_checks_on: config.preset.enables_default_off,
+            usens_on: config.preset.enables_default_off,
         })
     }
 
     /// Check whether a variable name should be ignored.
     pub(crate) fn is_ignored(&self, name: &str) -> bool {
         self.ignore_set.contains(name)
-    }
-
-    /// Find the location of the first assignment to a variable within a compound
-    /// statement (for PSET diagnostic positioning).
-    pub(crate) fn find_assignment_location(
-        &self,
-        node: Node,
-        source: &str,
-        var_name: &str,
-    ) -> Option<(std::ops::Range<usize>, usize, usize)> {
-        // DFS search for the first assignment to var_name.
-        let mut stack = vec![node];
-        while let Some(current) = stack.pop() {
-            if current.kind() == "assignment" {
-                if let Some(lhs) = current.child_by_field_name("left") {
-                    if lhs.kind() == "identifier" {
-                        let name = &source[lhs.start_byte()..lhs.end_byte()];
-                        if name == var_name {
-                            let pos = lhs.start_position();
-                            return Some((
-                                lhs.start_byte()..lhs.end_byte(),
-                                pos.row + 1,
-                                pos.column + 1,
-                            ));
-                        }
-                    }
-                }
-            }
-            // Push children in reverse so we visit left-to-right.
-            let count = current.child_count();
-            for i in (0..count).rev() {
-                if let Some(child) = current.child(i) {
-                    stack.push(child);
-                }
-            }
-        }
-        None
     }
 }
 
@@ -234,7 +202,7 @@ impl Rule for UnsetVariablesEngine {
         let source = ctx.source;
 
         // Build the symbol table for the file.
-        let symbol_table = SymbolTable::build(tree, source);
+        let symbol_table = SymbolTable::shared(|| tree.root_node(), source);
 
         let mut diagnostics = Vec::new();
 
@@ -244,9 +212,6 @@ impl Rule for UnsetVariablesEngine {
         // 2. Script scope checks (SVNODEF, SUSENS).
         diagnostics.extend(self.check_script_scopes(&symbol_table));
 
-        // 3. Partial-branch assignment (PSET).
-        diagnostics.extend(self.check_partial_branch_assignment(tree, source));
-
         diagnostics
     }
 }
@@ -255,68 +220,24 @@ impl Rule for UnsetVariablesEngine {
 // Helpers
 // ---------------------------------------------------------------------------
 
-/// Find a `function_definition` node in the tree that matches the given byte range.
-///
-/// Performs a DFS from the root, returning the first `function_definition` node
-/// whose byte range matches.
-pub(crate) fn find_function_node_at<'a>(
-    tree: &'a Tree,
-    byte_range: &std::ops::Range<usize>,
-) -> Option<Node<'a>> {
+/// Every `function_definition` of `tree` by its byte range. Where two share a
+/// range, the outer one is kept.
+pub(crate) fn function_nodes_by_range(tree: &Tree) -> HashMap<(usize, usize), Node<'_>> {
+    let mut found = HashMap::new();
+    // Depth first, parents before children; a cursor, not `child(i)`: indexing a
+    // child is linear in `i`, so a file with many top-level statements would be
+    // quadratic.
     let mut stack = vec![tree.root_node()];
     while let Some(node) = stack.pop() {
-        if node.kind() == "function_definition"
-            && node.start_byte() == byte_range.start
-            && node.end_byte() == byte_range.end
-        {
-            return Some(node);
+        if node.kind() == "function_definition" {
+            found
+                .entry((node.start_byte(), node.end_byte()))
+                .or_insert(node);
         }
-        // Only recurse into nodes that overlap with the target range.
-        let count = node.child_count();
-        for i in (0..count).rev() {
-            if let Some(child) = node.child(i) {
-                if child.start_byte() <= byte_range.end && child.end_byte() >= byte_range.start {
-                    stack.push(child);
-                }
-            }
-        }
+        let mut cursor = node.walk();
+        stack.extend(node.children(&mut cursor));
     }
-    None
-}
-
-/// Collect all variable names assigned in a block (shallow — only direct
-/// assignment statements, not nested blocks).
-pub(crate) fn collect_block_assignments(block: Node, source: &str) -> HashSet<String> {
-    let mut assigned = HashSet::new();
-    let count = block.child_count();
-    for i in 0..count {
-        let Some(child) = block.child(i) else {
-            continue;
-        };
-        if child.kind() == "assignment" {
-            if let Some(lhs) = child.child_by_field_name("left") {
-                match lhs.kind() {
-                    "identifier" => {
-                        let name = &source[lhs.start_byte()..lhs.end_byte()];
-                        assigned.insert(name.to_string());
-                    }
-                    "multioutput_variable" => {
-                        let lhs_count = lhs.child_count();
-                        for j in 0..lhs_count {
-                            if let Some(id) = lhs.child(j) {
-                                if id.kind() == "identifier" {
-                                    let name = &source[id.start_byte()..id.end_byte()];
-                                    assigned.insert(name.to_string());
-                                }
-                            }
-                        }
-                    }
-                    _ => {}
-                }
-            }
-        }
-    }
-    assigned
+    found
 }
 
 // ---------------------------------------------------------------------------
@@ -344,6 +265,7 @@ mod tests {
         parser
             .set_language(&tree_sitter_matlab::LANGUAGE.into())
             .expect("failed to load tree-sitter-matlab");
+        malt_core::note_parse();
         parser.parse(source, None).expect("parse failed")
     }
 
@@ -359,6 +281,7 @@ mod tests {
             tree: &tree,
             source,
             file_path: std::path::Path::new("test.m"),
+            project: None,
         };
         engine().check_file(&ctx)
     }
@@ -402,17 +325,42 @@ end
         let engine = UnsetVariablesEngine {
             _config: rule_config,
             ignore_set,
+            script_checks_on: true,
+            usens_on: true,
         };
 
         let ctx = FileContext {
             tree: &tree,
             source,
             file_path: std::path::Path::new("test.m"),
+            project: None,
         };
         let diags = engine.check_file(&ctx);
         assert!(
             !diags.iter().any(|d| d.message.contains("'myVar'")),
             "ignored variable should not be flagged, got: {diags:?}"
+        );
+    }
+    #[test]
+    fn nodef_after_clear_of_defined_variable() {
+        // Probe (unset__g7): `clear x` kills the value; the later use is NODEF.
+        let diags = lint("function f()\n x = 1;\n clear x\n disp(x)\nend\n");
+        assert!(diags.iter().any(|d| d.rule_id == "NODEF"), "got: {diags:?}");
+    }
+
+    #[test]
+    fn nodef_after_clear_of_input_argument() {
+        // Probe (bugs__t2): `clear n` kills the input; `lower(n)` in a switch is NODEF.
+        let diags = lint("function f(n)\nclear n\nswitch lower(n)\ncase 1\nend\nend\n");
+        assert!(diags.iter().any(|d| d.rule_id == "NODEF"), "got: {diags:?}");
+    }
+
+    #[test]
+    fn no_nodef_when_cleared_variable_is_assigned_again() {
+        let diags = lint("function f()\n x = 1;\n clear x\n x = 2;\n disp(x)\nend\n");
+        assert!(
+            !diags.iter().any(|d| d.rule_id == "NODEF"),
+            "got: {diags:?}"
         );
     }
 }

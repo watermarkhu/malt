@@ -17,9 +17,14 @@ impl LanguageSpecEngine {
             let is_constructor = mname == class.name;
             let calls = self.collect_superclass_calls(func_node, ctx.source);
             let mut constructor_calls_seen = 0usize;
+            // MCCMC: each superclass constructor is called once; calls to
+            // different superclasses (`obj@Base(); obj@handle();`) are fine.
+            let mut supers_called: Vec<String> = Vec::new();
             for (call_node, caller, super_name) in calls {
                 if is_constructor && Some(caller.as_str()) == first_output.as_deref() {
                     // Superclass constructor call.
+                    let repeated = supers_called.contains(&super_name);
+                    supers_called.push(super_name.clone());
                     if constructor_calls_seen == 0 {
                         constructor_calls_seen += 1;
                         if self.is_check_enabled("MCCBU") {
@@ -31,7 +36,8 @@ impl LanguageSpecEngine {
                                 diagnostics,
                             );
                         }
-                    } else if self.is_check_enabled("MCCMC") {
+                    }
+                    if repeated && self.is_check_enabled("MCCMC") {
                         let pos = call_node.start_position();
                         diagnostics.push(Diagnostic {
                             rule_id: "MCCMC",
@@ -51,7 +57,7 @@ impl LanguageSpecEngine {
                         diagnostics.push(Diagnostic {
                             rule_id: "MCCBS",
                             message: format!(
-                                "A superclass constructor is being called, but {super_name} is not a declared superclass name."
+                                "A superclass constructor is being called, but '{super_name}' is not a declared superclass name."
                             ),
                             severity: Severity::Error,
                             byte_range: call_node.start_byte()..call_node.end_byte(),
@@ -82,6 +88,22 @@ impl LanguageSpecEngine {
                         .and_then(|p| p.child_by_field_name("left"));
                     match lhs {
                         Some(lhs) if lhs.kind() == "multioutput_variable" => {
+                            // The first output must be the constructor's object (MCSCF).
+                            let first = lhs.named_child(0).map(|n| node_text(n, ctx.source));
+                            if self.is_check_enabled("MCSCF") && first != first_output.as_deref() {
+                                let pos = call_node.start_position();
+                                diagnostics.push(Diagnostic {
+                                    rule_id: "MCSCF",
+                                    message:
+                                        "A superclass constructor must be assigned to the first constructor output argument."
+                                            .to_string(),
+                                    severity: Severity::Error,
+                                    byte_range: call_node.start_byte()..call_node.end_byte(),
+                                    line: pos.row + 1,
+                                    column: pos.column + 1,
+                                    fix: None,
+                                });
+                            }
                             if self.is_check_enabled("MCSMO") {
                                 let pos = call_node.start_position();
                                 diagnostics.push(Diagnostic {
@@ -115,6 +137,9 @@ impl LanguageSpecEngine {
                                 });
                             }
                         }
+                        // A bare `obj@Base(args);` statement has no output to
+                        // assign, and MATLAB does not report it.
+                        None => {}
                         _ => {
                             if self.is_check_enabled("MCSCF") {
                                 let pos = call_node.start_position();
@@ -148,11 +173,12 @@ impl LanguageSpecEngine {
                                 fix: None,
                             });
                         }
-                    } else if caller != mname && self.is_check_enabled("MCSCM") {
+                    } else if self.is_check_enabled("MCSCO") {
                         let pos = call_node.start_position();
                         diagnostics.push(Diagnostic {
-                            rule_id: "MCSCM",
-                            message: format!("To call a superclass method, the method name {} must match the name of the subclass method {}.", caller, mname),
+                            rule_id: "MCSCO",
+                            message: "A superclass constructor must be called using the first constructor output argument."
+                                .to_string(),
                             severity: Severity::Error,
                             byte_range: call_node.start_byte()..call_node.end_byte(),
                             line: pos.row + 1,
@@ -163,10 +189,11 @@ impl LanguageSpecEngine {
                 } else if Some(caller.as_str()) == first_output.as_deref() {
                     // Superclass constructor call from a non-constructor method.
                     if self.is_check_enabled("MCSCC") {
-                        let pos = call_node.start_position();
+                        // MATLAB reports at the constructor's definition line, naming the function.
+                        let pos = func_node.start_position();
                         diagnostics.push(Diagnostic {
                             rule_id: "MCSCC",
-                            message: format!("To call the superclass constructor, the name of the subclass constructor {} must match the name of the subclass {}.", caller, class.name),
+                            message: format!("To call the superclass constructor, the name of the subclass constructor '{}' must match the name of the subclass '{}'.", mname, class.name),
                             severity: Severity::Error,
                             byte_range: call_node.start_byte()..call_node.end_byte(),
                             line: pos.row + 1,
@@ -178,7 +205,7 @@ impl LanguageSpecEngine {
                     let pos = call_node.start_position();
                     diagnostics.push(Diagnostic {
                         rule_id: "MCSCM",
-                        message: format!("To call a superclass method, the method name {} must match the name of the subclass method {}.", caller, mname),
+                        message: format!("To call a superclass method, the method name '{}' must match the name of the subclass method '{}'.", caller, mname),
                         severity: Severity::Error,
                         byte_range: call_node.start_byte()..call_node.end_byte(),
                         line: pos.row + 1,
@@ -247,7 +274,8 @@ impl LanguageSpecEngine {
                 .child_by_field_name("right")
                 .map(|r| r.id() != call_node.id())
                 .unwrap_or(true),
-            Some(p) => p.kind() != "assignment",
+            // A bare `obj@Base(args);` statement is not part of an expression.
+            Some(p) => !matches!(p.kind(), "assignment" | "block" | "source_file"),
             None => true,
         };
         if part_of_expression {
@@ -570,6 +598,49 @@ end
     }
 
     #[test]
+    fn test_mccmc_different_superclasses_no_fire() {
+        // MATLAB: `obj@Base(); obj@handle();` is silent (ls-c__Sub3.m:8).
+        let source = "\
+classdef Foo < Bar & Baz
+    methods
+        function obj = Foo(x)
+            obj = obj@Bar(x);
+            obj@Baz();
+        end
+    end
+end
+";
+        let diags = check_source(source, "Foo.m");
+        assert!(
+            filter_by_id(&diags, "MCCMC").is_empty(),
+            "MCCMC should NOT fire for calls to different superclasses"
+        );
+    }
+
+    #[test]
+    fn test_bare_super_call_statement_no_fire() {
+        // MATLAB: a bare `obj@Bar();` statement is silent for MCSCF and MCSCT.
+        let source = "\
+classdef Foo < Bar
+    methods
+        function obj = Foo()
+            obj@Bar();
+        end
+    end
+end
+";
+        let diags = check_source(source, "Foo.m");
+        assert!(
+            filter_by_id(&diags, "MCSCF").is_empty(),
+            "MCSCF should NOT fire for a bare superclass constructor statement"
+        );
+        assert!(
+            filter_by_id(&diags, "MCSCT").is_empty(),
+            "MCSCT should NOT fire for a bare superclass constructor statement"
+        );
+    }
+
+    #[test]
     fn test_mcsmo_fires_multiple_outputs() {
         let source = "\
 classdef Foo < Bar
@@ -686,5 +757,54 @@ end
             hits.is_empty(),
             "MCSCM should NOT fire for a matching method name"
         );
+    }
+
+    #[test]
+    fn test_mcsco_constructor_wrong_name_is_not_mcscm() {
+        let source = "classdef Foo < Bar\n    methods\n        function obj = Foo()\n            q@Bar();\n        end\n    end\nend\n";
+        let diags = crate::language_spec::tests::check_source(source, "Foo.m");
+        assert!(!crate::language_spec::tests::filter_by_id(&diags, "MCSCO").is_empty());
+        assert!(crate::language_spec::tests::filter_by_id(&diags, "MCSCM").is_empty());
+    }
+
+    #[test]
+    fn test_mcscc_reports_at_constructor_definition() {
+        let source = "classdef Foo < Bar\n    methods\n        function obj = Baz()\n            obj@Bar();\n        end\n    end\nend\n";
+        let diags = crate::language_spec::tests::check_source(source, "Foo.m");
+        let hits = crate::language_spec::tests::filter_by_id(&diags, "MCSCC");
+        assert!(!hits.is_empty());
+        assert!(hits
+            .iter()
+            .all(|d| d.line == 3 && d.message.contains("'Baz'") || d.message.contains(" Baz ")));
+    }
+
+    #[test]
+    fn mcscf_when_the_first_output_of_a_superclass_call_is_not_the_object() {
+        // Probed: `a = obj@Base();` and `[a, obj] = obj@Base();` and `[~, obj] = ...`
+        // give MCSCF (the latter two also MCSMO); `[obj, a] = ...` and
+        // `obj = obj@Base();` do not.
+        let head = "classdef Foo < Base\n    methods\n        function obj = Foo()\n";
+        let cases = [
+            ("            a = obj@Base();\n            obj.x = a;\n", 1),
+            (
+                "            [a, obj] = obj@Base();\n            obj.x = a;\n",
+                1,
+            ),
+            ("            [~, obj] = obj@Base();\n", 1),
+            (
+                "            [obj, a] = obj@Base();\n            obj.x = a;\n",
+                0,
+            ),
+            ("            obj = obj@Base();\n", 0),
+        ];
+        for (body, expected) in cases {
+            let source = format!("{head}{body}        end\n    end\nend\n");
+            let diags = check_source(&source, "Foo.m");
+            assert_eq!(
+                filter_by_id(&diags, "MCSCF").len(),
+                expected,
+                "{body}: got {diags:?}"
+            );
+        }
     }
 }

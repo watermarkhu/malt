@@ -25,13 +25,14 @@ pub mod analysis;
 pub mod bugs;
 pub mod codegen;
 pub mod compatibility;
-pub mod config_issues;
+pub mod config_check;
 pub mod custom_checks;
 pub mod deployment;
 pub mod formatting;
 pub mod good_practices;
 pub mod incomplete_analysis;
 pub mod language_spec;
+pub mod maturity;
 pub mod naming;
 pub mod nosemi;
 pub mod performance;
@@ -47,6 +48,19 @@ use malt_core::{Config, Rule};
 
 /// Type alias for a rule factory function.
 pub type RuleFactory = fn(&Config) -> Box<dyn Rule>;
+
+/// Check IDs that MATLAB's Code Analyzer never reports with its default
+/// configuration: none in the 209-file corpus, none in clean probes, and none
+/// with `checkcode -all`. Under the `mathworks` preset they are disabled so the
+/// default output matches MATLAB; the `all` preset keeps them on. Engines pass
+/// their own IDs and add the result to their `disabled_checks`.
+pub(crate) fn off_under_mathworks(config: &Config, ids: &[&str]) -> Vec<String> {
+    if config.preset.enables_default_off {
+        Vec::new()
+    } else {
+        ids.iter().map(|id| (*id).to_string()).collect()
+    }
+}
 
 /// A self-registering rule entry collected via `inventory`.
 ///
@@ -68,12 +82,49 @@ impl RuleRegistration {
 
 inventory::collect!(RuleRegistration);
 
+/// The order in which the engines run. Diagnostics at the same position are
+/// printed in this order, so it is fixed here: `inventory` yields registrations
+/// in link order, which changes with unrelated edits. An engine missing from
+/// the list runs after these, ordered by ID.
+const RULE_ORDER: &[&str] = &[
+    "SUGGESTED_IMPROVEMENTS",
+    "DEPLOYMENT_ENGINE",
+    "BUGS_ENGINE",
+    "UNSET_VARIABLES_ENGINE",
+    "SYNTAX_ERRORS_ENGINE",
+    "PERFORMANCE_ENGINE",
+    "FORMATTING_ENGINE",
+    "UNSUPPORTED_ENGINE",
+    "NOSEMI",
+    "READABILITY_ENGINE",
+    "SYSTEM_OBJECTS_ENGINE",
+    "INCOMPLETE_ANALYSIS",
+    "COMPAT",
+    "CUSTOM_CHECKS",
+    "NAMING_ENGINE",
+    "CODEGEN_ENGINE",
+    "UNUSED_ENGINE",
+    "GOOD_PRACTICES_ENGINE",
+    "LANGUAGE_SPEC_ENGINE",
+];
+
+/// Every registered rule, in [`RULE_ORDER`].
+fn registrations() -> Vec<&'static RuleRegistration> {
+    let mut regs: Vec<&'static RuleRegistration> =
+        inventory::iter::<RuleRegistration>.into_iter().collect();
+    regs.sort_by_key(|reg| {
+        let rank = RULE_ORDER.iter().position(|id| *id == reg.id);
+        (rank.unwrap_or(RULE_ORDER.len()), reg.id)
+    });
+    regs
+}
+
 /// Construct all available lint rules from the given configuration.
 ///
 /// Returns all rules regardless of whether they are enabled in config.
 /// Use [`active_rules`] to get only enabled rules.
 pub fn all_rules(config: &Config) -> Vec<Box<dyn Rule>> {
-    inventory::iter::<RuleRegistration>
+    registrations()
         .into_iter()
         .map(|reg| (reg.factory)(config))
         .collect()
@@ -84,7 +135,7 @@ pub fn all_rules(config: &Config) -> Vec<Box<dyn Rule>> {
 /// Filters out rules that are set to "off" in the config (either per-rule
 /// or per-category). This is the primary entry point used by the CLI.
 pub fn active_rules(config: &Config) -> Vec<Box<dyn Rule>> {
-    inventory::iter::<RuleRegistration>
+    registrations()
         .into_iter()
         .filter_map(|reg| {
             // Construct the rule to check its category for category-level filtering.
@@ -114,14 +165,23 @@ mod tests {
     }
 
     #[test]
+    fn every_engine_has_a_fixed_place_in_the_order() {
+        for reg in inventory::iter::<RuleRegistration> {
+            assert!(
+                RULE_ORDER.contains(&reg.id),
+                "{} is missing from RULE_ORDER",
+                reg.id
+            );
+        }
+    }
+
+    #[test]
     fn specialized_engines_are_disabled_by_default() {
         let ids = active_ids(&Config::default());
         for off in [
             "CODEGEN_ENGINE",
             "DEPLOYMENT_ENGINE",
             "SYSTEM_OBJECTS_ENGINE",
-            "CONFIG_ISSUES_ENGINE",
-            "SUGGESTED_IMPROVEMENTS",
             "UNSUPPORTED_ENGINE",
         ] {
             assert!(
@@ -129,6 +189,8 @@ mod tests {
                 "{off} should be off by default"
             );
         }
+        // MATLAB's Code Analyzer reports the suggested improvements by default.
+        assert!(ids.contains(&"SUGGESTED_IMPROVEMENTS".to_string()));
     }
 
     #[test]
@@ -199,5 +261,56 @@ mod tests {
     fn enabled_by_default_engine_can_be_disabled_per_category() {
         let config = Config::from_toml("[lint.categories]\nperformance = \"off\"\n").unwrap();
         assert!(!active_ids(&config).contains(&"PERFORMANCE_ENGINE".to_string()));
+    }
+
+    fn lint_ids(config: &Config, source: &str) -> Vec<&'static str> {
+        let registry = malt_core::RuleRegistry::new(active_rules(config), config);
+        let mut linter = malt_core::Linter::new(registry);
+        let mut ids: Vec<_> = linter
+            .lint(source, std::path::Path::new("probe.m"))
+            .unwrap()
+            .iter()
+            .map(|d| d.rule_id)
+            .collect();
+        ids.sort_unstable();
+        ids.dedup();
+        ids
+    }
+
+    fn lint_positions(config: &Config, source: &str) -> Vec<(&'static str, usize, usize)> {
+        let registry = malt_core::RuleRegistry::new(active_rules(config), config);
+        let mut linter = malt_core::Linter::new(registry);
+        linter
+            .lint(source, std::path::Path::new("probe.m"))
+            .unwrap()
+            .iter()
+            .map(|d| (d.rule_id, d.line, d.column))
+            .collect()
+    }
+
+    #[test]
+    fn unused_directive_for_an_active_check_is_msnu() {
+        // MATLAB probe s2: PFBNS stays silent here because both statements index
+        // `c` alike, so the directive on line 4 names nothing; MSNU at the `%`, column 20.
+        let source =
+            "c = foo();\nparfor i = 1:N\n    a(i) = c(i,1);\n    b(i) = c(i,1); %#ok<PFBNS>\nend\n";
+        let found = lint_positions(&Config::default(), source);
+        assert!(found.contains(&("MSNU", 4, 20)), "got: {found:?}");
+    }
+
+    #[test]
+    fn checks_that_matlab_leaves_off_are_off_under_the_default_preset() {
+        // MATLAB's factory configuration never reports these (probed with checkcode
+        // in R2026b); the `all` preset and explicit rule settings turn them back on.
+        let source = "function f(x)\nerror('plain message');\nwarning('plain');\ntry\n x = 1;\ncatch\nend\nend\n";
+        let default = lint_ids(&Config::default(), source);
+        let all = lint_ids(
+            &Config::from_toml("[lint]\npreset = \"all\"\n").unwrap(),
+            source,
+        );
+        for id in ["ERTAG", "WNTAG", "CTCH"] {
+            assert!(!default.contains(&id), "{id} on by default: {default:?}");
+            assert!(all.contains(&id), "{id} missing under `all`: {all:?}");
+        }
     }
 }

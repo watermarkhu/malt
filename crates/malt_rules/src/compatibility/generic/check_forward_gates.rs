@@ -31,8 +31,8 @@ const FCLFS_MSG: &str = "Local functions in a script are not available before R2
 const FCNVA_MSG: &str =
     "Name=Value syntax is not available before R2021a. Use comma-separated syntax instead.";
 const IMPIVD_MSG: &str =
-    "Malformed import argument VAR_NAME will not be supported in a future release.";
-const IMPKEY_MSG: &str = "Importing VAR_NAME will not be supported in a future release because VAR_NAME is a reserved word.";
+    "Malformed import argument 'VAR_NAME' will not be supported in a future release.";
+const IMPKEY_MSG: &str = "Importing 'VAR_NAME' will not be supported in a future release because 'VAR_WORD' is a reserved word.";
 const REDEFGI_MSG: &str = "Declaring an input or output variable to be global might not be supported in a future release.";
 const REDEFGG_MSG: &str =
     "Declaring a variable to be global more than once might not be supported in a future release.";
@@ -133,20 +133,20 @@ impl CompatibilityEngine {
         push_diag("FCFAV", FCFAV_MSG, node, Severity::Error, diagnostics);
     }
 
-    /// FCCPV: a class property with validation (type constraint).
+    /// FCCPV: a class property with validation (type constraint), reported on the property's line.
     fn check_fccpv(&self, node: Node, diagnostics: &mut Vec<Diagnostic>) {
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
             if child.kind() == "property" {
-                // A property with a type constraint has >1 named child
-                // (name identifier + type/validation).
-                let named: Vec<_> = child
+                // A property with validation has more than its name and an
+                // optional default value: a class, size or validator function.
+                let validated = child
                     .children(&mut child.walk())
                     .filter(|c| c.is_named())
-                    .collect();
-                if named.len() >= 2 {
-                    push_diag("FCCPV", FCCPV_MSG, node, Severity::Error, diagnostics);
-                    return;
+                    .skip(1)
+                    .any(|c| !matches!(c.kind(), "default_value" | "comment"));
+                if validated {
+                    push_diag("FCCPV", FCCPV_MSG, child, Severity::Error, diagnostics);
                 }
             }
         }
@@ -154,18 +154,23 @@ impl CompatibilityEngine {
 
     /// FCLFS: a script file containing local function definitions.
     fn check_fclfs(&self, node: Node, diagnostics: &mut Vec<Diagnostic>) {
-        // A script with local functions has top-level statements BEFORE the
-        // function_definition (both direct children of source_file). A pure
-        // function file starts with the function definition, so a preceding
-        // non-function sibling marks this as a script local function.
-        if let Some(parent) = node.parent() {
-            if parent.kind() == "source_file" {
-                if let Some(prev) = node.prev_sibling() {
-                    if prev.kind() != "function_definition" {
-                        push_diag("FCLFS", FCLFS_MSG, node, Severity::Error, diagnostics);
-                    }
-                }
-            }
+        // A file is a script when its first statement is neither a function nor
+        // a class definition; a function defined in it is a local function in a
+        // script. In a function or class file local functions are always fine.
+        let Some(parent) = node.parent() else {
+            return;
+        };
+        if parent.kind() != "source_file" {
+            return;
+        }
+        let mut cursor = parent.walk();
+        let first = parent
+            .named_children(&mut cursor)
+            .find(|c| !matches!(c.kind(), "comment" | "line_continuation"));
+        let is_script =
+            first.is_some_and(|f| !matches!(f.kind(), "function_definition" | "class_definition"));
+        if is_script {
+            push_diag("FCLFS", FCLFS_MSG, node, Severity::Error, diagnostics);
         }
     }
 
@@ -202,20 +207,36 @@ impl CompatibilityEngine {
             }
         }
         for arg in &args {
-            // IMPKEY: importing a reserved word.
-            let base = arg.split('.').next().unwrap_or(&arg[..]);
-            if RESERVED.contains(&base) {
+            let segments: Vec<&str> = arg.split('.').collect();
+            // JAPIMATHWORKS: importing from the `com.mathworks` namespace (probed:
+            // the wildcard, a class and a package are all reported).
+            if segments.len() >= 2 && segments[0] == "com" && segments[1] == "mathworks" {
+                push_diag(
+                    "JAPIMATHWORKS",
+                    "'com.mathworks' namespace and sub namespaces will be removed in a future release. There is no simple replacement for this.".to_string(),
+                    node,
+                    Severity::Warning,
+                    diagnostics,
+                );
+            }
+            // IMPKEY: a reserved word as the last name of a package path
+            // (`import pkg.if`); `import if`, `import if.x` and `import pkg.if.*` are
+            // silent in MATLAB (probed in R2026b).
+            if segments.len() >= 2 && RESERVED.contains(segments.last().unwrap_or(&"")) {
                 push_diag(
                     "IMPKEY",
-                    IMPKEY_MSG.replace("VAR_NAME", arg),
+                    IMPKEY_MSG
+                        .replace("VAR_NAME", arg)
+                        .replace("VAR_WORD", segments.last().unwrap_or(&"")),
                     node,
                     Severity::Warning,
                     diagnostics,
                 );
                 return;
             }
-            // IMPIVD: malformed import argument (no package structure).
-            if !arg.contains('.') && arg.chars().any(|c| !c.is_alphanumeric() && c != '_') {
+            // IMPIVD: more than one wildcard (`import a.*.*`, `import a.*.b.*`);
+            // a single wildcard anywhere (`import a.*.b`) is silent.
+            if segments.iter().filter(|seg| **seg == "*").count() >= 2 {
                 push_diag(
                     "IMPIVD",
                     IMPIVD_MSG.replace("VAR_NAME", arg),
@@ -289,7 +310,7 @@ impl CompatibilityEngine {
         // Match the declaration against all other global declarations.
         for &name in names {
             let text = &source[name.start_byte()..name.end_byte()];
-            if global_declared_earlier(global_node, text, source) {
+            if global_declarations_before(global_node, text, source) == 1 {
                 push_diag("REDEFGG", REDEFGG_MSG, name, Severity::Warning, diagnostics);
             }
         }
@@ -396,20 +417,23 @@ fn collect_identifiers<'a>(node: Node<'a>, source: &'a str, out: &mut HashSet<&'
 
 /// True when the same variable name was declared `global` by an earlier
 /// statement in the file.
-fn global_declared_earlier<'a>(current: Node<'a>, name: &str, source: &'a str) -> bool {
-    // Walk every earlier sibling (and earlier siblings of ancestors) looking
-    // for a global_operator that declares `name`.
+fn global_declarations_before<'a>(current: Node<'a>, name: &str, source: &'a str) -> usize {
+    // Count the earlier siblings (and earlier siblings of ancestors) that declare
+    // `name`. MATLAB reports REDEFGG once, at the first redeclaration: a third
+    // `global n` is silent (probed).
+    let mut count = 0;
     let mut cur = current;
     loop {
         if let Some(prev) = cur.prev_sibling() {
             if node_subtree_has_global(prev, name, source) {
-                return true;
+                count += 1;
             }
             cur = prev;
         } else {
             match cur.parent() {
-                Some(parent) => cur = parent,
-                None => return false,
+                // Code before a function is another scope: stop at its header.
+                Some(parent) if parent.kind() != "function_definition" => cur = parent,
+                _ => return count,
             }
         }
     }
@@ -496,8 +520,10 @@ mod tests {
     use crate::test_util::{has_id, lint_file};
     use malt_core::Config;
 
+    /// The forward-compatibility gates are off by default (as in MATLAB), so
+    /// these tests run under the `all` preset.
     fn engine() -> Box<dyn malt_core::Rule> {
-        CompatibilityEngine::from_config(&Config::default())
+        CompatibilityEngine::from_config(&Config::from_toml("[lint]\npreset = \"all\"\n").unwrap())
     }
 
     #[test]
@@ -561,6 +587,27 @@ mod tests {
     }
 
     #[test]
+    fn fccpv_default_value_is_not_validation() {
+        let d = lint_file(&*engine(), "classdef C\n properties\n  x = 1\n end\nend\n");
+        assert!(!has_id(&d, "FCCPV"), "got: {d:?}");
+    }
+
+    #[test]
+    fn fclfs_local_function_in_function_file_not_fires() {
+        let d = lint_file(&*engine(), "function a()\nend\nfunction b()\nend\n");
+        assert!(!has_id(&d, "FCLFS"), "got: {d:?}");
+    }
+
+    #[test]
+    fn fclfs_local_function_in_class_file_not_fires() {
+        let d = lint_file(
+            &*engine(),
+            "classdef C\nend\nfunction y = helper(x)\n y = x;\nend\n",
+        );
+        assert!(!has_id(&d, "FCLFS"), "got: {d:?}");
+    }
+
+    #[test]
     fn fccpv_plain_property_not_fires() {
         let d = lint_file(&*engine(), "classdef C\n properties\n  x\n end\nend\n");
         assert!(!has_id(&d, "FCCPV"), "got: {d:?}");
@@ -586,7 +633,7 @@ mod tests {
 
     #[test]
     fn impkey_reserved_import_fires() {
-        let d = lint_file(&*engine(), "import if;\n");
+        let d = lint_file(&*engine(), "import pkg.if;\n");
         assert!(has_id(&d, "IMPKEY"), "got: {d:?}");
     }
 
@@ -610,8 +657,10 @@ mod scope_tests {
     use crate::test_util::{has_id, lint_file};
     use malt_core::Config;
 
+    /// The forward-compatibility gates are off by default (as in MATLAB), so
+    /// these tests run under the `all` preset.
     fn engine() -> Box<dyn malt_core::Rule> {
-        CompatibilityEngine::from_config(&Config::default())
+        CompatibilityEngine::from_config(&Config::from_toml("[lint]\npreset = \"all\"\n").unwrap())
     }
 
     #[test]
@@ -642,6 +691,21 @@ mod scope_tests {
     fn redefgg_once_not_fires() {
         let d = lint_file(&*engine(), "function f()\n global g;\nend\n");
         assert!(!has_id(&d, "REDEFGG"), "got: {d:?}");
+    }
+
+    #[test]
+    fn redefgg_reported_once_per_name() {
+        // Probed (rd_glob_three.m): a third `global g` is silent; MATLAB reports the second.
+        let d = lint_file(
+            &*engine(),
+            "function f()\n global g;\n global g;\n global g;\nend\n",
+        );
+        let lines: Vec<usize> = d
+            .iter()
+            .filter(|x| x.rule_id == "REDEFGG")
+            .map(|x| x.line)
+            .collect();
+        assert_eq!(lines, vec![3], "got: {d:?}");
     }
 
     #[test]
@@ -679,5 +743,26 @@ mod scope_tests {
             "function p(x)\n function n(a)\n  global a;\n end\nend\n",
         );
         assert!(has_id(&d, "REDEFGI"), "got: {d:?}");
+    }
+
+    #[test]
+    fn forward_gates_are_off_by_default() {
+        let default = CompatibilityEngine::from_config(&Config::default());
+        let source = "x = \"text\";\n";
+        assert!(!has_id(&lint_file(default.as_ref(), source), "FCDQS"));
+        assert!(has_id(&lint_file(engine().as_ref(), source), "FCDQS"));
+    }
+
+    #[test]
+    fn forward_gates_follow_category_and_rule_config() {
+        let source = "x = \"text\";\n";
+        let category =
+            Config::from_toml("[lint.categories]\nforward-compatibility = \"warn\"\n").unwrap();
+        let by_category = CompatibilityEngine::from_config(&category);
+        assert!(has_id(&lint_file(by_category.as_ref(), source), "FCDQS"));
+
+        let rule = Config::from_toml("[lint.rules]\nFCDQS = \"warn\"\n").unwrap();
+        let by_rule = CompatibilityEngine::from_config(&rule);
+        assert!(has_id(&lint_file(by_rule.as_ref(), source), "FCDQS"));
     }
 }

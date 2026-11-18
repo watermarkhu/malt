@@ -36,3 +36,31 @@ impl GoodPracticesEngine {
         }]
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::test_util::{has_id, lint_nodes};
+    use malt_core::Config;
+
+    fn lint(source: &str) -> Vec<malt_core::Diagnostic> {
+        let engine = crate::good_practices::GoodPracticesEngine::from_config(&Config::default());
+        lint_nodes(&*engine, source)
+    }
+
+    #[test]
+    fn lngnm_silent_on_name_longer_than_63_characters() {
+        // Probed in MATLAB R2026b: no LNGNM for names of 63 to 120 characters
+        // (script, function, right-hand side, field, loop variable, input, global,
+        // cell, names equal in the first 63 characters, digits and capitals).
+        // Not emitted until MATLAB reports it (see NOT_REPRODUCED).
+        let name = "a".repeat(80);
+        for source in [
+            format!("{name} = 1;\n"),
+            format!("function r = f()\n{name} = 1;\nr = {name};\nend\n"),
+            format!("x = 1;\ny = {name} + 1;\n"),
+        ] {
+            let diags = lint(&source);
+            assert!(!has_id(&diags, "LNGNM"), "{source}: got: {diags:?}");
+        }
+    }
+}

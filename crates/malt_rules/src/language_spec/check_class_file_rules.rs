@@ -15,41 +15,8 @@
 
 use super::*;
 
-/// Known MATLAB base classes that never need path resolution (CLSUNK).
-const KNOWN_BASE_CLASSES: &[&str] = &[
-    "handle",
-    "value",
-    "dynamicprops",
-    "matlab.System",
-    "matlab.mixin.Copyable",
-    "matlab.mixin.SetGet",
-    "matlab.mixin.Heterogeneous",
-    "matlab.mixin.CustomDisplay",
-    "matlab.mixin.Scalar",
-    "matlab.mixin.indexing.RedefinesParen",
-    "matlab.mixin.indexing.RedefinesBrace",
-    "matlab.mixin.indexing.RedefinesDot",
-    "matlab.mixin.indexing.RedefinesParen",
-];
-
-/// Known top-level packages whose classes are always resolvable (CLSUNK).
-const KNOWN_PACKAGES: &[&str] = &[
-    "matlab",
-    "simulink",
-    "coder",
-    "parallel",
-    "dsp",
-    "vision",
-    "stateflow",
-    "fixedpoint",
-    "sldv",
-    "polyspace",
-    "rf",
-    "mpt",
-];
-
 impl LanguageSpecEngine {
-    /// Run the class-file checks (CLSAT, CLSUNK, NOPRV).
+    /// Run the class-file checks (CLSAT, NOPRV).
     pub(crate) fn check_class_file_rules(
         &self,
         meta: &FileMeta,
@@ -61,7 +28,6 @@ impl LanguageSpecEngine {
         };
 
         self.check_clsat(ctx, diagnostics);
-        self.check_clsunk(class, diagnostics);
         self.check_noprv(class, ctx, diagnostics);
     }
 
@@ -88,51 +54,6 @@ impl LanguageSpecEngine {
                 diagnostics,
             );
         }
-    }
-
-    /// CLSUNK: this class, or one of its superclasses, could not be found on
-    /// MATLAB's path.
-    ///
-    /// Full path resolution is impossible from a static linter, so this is a
-    /// deliberately narrow heuristic: it fires for superclass names that are
-    /// not known MATLAB base classes and either have no package prefix (bare
-    /// names) or start with a lowercase segment that is not a known package.
-    fn check_clsunk(&self, class: &ClassMeta, diagnostics: &mut Vec<Diagnostic>) {
-        for sc in &class.superclasses {
-            if self.superclass_is_resolvable(sc) {
-                continue;
-            }
-            if self.is_check_enabled("CLSUNK") {
-                diagnostics.push(Diagnostic {
-                    rule_id: "CLSUNK",
-                    message: "This class, or one of its superclasses, could not be found on MATLAB's path."
-                        .to_string(),
-                    severity: Severity::Error,
-                    byte_range: class.byte_range.clone(),
-                    line: class.line,
-                    column: 1,
-                    fix: None,
-                });
-            }
-        }
-    }
-
-    /// Whether a superclass name can be treated as resolvable without path
-    /// information.
-    fn superclass_is_resolvable(&self, name: &str) -> bool {
-        if KNOWN_BASE_CLASSES.contains(&name) {
-            return true;
-        }
-        let first = name.split('.').next().unwrap_or(name);
-        if KNOWN_PACKAGES.contains(&first) {
-            return true;
-        }
-        // Dotted names whose first segment does not start lowercase are
-        // treated as resolvable (user classes conventionally start uppercase).
-        if name.contains('.') && !first.starts_with(|c: char| c.is_lowercase()) {
-            return true;
-        }
-        false
     }
 
     /// NOPRV: a class definition cannot be inside a private directory.
@@ -206,50 +127,24 @@ end
     // -- CLSUNK --------------------------------------------------------------
 
     #[test]
-    fn test_clsunk_fires_unknown_bare_superclass() {
+    fn test_clsunk_never_fires_on_superclass_names() {
+        // MATLAB's checkcode is silent on `Base` (ls-c__Sub3.m) and on a
+        // clearly missing superclass (probe r7_L/cls_miss.m), so no name is
+        // reported without evidence.
         let source = "\
 classdef Foo < NotARealClass
 end
-";
-        let diags = check_source(source, "Foo.m");
-        assert!(
-            !filter_by_id(&diags, "CLSUNK").is_empty(),
-            "CLSUNK should fire for an unknown bare superclass name"
-        );
-    }
 
-    #[test]
-    fn test_clsunk_fires_unknown_package_superclass() {
-        let source = "\
-classdef Foo < nonexistent.pkg.Base
-end
-";
-        let diags = check_source(source, "Foo.m");
-        assert!(
-            !filter_by_id(&diags, "CLSUNK").is_empty(),
-            "CLSUNK should fire for an unknown lowercase package prefix"
-        );
-    }
-
-    #[test]
-    fn test_clsunk_no_fire_known_base_classes() {
-        let source = "\
-classdef Foo < handle
+classdef Bar < nonexistent.pkg.Base
 end
 
-classdef Bar < matlab.mixin.Copyable
-end
-
-classdef Baz < matlab.System
-end
-
-classdef Qux < value
+classdef Baz < Base & handle
 end
 ";
         let diags = check_source(source, "Foo.m");
         assert!(
             filter_by_id(&diags, "CLSUNK").is_empty(),
-            "CLSUNK should NOT fire for known base classes"
+            "CLSUNK should NOT fire for superclass names"
         );
     }
 
@@ -314,6 +209,7 @@ end
             tree: &tree,
             source,
             file_path: path,
+            project: None,
         };
         let diags = engine.check_file(&ctx);
         assert!(

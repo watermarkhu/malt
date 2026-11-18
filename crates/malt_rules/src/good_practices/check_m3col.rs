@@ -35,15 +35,18 @@ impl GoodPracticesEngine {
             return Vec::new();
         }
 
-        let pos = node.start_position();
+        // MATLAB points at the last colon of the chain (`u = (1:2:3:4)` at column 11).
+        let last_colon =
+            node.start_byte() + source[node.start_byte()..end_byte].rfind(':').unwrap_or(0);
+        let (line, column) = crate::syntax_errors::line_col(source, last_colon);
         vec![Diagnostic {
             rule_id: "M3COL",
             message: "Using three colons (a:b:c:d) in an expression is probably unintended."
                 .to_string(),
             severity: Severity::Warning,
             byte_range: node.start_byte()..end_byte,
-            line: pos.row + 1,
-            column: pos.column + 1,
+            line,
+            column,
             fix: None,
         }]
     }
@@ -87,6 +90,21 @@ mod tests {
 
         let range = find_descendant_of_kind(root, "range").unwrap();
         assert!(eng.check_m3col(range, source).is_empty());
+    }
+
+    #[test]
+    fn test_m3col_points_at_the_last_colon() {
+        // MATLAB: `u = (1:2:3:4)` is M3COL at column 11, the last colon.
+        let source = "u = (1:2:3:4);\n";
+        let tree = parse(source);
+        let root = tree.root_node();
+        let eng = engine();
+        let range = all_descendants_of_kind(root, "range")
+            .into_iter()
+            .find(|r| !eng.check_m3col(*r, source).is_empty())
+            .unwrap();
+        let diags = eng.check_m3col(range, source);
+        assert_eq!((diags[0].line, diags[0].column), (1, 11));
     }
 
     #[test]

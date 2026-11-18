@@ -15,10 +15,7 @@ impl GoodPracticesEngine {
 
         let mut diagnostics = Vec::new();
         for block in &class.properties_blocks {
-            let is_dependent = block
-                .attributes
-                .iter()
-                .any(|a| a.name == "Dependent" && !a.negated);
+            let is_dependent = Attributes(&block.attributes).is_present("Dependent");
             if !is_dependent {
                 continue;
             }

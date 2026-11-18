@@ -1,0 +1,9 @@
+{
+  "schemaVersion": "1.1.0",
+  "checks": {
+    "MNCSN": {
+      "enabled": true,
+      "limit": 2
+    }
+  }
+}

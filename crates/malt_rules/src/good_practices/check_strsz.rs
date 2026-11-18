@@ -9,6 +9,10 @@ impl GoodPracticesEngine {
         if node.kind() != "comparison_operator" && node.kind() != "binary_operator" {
             return Vec::new();
         }
+        // MATLAB is silent on comparisons in an if/while condition (probed).
+        if in_condition(node) {
+            return Vec::new();
+        }
 
         let text = node_text(node, source);
         if !text.contains("==") && !text.contains("~=") {
@@ -48,9 +52,34 @@ impl GoodPracticesEngine {
     }
 }
 
+/// Whether the node is inside the condition of an if, elseif or while statement
+/// (not inside one of its blocks).
+fn in_condition(node: Node) -> bool {
+    let mut current = node.parent();
+    while let Some(parent) = current {
+        match parent.kind() {
+            "block" => return false,
+            "if_statement" | "elseif_clause" | "while_statement" => return true,
+            _ => current = parent.parent(),
+        }
+    }
+    false
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_strsz_silent_in_if_condition() {
+        let source = "if 'abc' == 'abcd'\n disp(1)\nend\n";
+        let tree = parse(source);
+        let root = tree.root_node();
+        let eng = engine();
+
+        let comp = find_descendant_of_kind(root, "comparison_operator").unwrap();
+        assert!(eng.check_strsz(comp, source).is_empty());
+    }
 
     #[test]
     fn test_strsz_fires_on_different_length_strings() {

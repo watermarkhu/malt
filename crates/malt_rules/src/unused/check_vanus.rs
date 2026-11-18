@@ -2,10 +2,16 @@
 
 use super::*;
 
+/// VANUS is emitted, and off under the `mathworks` preset (see `UnusedEngine::from_config`):
+/// MATLAB's default analysis never reports an unused `varargin` (about nine probes), but with the
+/// check enabled in a configuration file it does (35 lines over the conformance fixtures,
+/// `docs/VERIFY.md`, 'Preset all against MATLAB').
+const VANUS_REPORTED: bool = true;
+
 impl UnusedEngine {
     /// Run VANUS check: a `varargin` input argument that is never used.
     pub(crate) fn check_vanus(&self, table: &SymbolTable, diagnostics: &mut Vec<Diagnostic>) {
-        if self.is_check_disabled("VANUS") {
+        if !VANUS_REPORTED || self.is_check_disabled("VANUS") {
             return;
         }
 
@@ -21,7 +27,7 @@ impl UnusedEngine {
                     diagnostics.push(Diagnostic {
                         rule_id: "VANUS",
                         message: "Input argument 'varargin' might be unused.".to_string(),
-                        severity: Severity::Info,
+                        severity: Severity::Warning,
                         byte_range: def.byte_range.clone(),
                         line: def.line,
                         column: def.column,
@@ -40,15 +46,21 @@ mod tests {
     use malt_core::Config;
 
     fn engine() -> Box<dyn Rule> {
-        UnusedEngine::from_config(&Config::default())
+        UnusedEngine::from_config(
+            &Config::from_toml("[lint]\npreset = \"all\"\n").expect("valid config"),
+        )
     }
 
     // -- VANUS: unused `varargin` input argument -----------------------------
 
     #[test]
-    fn vanus_fires_on_unused_varargin() {
+    fn vanus_fires_on_unused_varargin_when_enabled() {
         let diags = lint_file(&*engine(), "function foo(varargin)\nend\n");
         assert!(has_id(&diags, "VANUS"), "got: {diags:?}");
+        // Off under the default (`mathworks`) preset, where MATLAB is silent.
+        let default = UnusedEngine::from_config(&Config::default());
+        let diags = lint_file(&*default, "function foo(varargin)\nend\n");
+        assert!(!has_id(&diags, "VANUS"), "got: {diags:?}");
     }
 
     #[test]

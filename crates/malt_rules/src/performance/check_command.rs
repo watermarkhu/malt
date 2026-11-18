@@ -11,10 +11,25 @@ impl PerformanceEngine {
     ) -> Vec<Diagnostic> {
         let mut diags = Vec::new();
 
-        let cmd_name = match extract_command_name(node, source) {
+        let cmd_name = match command_path(node, source) {
             Some(n) => n,
             None => return diags,
         };
+
+        // EXIST: `exist foo` in command syntax is the one-argument form (MATLAB
+        // reports it in scripts and functions; not in a condition).
+        if cmd_name == "exist" {
+            let statement = node
+                .parent()
+                .is_some_and(|p| matches!(p.kind(), "source_file" | "block"));
+            if self.is_enabled("EXIST")
+                && statement
+                && extract_command_args(node, source).len() == 1
+            {
+                diags.push(make_diag("EXIST", node));
+            }
+            return diags;
+        }
 
         if cmd_name != "clear" {
             return diags;
@@ -22,8 +37,11 @@ impl PerformanceEngine {
 
         let args = extract_command_args(node, source);
 
-        // CLEAR0ARGS: clear with no arguments
-        if self.is_enabled("CLEAR0ARGS") && args.is_empty() {
+        // CLEAR0ARGS: clear with no arguments. MATLAB reports it inside functions
+        // only (a script's `clear` is a common idiom; `clear all` is CLALL).
+        let in_function = std::iter::successors(node.parent(), |n| n.parent())
+            .any(|n| n.kind() == "function_definition");
+        if self.is_enabled("CLEAR0ARGS") && args.is_empty() && in_function {
             diags.push(make_diag("CLEAR0ARGS", node));
         }
 
@@ -64,10 +82,17 @@ mod tests {
     // -- clear-family commands -------------------------------------------------
 
     #[test]
-    fn clear0args_fires_on_bare_clear() {
-        let src = "clear;\n";
+    fn clear0args_fires_on_bare_clear_in_a_function() {
+        let src = "function f()\nclear;\nend\n";
         let diags = lint_nodes(&*engine(), src);
         assert!(has_id(&diags, "CLEAR0ARGS"), "got: {diags:?}");
+    }
+
+    #[test]
+    fn clear0args_is_silent_in_a_script() {
+        // MATLAB reports CLEAR0ARGS inside functions only (probed with checkcode).
+        let diags = lint_nodes(&*engine(), "clear;\nclc;\n");
+        assert!(!has_id(&diags, "CLEAR0ARGS"), "got: {diags:?}");
     }
 
     #[test]
@@ -115,5 +140,28 @@ mod tests {
         assert!(!has_id(&diags, "CLFUNC"), "got: {diags:?}");
         assert!(!has_id(&diags, "CLJAVA"), "got: {diags:?}");
         assert!(!has_id(&diags, "CLMEX"), "got: {diags:?}");
+    }
+
+    #[test]
+    fn exist_command_with_one_word_fires() {
+        // Probed: `exist foo`, `exist 'foo'`, `exist foo.bar` in scripts and functions give EXIST.
+        for src in [
+            "exist foo\n",
+            "exist 'foo'\n",
+            "exist foo.bar\n",
+            "function f()\nexist foo\nend\n",
+        ] {
+            let diags = lint_nodes(&*engine(), src);
+            assert!(has_id(&diags, "EXIST"), "{src:?} got: {diags:?}");
+        }
+    }
+
+    #[test]
+    fn exist_command_is_silent_with_two_words_or_in_a_condition() {
+        // Probed: `exist foo var` and `if exist foo` give no EXIST in MATLAB.
+        for src in ["exist foo var\n", "if exist foo\n    disp('yes')\nend\n"] {
+            let diags = lint_nodes(&*engine(), src);
+            assert!(!has_id(&diags, "EXIST"), "{src:?} got: {diags:?}");
+        }
     }
 }

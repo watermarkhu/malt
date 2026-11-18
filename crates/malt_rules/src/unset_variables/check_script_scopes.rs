@@ -1,6 +1,8 @@
 use super::*;
 
-use crate::analysis::symbols::ScopeKind;
+use std::collections::HashMap;
+
+use crate::analysis::symbols::{ScopeKind, VarDef};
 
 impl UnsetVariablesEngine {
     /// Check script scopes for variables used before being set.
@@ -15,6 +17,20 @@ impl UnsetVariablesEngine {
             // In scripts, variables must be defined before use within the file.
             // We check for uses that appear before any definition.
             let mut reported: HashSet<String> = HashSet::new();
+            // The earliest definition of each name (the first of equal effect starts).
+            let mut earliest: HashMap<&str, &VarDef> = HashMap::new();
+            for def in &scope.defs {
+                match earliest.entry(def.name.as_str()) {
+                    std::collections::hash_map::Entry::Occupied(mut entry) => {
+                        if def.effect_start < entry.get().effect_start {
+                            entry.insert(def);
+                        }
+                    }
+                    std::collections::hash_map::Entry::Vacant(entry) => {
+                        entry.insert(def);
+                    }
+                }
+            }
 
             for var_use in &scope.uses {
                 if self.is_ignored(&var_use.name) {
@@ -23,35 +39,38 @@ impl UnsetVariablesEngine {
                 if reported.contains(&var_use.name) {
                     continue;
                 }
+                // `name(...)` with no variable of that name in sight is a
+                // function call, not a read of an undefined variable.
+                if var_use.is_call_target {
+                    continue;
+                }
+                // A name defined nowhere in the file (`t = tic;`,
+                // `containers.Map`) is a function or package, and a script may
+                // use variables of the base workspace.
+                if !scope.is_defined(&var_use.name) {
+                    continue;
+                }
 
                 // Find the earliest definition of this variable in the scope.
-                let earliest_def = scope
-                    .defs
-                    .iter()
-                    .filter(|d| d.name == var_use.name)
-                    .min_by_key(|d| d.byte_range.start);
+                let earliest_def = earliest.get(var_use.name.as_str()).copied();
 
                 match earliest_def {
-                    None => {
-                        // Variable is used but never defined in the script → SVNODEF.
-                        reported.insert(var_use.name.clone());
-                        diagnostics.push(Diagnostic {
-                            rule_id: "SVNODEF",
-                            message: "Variable might not have a value, because variable definition may not be executed.".to_string(),
-                            severity: Severity::Warning,
-                            byte_range: var_use.byte_range.clone(),
-                            line: var_use.line,
-                            column: var_use.column,
-                            fix: None,
-                        });
-                    }
-                    Some(def) if var_use.byte_range.start < def.byte_range.start => {
+                    // Used but defined nowhere: a function, a package or a variable
+                    // of the base workspace. MATLAB reports no SVNODEF in a script
+                    // (probed: conditional, loop, switch, try and parfor definitions
+                    // read after them, and unknown calls in between), so none is made.
+                    None => {}
+                    Some(def)
+                        if self.script_checks_on && var_use.byte_range.start < def.effect_start =>
+                    {
                         // Variable is used before its first definition → SUSENS.
                         reported.insert(var_use.name.clone());
                         diagnostics.push(Diagnostic {
                             rule_id: "SUSENS",
-                            message: "Variable is used, but might be unset (within a script)."
-                                .to_string(),
+                            message: format!(
+                                "Variable '{}' is used, but might be unset (within a script).",
+                                var_use.name
+                            ),
                             severity: Severity::Warning,
                             byte_range: var_use.byte_range.clone(),
                             line: var_use.line,
@@ -77,19 +96,17 @@ mod tests {
     use malt_core::Config;
 
     fn engine() -> Box<dyn Rule> {
-        UnsetVariablesEngine::from_config(&Config::default())
+        UnsetVariablesEngine::from_config(
+            &Config::from_toml("[lint]\npreset = \"all\"\n").expect("valid config"),
+        )
     }
 
     // -- SVNODEF / SUSENS tests (script scope) ------------------------------
 
     #[test]
-    fn svnodef_script_var_never_defined() {
-        let source = "y = x + 1;\n";
-        let diags = lint_file(&*engine(), source);
-        assert!(
-            diags.iter().any(|d| d.rule_id == "SVNODEF"),
-            "expected SVNODEF for 'x' in script, got: {diags:?}"
-        );
+    fn undefined_names_in_scripts_are_not_reported() {
+        // Could be a function or a variable of the base workspace.
+        assert!(ids("y = x + 1;\nt = tic;\nm = containers.Map();\n").is_empty());
     }
 
     #[test]
@@ -112,5 +129,40 @@ mod tests {
                 .any(|d| d.rule_id == "SVNODEF" || d.rule_id == "SUSENS"),
             "should not warn for 'x' in script when defined first"
         );
+    }
+
+    fn ids(source: &str) -> Vec<&'static str> {
+        lint_file(&*engine(), source)
+            .iter()
+            .map(|d| d.rule_id)
+            .filter(|id| *id == "SVNODEF" || *id == "SUSENS")
+            .collect()
+    }
+
+    #[test]
+    fn script_function_calls_are_not_undefined_variables() {
+        assert!(ids("disp(1);\nz = max(1, 2);\n").is_empty());
+    }
+
+    #[test]
+    fn script_first_indexed_assignment_defines_the_variable() {
+        assert!(ids("A(2) = 5;\ns.f = 1;\nC{3} = 2;\ndisp(A); disp(s); disp(C);\n").is_empty());
+    }
+
+    #[test]
+    fn script_self_reference_in_first_assignment_is_unset() {
+        assert_eq!(ids("x = x + 1;\n"), vec!["SUSENS"]);
+    }
+
+    #[test]
+    fn script_messages_name_the_variable() {
+        let d = lint_file(&*engine(), "y = foo + 1;\nfoo = 2;\n");
+        assert!(d.iter().any(|d| d.message.contains("'foo'")), "{d:?}");
+    }
+
+    #[test]
+    fn class_files_are_not_scripts() {
+        let src = "classdef Foo\n    properties\n        a = 1\n    end\n    methods\n        function r = get(obj)\n            r = obj.a;\n        end\n    end\nend\n";
+        assert!(ids(src).is_empty(), "{:?}", ids(src));
     }
 }

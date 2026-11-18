@@ -25,6 +25,7 @@ use serde::de::DeserializeOwned;
 use serde::Deserialize;
 
 use crate::diagnostic::Severity;
+use crate::limits::LimitsConfig;
 use crate::preset::{self, PresetDef};
 use crate::rule::Category;
 
@@ -43,6 +44,9 @@ pub enum ConfigError {
 
     #[error("unknown preset '{0}' (expected one of: {1})")]
     UnknownPreset(String, String),
+
+    #[error("invalid resource limit: {0}")]
+    InvalidLimit(String),
 }
 
 // ---------------------------------------------------------------------------
@@ -74,6 +78,12 @@ pub struct LintSection {
     #[serde(default)]
     pub preset: Option<String>,
 
+    /// Run the experimental checks too (default `false`): the checks that are
+    /// off by default because they are verified against the documentation only.
+    /// See `malt_rules::maturity`.
+    #[serde(default)]
+    pub experimental: bool,
+
     /// Per-rule configuration. Keys are rule IDs (e.g., "NOSEMI").
     /// Values are either a severity string or a full config table.
     #[serde(default)]
@@ -83,6 +93,15 @@ pub struct LintSection {
     /// Values are severity strings ("off", "error", "warn", "info").
     #[serde(default)]
     pub categories: HashMap<String, String>,
+
+    /// The MATLAB Code Analyzer configuration file (`codeAnalyzerConfiguration.json`)
+    /// that this file layers over. Its path is relative to the working directory.
+    #[serde(default)]
+    pub matlab_config: Option<String>,
+
+    /// Resource limits (`[lint.limits]`): file size, tree depth, nesting, threads.
+    #[serde(default)]
+    pub limits: toml::Table,
 }
 
 impl Default for LintSection {
@@ -91,8 +110,11 @@ impl Default for LintSection {
             exclude: Vec::new(),
             inline_suppression: true,
             preset: None,
+            experimental: false,
             rules: HashMap::new(),
             categories: HashMap::new(),
+            matlab_config: None,
+            limits: toml::Table::new(),
         }
     }
 }
@@ -136,6 +158,19 @@ impl Default for RuleConfig {
     }
 }
 
+/// A setting for one check ID, from a MATLAB Code Analyzer configuration file.
+///
+/// The linter drops the findings of a check whose `enabled` is `Some(false)` and
+/// gives the others the `severity` when it is set. Unlike [`RuleConfig`], which is
+/// keyed by the rule (engine) that emits the check, this is keyed by the check ID.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct CheckSetting {
+    /// `Some(false)` turns the check off; `None` leaves it as the rule configures it.
+    pub enabled: Option<bool>,
+    /// Severity override for the check's findings (None = the check's own severity).
+    pub severity: Option<Severity>,
+}
+
 /// The resolved configuration passed to rule factories and the lint engine.
 ///
 /// Constructed from a [`ConfigFile`] (parsed `.malt.toml`) via [`Config::from_toml`],
@@ -149,11 +184,53 @@ pub struct Config {
     /// Per-category severity overrides, keyed by [`Category`].
     /// A value of `None` means the category is disabled ("off").
     pub categories: HashMap<Category, Option<Severity>>,
-    /// The active configuration preset.
+    /// The active configuration preset. With [`Config::experimental`] it is the
+    /// preset's experimental variant (see [`PresetDef::with_experimental`]); set
+    /// it through [`Config::set_preset`].
     pub preset: &'static PresetDef,
+    /// `[lint] experimental`: whether the experimental checks run (see
+    /// `malt_rules::maturity`). Already applied to [`Config::preset`].
+    pub experimental: bool,
     /// Whether `%#ok<...>` inline suppression directives are honored.
     /// Defaults to `true`, mirroring MATLAB's inline suppression behavior.
     pub inline_suppression: bool,
+    /// Per-check settings (enable and severity by check ID), from a MATLAB
+    /// Code Analyzer configuration file. Empty unless one was read.
+    pub check_settings: HashMap<String, CheckSetting>,
+    /// The MATLAB configuration file named by `[lint] matlab_config`, if any.
+    pub matlab_config: Option<String>,
+    /// The `[lint.limits]` table; a key left out takes the host's default
+    /// (see [`LimitsConfig::resolve`]).
+    pub limits: LimitsConfig,
+}
+
+/// The candidate closest to `name` (ignoring case), when it is close enough to be a
+/// typo: at most two edits, or a third of the name's length for longer names. A tie
+/// goes to the first candidate.
+pub fn suggest<'a>(name: &str, candidates: impl IntoIterator<Item = &'a str>) -> Option<&'a str> {
+    let name = name.to_ascii_lowercase();
+    let limit = (name.len() / 3).max(2);
+    candidates
+        .into_iter()
+        .map(|c| (edit_distance(&name, &c.to_ascii_lowercase()), c))
+        .filter(|(d, _)| *d <= limit)
+        .min_by_key(|(d, _)| *d)
+        .map(|(_, c)| c)
+}
+
+/// The Levenshtein distance between two ASCII strings.
+fn edit_distance(a: &str, b: &str) -> usize {
+    let b: Vec<u8> = b.bytes().collect();
+    let mut prev: Vec<usize> = (0..=b.len()).collect();
+    for (i, ca) in a.bytes().enumerate() {
+        let mut cur = vec![i + 1];
+        for (j, cb) in b.iter().enumerate() {
+            let cost = usize::from(ca != *cb);
+            cur.push((prev[j] + cost).min(prev[j + 1] + 1).min(cur[j] + 1));
+        }
+        prev = cur;
+    }
+    prev[b.len()]
 }
 
 impl Default for Config {
@@ -163,7 +240,11 @@ impl Default for Config {
             rules: HashMap::new(),
             categories: HashMap::new(),
             preset: preset::default_preset(),
+            experimental: false,
             inline_suppression: true,
+            check_settings: HashMap::new(),
+            matlab_config: None,
+            limits: LimitsConfig::default(),
         }
     }
 }
@@ -198,12 +279,18 @@ impl Config {
                         let (enabled, sev) = parse_severity_string(s)?;
                         if !enabled {
                             // Rule is disabled — record it and continue to the next rule.
+                            // The parameters are kept so that they can still be validated.
+                            let params = table
+                                .iter()
+                                .filter(|(k, _)| k.as_str() != "severity")
+                                .map(|(k, v)| (k.clone(), v.clone()))
+                                .collect();
                             rules.insert(
                                 rule_id,
                                 RuleConfig {
                                     enabled: false,
                                     severity: None,
-                                    params: toml::Table::new(),
+                                    params,
                                 },
                             );
                             continue;
@@ -260,9 +347,20 @@ impl Config {
             exclude: file.lint.exclude,
             rules,
             categories,
-            preset,
+            preset: preset.with_experimental(file.lint.experimental),
+            experimental: file.lint.experimental,
             inline_suppression: file.lint.inline_suppression,
+            check_settings: HashMap::new(),
+            matlab_config: file.lint.matlab_config,
+            limits: LimitsConfig::from_table(&file.lint.limits)?,
         })
+    }
+
+    /// Select `preset`, applying `[lint] experimental` to it. Use this instead
+    /// of assigning [`Config::preset`] (a `--preset` override, for instance), so
+    /// the flag survives the override.
+    pub fn set_preset(&mut self, preset: &'static PresetDef) {
+        self.preset = preset.with_experimental(self.experimental);
     }
 
     /// Load and deserialize rule-specific parameters into a typed struct.
@@ -551,6 +649,55 @@ M003 = "warn"
 #[cfg(test)]
 mod preset_config_tests {
     use super::*;
+
+    #[test]
+    fn experimental_defaults_to_false_and_changes_nothing() {
+        let config = Config::from_toml("").unwrap();
+        assert!(!config.experimental);
+        assert!(!config.preset.enables_default_off);
+    }
+
+    #[test]
+    fn experimental_true_keeps_the_preset_and_enables_default_off_rules() {
+        let config = Config::from_toml("[lint]\nexperimental = true\n").unwrap();
+        assert!(config.experimental);
+        assert_eq!(config.preset.name, "mathworks");
+        assert!(config.preset.enables_default_off);
+        // Categories the preset disables stay disabled.
+        assert!(!config.is_rule_enabled_for_category("NAMING_ENGINE", Category::Naming, true));
+        // A rule that is off for lack of verification is on.
+        assert!(config.is_rule_enabled_for_category(
+            "CODEGEN_ENGINE",
+            Category::CodeGeneration,
+            false
+        ));
+        // `false` is the default value.
+        let off = Config::from_toml("[lint]\nexperimental = false\n").unwrap();
+        assert!(!off.is_rule_enabled_for_category(
+            "CODEGEN_ENGINE",
+            Category::CodeGeneration,
+            false
+        ));
+    }
+
+    #[test]
+    fn experimental_must_be_a_boolean() {
+        for bad in ["\"yes\"", "1", "[true]"] {
+            let err = Config::from_toml(&format!("[lint]\nexperimental = {bad}\n")).unwrap_err();
+            assert!(matches!(err, ConfigError::Parse(_)), "{bad}: {err}");
+        }
+    }
+
+    #[test]
+    fn set_preset_keeps_the_experimental_flag() {
+        let mut config = Config::from_toml("[lint]\nexperimental = true\n").unwrap();
+        config.set_preset(preset::resolve("recommended").unwrap());
+        assert_eq!(config.preset.name, "recommended");
+        assert!(config.preset.enables_default_off);
+        let mut plain = Config::default();
+        plain.set_preset(preset::resolve("recommended").unwrap());
+        assert!(!plain.preset.enables_default_off);
+    }
 
     #[test]
     fn default_config_uses_mathworks_preset() {

@@ -1,0 +1,2 @@
+classdef Foo
+end

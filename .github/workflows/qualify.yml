@@ -72,10 +72,100 @@ jobs:
         uses: actions-rust-lang/setup-rust-toolchain@a188e68d0fd2bd36ad51dccb2b07ba6e75105f30 # v2.0.1
 
       - name: Run tests
-        run: cargo test --workspace --locked
+        # malt-py is the PyO3 module: its tests are Python tests, run against the built wheel
+        # (build.yml), and linking it for `cargo test` needs a libpython that the macOS
+        # runner image does not always provide.
+        run: cargo test --workspace --exclude malt-py --locked
 
       - name: Run WASM binding host tests
         run: cargo test --locked -p malt_wasm --features wasm
+
+  # Cross-checks against MATLAB R2026b, in two phases each (see docs/VERIFY.md, 'Cross-check against
+  # MATLAB', 'Live checkcode check' and '5.5 Curated safe autofixes'): the path index against
+  # MATLAB's facts, the recorded checkcode expectations against live checkcode, and malt's Safe
+  # fixes against MATLAB's own fix. Licensing: on a PUBLIC repository only the matlab-actions run-*
+  # actions license MATLAB, so MATLAB runs only inside run-command here; the Rust tests then read
+  # the generated files and do not start MATLAB. MALT_MATLAB_REQUIRE=1 makes any missing piece
+  # fail.
+  matlab:
+    name: Cross-check against MATLAB
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      MALT_MATLAB_REQUIRE: "1"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # Rust first: restoring its cache replaces target/, which would delete the files MATLAB
+      # writes there in the generation steps below.
+      - name: Setup Rust
+        uses: actions-rust-lang/setup-rust-toolchain@a188e68d0fd2bd36ad51dccb2b07ba6e75105f30 # v2.0.1
+
+      - name: Setup MATLAB
+        uses: matlab-actions/setup-matlab@f9e43010f1ae678f7cfa0542fe2a4f60f7d1ad8d # v3.1.0
+        with:
+          release: R2026b
+          cache: true
+
+      # Phase 1, generation: MATLAB writes target/matlab/namespace_facts.json.
+      - name: Generate the MATLAB namespace facts
+        uses: matlab-actions/run-command@bfa857648f4895aa98a446fe41c85e0788421ed5 # v3.3.0
+        with:
+          command: run('crates/malt_cli/tests/matlab/generate_namespace_facts.m')
+
+      # MATLAB's checkcode over every conformance fixture: target/matlab/checkcode.tsv and
+      # checkcode.release. A second run-command step, not part of the first: one MATLAB session
+      # each, so a failure names the step, and the first step's output is not affected.
+      - name: Generate the MATLAB checkcode reports
+        uses: matlab-actions/run-command@bfa857648f4895aa98a446fe41c85e0788421ed5 # v3.3.0
+        with:
+          command: run('crates/malt_cli/tests/matlab/generate_checkcode.m')
+
+      # MATLAB's own fix() on the committed fix_matlab pairs:
+      # target/matlab/fixes/*.m plus fixes.tsv. A third run-command step, one
+      # MATLAB session each, so a failure names the step.
+      - name: Generate the MATLAB fix reports
+        uses: matlab-actions/run-command@bfa857648f4895aa98a446fe41c85e0788421ed5 # v3.3.0
+        with:
+          command: run('crates/malt_cli/tests/matlab/generate_fixes.m')
+
+      # MATLAB's checkcode with EVERY check enabled (a generated configuration) over the same fixtures:
+      # target/matlab/checkcode_all.tsv, checkcode_all.release and checkcode_all_files.txt. A fourth
+      # run-command step, one MATLAB session each, so a failure names the step.
+      - name: Generate the MATLAB checkcode reports with every check enabled
+        uses: matlab-actions/run-command@bfa857648f4895aa98a446fe41c85e0788421ed5 # v3.3.0
+        with:
+          command: run('crates/malt_cli/tests/matlab/generate_checkcode_all.m')
+
+      # Phase 2, comparison: no MATLAB is started here.
+      - name: Cross-check the path index against the MATLAB facts
+        env:
+          MALT_MATLAB_FACTS: target/matlab/namespace_facts.json
+        run: cargo test -p malt-cli --locked --test matlab_namespace -- --nocapture
+
+      # The recorded expectations against the live checkcode reports (and the release).
+      - name: Check the recorded MATLAB expectations against the live reports
+        env:
+          MALT_MATLAB_CHECKCODE: target/matlab/checkcode.tsv
+          MALT_MATLAB_CHECKCODE_MESSAGES: target/matlab/checkcode_messages.tsv
+          MALT_MATLAB_CHECKCODE_FILES: target/matlab/checkcode_files.txt
+        run: cargo test -p malt-cli --locked --test matlab_live -- --nocapture
+
+      # The recorded all-checks expectations (matlab_expected_all.tsv, the base of the `--preset all`
+      # comparison) against the live reports with every check enabled (and the release).
+      - name: Check the recorded all-checks MATLAB expectations against the live reports
+        env:
+          MALT_MATLAB_CHECKCODE_ALL: target/matlab/checkcode_all.tsv
+          MALT_MATLAB_CHECKCODE_ALL_FILES: target/matlab/checkcode_all_files.txt
+        run: cargo test -p malt-cli --locked --test matlab_live_all -- --nocapture
+
+      # malt's Safe fixes against MATLAB's own fix() output on the same pairs.
+      - name: Check malt's safe fixes against the MATLAB fix reports
+        env:
+          MALT_MATLAB_FIXES: target/matlab/fixes
+        run: cargo test -p malt-cli --locked --test fix_matlab -- --nocapture
 
   python:
     name: Python wrapper (ruff, ty)
@@ -89,10 +179,10 @@ jobs:
       - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
 
       - name: Ruff lint
-        run: uvx ruff check --output-format=github python
+        run: uvx ruff check --output-format=github python crates/malt_py/python
 
       - name: Ruff format
-        run: uvx ruff format --check python
+        run: uvx ruff format --check python crates/malt_py/python
 
       - name: Ty type check
         run: uvx ty check python
@@ -115,7 +205,7 @@ jobs:
   qualified:
     name: Qualified
     if: always()
-    needs: [lint, test, python, build, docs]
+    needs: [lint, test, matlab, python, build, docs]
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:

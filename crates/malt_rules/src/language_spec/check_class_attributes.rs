@@ -5,13 +5,16 @@
 //! `arguments` blocks:
 //!
 //! - **ATUNK** — the attribute name is not a valid MATLAB attribute.
+//! - **ATTF** — a logical attribute (`Abstract`, `Sealed`, `Hidden`, `Dependent`, ...)
+//!   has a value other than `true`, `false`, `1` or `0`, such as `TRUE` or `~true`.
+//! - **ATTOF** — the class attribute `Abstract` is set to `false` or `0`.
 //! - **ATLAB** — the `Input`/`Output` arguments-block attribute is assigned a
 //!   value or negated.
-//! - **ATNAS** — a class-level meta-class attribute (`AllowedSubclasses`,
+//! - **ATAS** — a meta-class attribute (`AllowedSubclasses`,
 //!   `InferiorClasses`) has a value that is neither a single meta-class object
 //!   nor a cell array of meta-class objects.
 //! - **ATNPI** — a class-level access attribute has an unexpected value.
-//! - **ATNPP** — an events-block access attribute has an unexpected value
+//! - **ATPPP** — an events-block access attribute has an unexpected value
 //!   (no `immutable`).
 //! - **ATPPI** — a properties-block access attribute has an unexpected value.
 //! - **ATPPP** — a methods-block access attribute has an unexpected value
@@ -34,7 +37,6 @@ const CLASS_ATTRS: &[&str] = &[
     "Enumeration",
     "InferiorClasses",
     "ContainsNonPublicMembers",
-    "Access",
     "DynamicProps",
     "ExplicitProperties",
 ];
@@ -44,6 +46,7 @@ const PROPERTY_ATTRS: &[&str] = &[
     "Abstract",
     "Constant",
     "Dependent",
+    "WeakHandle",
     "GetAccess",
     "SetAccess",
     "Access",
@@ -57,6 +60,10 @@ const PROPERTY_ATTRS: &[&str] = &[
     "Default",
     "Hidden",
     "ExplicitProperties",
+    // matlab.unittest test classes.
+    "TestParameter",
+    "ClassSetupParameter",
+    "MethodSetupParameter",
 ];
 
 /// Valid methods-block attribute names (ATUNK).
@@ -67,6 +74,14 @@ const METHOD_ATTRS: &[&str] = &[
     "Hidden",
     "Sealed",
     "AbstractMethods",
+    // matlab.unittest test classes.
+    "Test",
+    "TestMethodSetup",
+    "TestMethodTeardown",
+    "TestClassSetup",
+    "TestClassTeardown",
+    "TestTags",
+    "ParameterCombination",
 ];
 
 /// Valid events-block attribute names (ATUNK).
@@ -75,6 +90,24 @@ const EVENT_ATTRS: &[&str] = &["ListenAccess", "NotifyAccess", "Hidden"];
 /// Attribute names that take a single meta-class object or a cell array of
 /// meta-class objects as their value (ATNAS/ATAS).
 const METACLASS_ATTRS: &[&str] = &["AllowedSubclasses", "InferiorClasses"];
+
+/// Attributes whose value is a logical (ATTF). MATLAB evaluates only literal values.
+const LOGICAL_ATTRS: &[&str] = &[
+    "Abstract",
+    "Sealed",
+    "Hidden",
+    "ConstructOnLoad",
+    "HandleCompatible",
+    "Dependent",
+    "Constant",
+    "Static",
+    "Transient",
+    "WeakHandle",
+    "NonCopyable",
+    "AbortSet",
+    "SetObservable",
+    "GetObservable",
+];
 
 /// Which level an attribute appears at; selects the access-value check ID.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -99,6 +132,17 @@ impl LanguageSpecEngine {
     ) {
         let range = class.byte_range.clone();
         let line = class.line;
+        let first_new = diagnostics.len();
+        // matlab.unittest test classes take `TestParameterDefinition` on a methods
+        // block (MCMTP checks it); other classes report it as unknown.
+        let mut method_attrs: Vec<&str> = METHOD_ATTRS.to_vec();
+        if class
+            .superclasses
+            .iter()
+            .any(|s| s == "matlab.unittest.TestCase")
+        {
+            method_attrs.push("TestParameterDefinition");
+        }
 
         for attr in &class.attributes {
             self.check_one_attribute(
@@ -114,7 +158,7 @@ impl LanguageSpecEngine {
             for attr in &block.attributes {
                 self.check_one_attribute(
                     &range,
-                    line,
+                    block.line,
                     attr,
                     PROPERTY_ATTRS,
                     AttrLevel::Property,
@@ -122,13 +166,29 @@ impl LanguageSpecEngine {
                 );
             }
         }
+        // An enumeration block takes no attributes in MATLAB: each one is unknown.
+        for block in &class.enumeration_blocks {
+            for _attr in &block.attributes {
+                if self.is_check_enabled("ATUNK") {
+                    diagnostics.push(Diagnostic {
+                        rule_id: "ATUNK",
+                        message: "Unknown attribute name.".to_string(),
+                        severity: Severity::Error,
+                        byte_range: range.clone(),
+                        line: block.line,
+                        column: 1,
+                        fix: None,
+                    });
+                }
+            }
+        }
         for block in &class.methods_blocks {
             for attr in &block.attributes {
                 self.check_one_attribute(
                     &range,
-                    line,
+                    block.line,
                     attr,
-                    METHOD_ATTRS,
+                    &method_attrs,
                     AttrLevel::Method,
                     diagnostics,
                 );
@@ -138,12 +198,31 @@ impl LanguageSpecEngine {
             for attr in &block.attributes {
                 self.check_one_attribute(
                     &range,
-                    line,
+                    block.line,
                     attr,
                     EVENT_ATTRS,
                     AttrLevel::Event,
                     diagnostics,
                 );
+            }
+        }
+        // Probed (plan 6.2): a superclass can define attributes of its own
+        // (`matlab.System`, `ComponentContainer`), and MATLAB reports an unknown
+        // attribute only in a class without a superclass, with `handle` or with a
+        // `matlab.mixin` class; with any other superclass it is silent, resolvable
+        // or not.
+        let attributes_known = class
+            .superclasses
+            .iter()
+            .all(|s| s == "handle" || s.starts_with("matlab.mixin."));
+        if !attributes_known {
+            let mut i = first_new;
+            while i < diagnostics.len() {
+                if diagnostics[i].rule_id == "ATUNK" {
+                    diagnostics.remove(i);
+                } else {
+                    i += 1;
+                }
             }
         }
     }
@@ -158,7 +237,31 @@ impl LanguageSpecEngine {
         level: AttrLevel,
         diagnostics: &mut Vec<Diagnostic>,
     ) {
-        // ATVIZE: the 'Visible' attribute is invalid for classes and events.
+        // ATVIZE: the 'Visible' attribute is invalid for classes and events. On a
+        // properties block MATLAB reports the compatibility check ATVIZW instead (and
+        // ATTF for a value it cannot evaluate), never ATVIZE (probed in R2026b).
+        if attr.name == "Visible" && matches!(level, AttrLevel::Property) {
+            if let Some(value) = attr.value.as_deref() {
+                if !matches!(value, "true" | "false" | "1" | "0") && self.is_check_enabled("ATTF") {
+                    diagnostics.push(Diagnostic {
+                        rule_id: "ATTF",
+                        message: "The Code Analyzer is unable to determine if the expression \
+                                  assigned to the 'Visible' attribute evaluates to true or false."
+                            .to_string(),
+                        severity: Severity::Warning,
+                        byte_range: range.clone(),
+                        line,
+                        column: 1,
+                        fix: None,
+                    });
+                }
+            }
+            return;
+        }
+        if attr.name == "Static" && matches!(level, AttrLevel::Property) {
+            // PSTAT (compatibility) reports a removed attribute; MATLAB adds no ATUNK.
+            return;
+        }
         if attr.name == "Visible" {
             if self.is_check_enabled("ATVIZE") {
                 diagnostics.push(Diagnostic {
@@ -183,18 +286,11 @@ impl LanguageSpecEngine {
         if METACLASS_ATTRS.contains(&attr.name.as_str()) {
             if let Some(value) = attr.value.as_deref() {
                 if !meta_class_value_is_valid(value) {
-                    let (rule_id, message) = match level {
-                        AttrLevel::Class => (
-                            "ATNAS",
-                            "Set attribute to a single meta-class object or a cell array \
-                             of meta-class objects.",
-                        ),
-                        _ => (
-                            "ATAS",
-                            "The attribute value is unexpected. Use a single meta-class \
-                             object or a cell array of meta-class objects.",
-                        ),
-                    };
+                    let (rule_id, message) = (
+                        "ATAS",
+                        "The attribute value is unexpected. Use a single meta-class \
+                         object or a cell array of meta-class objects.",
+                    );
                     if self.is_check_enabled(rule_id) {
                         diagnostics.push(Diagnostic {
                             rule_id,
@@ -227,7 +323,45 @@ impl LanguageSpecEngine {
             return;
         }
 
-        // Access attribute value checks (ATNPI / ATNPP / ATPPI / ATPPP).
+        // ATTF: a logical attribute must be `true`/`false` (or `1`/`0`) for MATLAB to
+        // evaluate it. ATTOF: a class-level `Abstract` set to false or 0.
+        if LOGICAL_ATTRS.contains(&attr.name.as_str()) {
+            if let Some(value) = attr.value.as_deref() {
+                if !matches!(value, "true" | "false" | "1" | "0") && self.is_check_enabled("ATTF") {
+                    diagnostics.push(Diagnostic {
+                        rule_id: "ATTF",
+                        message: format!(
+                            "The Code Analyzer is unable to determine if the expression \
+                             assigned to the '{}' attribute evaluates to true or false.",
+                            attr.name
+                        ),
+                        severity: Severity::Warning,
+                        byte_range: range.clone(),
+                        line,
+                        column: 1,
+                        fix: None,
+                    });
+                }
+            }
+        }
+        if matches!(level, AttrLevel::Class)
+            && attr.name == "Abstract"
+            && matches!(attr.value.as_deref(), Some("false") | Some("0"))
+            && self.is_check_enabled("ATTOF")
+        {
+            diagnostics.push(Diagnostic {
+                rule_id: "ATTOF",
+                message: "Setting the class attribute Abstract to false is not recommended."
+                    .to_string(),
+                severity: Severity::Warning,
+                byte_range: range.clone(),
+                line,
+                column: 1,
+                fix: None,
+            });
+        }
+
+        // Access attribute value checks (ATNPI / ATPPP / ATPPI).
         if is_access_attr_name(&attr.name, level) {
             if let Some(value) = attr.value.as_deref() {
                 let (allowed, rule_id, message) = match level {
@@ -236,6 +370,14 @@ impl LanguageSpecEngine {
                         "ATNPI",
                         "Set attribute to 'public', 'private', 'protected', 'immutable', \
                          or a cell array of meta-classes instead.",
+                    ),
+                    // Probed: `Access` and `GetAccess` values on a properties block are
+                    // ATPPP (the methods message); only `SetAccess` is ATPPI.
+                    AttrLevel::Property if attr.name != "SetAccess" => (
+                        &["public", "private", "protected", "immutable"][..],
+                        "ATPPP",
+                        "The attribute value is unexpected. Use 'public', 'private', \
+                         'protected', or a cell array of meta-classes instead.",
                     ),
                     AttrLevel::Property => (
                         &["public", "private", "protected", "immutable"][..],
@@ -251,9 +393,9 @@ impl LanguageSpecEngine {
                     ),
                     AttrLevel::Event => (
                         &["public", "private", "protected"][..],
-                        "ATNPP",
-                        "Set attribute to 'public', 'private', 'protected', or a cell \
-                         array of meta-classes instead.",
+                        "ATPPP",
+                        "The attribute value is unexpected. Use 'public', 'private', \
+                         'protected', or a cell array of meta-classes instead.",
                     ),
                 };
                 if !access_value_is_valid(value, allowed) && self.is_check_enabled(rule_id) {
@@ -289,20 +431,14 @@ impl LanguageSpecEngine {
         while let Some(node) = stack.pop() {
             if node.kind() == "arguments_statement" {
                 if let Some(attrs_node) = find_child_kind(node, "attributes") {
-                    let mut names = Vec::new();
-                    let mut has_error = false;
-                    let mut cursor = attrs_node.walk();
-                    for child in attrs_node.children(&mut cursor) {
-                        match child.kind() {
-                            "identifier" => names.push(node_text(child, source).to_string()),
-                            "ERROR" => has_error = true,
-                            _ => {}
-                        }
-                    }
-                    if has_error
-                        && names.iter().any(|n| n == "Input" || n == "Output")
-                        && self.is_check_enabled("ATLAB")
-                    {
+                    // `Input = value` has a value; `~Output` is negated.
+                    let assigned = attribute_entries(attrs_node, source, AttrForms::Written)
+                        .iter()
+                        .any(|attr| {
+                            (attr.value.is_some() || attr.negated)
+                                && (attr.name == "Input" || attr.name == "Output")
+                        });
+                    if assigned && self.is_check_enabled("ATLAB") {
                         self.push_diag(
                             attrs_node,
                             "ATLAB",
@@ -325,6 +461,7 @@ impl LanguageSpecEngine {
 /// keywords, a single meta-class object (`?Class`), or a cell array of
 /// meta-classes (`{...}`).
 fn access_value_is_valid(value: &str, allowed: &[&str]) -> bool {
+    let value = value.trim_matches(|c| c == '\'' || c == '"');
     allowed.contains(&value) || value.starts_with('?') || value.starts_with('{')
 }
 
@@ -339,7 +476,10 @@ fn is_access_attr_name(name: &str, level: AttrLevel) -> bool {
 /// Whether a meta-class attribute value is a single meta-class object or a
 /// cell array of meta-class objects.
 fn meta_class_value_is_valid(value: &str) -> bool {
-    value.starts_with('?') || value.starts_with('{')
+    if let Some(inner) = value.strip_prefix('{').and_then(|v| v.strip_suffix('}')) {
+        return inner.split(',').all(|e| e.trim().starts_with('?'));
+    }
+    value.starts_with('?')
 }
 
 #[cfg(test)]
@@ -361,6 +501,24 @@ end
             !filter_by_id(&diags, "ATUNK").is_empty(),
             "ATUNK should fire for an unknown class attribute"
         );
+    }
+
+    #[test]
+    fn test_atunk_follows_the_superclass() {
+        // Probed (plan 6.2): reported without a superclass, with `handle` and with a
+        // `matlab.mixin` class; silent with any other superclass, resolvable or not.
+        let fires = |sup: &str| {
+            let source = format!(
+                "classdef Foo{sup}\n    properties (Mystery)\n        P\n    end\n    methods (Mystery)\n        function f(~)\n        end\n    end\nend\n"
+            );
+            !filter_by_id(&check_source(&source, "Foo.m"), "ATUNK").is_empty()
+        };
+        assert!(fires(""));
+        assert!(fires(" < handle"));
+        assert!(fires(" < matlab.mixin.Copyable"));
+        assert!(!fires(" < matlab.System"));
+        assert!(!fires(" < SomeUnknownBase"));
+        assert!(!fires(" < SomeBase & handle"));
     }
 
     #[test]
@@ -479,7 +637,7 @@ end
 ";
         let diags = check_source(source, "MyClass.m");
         assert!(
-            !filter_by_id(&diags, "ATNAS").is_empty(),
+            !filter_by_id(&diags, "ATAS").is_empty(),
             "ATNAS should fire when AllowedSubclasses is not a meta-class or cell array"
         );
     }
@@ -492,7 +650,7 @@ end
 ";
         let diags = check_source(source, "MyClass.m");
         assert!(
-            filter_by_id(&diags, "ATNAS").is_empty(),
+            filter_by_id(&diags, "ATAS").is_empty(),
             "ATNAS should NOT fire for valid meta-class values"
         );
     }
@@ -500,15 +658,15 @@ end
     // -- ATNPI / ATNPP / ATPPI / ATPPP ---------------------------------------
 
     #[test]
-    fn test_atnpi_fires_bad_class_access_value() {
+    fn test_atunk_fires_class_access() {
         let source = "\
 classdef (Access = 42) Foo
 end
 ";
         let diags = check_source(source, "Foo.m");
         assert!(
-            !filter_by_id(&diags, "ATNPI").is_empty(),
-            "ATNPI should fire for a bad class Access value"
+            !filter_by_id(&diags, "ATUNK").is_empty(),
+            "ATUNK should fire for Access on a class: MATLAB rejects it as unknown"
         );
     }
 
@@ -529,7 +687,7 @@ end
     fn test_atppi_fires_bad_property_access_value() {
         let source = "\
 classdef Foo
-    properties (Access = 42)
+    properties (SetAccess = 42)
         x
     end
 end
@@ -604,7 +762,7 @@ end
 ";
         let diags = check_source(source, "Foo.m");
         assert!(
-            !filter_by_id(&diags, "ATNPP").is_empty(),
+            !filter_by_id(&diags, "ATPPP").is_empty(),
             "ATNPP should fire for 'ListenAccess = immutable'"
         );
     }
@@ -620,7 +778,7 @@ end
 ";
         let diags = check_source(source, "Foo.m");
         assert!(
-            filter_by_id(&diags, "ATNPP").is_empty(),
+            filter_by_id(&diags, "ATPPP").is_empty(),
             "ATNPP should NOT fire for valid event access values"
         );
     }
@@ -690,11 +848,230 @@ end
             tree: &tree,
             source,
             file_path: path,
+            project: None,
         };
         let diags = engine.check_file(&ctx);
         assert!(
             filter_by_id(&diags, "ATUNK").is_empty(),
             "ATUNK should be disabled via config disabled_checks"
+        );
+    }
+
+    #[test]
+    fn test_atunk_no_fire_weak_handle_property_attribute() {
+        let source = "\
+classdef C
+    properties (WeakHandle = true)
+        p
+    end
+end
+";
+        let diags = check_source(source, "C.m");
+        assert!(filter_by_id(&diags, "ATUNK").is_empty());
+    }
+
+    #[test]
+    fn test_atppp_no_fire_quoted_access_value() {
+        let source = "\
+classdef C
+    methods (Access = 'private')
+        function f(obj)
+        end
+    end
+end
+";
+        let diags = check_source(source, "C.m");
+        assert!(filter_by_id(&diags, "ATPPP").is_empty());
+    }
+
+    #[test]
+    fn test_atppi_atppp_report_bad_properties_values_at_block_line() {
+        // Probed (B1, B2, B3, B6): a bad Access or GetAccess value on a properties block is
+        // ATPPP and a bad SetAccess value is ATPPI; each is reported at the block's line.
+        for (source, id, line) in [
+            (
+                "classdef B1\n    properties (SetAccess = bogus)\n        x = 1;\n    end\nend\n",
+                "ATPPI",
+                2,
+            ),
+            (
+                "classdef B2\n    properties\n        a = 1;\n    end\n    properties (GetAccess = bogus)\n        x = 1;\n    end\nend\n",
+                "ATPPP",
+                5,
+            ),
+            (
+                "classdef B3\n    properties (Access = bogus)\n        x = 1;\n    end\nend\n",
+                "ATPPP",
+                2,
+            ),
+            (
+                "classdef B6\n    properties (Access = Private)\n        x = 1;\n    end\nend\n",
+                "ATPPP",
+                2,
+            ),
+        ] {
+            let diags = check_source(source, "C.m");
+            let hits = filter_by_id(&diags, id);
+            assert_eq!(hits.len(), 1, "{source}: got: {diags:?}");
+            assert_eq!(hits[0].line, line, "{source}: got: {diags:?}");
+        }
+    }
+
+    #[test]
+    fn test_atppi_atppp_silent_for_valid_or_quoted_property_values() {
+        // Probed (Q1, Q2, Q3, Q4, B5): valid Access, GetAccess and SetAccess values, and a
+        // quoted SetAccess value, are silent in MATLAB.
+        for source in [
+            "classdef Q1\n    properties (Access = private)\n        x = 1;\n    end\nend\n",
+            "classdef Q2\n    properties (GetAccess = private)\n        x = 1;\n    end\nend\n",
+            "classdef Q3\n    properties (SetAccess = private)\n        x = 1;\n    end\nend\n",
+            "classdef Q4\n    properties (SetAccess = private, GetAccess = public)\n        x = 1;\n    end\nend\n",
+            "classdef B5\n    properties (SetAccess = 'private')\n        x = 1;\n    end\nend\n",
+        ] {
+            let diags = check_source(source, "C.m");
+            assert!(
+                filter_by_id(&diags, "ATPPI").is_empty() && filter_by_id(&diags, "ATPPP").is_empty(),
+                "{source}: got: {diags:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_attf_fires_uppercase_logical_value() {
+        let source = "classdef (Abstract = TRUE) Foo < handle\nend\n";
+        let diags = crate::language_spec::tests::check_source(source, "Foo.m");
+        assert!(!crate::language_spec::tests::filter_by_id(&diags, "ATTF").is_empty());
+    }
+
+    #[test]
+    fn test_attf_fires_non_literal_property_value() {
+        let source =
+            "classdef Foo < handle\n    properties (Dependent = TRUE)\n        x\n    end\nend\n";
+        let diags = crate::language_spec::tests::check_source(source, "Foo.m");
+        assert!(!crate::language_spec::tests::filter_by_id(&diags, "ATTF").is_empty());
+    }
+
+    #[test]
+    fn test_attf_no_fire_literal_values() {
+        let source = "classdef (Abstract = true, Sealed = 1) Foo < handle\n    properties (Dependent = false)\n        x\n    end\nend\n";
+        let diags = crate::language_spec::tests::check_source(source, "Foo.m");
+        assert!(crate::language_spec::tests::filter_by_id(&diags, "ATTF").is_empty());
+    }
+
+    #[test]
+    fn test_attof_fires_class_abstract_false() {
+        let source = "classdef (Abstract = false) Foo < handle\nend\n";
+        let diags = crate::language_spec::tests::check_source(source, "Foo.m");
+        assert!(!crate::language_spec::tests::filter_by_id(&diags, "ATTOF").is_empty());
+    }
+
+    #[test]
+    fn test_attof_no_fire_property_abstract_false() {
+        let source =
+            "classdef Foo < handle\n    properties (Abstract = false)\n        x\n    end\nend\n";
+        let diags = crate::language_spec::tests::check_source(source, "Foo.m");
+        assert!(crate::language_spec::tests::filter_by_id(&diags, "ATTOF").is_empty());
+    }
+
+    #[test]
+    fn test_atas_fires_cell_of_names_and_bare_name() {
+        let cell = "classdef (AllowedSubclasses = {ValueBasic}) Foo\nend\n";
+        let bare = "classdef (InferiorClasses = double) Foo\nend\n";
+        for source in [cell, bare] {
+            let diags = crate::language_spec::tests::check_source(source, "Foo.m");
+            assert!(
+                !crate::language_spec::tests::filter_by_id(&diags, "ATAS").is_empty(),
+                "{source}"
+            );
+            assert!(crate::language_spec::tests::filter_by_id(&diags, "ATNAS").is_empty());
+        }
+    }
+
+    #[test]
+    fn test_atas_no_fire_meta_class_cell() {
+        let source = "classdef (AllowedSubclasses = {?ValueBasic, ?HandleSub}) Foo\nend\n";
+        let diags = crate::language_spec::tests::check_source(source, "Foo.m");
+        assert!(crate::language_spec::tests::filter_by_id(&diags, "ATAS").is_empty());
+    }
+
+    #[test]
+    fn test_atppp_fires_event_access_value() {
+        let source = "classdef Foo < handle\n    events (NotifyAccess = Private)\n        Ch\n    end\nend\n";
+        let diags = crate::language_spec::tests::check_source(source, "Foo.m");
+        assert!(!crate::language_spec::tests::filter_by_id(&diags, "ATPPP").is_empty());
+        assert!(crate::language_spec::tests::filter_by_id(&diags, "ATNPP").is_empty());
+    }
+}
+
+#[cfg(test)]
+mod declaration_value_tests {
+    use crate::language_spec::tests::{check_source, filter_by_id};
+
+    #[test]
+    fn atlab_fires_for_a_valued_or_negated_input_output_attribute() {
+        // MATLAB probes: ATLAB on `Input = 'x'`, `Output = 1` and `~Output`, and no SYNER.
+        for attrs in [
+            "Input = 'x'",
+            "Output = 1",
+            "~Output",
+            "Input = [1 2], Repeating",
+        ] {
+            let source =
+                format!("function r = f(x)\narguments ({attrs})\n    x double\nend\nr = x;\nend\n");
+            let diags = check_source(&source, "f.m");
+            assert!(
+                !filter_by_id(&diags, "ATLAB").is_empty(),
+                "{attrs}: got: {diags:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn atlab_silent_for_plain_and_repeating_attributes() {
+        for attrs in ["Input", "Input, Repeating", "Repeating = true"] {
+            let source =
+                format!("function r = f(x)\narguments ({attrs})\n    x double\nend\nr = x;\nend\n");
+            let diags = check_source(&source, "f.m");
+            assert!(
+                filter_by_id(&diags, "ATLAB").is_empty(),
+                "{attrs}: got: {diags:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn enumeration_block_attributes_are_unknown() {
+        // Probed: `enumeration (Foo)` and `enumeration (Sealed)` give ATUNK; a plain
+        // `enumeration` block gives nothing.
+        let diags = check_source(
+            "classdef Foo\n    enumeration (Foo)\n        Red (1)\n    end\nend\n",
+            "Foo.m",
+        );
+        let hits = filter_by_id(&diags, "ATUNK");
+        assert_eq!(hits.len(), 1, "got: {diags:?}");
+        assert_eq!(hits[0].line, 2);
+        let diags = check_source(
+            "classdef Foo\n    enumeration (Sealed)\n        Red (1)\n    end\nend\n",
+            "Foo.m",
+        );
+        assert_eq!(filter_by_id(&diags, "ATUNK").len(), 1, "got: {diags:?}");
+        let diags = check_source(
+            "classdef Foo\n    enumeration\n        Red (1)\n    end\nend\n",
+            "Foo.m",
+        );
+        assert!(filter_by_id(&diags, "ATUNK").is_empty(), "got: {diags:?}");
+    }
+
+    #[test]
+    fn test_parameter_definition_is_known_in_test_case_only() {
+        // Probed: the block attribute is valid in a matlab.unittest.TestCase
+        // (MCMTP checks the static form) and unknown elsewhere (ATUNK).
+        let in_test = "classdef Foo < matlab.unittest.TestCase\n    methods (TestParameterDefinition, Static)\n        function p = pdef()\n            p = {1, 2};\n        end\n    end\nend\n";
+        assert!(filter_by_id(&check_source(in_test, "Foo.m"), "ATUNK").is_empty());
+        let plain = "classdef Foo\n    methods (TestParameterDefinition)\n        function p = pdef()\n            p = {1, 2};\n        end\n    end\nend\n";
+        assert_eq!(
+            filter_by_id(&check_source(plain, "Foo.m"), "ATUNK").len(),
+            1
         );
     }
 }

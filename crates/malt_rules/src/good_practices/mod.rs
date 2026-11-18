@@ -21,6 +21,10 @@
 //! validation). Each diagnostic carries the specific check ID (e.g. `TRYNC`,
 //! `EVLCS`, `PFRNI`).
 //!
+//! CHAIN: a chained comparison such as `a < b < c` is evaluated by MATLAB as
+//! `(a < b) < c`, which compares a logical value with `c`; the check reports the
+//! outermost comparison of a chain once.
+//!
 //! The checks span error handling, string and comparison idioms, `eval`/dynamic
 //! code, parfor/spmd parallel practices, structure and field access, OOP and
 //! class properties, logical-usage patterns, shared variables, arity, and App
@@ -35,9 +39,8 @@
 //! | WLAST | warning | no | WARNING('') does not reset the warning state. Use LASTWARN('') instead. |
 //! | WNTAG | warning | no | The first argument of WARNING should be a message identifier. Using a message identifier allows users better control over the message. |
 //! | ERTAG | warning | no | The first argument of ERROR should be a message identifier. |
-//! | MEXCEP | warning | no | To report an MException as a warning, use a format specifier to ensure the message is printed correctly. For example, 'warning(E.identifier, "%s", E.message)'. |
 //! | STCMP | warning | no | Use STRCMP instead of == or ~= to compare character vectors, or convert character vectors to string scalars for direct comparison. |
-//! | STCI | warning | no | Use STRCMPI(str1,str2) instead of using UPPER/LOWER in a call to STRCMP. |
+//! | STCI | warning | yes (unsafe) | Use STRCMPI(str1,str2) instead of using UPPER/LOWER in a call to STRCMP. |
 //! | STISA | warning | no | Consider using ISA instead of comparing the class name. |
 //! | STRNU | warning | no | This variable, apparently a structure, is changed but the value might be unused. |
 //! | EVLCS | warning | no | 'eval' is inefficient and makes code less clear. Call the statement directly. |
@@ -48,26 +51,31 @@
 //! | EVLSEQVAR | warning | no | Using 'eval' to dynamically assign variables is not recommended. |
 //! | NOANS | warning | no | Using ANS as a variable is not recommended as ANS is frequently overwritten by MATLAB. |
 //! | LOAD | warning | no | To avoid conflicts with functions on the path, specify variables to load from file. |
-//! | SEPEX | info | no | Consider using newline, semicolon, or comma before this statement for readability. |
-//! | NBRAK1 | info | yes | If you intend to specify expression precedence, use parentheses () instead of brackets []. |
+//! | SEPEX | warning | no | Consider using newline, semicolon, or comma before this statement for readability. |
+//! | NBRAK1 | warning | yes | If you intend to specify expression precedence, use parentheses () instead of brackets []. |
 //! | LNGNM | warning | no | Names longer than VAR_NUMBER characters are not supported. This name has been truncated to VAR_NUMBER characters. |
-//! | CHAIN | info | no | Expressions like a VAR_NAME b VAR_NAME c are interpreted as (a VAR_NAME b) VAR_NAME c. Typically, to test a VAR_NAME b VAR_NAME c mathematically, if all arguments are numeric scalars, use (a VAR_NAME b) && (b VAR_NAME c), otherwise use (a VAR_NAME b) & (b VAR_NAME c). |
+//! | CHAIN | warning | no | Expressions like a <name> b <name> c are interpreted as (a <name> b) <name> c. Typically, to test a <name> b <name> c mathematically, if all arguments are numeric scalars, use (a <name> b) && (b <name> c), otherwise use (a <name> b) & (b <name> c). |
 //! | DISPLAY | warning | no | Overloading DISPLAY is not recommended. |
-//! | FNDEF | warning | no | Function name VAR_NAME is known to MATLAB by its file name: VAR_FILE. |
-//! | NOIN | info | no | Method VAR_NAME should either be a static method or have at least one input argument. |
-//! | VALST | info | no | VAR_NAME must be the last argument in the argument list. |
-//! | PROP | info | no | VAR_NAME is also the name of a property, which may be confusing. Use obj.PropertyName syntax to reference the property, or rename this variable to improve readability. |
-//! | CPROP | info | no | VAR_NAME is also the name of a property, which may be confusing. Use obj.PropertyName syntax to reference the property, or rename the property to improve readability. |
-//! | FVAL | warning | no | Calling functions using 'feval' is usually not necessary. Call the function directly instead. |
+//! | FNDEF | warning | yes | Function name VAR_NAME is known to MATLAB by its file name: VAR_FILE. |
+//! | NOIN | warning | no | Method VAR_NAME should either be a static method or have at least one input argument. |
+//! | VALST | warning | no | VAR_NAME must be the last argument in the argument list. |
+//! | PROP | warning | no | VAR_NAME is also the name of a property, which may be confusing. Use obj.PropertyName syntax to reference the property, or rename this variable to improve readability. |
+//! | CPROP | warning | no | VAR_NAME is also the name of a property, which may be confusing. Use obj.PropertyName syntax to reference the property, or rename the property to improve readability. |
+//! | FVAL | warning | yes | Calling functions using 'feval' is usually not necessary. Call the function directly instead. |
 //! | FNCOLND | warning | no | Consider explicitly defining the array, and then using the END operator to index into it. |
-//! | COMNC | info | yes | Comment with percent (%) following comma acts as a row separator. Replace the comma with a semicolon to make the row separation clearer. Alternatively, replace the percent (%) with an ellipsis (...) to add a comment inside a row. |
+//! | COMNC | warning | yes | Comment with percent (%) following comma acts as a row separator. Replace the comma with a semicolon to make the row separation clearer. Alternatively, replace the percent (%) with an ellipsis (...) to add a comment inside a row. |
 //! | ITERS | warning | no | The Code Analyzer type analysis may be incorrect here. |
 //! | LOGPROD | warning | no | Using 'prod' on a logical expression is hard to understand and might be incorrect. Consider using 'all' instead. |
 //! | LOGMIN | warning | no | Using 'min' on a logical expression is hard to understand and might be incorrect. Consider using 'all' instead. |
 //! | LOGMAX | warning | no | Using 'max' on a logical expression is hard to understand and might be incorrect. Consider using 'any' instead. |
 //! | ELARLOG | warning | no | The VAR_NAME operator in the expression VAR_NAME(A VAR_NAME B) is unexpected. Should this be VAR_NAME(A) VAR_NAME B? |
 //! | SHOCIRAA | warning | no | Using the VAR_NAME operator in the expression VAR_NAME(A VAR_NAME B) is probably unintended. |
-//! | UNRPWR | warning | no | Consider using parentheses to explicitly specify operator precedence. |
+//! | FXSETL | warning | no | <name> is also the loop variable for an outer loop. Rename this variable, so this loop does not affect the outer loop variable. |
+//! | ISEQ | warning | no | The context surrounding this expression expects a scalar value. Consider using 'isequal', which returns a scalar value, instead of '==' or '~='. |
+//! | BDSCA1 | warning | no | Unexpected use of non-scalar value in a context which expects a scalar value. Use 'all' or 'any' to convert this value into a scalar value. |
+//! | SUBSASGN | warning | no | Output of 'subsasgn' should be assigned to a variable. |
+//! | XPORD | warning | no | Use parentheses to clarify the evaluation order of chained exponents. |
+//! | UNRPWR | warning | no | Combining exponentiation operators with unary operators (such as logical negation) without parentheses will not be supported in a future release. Use parentheses to clarify the evaluation order. |
 //! | ADAPPREF | warning | no | Use app as the first argument for VAR_NAME. |
 //! | KEYBOARDFUN | warning | no | Consider removing 'keyboard' function once you have finished debugging. This function may have security implications. |
 //! | GVMIS | warning | no | Global variables are inefficient and make errors difficult to diagnose. Use a function with input variables instead. |
@@ -90,16 +98,16 @@
 //! | STFLD | warning | no | SETFIELD output must be assigned back to the structure. |
 //! | STRSZ | warning | no | Use STRCMP to compare character vectors that can have different sizes. |
 //! | ATTF | warning | no | The Code Analyzer is unable to determine if the expression assigned to the VAR_NAME attribute evaluates to true or false. |
-//! | ATTOF | info | no | Setting the class attribute Abstract to false is not recommended. |
+//! | ATTOF | warning | no | Setting the class attribute Abstract to false is not recommended. |
 //! | MCPO | warning | no | VAR_NAME property has no effect in a value class. |
 //! | MCSAC | warning | no | SetAccess cannot be set on Constant properties. |
-//! | MOBSRV | info | no | Using SetObservable or GetObservable on a Constant property has no effect. |
+//! | MOBSRV | warning | no | Using SetObservable or GetObservable on a Constant property has no effect. |
 //! | MDEPIN | warning | no | Default values should not be assigned to dependent properties because dependent properties do not store the values. |
 //! | MCCPI | warning | no | Initialize the Constant property or make it an Abstract Constant property. |
 //! | MGMD | warning | no | 'get' method should be implemented for each dependent property that does not also have private 'GetAccess' attribute. |
 //! | MCCPE | warning | no | Attempting to call a property or event VAR_NAME as a function. |
-//! | MTHANS | info | no | Using ANS as a method name is not recommended as ANS is frequently overwritten by MATLAB. |
-//! | MHERM | info | no | Parenthesize the multiplication of VAR_NAME and its transpose to ensure the result is Hermitian. |
+//! | MTHANS | warning | no | Using ANS as a method name is not recommended as ANS is frequently overwritten by MATLAB. |
+//! | MHERM | warning | no | Parenthesize the multiplication of VAR_NAME and its transpose to ensure the result is Hermitian. |
 //! | MNUML | warning | no | To create a square matrix, use VAR_NAME(numel(...), numel(...)). Alternatively, use VAR_NAME(size(...)) to create an array with same size as input array. |
 //! | COMPNOP | warning | yes | This logical comparison simplifies to VAR_NAME(...). Did you mean to use VAR_NAME to evaluate function argument: VAR_NAME(...VAR_NAME...)? |
 //! | COMPNOT | warning | yes | This logical comparison simplifies to ~VAR_NAME(...). Did you mean to use VAR_NAME to evaluate function argument: VAR_NAME(...VAR_NAME...)? |
@@ -114,7 +122,7 @@
 //! | GTARG | warning | no | Function might be called with too many arguments. |
 //! | LTARG | warning | no | Function might be called with too few arguments. |
 //! | CTPCT | warning | no | The format might not agree with the argument count. |
-//! | FXSETA | warning | no | Loop index variable is changed inside of a `for` loop |
+//! | FXSETA | warning | no | Assigning a value to a loop variable within the loop statements is confusing and may not have an effect. The value of <name> will be reset on the next iteration of the loop. |
 //! | SIMPT | warning | no | This import statement runs before any other code in function VAR_NAME. Consider placing it at the top of the function body. |
 //! | TLEV | warning | no | VAR_NAME could be very inefficient unless it is a top-level statement in its function. |
 //! | UNONC | warning | no | Assign the onCleanup output argument to a variable. Do not use the tilde operator (~) in place of a variable. |
@@ -137,11 +145,26 @@
 //!
 //! Rewrites the flagged construct into the cleaner equivalent:
 //!
+//! - the function declaration takes the file name (`function r = other(x)`
+//!   in `mine.m` → `function r = mine(x)`), as MATLAB's auto fix does; the
+//!   runtime resolves the function by its file name, so the declared name
+//!   is dead text and the rewrite cannot change behaviour (FNDEF).
 //! - `call(...) == true` → `call(...)` (COMPNOP) and
 //!   `call(...) ~= true` / `call(...) == false` → `~call(...)` (COMPNOT).
 //! - `parfor i = 1:step:end` → `parfor i = 1:end` (PFRNI).
 //! - `%comment` → `% comment` (COMNC).
 //! - `(scalar)` → `scalar` (NBRAK1).
+//! - `feval('f', x)` and `feval(@f, x)` → `f(x)` (FVAL), the text MATLAB's own fix
+//!   writes (`@pkg.fn` and `"a.b"` become `pkg.fn(...)` and `a.b(...)`). The call
+//!   is the same call, so the fix is safe, and it is withheld when the name (or
+//!   its package) is a variable or a function of the file, where the direct call
+//!   would index the variable instead (MATLAB's fix does not look: on a script
+//!   with `psd = 5; feval('psd', 1)` it writes `psd(1)`). A variable or an
+//!   anonymous function as the first argument gets no fix.
+//! - `strcmp(lower(s), 'abc')` → `strcmpi(s, 'abc')` (STCI): unsafe, because
+//!   `lower`/`upper` and the case-insensitive comparison differ on some
+//!   non-ASCII text; when both arguments convert, only the first conversion
+//!   goes (`strcmpi(a, lower(b))`), as MATLAB's fix writes it.
 //!
 //! ## Examples
 //!
@@ -193,12 +216,16 @@ use malt_core::{Category, Config, Diagnostic, FileContext, Fix, NodeContext, Rul
 use serde::Deserialize;
 use tree_sitter::Node;
 
-use crate::analysis::metadata::{ClassMeta, FileMeta};
+use self::check_parfor_reduction::overwritten_before_read;
+use crate::analysis::control_flow::in_unreachable_code;
+use crate::analysis::metadata::{attributes_of, AttrForms, Attributes, ClassMeta, FileMeta};
+use crate::analysis::reaching::resolved_values;
 use crate::analysis::symbols::SymbolTable;
 
 mod check_app_designer;
 mod check_arity;
 mod check_attf_attof;
+mod check_bdsca1;
 mod check_chain;
 mod check_comnc;
 mod check_comnot;
@@ -214,10 +241,14 @@ mod check_elarlog;
 mod check_eval;
 mod check_fncolnd;
 mod check_fndef;
+
+pub(crate) use check_fndef::declared_name_range;
 mod check_fval;
 mod check_fxset;
+mod check_fxsetl;
 mod check_gvmis;
 mod check_handle_defaults;
+mod check_iseq;
 mod check_iters;
 mod check_lngnm;
 mod check_load;
@@ -229,7 +260,6 @@ mod check_mccpi;
 mod check_mcpo;
 mod check_mcsac;
 mod check_mdepin;
-mod check_mexcep;
 mod check_mgmd;
 mod check_mherm;
 mod check_mipc1;
@@ -259,12 +289,14 @@ mod check_stcmp;
 mod check_stisa;
 mod check_strnu;
 mod check_strsz;
+mod check_subsasgn;
 mod check_tlev;
 mod check_trync;
 mod check_unonc;
 mod check_unrpwr;
 mod check_valst;
 mod check_warning_error_tag;
+mod check_xpord;
 
 // ---------------------------------------------------------------------------
 // Default configuration values
@@ -326,6 +358,7 @@ pub(crate) const REMOVED_WARNING_TAGS: &[&str] = &[];
 pub(crate) const TARGET_NODES: &[&str] = &[
     "function_call",
     "command",
+    "lambda",
     "try_statement",
     "catch_clause",
     "assignment",
@@ -334,11 +367,16 @@ pub(crate) const TARGET_NODES: &[&str] = &[
     "comparison_operator",
     "range",
     "if_statement",
+    // BDSCA1 reads an `elseif` condition (probed).
+    "elseif_clause",
     "while_statement",
     "for_statement",
     "spmd_statement",
     "comment",
     "matrix",
+    // TLEV (`check_tlev`) runs on these declaration nodes.
+    "global_operator",
+    "persistent_operator",
 ];
 
 // ---------------------------------------------------------------------------
@@ -357,7 +395,34 @@ pub struct GoodPracticesEngine {
 impl GoodPracticesEngine {
     /// Factory constructor. Reads rule-specific params from config.
     pub fn from_config(config: &Config) -> Box<dyn Rule> {
-        let rule_config: GoodPracticesConfig = config.rule_params("GOOD_PRACTICES_ENGINE");
+        let mut rule_config: GoodPracticesConfig = config.rule_params("GOOD_PRACTICES_ENGINE");
+        rule_config
+            .disabled_checks
+            .extend(crate::off_under_mathworks(
+                config,
+                &[
+                    "ERTAG",
+                    "WNTAG",
+                    "CTCH",
+                    "CTOINW_CALL",
+                    "GTARG",
+                    "LTARG",
+                    "SIMPT",
+                    // Never reported by MATLAB in the probes or the fixtures.
+                    "ITERS",
+                    // ADAPPREF: silent in three probes, with and without an app argument.
+                    // MIPC1: silent for computer('arch') in four probes.
+                    "ADAPPREF",
+                    "MIPC1",
+                    // MCCPE: never reported by MATLAB in 8 probes (a call of a property is CPROP there,
+                    // and `%#ok<MCCPE>` gives MSNU, so it is not generated).
+                    "MCCPE",
+                    // MCHDT, SUBSINDEX: silent in every probed class shape (MATLAB reports MCHDP
+                    // for a handle default; `subsindex` in a class derived from `double`).
+                    "MCHDT",
+                    "SUBSINDEX",
+                ],
+            ));
         Box::new(Self {
             config: rule_config,
         })
@@ -365,7 +430,14 @@ impl GoodPracticesEngine {
 
     /// Check whether a specific sub-check ID is enabled.
     pub(crate) fn is_check_enabled(&self, check_id: &str) -> bool {
-        !self.config.disabled_checks.iter().any(|id| id == check_id)
+        // MATLAB reported none of these in the nested-function probes (r7_U:
+        // six shapes for SHVAU, its SHVAI counterpart too), so they are not emitted.
+        // LNGNM: MATLAB reported no name longer than 63 characters in about 35 probes
+        // (63 to 120 characters; script, function, right-hand side, field, loop
+        // variable, input, global, cell, collisions in the first 63 characters).
+        const NOT_REPRODUCED: &[&str] = &["SHVAU", "LNGNM"];
+        !NOT_REPRODUCED.contains(&check_id)
+            && !self.config.disabled_checks.iter().any(|id| id == check_id)
     }
 
     /// WLAST: `warning('')` does not reset the warning state.
@@ -452,14 +524,17 @@ impl GoodPracticesEngine {
         let any_enabled = self.is_check_enabled("PFIIN")
             || self.is_check_enabled("PFOUS")
             || self.is_check_enabled("PFTUSW")
+            || self.is_check_enabled("PFTUSE")
             || self.is_check_enabled("PFUIXW");
         if !any_enabled {
             return Vec::new();
         }
 
-        let sym = SymbolTable::build(tree, source);
+        let sym = SymbolTable::shared(|| tree.root_node(), source);
         let mut diagnostics = Vec::new();
         let parfors = collect_parfor_nodes(tree.root_node(), source);
+        let script = crate::analysis::control_flow::is_script_body(tree.root_node());
+        let script_opening = script || opens_with_statement(tree.root_node());
 
         for parfor in &parfors {
             let idx_var = extract_parfor_index_var(*parfor, source);
@@ -467,7 +542,7 @@ impl GoodPracticesEngine {
 
             // PFIIN: input variable read in the body but never initialized
             // before the loop and not assigned inside the loop.
-            if self.is_check_enabled("PFIIN") {
+            if !script && self.is_check_enabled("PFIIN") {
                 if let Some(body_node) = body {
                     let mut skip = std::collections::HashSet::new();
                     if let Some(ref idx) = idx_var {
@@ -475,8 +550,32 @@ impl GoodPracticesEngine {
                     }
                     let reads = collect_parfor_body_reads(body_node, source, &skip);
                     for (name, read_node) in reads {
-                        if is_defined_before_parfor(&sym, &name, parfor.start_byte())
+                        // Probed: only names that are variables of the function count (not
+                        // builtins, unknown calls or names from `load`), and a loop in the body
+                        // that iterates over the name assigns it.
+                        // A call of a nested function (`helper(x(k))`) is not a variable.
+                        if !sym.scopes.iter().any(|s| {
+                            s.defs.iter().any(|d| {
+                                d.name == name
+                                    && d.kind != crate::analysis::symbols::DefKind::NestedFunction
+                            })
+                        }) || is_for_iterator_in(body_node, &name, source)
+                            || collect_indexed_lhs_assignments(body_node, source)
+                                .iter()
+                                .any(|(n, _)| *n == name)
+                            || collect_field_lhs_assignments(body_node, source)
+                                .iter()
+                                .any(|(n, _)| *n == name)
+                            || (is_defined_before_parfor(&sym, &name, parfor.start_byte())
+                                && !cleared_before_parfor(
+                                    tree.root_node(),
+                                    source,
+                                    &name,
+                                    parfor.start_byte(),
+                                ))
                             || is_assigned_in_body(body_node, &name, source)
+                            || assigned_as_target(body_node, &name, source)
+                            || matches!(name.as_str(), "nargin" | "nargout" | "who" | "whos")
                         {
                             continue;
                         }
@@ -484,7 +583,7 @@ impl GoodPracticesEngine {
                         diagnostics.push(Diagnostic {
                             rule_id: "PFIIN",
                             message: format!(
-                                "The input variable {name} should be initialized before the PARFOR loop."
+                                "The input variable '{name}' should be initialized before the PARFOR loop."
                             ),
                             severity: Severity::Warning,
                             byte_range: read_node.start_byte()..read_node.end_byte(),
@@ -496,24 +595,48 @@ impl GoodPracticesEngine {
                 }
             }
 
-            // PFOUS / PFTUSW: simple-identifier assignments in the body and
-            // whether the variable is used after the loop.
-            let need_assignments =
-                self.is_check_enabled("PFOUS") || self.is_check_enabled("PFTUSW");
-            if need_assignments {
+            // PFOUS: a sliced output (`v(i) = ...`) that is not read after the
+            // loop. A plain scalar assignment (`t = i`) is not reported. A function
+            // output is returned, so it is read after the loop (probed).
+            if !script_opening && self.is_check_enabled("PFOUS") {
                 if let Some(body_node) = body {
-                    let assigned = collect_simple_lhs_assignments(body_node, source);
-                    for (name, lhs_node) in assigned {
-                        if idx_var.as_deref() == Some(name.as_str()) {
+                    // One report per variable, at its first sliced write. A variable that is
+                    // also assigned or read as a whole in the body is a temporary, not a
+                    // sliced output (probed).
+                    let whole: Vec<String> = collect_simple_lhs_assignments(body_node, source)
+                        .into_iter()
+                        .map(|(n, _)| n)
+                        .collect();
+                    let mut writes = collect_indexed_lhs_assignments(body_node, source);
+                    // A field write (`s.i = 1`, `s(i).x = i`) is an output too (probed).
+                    writes.extend(collect_field_lhs_assignments(body_node, source));
+                    writes.extend(collect_struct_array_field_writes(body_node, source));
+                    writes.sort_by_key(|(_, n)| n.start_byte());
+                    let mut reported: Vec<String> = Vec::new();
+                    for (name, lhs_node) in writes {
+                        if idx_var.as_deref() == Some(name.as_str())
+                            || whole.contains(&name)
+                            || reported.contains(&name)
+                            || has_whole_read(body_node, &name, source)
+                            || read_before_write_stmt(body_node, &name, source)
+                        {
                             continue;
                         }
-                        let uses = uses_after_parfor(&sym, &name, parfor.end_byte(), tree, false);
-                        if self.is_check_enabled("PFOUS") && uses.is_empty() {
+                        reported.push(name.clone());
+                        // Unused when the first access after the loop overwrites it (probed:
+                        // `a(1) = 0`, `a = 5`, `clear a;`, even for a function output), or
+                        // when nothing reads it and it is not returned.
+                        let overwritten = overwritten_before_read(*parfor, &name, source);
+                        let is_output =
+                            is_output_of_enclosing_function(&sym, parfor.start_byte(), &name);
+                        let uses =
+                            uses_after_parfor(&sym, &name, parfor.end_byte(), tree, source, false);
+                        if overwritten || (uses.is_empty() && !is_output) {
                             let pos = lhs_node.start_position();
                             diagnostics.push(Diagnostic {
                                 rule_id: "PFOUS",
                                 message: format!(
-                                    "The output variable {name} might not be used after the PARFOR loop."
+                                    "The output variable '{name}' might not be used after the PARFOR loop."
                                 ),
                                 severity: Severity::Warning,
                                 byte_range: lhs_node.start_byte()..lhs_node.end_byte(),
@@ -522,7 +645,77 @@ impl GoodPracticesEngine {
                                 fix: None,
                             });
                         }
-                        if self.is_check_enabled("PFTUSW") {
+                    }
+                }
+            }
+
+            // PFTUSW: simple-identifier assignments in the body and whether the
+            // variable is used after the loop.
+            let need_assignments = self.is_check_enabled("PFOUS")
+                || self.is_check_enabled("PFTUSW")
+                || self.is_check_enabled("PFTUSE");
+            if need_assignments {
+                if let Some(body_node) = body {
+                    let assigned = collect_simple_lhs_assignments(body_node, source);
+                    for (name, lhs_node) in assigned {
+                        if idx_var.as_deref() == Some(name.as_str()) {
+                            continue;
+                        }
+                        let uses =
+                            uses_after_parfor(&sym, &name, parfor.end_byte(), tree, source, false);
+                        // A function output assigned whole in the body is returned after the
+                        // loop, so MATLAB reports PFTUSW on the function's line when the
+                        // variable had a value before the loop and PFTUSE when it had none
+                        // (probed).
+                        // A value before the loop is an assignment, not a parameter or an output.
+                        let pre_set = collect_simple_lhs_assignments(root_node_of(*parfor), source)
+                            .iter()
+                            .any(|(n, l)| *n == name && l.end_byte() <= parfor.start_byte());
+                        let rule_id = if pre_set { "PFTUSW" } else { "PFTUSE" };
+                        if self.is_check_enabled(rule_id)
+                            && uses.is_empty()
+                            && is_output_of_enclosing_function(&sym, parfor.start_byte(), &name)
+                            && !collect_indexed_lhs_assignments(body_node, source)
+                                .iter()
+                                .any(|(n, _)| *n == name)
+                            && !reads_itself(lhs_node, &name, source)
+                            && !overwritten_before_read(*parfor, &name, source)
+                        {
+                            let header = enclosing_function_line(*parfor);
+                            let pos = lhs_node.start_position();
+                            let message = if pre_set {
+                                format!(
+                                    "The temporary variable '{name}' might be used after the PARFOR loop on line {header}. The value set on this line is not available after the loop."
+                                )
+                            } else {
+                                format!(
+                                    "The temporary variable '{name}' is used after the PARFOR loop on line {header}, but its value is not available after the loop."
+                                )
+                            };
+                            diagnostics.push(Diagnostic {
+                                rule_id,
+                                message,
+                                severity: Severity::Warning,
+                                byte_range: lhs_node.start_byte()..lhs_node.end_byte(),
+                                line: pos.row + 1,
+                                column: pos.column + 1,
+                                fix: None,
+                            });
+                            continue;
+                        }
+                        // MATLAB reports only when the variable already had a value before the
+                        // loop and its first access after the loop is a read (probed).
+                        if self.is_check_enabled("PFTUSW")
+                            && is_defined_before_parfor(&sym, &name, parfor.start_byte())
+                            && !read_before_write_in_body(&sym, body_node, source, &name)
+                            && first_access_after_is_read(
+                                &sym,
+                                tree,
+                                source,
+                                &name,
+                                parfor.end_byte(),
+                            )
+                        {
                             if let Some(line) = uses.first() {
                                 let pos = lhs_node.start_position();
                                 diagnostics.push(Diagnostic {
@@ -542,56 +735,12 @@ impl GoodPracticesEngine {
                 }
             }
 
-            // PFUIXW: index variable used after the loop.
-            if self.is_check_enabled("PFUIXW") {
-                if let Some(ref idx) = idx_var {
-                    let uses = uses_after_parfor(&sym, idx, parfor.end_byte(), tree, true);
-                    if let Some(line) = uses.first() {
-                        let idx_node = find_parfor_index_identifier(*parfor);
-                        let target = idx_node.unwrap_or(*parfor);
-                        let pos = target.start_position();
-                        diagnostics.push(Diagnostic {
-                            rule_id: "PFUIXW",
-                            message: format!(
-                                "The index variable {idx} might be used after the PARFOR loop on line {line}. The value set on this line is not available after the loop."
-                            ),
-                            severity: Severity::Warning,
-                            byte_range: target.start_byte()..target.end_byte(),
-                            line: pos.row + 1,
-                            column: pos.column + 1,
-                            fix: None,
-                        });
-                    }
-                }
-            }
+            // PFUIXW is not emitted: MATLAB reports a read of the index after the loop as
+            // PFUIXE (the bugs engine, at the loop header) and never PFUIXW, and a write
+            // after the loop as nothing (probed: `disp(i)`, `i = i + 1`, `i = 5`).
         }
 
         diagnostics
-    }
-
-    /// Shared COMPNOP/COMPNOT logic: extract the `(call, literal, operator)`
-    /// triple from a `comparison_operator` node when exactly one operand is a
-    /// `function_call` and the other is the `true`/`false` literal.
-    pub(crate) fn comparison_with_literal<'a>(
-        &self,
-        node: Node<'a>,
-        source: &'a str,
-    ) -> Option<(Node<'a>, Node<'a>, String)> {
-        let lhs = node.child(0)?;
-        let rhs = node.child(2)?;
-        let op = find_operator_text(node, source);
-
-        let (call_node, literal_node) = match (lhs.kind(), rhs.kind()) {
-            ("function_call", "identifier") => (lhs, rhs),
-            ("identifier", "function_call") => (rhs, lhs),
-            _ => return None,
-        };
-        let literal = node_text(literal_node, source).trim();
-        if literal == "true" || literal == "false" {
-            Some((call_node, literal_node, op))
-        } else {
-            None
-        }
     }
 }
 
@@ -628,20 +777,22 @@ impl Rule for GoodPracticesEngine {
         // Error handling checks.
         diagnostics.extend(self.check_trync(node, source));
         diagnostics.extend(self.check_ctch(node, source));
-        diagnostics.extend(self.check_mexcep(node, source));
         diagnostics.extend(self.check_warning_error_tag(node, source));
 
         // String / comparison checks.
         diagnostics.extend(self.check_stcmp(node, source));
-        diagnostics.extend(self.check_stci(node, source));
-        diagnostics.extend(self.check_stisa(node, source));
+        // STCI and STISA only report calls, so the (ancestor-walking) reachability
+        // test runs for those alone.
+        if node.kind() == "function_call" && !in_unreachable_code(node, source) {
+            diagnostics.extend(self.check_stci(node, source));
+            diagnostics.extend(self.check_stisa(node, source));
+        }
 
         // Eval / dynamic code checks.
         diagnostics.extend(self.check_eval(node, source));
 
         // General practice checks.
         diagnostics.extend(self.check_load(node, source));
-        diagnostics.extend(self.check_noans(node, source));
         diagnostics.extend(self.check_lngnm(node, source));
         diagnostics.extend(self.check_nbrak1(node, source));
         diagnostics.extend(self.check_comnc(node, source));
@@ -649,16 +800,19 @@ impl Rule for GoodPracticesEngine {
         diagnostics.extend(self.check_logical_aggregation(node, source));
         diagnostics.extend(self.check_shociraa(node, source));
         diagnostics.extend(self.check_unrpwr(node, source));
+        diagnostics.extend(self.check_xpord(node, source));
         diagnostics.extend(self.check_discouraged_functions(node, source));
         diagnostics.extend(self.check_chain(node, source));
 
         // Function-call convention checks.
         diagnostics.extend(self.check_ctpct(node, source));
         diagnostics.extend(self.check_fxset(node, source));
+        diagnostics.extend(self.check_fxsetl(ctx, source));
         diagnostics.extend(self.check_simpt(node, source));
         diagnostics.extend(self.check_tlev(node, source));
         diagnostics.extend(self.check_unonc(node, source));
         diagnostics.extend(self.check_mipc1(node, source));
+        diagnostics.extend(self.check_subsasgn(node, source));
 
         // Structure / string / misc checks.
         diagnostics.extend(self.check_rmfld(node, source));
@@ -671,6 +825,8 @@ impl Rule for GoodPracticesEngine {
         diagnostics.extend(self.check_compnop(node, source));
         diagnostics.extend(self.check_comnot(node, source));
         diagnostics.extend(self.check_m3col(node, source));
+        diagnostics.extend(self.check_iseq(node, source));
+        diagnostics.extend(self.check_bdsca1(node, source));
 
         // OOP / class / property checks.
         diagnostics.extend(self.check_mherm(node, source));
@@ -697,12 +853,13 @@ impl Rule for GoodPracticesEngine {
         diagnostics.extend(self.check_display_override(ctx.tree, ctx.source));
         diagnostics.extend(self.check_noin(ctx.tree, ctx.source));
         diagnostics.extend(self.check_prop_validation(ctx.tree, ctx.source));
+        diagnostics.extend(self.check_noans(ctx.tree, ctx.source));
         diagnostics.extend(self.check_cprop(ctx.tree, ctx.source));
         diagnostics.extend(self.check_iters(ctx.tree, ctx.source));
         diagnostics.extend(self.check_gvmis(ctx.tree, ctx.source));
         diagnostics.extend(self.check_sepex(ctx.tree, ctx.source));
         diagnostics.extend(self.check_strnu(ctx.tree, ctx.source));
-        diagnostics.extend(self.check_fndef(ctx.tree, ctx.source));
+        diagnostics.extend(self.check_fndef(ctx.tree, ctx.source, ctx.file_path));
         diagnostics.extend(self.check_valst(ctx.tree, ctx.source));
         diagnostics.extend(self.check_fval(ctx.tree, ctx.source));
         diagnostics.extend(self.check_fncolnd(ctx.tree, ctx.source));
@@ -752,12 +909,9 @@ inventory::submit!(crate::RuleRegistration::new(
 
 /// Check whether a node has a child of the given kind.
 pub(crate) fn has_child_of_kind(node: Node, kind: &str) -> bool {
-    let count = node.child_count();
-    for i in 0..count {
-        if let Some(child) = node.child(i) {
-            if child.kind() == kind {
-                return true;
-            }
+    for child in crate::analysis::symbols::children_of(node) {
+        if child.kind() == kind {
+            return true;
         }
     }
     false
@@ -765,28 +919,16 @@ pub(crate) fn has_child_of_kind(node: Node, kind: &str) -> bool {
 
 /// Find the first child of a node with the given kind.
 pub(crate) fn find_child_of_kind<'a>(node: Node<'a>, kind: &str) -> Option<Node<'a>> {
-    let count = node.child_count();
-    for i in 0..count {
-        if let Some(child) = node.child(i) {
-            if child.kind() == kind {
-                return Some(child);
-            }
-        }
-    }
-    None
+    crate::analysis::symbols::children_of(node)
+        .into_iter()
+        .find(|child| child.kind() == kind)
 }
 
 /// Get the first named child of a node.
 pub(crate) fn first_named_child(node: Node) -> Option<Node> {
-    let count = node.child_count();
-    for i in 0..count {
-        if let Some(child) = node.child(i) {
-            if child.is_named() {
-                return Some(child);
-            }
-        }
-    }
-    None
+    crate::analysis::symbols::children_of(node)
+        .into_iter()
+        .find(|child| child.is_named())
 }
 
 /// Check if a node is at statement level (parent is `source_file` or `block`).
@@ -798,11 +940,7 @@ pub(crate) fn is_statement_level(node: Node) -> bool {
 
 /// Extract the function name from a `function_call` node.
 pub(crate) fn get_function_call_name<'a>(node: Node<'a>, source: &'a str) -> Option<&'a str> {
-    if node.kind() != "function_call" {
-        return None;
-    }
-    let name_node = node.child_by_field_name("name")?;
-    Some(node_text(name_node, source))
+    crate::analysis::callee::call_path(node, source, crate::analysis::callee::Dotted::Skip)
 }
 
 /// Check whether a function call's first argument is an empty string literal
@@ -824,15 +962,7 @@ pub(crate) fn call_has_empty_string_arg(node: Node, source: &str) -> bool {
 
 /// Extract the command name from a `command` node.
 pub(crate) fn get_command_name<'a>(node: Node<'a>, source: &'a str) -> Option<&'a str> {
-    if node.kind() != "command" {
-        return None;
-    }
-    let first = node.child(0)?;
-    if first.kind() == "command_name" {
-        Some(node_text(first, source))
-    } else {
-        None
-    }
+    crate::analysis::command::Command::from_node(node, source).map(|cmd| cmd.name)
 }
 
 /// Get the full arguments text from a function_call node.
@@ -871,40 +1001,228 @@ pub(crate) fn find_operator_text<'a>(node: Node<'a>, source: &'a str) -> String 
     String::new()
 }
 
-/// Check if a node has any string-literal children (for STCMP).
-pub(crate) fn node_has_string_child(node: Node) -> bool {
-    let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        let kind = child.kind();
-        if kind == "string" || kind == "char_vector" {
-            return true;
+/// The text of the string literals inside `node` (quotes removed), in order.
+/// Identifiers are not part of it, so a variable named `s` or `system` does not
+/// look like code.
+pub(crate) fn string_literal_text(node: Node, source: &str) -> String {
+    let mut out = String::new();
+    let mut stack = vec![node];
+    while let Some(n) = stack.pop() {
+        if n.kind() == "string" {
+            let raw = &source[n.byte_range()];
+            out.push_str(raw.trim_matches(|c| c == '\'' || c == '"'));
+            out.push(' ');
+            continue;
         }
-        // Also check for string literal wrapped in parens, etc.
-        if child.is_named() && node_has_string_child(child) {
-            return true;
-        }
+        let mut cursor = n.walk();
+        let children: Vec<Node> = n.children(&mut cursor).collect();
+        stack.extend(children.into_iter().rev());
     }
-    false
+    out
 }
 
-/// Classify the type of eval usage based on argument text patterns.
+/// `true` when `root` is a syntactically clean file whose first statement is not a
+/// `function` line. MATLAB reads it as a script even when local functions follow
+/// it (probed: no PFOUS for a script's sliced array with a function at its end).
+fn opens_with_statement(root: Node) -> bool {
+    if root.kind() != "source_file" || root.has_error() {
+        return false;
+    }
+    let mut cursor = root.walk();
+    let first = root
+        .named_children(&mut cursor)
+        .find(|c| c.kind() != "comment");
+    first.is_some_and(|c| c.kind() != "function_definition")
+}
+
+/// `true` when `name` is an output of the innermost function that holds the
+/// loop at byte `position`: the value is returned after the loop (probed).
+fn is_output_of_enclosing_function(sym: &SymbolTable, position: usize, name: &str) -> bool {
+    use crate::analysis::symbols::{DefKind, ScopeKind};
+    sym.scopes
+        .iter()
+        .filter(|s| {
+            s.byte_range.contains(&position)
+                && matches!(
+                    s.kind,
+                    ScopeKind::Function | ScopeKind::LocalFunction | ScopeKind::NestedFunction
+                )
+        })
+        .min_by_key(|s| s.byte_range.len())
+        .is_some_and(|s| {
+            s.defs
+                .iter()
+                .any(|d| d.kind == DefKind::OutputArg && d.name == name)
+        })
+}
+
+/// The assignment that a bracketed `eval` argument builds, as MATLAB reads it
+/// (probed). `Some(true)`: the name is numbered (`['x' num2str(i) ' = 0']`, which
+/// is EVLSEQVAR). `Some(false)`: the name is a constant and the value is built
+/// (`['x = ' num2str(v)]`, `['x = ' '1' ';']`, EVLEQ). `None`: nothing to report.
+/// That covers a bare argument (`eval(sprintf('x = %d;', v))`), one literal
+/// (`['x = 1;']`, EVLCS), a variable in the name (`[name ' = 1;']`), a name that
+/// is not an identifier (`['x(' num2str(i) ') = 1;']`) and no assignment.
+pub(crate) fn built_assignment(args: &str) -> Option<bool> {
+    let inner = args
+        .trim_start()
+        .strip_prefix('(')
+        .unwrap_or(args)
+        .trim_start()
+        .strip_prefix('[')?;
+    let items = bracket_items(inner);
+    if items.len() < 2 {
+        return None;
+    }
+    let mut name = String::new();
+    let mut numbered = false;
+    let mut assigned = false;
+    for (index, item) in items.into_iter().enumerate() {
+        if let Some(text) = quoted_body(item) {
+            match assign_index(text) {
+                Some(i) => {
+                    // Probed: MATLAB reports this form only when the first literal is
+                    // `name = ` (silent for `'x = ['`, `'x = 5'` and `'x' ' = 1'`).
+                    if (index == 0 && &text[i + 1..] != " ") || (index > 0 && !numbered) {
+                        return None;
+                    }
+                    name.push_str(&text[..i]);
+                    assigned = true;
+                    break;
+                }
+                None => name.push_str(text),
+            }
+        } else if item.starts_with("num2str(") || item.starts_with("int2str(") {
+            numbered = true;
+        } else {
+            return None;
+        }
+    }
+    let name = name.trim();
+    // A static field path (`a.b = ...`) is a name too (probed: EVLEQ).
+    let identifier = name.split('.').all(|part| {
+        part.chars().next().is_some_and(|c| c.is_ascii_alphabetic())
+            && part.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+    });
+    (assigned && identifier).then_some(numbered)
+}
+
+/// `true` when an `eval` argument is a constant: one string, or a concatenation of
+/// strings only (probed: EVLCS for `eval('x = 1;')` and `eval(['x = 1;'])`). A
+/// variable, a call or a dynamic concatenation is silent, as in MATLAB (probed:
+/// `eval(s)` on an input, `eval(num2str(v))`, `eval(t)` with `t` built at run time).
+pub(crate) fn is_constant_argument(args: &str) -> bool {
+    let trimmed = args.trim();
+    let inner = trimmed
+        .strip_prefix('(')
+        .and_then(|s| s.strip_suffix(')'))
+        .unwrap_or(trimmed)
+        .trim();
+    if let Some(bracket) = inner.strip_prefix('[').and_then(|s| s.strip_suffix(']')) {
+        let items = bracket_items(bracket);
+        return !items.is_empty() && items.iter().all(|i| quoted_body(i).is_some());
+    }
+    quoted_body(inner).is_some()
+        || (inner.len() >= 2 && inner.starts_with('"') && inner.ends_with('"'))
+}
+
+/// The items of a bracketed concatenation, split at top-level spaces, commas and
+/// semicolons. Quoted text and nested brackets stay in one item; scanning stops
+/// at the closing `]`.
+fn bracket_items(inner: &str) -> Vec<&str> {
+    let bytes = inner.as_bytes();
+    let mut items = Vec::new();
+    let (mut start, mut depth, mut quoted) = (0usize, 0i32, false);
+    let mut i = 0;
+    while i < bytes.len() {
+        let c = bytes[i];
+        if quoted {
+            if c == b'\'' {
+                if bytes.get(i + 1) == Some(&b'\'') {
+                    i += 2;
+                    continue;
+                }
+                quoted = false;
+            }
+        } else {
+            match c {
+                b'\'' => quoted = true,
+                b'(' | b'{' | b'[' => depth += 1,
+                b']' if depth == 0 => break,
+                b')' | b'}' | b']' => depth -= 1,
+                b' ' | b'\t' | b',' | b';' if depth == 0 => {
+                    if start < i {
+                        items.push(&inner[start..i]);
+                    }
+                    start = i + 1;
+                }
+                _ => {}
+            }
+        }
+        i += 1;
+    }
+    if start < i {
+        items.push(&inner[start..i]);
+    }
+    items
+}
+
+/// The text inside one quoted literal item, `'x = '` gives `x = `.
+fn quoted_body(item: &str) -> Option<&str> {
+    let bytes = item.as_bytes();
+    (item.len() >= 2 && bytes[0] == b'\'' && bytes[item.len() - 1] == b'\'')
+        .then(|| &item[1..item.len() - 1])
+}
+
+/// The byte index of the assignment `=` in `text`, not `==`, `~=`, `<=` or `>=`.
+fn assign_index(text: &str) -> Option<usize> {
+    text.match_indices('=').map(|(i, _)| i).find(|&i| {
+        let before = text[..i].chars().last();
+        let after = text[i + 1..].chars().next();
+        !matches!(before, Some('=' | '~' | '<' | '>')) && after != Some('=')
+    })
+}
+
+/// Pick the `eval` check that fits what the call evaluates. `literal` is the text
+/// of the string literals in the argument, `args_text` the whole argument.
 pub(crate) fn classify_eval_usage(
+    literal: &str,
     args_text: &str,
     config: &GoodPracticesConfig,
 ) -> (&'static str, &'static str) {
-    // EVLDOT: dynamic field access patterns like `eval(['s.' fieldname])`
-    if (args_text.contains("s.") || args_text.contains(".("))
-        && config.disabled_checks.iter().all(|c| c != "EVLDOT")
-    {
+    let on = |id: &str| config.disabled_checks.iter().all(|c| c != id);
+
+    // A constant statement is EVLCS whatever its field names (probed:
+    // `eval('s.a = 1')`); the dynamic checks need a built argument.
+    let is_constant = !args_text.contains('[') && !args_text.contains("sprintf");
+
+    // EVLDOT: dynamic field access like `eval(['s.' fieldname])`.
+    let bytes = literal.as_bytes();
+    let dotted = literal.contains(".(")
+        || bytes.iter().enumerate().any(|(i, &c)| {
+            c == b'.'
+                && i > 0
+                && (bytes[i - 1].is_ascii_alphanumeric()
+                    || bytes[i - 1] == b'_'
+                    || bytes[i - 1] == b')')
+                && bytes.get(i + 1).is_none_or(|n| *n == b' ')
+        });
+    if dotted && !is_constant && on("EVLDOT") {
         return (
             "EVLDOT",
             "'eval' is inefficient and makes code less clear. Use dynamic field names to access structure fields or object properties instead.",
         );
     }
 
-    // EVLSYS: system command patterns
-    if (args_text.contains("system") || args_text.contains("dos") || args_text.contains("unix"))
-        && config.disabled_checks.iter().all(|c| c != "EVLSYS")
+    // EVLSYS: an operating-system command.
+    let trimmed = literal.trim_start();
+    if (trimmed.starts_with('!')
+        || ["system", "dos", "unix"]
+            .iter()
+            .any(|k| trimmed.starts_with(k)))
+        && on("EVLSYS")
+        // A constant command is EVLCS (probed: `eval('!ls')`, `eval('system(''ls'')')`).
+        && !is_constant_argument(args_text)
     {
         return (
             "EVLSYS",
@@ -912,18 +1230,18 @@ pub(crate) fn classify_eval_usage(
         );
     }
 
-    // EVLEQ: dynamic variable creation like `eval([varname ' = ...'])`
-    if args_text.contains(" = ") && config.disabled_checks.iter().all(|c| c != "EVLEQ") {
+    // EVLEQ: building an assignment with a constant name, `eval(['x = ' num2str(v)])`.
+    // A variable in the name, `eval([name ' = 1'])`, is silent (probed).
+    let built = built_assignment(args_text);
+    if built == Some(false) && on("EVLEQ") {
         return (
             "EVLEQ",
             "'eval' is inefficient and makes code less clear. Assign to the variable directly.",
         );
     }
 
-    // EVLSEQVAR: sequential variable creation like `eval(['x' num2str(i)])`
-    if (args_text.contains("num2str") || args_text.contains("int2str"))
-        && config.disabled_checks.iter().all(|c| c != "EVLSEQVAR")
-    {
+    // EVLSEQVAR: sequential variable creation like `eval(['x' num2str(i) ' = 0'])`.
+    if built == Some(true) && on("EVLSEQVAR") {
         return (
             "EVLSEQVAR",
             "Using 'eval' to dynamically assign variables is not recommended.",
@@ -950,140 +1268,6 @@ pub(crate) fn args_has_case_conversion(args_node: Node, source: &str) -> bool {
         }
     }
     false
-}
-
-/// Check if arguments contain a call to a specific function (for STISA).
-pub(crate) fn args_has_function_call(args_node: Node, source: &str, target_name: &str) -> bool {
-    let mut cursor = args_node.walk();
-    for child in args_node.children(&mut cursor) {
-        if child.kind() == "function_call" {
-            if let Some(name) = get_function_call_name(child, source) {
-                if name == target_name {
-                    return true;
-                }
-            }
-        }
-    }
-    false
-}
-
-/// Count the depth of a field_expression chain (for CHAIN).
-pub(crate) fn field_chain_depth(node: Node) -> usize {
-    if node.kind() != "field_expression" {
-        return 0;
-    }
-    // The object child of a field_expression may itself be a field_expression.
-    let mut depth = 1;
-    if let Some(obj) = node.child_by_field_name("object").or_else(|| node.child(0)) {
-        depth += field_chain_depth(obj);
-    }
-    depth
-}
-
-/// Check if a node is inside a matrix or cell context (for SHOCIRAA).
-pub(crate) fn is_inside_array_context(node: Node) -> bool {
-    let mut current = node.parent();
-    while let Some(p) = current {
-        let kind = p.kind();
-        if kind == "matrix" || kind == "cell" {
-            return true;
-        }
-        if kind == "function_definition" || kind == "source_file" {
-            break;
-        }
-        current = p.parent();
-    }
-    false
-}
-
-/// Find element-wise boolean operators (`&`, `|`) in if/while conditions.
-pub(crate) fn find_element_wise_boolean_in_condition(
-    node: Node,
-    source: &str,
-    diagnostics: &mut Vec<Diagnostic>,
-) {
-    // The condition of if/while is typically the first expression child.
-    let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        if child.kind() == "boolean_operator" {
-            let text = node_text(child, source);
-            // Single `&` or `|` (not `&&` or `||`)
-            let has_element_wise = (text.contains('&') && !text.contains("&&"))
-                || (text.contains('|') && !text.contains("||"));
-            if has_element_wise {
-                let pos = child.start_position();
-                let op = if text.contains('&') { "&" } else { "|" };
-                diagnostics.push(Diagnostic {
-                    rule_id: "ELARLOG",
-                    message: format!(
-                        "The {op} operator in the expression {op}(A {op} B) is unexpected. Should this be {op}(A) {op} B?"
-                    ),
-                    severity: Severity::Warning,
-                    byte_range: child.start_byte()..child.end_byte(),
-                    line: pos.row + 1,
-                    column: pos.column + 1,
-                    fix: None,
-                });
-            }
-        }
-        // Don't recurse into nested if/while/for/blocks — just check immediate condition.
-        if child.kind() == "block"
-            || child.kind() == "elseif_clause"
-            || child.kind() == "else_clause"
-        {
-            continue;
-        }
-        find_element_wise_boolean_in_condition(child, source, diagnostics);
-    }
-}
-
-/// Collect statements grouped by line number (for SEPEX).
-pub(crate) fn collect_statements_by_line(
-    node: Node,
-    line_statements: &mut std::collections::HashMap<usize, Vec<(usize, usize)>>,
-) {
-    let kind = node.kind();
-
-    // Only collect at statement level in source_file or block.
-    if kind == "source_file" || kind == "block" {
-        let mut cursor = node.walk();
-        for child in node.children(&mut cursor) {
-            let ck = child.kind();
-            if ck == ";"
-                || ck == ","
-                || ck == "comment"
-                || ck == "end"
-                || ck == "line_continuation"
-                || !child.is_named()
-            {
-                continue;
-            }
-            let line = child.start_position().row + 1;
-            line_statements
-                .entry(line)
-                .or_default()
-                .push((child.start_byte(), child.end_byte()));
-        }
-    }
-
-    // Recurse into structural nodes.
-    let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        let ck = child.kind();
-        if ck == "block"
-            || ck == "function_definition"
-            || ck == "if_statement"
-            || ck == "for_statement"
-            || ck == "while_statement"
-            || ck == "switch_statement"
-            || ck == "try_statement"
-            || ck == "catch_clause"
-            || ck == "methods"
-            || ck == "class_definition"
-        {
-            collect_statements_by_line(child, line_statements);
-        }
-    }
 }
 
 /// Find `end` used as an index argument (FNCOLND).
@@ -1156,20 +1340,6 @@ pub(crate) fn find_iterator_range(node: Node) -> Option<Node> {
     find_child_of_kind(iter, "range")
 }
 
-/// Get the last named child of a node (including `end`).
-pub(crate) fn last_named_child(node: Node) -> Option<Node> {
-    let mut result = None;
-    let count = node.child_count();
-    for i in 0..count {
-        if let Some(child) = node.child(i) {
-            if child.is_named() {
-                result = Some(child);
-            }
-        }
-    }
-    result
-}
-
 /// Extract the parfor index variable name.
 pub(crate) fn extract_parfor_index_var(node: Node, source: &str) -> Option<String> {
     find_parfor_index_identifier(node).map(|n| node_text(n, source).to_string())
@@ -1178,15 +1348,9 @@ pub(crate) fn extract_parfor_index_var(node: Node, source: &str) -> Option<Strin
 /// Find the parfor index variable identifier node.
 pub(crate) fn find_parfor_index_identifier(node: Node) -> Option<Node> {
     let iter = find_child_of_kind(node, "iterator")?;
-    let count = iter.child_count();
-    for i in 0..count {
-        if let Some(c) = iter.child(i) {
-            if c.kind() == "identifier" {
-                return Some(c);
-            }
-        }
-    }
-    None
+    crate::analysis::symbols::children_of(iter)
+        .into_iter()
+        .find(|c| c.kind() == "identifier")
 }
 
 /// Walk a node collecting all `function_call` and `command` descendants.
@@ -1200,6 +1364,15 @@ pub(crate) fn walk_body_for_function_calls<'a>(node: Node<'a>, out: &mut Vec<Nod
             walk_body_for_function_calls(child, out);
         }
     }
+}
+
+/// Whether a `field_expression` ends in a parenthesised index (`obj.Value(end)`):
+/// the field parses as a call on the name.
+pub(crate) fn is_indexed_field(node: Node) -> bool {
+    node.kind() == "field_expression"
+        && node
+            .child_by_field_name("field")
+            .is_some_and(|f| f.kind() == "function_call")
 }
 
 /// Collect all descendants of a node with the given kind.
@@ -1235,10 +1408,19 @@ pub(crate) fn collect_global_persistent_vars(
     root: Node,
     source: &str,
 ) -> std::collections::HashSet<String> {
+    collect_declared_vars(root, source, &["global_operator", "persistent_operator"])
+}
+
+/// Names declared under `root` with one of the `kinds` operators.
+pub(crate) fn collect_declared_vars(
+    root: Node,
+    source: &str,
+    kinds: &[&str],
+) -> std::collections::HashSet<String> {
     let mut vars = std::collections::HashSet::new();
     let mut cursor = root.walk();
     for child in root.children(&mut cursor) {
-        if child.kind() == "global_operator" || child.kind() == "persistent_operator" {
+        if kinds.contains(&child.kind()) {
             let mut c2 = child.walk();
             for id in child.children(&mut c2) {
                 if id.kind() == "identifier" {
@@ -1247,7 +1429,7 @@ pub(crate) fn collect_global_persistent_vars(
             }
         }
         if child.is_named() {
-            vars.extend(collect_global_persistent_vars(child, source));
+            vars.extend(collect_declared_vars(child, source, kinds));
         }
     }
     vars
@@ -1277,9 +1459,23 @@ pub(crate) fn is_evalin_assignin_base(node: Node, source: &str) -> bool {
         Some(a) => a,
         None => return false,
     };
+    if first_arg.kind() == "identifier" {
+        // A variable whose every reaching value is the workspace name (probed: `b = 'base';
+        // evalin(b, ...)` inside a parfor is PFEVB; `b = 'caller'` is not).
+        return resolved_values(first_arg, source).is_some_and(|values| {
+            !values.is_empty()
+                && values.iter().all(|v| {
+                    v.kind() == "string"
+                        && node_text(*v, source)
+                            .trim_matches(|c| c == '\'' || c == '"')
+                            .eq_ignore_ascii_case("base")
+                })
+        });
+    }
     let text = node_text(first_arg, source).trim();
     let text = text.trim_matches('\'').trim_matches('"');
-    text == "base"
+    // MATLAB matches the workspace name without regard to case (probed: 'BASE').
+    text.eq_ignore_ascii_case("base")
 }
 
 /// Check whether a function call / command constructs a distributed array.
@@ -1289,10 +1485,15 @@ pub(crate) fn is_distributed_call(node: Node, source: &str) -> bool {
         "command" => get_command_name(node, source),
         _ => return false,
     };
-    matches!(
-        func_name,
-        Some("distributed") | Some("gpuArray") | Some("codistributed")
-    )
+    // Probed: `distributed(...)` and the constructors `distributed.zeros(...)`,
+    // `distributed.ones(...)` and so on are reported. `gpuArray`,
+    // `codistributed` and `zeros(3, 'distributed')` are silent.
+    func_name == Some("distributed")
+        || node.parent().is_some_and(|p| {
+            p.kind() == "field_expression"
+                && p.child_by_field_name("object")
+                    .is_some_and(|o| node_text(o, source) == "distributed")
+        })
 }
 
 /// Extract the base variable name assigned by an assignment LHS.
@@ -1304,6 +1505,30 @@ pub(crate) fn lhs_base_name(lhs: Node, source: &str) -> Option<String> {
             find_child_of_kind(lhs, "identifier").map(|n| node_text(n, source).to_string())
         }
         _ => None,
+    }
+}
+
+/// Whether an identifier is the base variable of an assignment target: `x`,
+/// `x(i)`, `x{i}`, `x.f` or an element of `[x, y]`. Index arguments are reads,
+/// so `a(G) = 1` does not write `G` (probed: PFGV on `G` there).
+fn is_write_target(id: Node) -> bool {
+    let mut current = id;
+    loop {
+        let Some(parent) = current.parent() else {
+            return false;
+        };
+        match parent.kind() {
+            "function_call" | "multioutput_variable" => current = parent,
+            "field_expression" if parent.child(0).is_some_and(|c| c.id() == current.id()) => {
+                current = parent
+            }
+            "assignment" => {
+                return parent
+                    .child_by_field_name("left")
+                    .is_some_and(|l| l.id() == current.id())
+            }
+            _ => return false,
+        }
     }
 }
 
@@ -1327,18 +1552,12 @@ pub(crate) fn collect_global_use_diagnostics<'a>(
         if !globals.contains(&name) {
             continue;
         }
+        if skip_writes && is_write_target(id) {
+            continue;
+        }
         if let Some(parent) = id.parent() {
             match parent.kind() {
                 "global_operator" | "persistent_operator" => continue,
-                "assignment"
-                    if skip_writes
-                        && parent
-                            .child_by_field_name("left")
-                            .map(|l| l.id() == id.id())
-                            .unwrap_or(false) =>
-                {
-                    continue;
-                }
                 "field_expression"
                     if parent
                         .child_by_field_name("field")
@@ -1350,15 +1569,16 @@ pub(crate) fn collect_global_use_diagnostics<'a>(
                 _ => {}
             }
         }
-        if !seen.insert(name.clone()) {
+        // MATLAB reports PFGV once per variable, but SPGV at every read (probed: sg06).
+        if rule_id == "PFGV" && !seen.insert(name.clone()) {
             continue;
         }
         let pos = id.start_position();
         let message = if rule_id == "PFGV" {
-            format!("Avoid using GLOBAL variable {name} in a PARFOR loop.")
+            format!("Avoid using GLOBAL variable '{name}' in a PARFOR loop.")
         } else {
             format!(
-                "Using the GLOBAL or PERSISTENT variable {name} in an SPMD block might fail because it is accessed on a worker machine."
+                "Using the GLOBAL or PERSISTENT variable '{name}' in an SPMD block might fail because it is accessed on a worker machine."
             )
         };
         diagnostics.push(Diagnostic {
@@ -1374,10 +1594,206 @@ pub(crate) fn collect_global_use_diagnostics<'a>(
     diagnostics
 }
 
+/// The line of the function that encloses a `parfor` loop (1 for a script).
+fn enclosing_function_line(parfor: Node) -> usize {
+    let mut current = parfor.parent();
+    while let Some(p) = current {
+        if p.kind() == "function_definition" {
+            return p.start_position().row + 1;
+        }
+        current = p.parent();
+    }
+    1
+}
+
+/// Where a use of an identifier writes it: `Some(start of the assignment)` when the
+/// identifier is in the left side of an assignment, `None` for a read. A read on the
+/// right of the same assignment is not before its write (probed: `v(i) = v(i) + 1` is
+/// PFOUS), while a read in an earlier statement is.
+fn write_key(node: Node) -> Option<usize> {
+    let mut current = node;
+    while let Some(p) = current.parent() {
+        match p.kind() {
+            "assignment" => {
+                let left = p.child_by_field_name("left")?;
+                let in_left =
+                    left.start_byte() <= node.start_byte() && node.end_byte() <= left.end_byte();
+                return in_left.then(|| p.start_byte());
+            }
+            "block" | "source_file" | "function_definition" => return None,
+            _ => current = p,
+        }
+    }
+    None
+}
+
+/// Whether the right side of the assignment that holds `lhs` reads `name` (a reduction such
+/// as `y = y + j` is not a temporary output, probed on a nested parfor).
+fn reads_itself(lhs: Node, name: &str, source: &str) -> bool {
+    lhs.parent()
+        .and_then(|a| a.child_by_field_name("right"))
+        .is_some_and(|r| {
+            node_text(r, source)
+                .split(|c: char| !(c.is_alphanumeric() || c == '_'))
+                .any(|t| t == name)
+        })
+}
+
+/// The base variable of a struct-array field write `s(i).f = ...` (probed: PFOUS for `s`).
+fn collect_struct_array_field_writes<'a>(node: Node<'a>, source: &str) -> Vec<(String, Node<'a>)> {
+    let mut out = Vec::new();
+    let mut stack = vec![node];
+    while let Some(n) = stack.pop() {
+        if n.kind() == "assignment" {
+            let left = n.child_by_field_name("left");
+            if let Some(base) = left
+                .filter(|l| l.kind() == "field_expression")
+                .and_then(|l| l.named_child(0))
+                .filter(|b| b.kind() == "function_call")
+                .and_then(|b| b.named_child(0))
+                .filter(|b| b.kind() == "identifier")
+            {
+                out.push((node_text(base, source).to_string(), base));
+            }
+        }
+        let mut c = n.walk();
+        stack.extend(n.children(&mut c));
+    }
+    out
+}
+
+/// Whether a read of `name` in the parfor body comes before its first write (PFOUS: a
+/// variable read before it is set is used, not only an output). The read on the right of
+/// `v(i) = v(i) + 1` counts as before the write (probed: MATLAB is silent).
+fn read_before_write_stmt(body: Node, name: &str, source: &str) -> bool {
+    let mut first_read: Option<usize> = None;
+    let mut first_write: Option<usize> = None;
+    let mut stack = vec![body];
+    while let Some(n) = stack.pop() {
+        if n.kind() == "identifier" && node_text(n, source) == name {
+            match write_key(n) {
+                Some(key) => first_write = Some(first_write.map_or(key, |f| f.min(key))),
+                None => {
+                    first_read = Some(first_read.map_or(n.start_byte(), |f| f.min(n.start_byte())))
+                }
+            }
+        }
+        let mut c = n.walk();
+        stack.extend(n.children(&mut c));
+    }
+    matches!((first_read, first_write), (Some(r), Some(w)) if r < w)
+}
+
+/// Whether `name` is cleared (`clear name`) before the parfor loop starts at `before` and
+/// not assigned again between the clear and the loop. MATLAB then reports PFIIN, not a
+/// use before definition (probed: `k = 1; clear k; parfor ... r(i) = k` and `clear k(;)`).
+/// `clear all` is silent (probed).
+pub(crate) fn cleared_before_parfor(root: Node, source: &str, name: &str, before: usize) -> bool {
+    let mut last_clear: Option<usize> = None;
+    let mut last_def: Option<usize> = None;
+    let mut stack = vec![root];
+    while let Some(n) = stack.pop() {
+        if n.start_byte() < before && n.end_byte() <= before {
+            match n.kind() {
+                "function_call" | "command"
+                    if check_parfor_reduction::is_clear_of(n, name, source) =>
+                {
+                    last_clear = Some(last_clear.map_or(n.start_byte(), |c| c.max(n.start_byte())));
+                }
+                "assignment" => {
+                    let whole = n
+                        .child_by_field_name("left")
+                        .is_some_and(|l| l.kind() == "identifier" && node_text(l, source) == name);
+                    if whole {
+                        last_def = Some(last_def.map_or(n.start_byte(), |d| d.max(n.start_byte())));
+                    }
+                }
+                _ => {}
+            }
+        }
+        let mut c = n.walk();
+        stack.extend(n.children(&mut c));
+    }
+    last_clear.is_some_and(|c| last_def.is_none_or(|d| c > d))
+}
+
+/// Whether a use of `name` at `use_start` is in a parfor body after the variable was cleared
+/// before that loop (such a use is PFIIN, so the unset-variable engine stays silent).
+pub(crate) fn is_cleared_parfor_input(
+    root: Node,
+    source: &str,
+    name: &str,
+    use_start: usize,
+) -> bool {
+    let Some(mut current) = root.descendant_for_byte_range(use_start, use_start + 1) else {
+        return false;
+    };
+    while let Some(p) = current.parent() {
+        if p.kind() == "for_statement" && node_text(p, source).trim_start().starts_with("parfor") {
+            return cleared_before_parfor(root, source, name, p.start_byte());
+        }
+        current = p;
+    }
+    false
+}
+
 /// Collect plain-identifier reads inside a parfor body (for PFIIN).
 ///
 /// Function-call names, assignment LHS writes, field names, and declarations
 /// are excluded; only genuine variable reads are returned, deduplicated by name.
+/// Whether `name` is a target of a multi-output assignment in the body (`[name, ~] = ...`).
+fn assigned_as_target(body: Node, name: &str, source: &str) -> bool {
+    let mut identifiers = Vec::new();
+    collect_nodes_of_kind(body, "identifier", &mut identifiers);
+    identifiers
+        .iter()
+        .any(|id| node_text(*id, source) == name && is_assignment_target(*id))
+}
+
+/// Whether an identifier is a target of an assignment, as in `[i, j] = deal(...)`
+/// (not an index argument: `v(k) = 1` reads `k`).
+fn is_assignment_target(id: Node) -> bool {
+    let mut prev = id;
+    let mut current = id.parent();
+    while let Some(p) = current {
+        match p.kind() {
+            "assignment" => {
+                // A multi-output target may not carry the `left` field: then it is the
+                // first named child.
+                let left = p.child_by_field_name("left").or_else(|| p.named_child(0));
+                return left.is_some_and(|l| l.id() == prev.id());
+            }
+            "arguments" | "function_call" | "cell_index" | "block" | "function_definition" => {
+                return false;
+            }
+            _ => {}
+        }
+        prev = p;
+        current = p.parent();
+    }
+    false
+}
+
+/// Whether `name` is a parameter of an anonymous function that contains `id`
+/// (`@(i, j) i + j`: the parameters shadow the loop's variables).
+fn is_lambda_parameter(id: Node, name: &str, source: &str) -> bool {
+    let mut current = id.parent();
+    while let Some(p) = current {
+        if p.kind() == "lambda" {
+            let text = node_text(p, source);
+            let params = text
+                .strip_prefix("@(")
+                .and_then(|rest| rest.split(')').next())
+                .unwrap_or("");
+            if params.split(',').any(|param| param.trim() == name) {
+                return true;
+            }
+        }
+        current = p.parent();
+    }
+    false
+}
+
 pub(crate) fn collect_parfor_body_reads<'a>(
     node: Node<'a>,
     source: &str,
@@ -1389,19 +1805,17 @@ pub(crate) fn collect_parfor_body_reads<'a>(
     collect_nodes_of_kind(node, "identifier", &mut identifiers);
     for id in identifiers {
         let name = node_text(id, source).to_string();
-        if skip.contains(&name) {
+        if skip.contains(&name)
+            || is_assignment_target(id)
+            || is_lambda_parameter(id, &name, source)
+        {
             continue;
         }
         if let Some(parent) = id.parent() {
             match parent.kind() {
-                "function_call"
-                    if parent
-                        .child_by_field_name("name")
-                        .map(|n| n.id() == id.id())
-                        .unwrap_or(false) =>
-                {
-                    continue;
-                }
+                // An indexed read `v(k)` names the variable `v` (probed: PFIIN for
+                // `a(k) = v(k)` with `v` set after the loop); the caller keeps only names
+                // that are variables of the function.
                 "assignment"
                     if parent
                         .child_by_field_name("left")
@@ -1430,6 +1844,65 @@ pub(crate) fn collect_parfor_body_reads<'a>(
     out
 }
 
+/// Whether the first access to `name` after byte offset `after` is a read.
+///
+/// A plain or indexed assignment that comes before the first read (`x = 5`,
+/// `x(2) = 1`) replaces the value, so the loop's result is not used.
+pub(crate) fn first_access_after_is_read(
+    sym: &SymbolTable,
+    tree: &tree_sitter::Tree,
+    source: &str,
+    name: &str,
+    after: usize,
+) -> bool {
+    let first_read = sym
+        .scopes
+        .iter()
+        .flat_map(|s| s.uses.iter())
+        .filter(|u| u.name == name && u.byte_range.start >= after)
+        .map(|u| u.byte_range.start)
+        .min();
+    let Some(first_read) = first_read else {
+        return false;
+    };
+    let root = tree.root_node();
+    !collect_simple_lhs_assignments(root, source)
+        .into_iter()
+        .chain(collect_indexed_lhs_assignments(root, source))
+        .any(|(written, node)| {
+            written == name && node.start_byte() >= after && node.start_byte() <= first_read
+        })
+}
+
+/// Whether the loop body reads `name` before the first assignment to it takes effect.
+///
+/// An accumulator such as `q = q + 1` reads the value from before the loop, which
+/// MATLAB does not report as a temporary variable (probed).
+pub(crate) fn read_before_write_in_body(
+    sym: &SymbolTable,
+    body: Node,
+    source: &str,
+    name: &str,
+) -> bool {
+    let first_write = collect_simple_lhs_assignments(body, source)
+        .into_iter()
+        .filter(|(written, _)| written == name)
+        .map(|(_, lhs)| lhs)
+        .min_by_key(|lhs| lhs.start_byte());
+    let Some(lhs) = first_write else {
+        return false;
+    };
+    let write_end = lhs
+        .parent()
+        .map_or(lhs.end_byte(), |assign| assign.end_byte());
+    sym.scopes.iter().flat_map(|s| s.uses.iter()).any(|u| {
+        u.name == name
+            && u.byte_range.start >= body.start_byte()
+            && u.byte_range.start < write_end
+            && u.byte_range.start != lhs.start_byte()
+    })
+}
+
 /// Collect simple-identifier LHS assignments inside a node (for PFOUS/PFTUSW).
 pub(crate) fn collect_simple_lhs_assignments<'a>(
     node: Node<'a>,
@@ -1448,11 +1921,119 @@ pub(crate) fn collect_simple_lhs_assignments<'a>(
     out
 }
 
+/// Field stores `v.f = ...` inside a node, as (variable name, `v` node). A
+/// store creates or changes `v`, so a later bare `v` statement is a variable.
+pub(crate) fn collect_field_lhs_assignments<'a>(
+    node: Node<'a>,
+    source: &str,
+) -> Vec<(String, Node<'a>)> {
+    let mut out = Vec::new();
+    let mut assignments = Vec::new();
+    collect_nodes_of_kind(node, "assignment", &mut assignments);
+    for assign in assignments {
+        if let Some(lhs) = assign.child_by_field_name("left") {
+            if lhs.kind() == "field_expression" {
+                if let Some(base) = lhs.named_child(0) {
+                    if base.kind() == "identifier" {
+                        out.push((node_text(base, source).to_string(), base));
+                    }
+                }
+            }
+        }
+    }
+    out
+}
+
+/// The last plain assignment `name = ...` inside `root` that starts at or after
+/// `from` and ends before `before` (the most recent whole-variable definition).
+pub(crate) fn last_plain_assignment_before<'a>(
+    root: Node<'a>,
+    name: &str,
+    from: usize,
+    before: usize,
+    source: &str,
+) -> Option<Node<'a>> {
+    let mut assignments = Vec::new();
+    collect_nodes_of_kind(root, "assignment", &mut assignments);
+    assignments
+        .into_iter()
+        .filter(|assign| assign.start_byte() >= from && assign.end_byte() <= before)
+        .filter(|assign| {
+            assign
+                .child_by_field_name("left")
+                .is_some_and(|lhs| lhs.kind() == "identifier" && node_text(lhs, source) == name)
+        })
+        .max_by_key(|assign| assign.end_byte())
+}
+
+/// Indexed assignments `v(...) = ...` inside a node, as (variable name, `v` node).
+pub(crate) fn collect_indexed_lhs_assignments<'a>(
+    node: Node<'a>,
+    source: &str,
+) -> Vec<(String, Node<'a>)> {
+    let mut out = Vec::new();
+    let mut assignments = Vec::new();
+    collect_nodes_of_kind(node, "assignment", &mut assignments);
+    for assign in assignments {
+        if let Some(lhs) = assign.child_by_field_name("left") {
+            if lhs.kind() == "function_call" {
+                if let Some(base) = lhs.named_child(0) {
+                    if base.kind() == "identifier" {
+                        out.push((node_text(base, source).to_string(), base));
+                    }
+                }
+            }
+        }
+    }
+    out
+}
+
 /// Check whether a variable is assigned anywhere inside a node.
 pub(crate) fn is_assigned_in_body(node: Node, name: &str, source: &str) -> bool {
     collect_simple_lhs_assignments(node, source)
         .iter()
         .any(|(n, _)| n == name)
+}
+
+/// Whether a `for` loop inside `node` iterates over `name`, which then counts as
+/// assigned in the body.
+pub(crate) fn is_for_iterator_in(node: Node, name: &str, source: &str) -> bool {
+    let mut loops = Vec::new();
+    collect_nodes_of_kind(node, "for_statement", &mut loops);
+    loops.into_iter().any(|l| {
+        find_child_of_kind(l, "iterator")
+            .and_then(first_named_child)
+            .is_some_and(|v| v.kind() == "identifier" && node_text(v, source) == name)
+    })
+}
+
+/// Whether `name` is read as a whole value inside `node`: an identifier that is not
+/// the base of an index or call, not a field base, and not an assignment target.
+pub(crate) fn has_whole_read(node: Node, name: &str, source: &str) -> bool {
+    let mut stack = vec![node];
+    while let Some(n) = stack.pop() {
+        if n.kind() == "identifier" && node_text(n, source) == name && is_whole_value_use(n) {
+            return true;
+        }
+        let mut cursor = n.walk();
+        stack.extend(n.children(&mut cursor));
+    }
+    false
+}
+
+/// Whether identifier `n` is used as a whole value (see [`has_whole_read`]).
+fn is_whole_value_use(n: Node) -> bool {
+    let Some(p) = n.parent() else {
+        return true;
+    };
+    match p.kind() {
+        "function_call" => p.named_child(0).is_none_or(|c| c.id() != n.id()),
+        "field_expression" => false,
+        "assignment" => p
+            .child_by_field_name("left")
+            .is_none_or(|l| l.id() != n.id()),
+        _ => true,
+    }
 }
 
 /// Check whether a variable is defined before a parfor loop starts.
@@ -1477,17 +2058,42 @@ pub(crate) fn is_defined_before_parfor(sym: &SymbolTable, name: &str, parfor_sta
 ///
 /// When `exclude_loops` is true, uses inside any enclosing `for_statement`
 /// are ignored (the variable is re-bound by a subsequent loop).
+/// Whether a use at `range` is inside the arguments of a `save` call.
+fn is_save_argument(tree: &tree_sitter::Tree, range: std::ops::Range<usize>, source: &str) -> bool {
+    let Some(mut n) = tree
+        .root_node()
+        .descendant_for_byte_range(range.start, range.end)
+    else {
+        return false;
+    };
+    while let Some(p) = n.parent() {
+        if p.kind() == "function_call" {
+            return p
+                .child_by_field_name("name")
+                .is_some_and(|c| &source[c.byte_range()] == "save");
+        }
+        n = p;
+    }
+    false
+}
+
 pub(crate) fn uses_after_parfor(
     sym: &SymbolTable,
     name: &str,
     after: usize,
     tree: &tree_sitter::Tree,
+    source: &str,
     exclude_loops: bool,
 ) -> Vec<usize> {
     let mut lines = Vec::new();
     for scope in &sym.scopes {
         for u in &scope.uses {
             if u.name != name || u.byte_range.start < after {
+                continue;
+            }
+            // MATLAB does not count a variable named in `save` as a use after the loop
+            // (probed: PFOUS and PFTUSW are still reported for `save(f, 'a')`).
+            if is_save_argument(tree, u.byte_range.clone(), source) {
                 continue;
             }
             if exclude_loops {
@@ -1611,11 +2217,11 @@ pub(crate) fn collect_loop_assignments(
     }
     if node.kind() == "assignment" {
         if let Some(left) = node.child_by_field_name("left") {
-            if left.kind() == "identifier" && node_text(left, source) == var_name {
+            if assigns_loop_variable(left, var_name, source) {
                 let pos = node.start_position();
                 diagnostics.push(Diagnostic {
                     rule_id: "FXSETA",
-                    message: format!("Loop index {var_name} is changed inside of a FOR loop."),
+                    message: format!("Assigning a value to a loop variable within the loop statements is confusing and may not have an effect. The value of '{var_name}' will be reset on the next iteration of the loop."),
                     severity: Severity::Warning,
                     byte_range: node.start_byte()..node.end_byte(),
                     line: pos.row + 1,
@@ -1631,28 +2237,23 @@ pub(crate) fn collect_loop_assignments(
     }
 }
 
-/// Find the `attribute` node with the given name inside a node that has an
-/// `attributes` child (e.g., `class_definition` or a `properties` block).
-pub(crate) fn find_attribute_node<'a>(
-    node: Node<'a>,
-    name: &str,
-    source: &'a str,
-) -> Option<Node<'a>> {
-    let attrs = find_child_of_kind(node, "attributes")?;
-    let count = attrs.child_count();
-    for i in 0..count {
-        let child = attrs.child(i)?;
-        if child.kind() != "attribute" {
-            continue;
+/// Whether an assignment target writes the loop variable: `k = ...`, the
+/// indexed `k(2) = ...` and an element of `[k, j] = ...` (probed). A field
+/// `s.k = ...` writes a different variable, and `[a(k), b] = ...` only reads `k`.
+fn assigns_loop_variable(left: Node, var_name: &str, source: &str) -> bool {
+    match left.kind() {
+        "identifier" => node_text(left, source) == var_name,
+        "function_call" => get_function_call_name(left, source) == Some(var_name),
+        // Each element is a target on its own: `[a(k), b] = f()` reads `k` as an index.
+        "matrix" | "multioutput_variable" => {
+            let mut cursor = left.walk();
+            let found = left
+                .named_children(&mut cursor)
+                .any(|el| assigns_loop_variable(el, var_name, source));
+            found
         }
-        if find_child_of_kind(child, "identifier")
-            .map(|id| node_text(id, source) == name)
-            .unwrap_or(false)
-        {
-            return Some(child);
-        }
+        _ => false,
     }
-    None
 }
 
 /// Compute a diagnostic position for the `index`-th `properties` block of a
@@ -1696,16 +2297,35 @@ pub(crate) fn find_nth_properties_block<'a>(
 }
 
 /// Walk a class definition and emit MCCPE diagnostics for `function_call`
-/// nodes whose name matches a property or event name.
+/// nodes whose name matches a property or event name. A name the function
+/// takes as an input or assigns is a local variable there, not the property
+/// (plan 6.2: `Time(idx, 1) = v` and a test-method parameter).
 pub(crate) fn collect_property_event_calls(
     node: Node,
     source: &str,
     names: &std::collections::HashSet<String>,
     diagnostics: &mut Vec<Diagnostic>,
 ) {
+    collect_property_event_calls_in(node, source, names, &Default::default(), diagnostics);
+}
+
+fn collect_property_event_calls_in(
+    node: Node,
+    source: &str,
+    names: &std::collections::HashSet<String>,
+    locals: &std::collections::HashSet<String>,
+    diagnostics: &mut Vec<Diagnostic>,
+) {
+    let scoped;
+    let locals = if node.kind() == "function_definition" {
+        scoped = function_local_names(node, source);
+        &scoped
+    } else {
+        locals
+    };
     if node.kind() == "function_call" {
         if let Some(name) = get_function_call_name(node, source) {
-            if names.contains(name) {
+            if names.contains(name) && !locals.contains(name) {
                 let pos = node.start_position();
                 diagnostics.push(Diagnostic {
                     rule_id: "MCCPE",
@@ -1723,8 +2343,57 @@ pub(crate) fn collect_property_event_calls(
     }
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
-        collect_property_event_calls(child, source, names, diagnostics);
+        collect_property_event_calls_in(child, source, names, locals, diagnostics);
     }
+}
+
+/// The names a function takes as inputs or outputs, or assigns (including the
+/// base of `x(i) = v` and the elements of `[a, b] = f()`).
+fn function_local_names(function: Node, source: &str) -> std::collections::HashSet<String> {
+    let mut names = std::collections::HashSet::new();
+    let mut cursor = function.walk();
+    for child in function.children(&mut cursor) {
+        if matches!(child.kind(), "function_arguments" | "function_output") {
+            let mut ids = Vec::new();
+            collect_nodes_of_kind(child, "identifier", &mut ids);
+            names.extend(ids.iter().map(|id| node_text(*id, source).to_string()));
+        }
+    }
+    let mut assignments = Vec::new();
+    collect_nodes_of_kind(function, "assignment", &mut assignments);
+    for assignment in assignments {
+        let Some(left) = assignment.child_by_field_name("left") else {
+            continue;
+        };
+        match left.kind() {
+            "identifier" => {
+                names.insert(node_text(left, source).to_string());
+            }
+            "function_call" => {
+                if let Some(name) = get_function_call_name(left, source) {
+                    names.insert(name.to_string());
+                }
+            }
+            "matrix" | "multioutput_variable" => {
+                let mut c = left.walk();
+                for el in left.named_children(&mut c) {
+                    match el.kind() {
+                        "identifier" => {
+                            names.insert(node_text(el, source).to_string());
+                        }
+                        "function_call" => {
+                            if let Some(name) = get_function_call_name(el, source) {
+                                names.insert(name.to_string());
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    names
 }
 
 #[cfg(test)]
@@ -1737,6 +2406,7 @@ pub(crate) fn parse(source: &str) -> tree_sitter::Tree {
     parser
         .set_language(&tree_sitter_matlab::LANGUAGE.into())
         .expect("failed to load tree-sitter-matlab");
+    malt_core::note_parse();
     parser.parse(source, None).expect("parse failed")
 }
 
@@ -1805,6 +2475,7 @@ mod tests {
                 node: n,
                 source,
                 file_path: std::path::Path::new("test.m"),
+                ancestors: None,
             };
             ids.extend(eng.check(&ctx).iter().map(|d| d.rule_id));
             let mut cursor = n.walk();
@@ -1816,6 +2487,7 @@ mod tests {
             tree,
             source,
             file_path: std::path::Path::new("test.m"),
+            project: None,
         };
         ids.extend(eng.check_file(&fc).iter().map(|d| d.rule_id));
         ids
@@ -1895,6 +2567,48 @@ mod tests {
     }
 
     #[test]
+    fn test_never_emitted_ids_off_under_mathworks() {
+        // Probed: MATLAB reports none of these forms by default (GTARG/LTARG with
+        // a local function and builtins, SIMPT for an `import` after other code,
+        // Each sample fires under `all` and is silent under `mathworks`.
+        use crate::test_util::{has_id, lint_file, lint_nodes};
+        let cases = [
+            (
+                "GTARG",
+                "function f()\n helper(1,2,3);\nend\nfunction r = helper(a)\n r = a;\nend\n",
+            ),
+            (
+                "LTARG",
+                "function f()\n y = helper();\nend\nfunction r = helper(a)\n r = a;\nend\n",
+            ),
+            ("SIMPT", "function f()\n x = 1;\n import a.b.*\nend\n"),
+        ];
+        let engine_for = |preset: &str| {
+            GoodPracticesEngine::from_config(
+                &Config::from_toml(&format!("[lint]\npreset = \"{preset}\"\n")).unwrap(),
+            )
+        };
+        let all = engine_for("all");
+        let mathworks = engine_for("mathworks");
+        for (id, source) in cases {
+            let on_all = [lint_nodes(&*all, source), lint_file(&*all, source)].concat();
+            let on_mathworks = [
+                lint_nodes(&*mathworks, source),
+                lint_file(&*mathworks, source),
+            ]
+            .concat();
+            assert!(
+                has_id(&on_all, id),
+                "{id} should fire under all: {on_all:?}"
+            );
+            assert!(
+                !has_id(&on_mathworks, id),
+                "{id} should be off under mathworks: {on_mathworks:?}"
+            );
+        }
+    }
+
+    #[test]
     fn test_g5_checks_respect_disabled_checks() {
         let eng = GoodPracticesEngine {
             config: GoodPracticesConfig {
@@ -1936,8 +2650,7 @@ mod tests {
 
     #[test]
     fn test_g3_checks_fire_through_dispatch() {
-        let source =
-            "if isa(x,'double') == true\nend\nif isa(x,'double') ~= true\nend\na = 1:2:3:4;\n";
+        let source = "if any(x) == 1\nend\nif any(x) == 0\nend\na = 1:2:3:4;\n";
         let tree = parse(source);
         let eng = engine();
 
@@ -1973,7 +2686,7 @@ mod tests {
 
     #[test]
     fn test_g1_node_checks_fire_through_dispatch() {
-        let source = "classdef Foo\n    methods\n        function z = compute(obj, x)\n            z = x * x';\n        end\n    end\nend\ny = zeros(numel(x));\n";
+        let source = "classdef Foo\n    methods\n        function z = compute(obj, x)\n            z = x * x * x';\n        end\n    end\nend\ny = zeros(numel(x));\n";
         let tree = parse(source);
         let eng = engine();
 
@@ -1981,6 +2694,34 @@ mod tests {
         collect_diagnostics(&eng, tree.root_node(), source, &mut ids);
         assert!(ids.iter().any(|id| id == &"MHERM"), "got: {ids:?}");
         assert!(ids.iter().any(|id| id == &"MNUML"), "got: {ids:?}");
+    }
+
+    #[test]
+    fn pfous_silent_when_the_function_returns_the_sliced_output() {
+        // Probe f1 (a_parfor_sim:19): `g` is an output, so it is read after the loop.
+        let source = "function [t, g] = f(n)\ng = zeros(n, 1);\nt = 0;\nparfor k = 1:n\n    g(k) = k;\n    t = t + k;\nend\nend\n";
+        let tree = parse(source);
+        let eng = engine();
+        assert!(g2_file_ids_with(&eng, &tree, source, "PFOUS").is_empty());
+    }
+
+    #[test]
+    fn pfous_reported_when_the_sliced_output_is_not_returned() {
+        // Probe f2: `g` is not an output and not read after the loop.
+        let source = "function t = f(n)\ng = zeros(n, 1);\nt = 0;\nparfor k = 1:n\n    g(k) = k;\n    t = t + k;\nend\nend\n";
+        let tree = parse(source);
+        let eng = engine();
+        assert_eq!(g2_file_ids_with(&eng, &tree, source, "PFOUS").len(), 1);
+    }
+
+    #[test]
+    fn pfous_silent_in_a_script_with_a_function_after_it() {
+        // Probe s2 (c_spmd_parfor:15): the file opens with a statement, so it is a
+        // script, and MATLAB reports no PFOUS for its sliced array.
+        let source = "n = 5;\nresults = zeros(1, n);\nparfor i = 1:n\n    results(i) = i;\nend\nfunction q = sq(v)\nq = v.^2;\nend\n";
+        let tree = parse(source);
+        let eng = engine();
+        assert!(g2_file_ids_with(&eng, &tree, source, "PFOUS").is_empty());
     }
 
     #[test]
@@ -1992,6 +2733,7 @@ mod tests {
             tree: &tree,
             source,
             file_path: std::path::Path::new("test.m"),
+            project: None,
         };
         let ids: Vec<&str> = eng.check_file(&ctx).iter().map(|d| d.rule_id).collect();
         for expected in ["MCPO", "MCSAC", "MOBSRV", "MCCPI", "MDEPIN", "MGMD"] {
@@ -2014,6 +2756,7 @@ mod tests {
             tree: &tree,
             source,
             file_path: std::path::Path::new("test.m"),
+            project: None,
         };
         ids.extend(eng.check_file(&ctx).iter().map(|d| d.rule_id));
 
@@ -2032,7 +2775,7 @@ mod tests {
     fn test_g4_checks_fire_through_dispatch() {
         let source = "for i = 1:10\n    i = 5;\nend\n\
 function f()\n    x = 1;\n    import foo.bar\nend\n\
-eval(x + y);\nonCleanup(@f);\n[~] = onCleanup(@f);\nc = computer('arch');\nfprintf('%d %d', x);\n";
+z = f(eval(x + y));\nonCleanup(@f);\n[~] = onCleanup(@f);\nc = computer('arch');\nfprintf('%d %d');\nif true\n    global q\nend\n";
         let tree = parse(source);
         let eng = engine();
 
@@ -2100,8 +2843,78 @@ eval(x + y);\nonCleanup(@f);\n[~] = onCleanup(@f);\nc = computer('arch');\nfprin
     }
 
     #[test]
+    fn test_pfous_and_pfiin_silent_in_script() {
+        // Script-level parfor loops are not reported for these checks (fixtures ls-c__pf1, ls-c__Sp).
+        let source = "parfor i = 1:10\n    q(i) = i;\n    r = z + i;\nend\n";
+        let tree = parse(source);
+        let eng = engine();
+        assert!(g2_file_ids_with(&eng, &tree, source, "PFOUS").is_empty());
+        assert!(g2_file_ids_with(&eng, &tree, source, "PFIIN").is_empty());
+    }
+
+    #[test]
+    fn test_pfiin_silent_on_builtin_or_unassigned_name() {
+        // Probed (pfiin_01, pfiin_10): a name that is never a variable of the function
+        // (here a builtin) is not an input variable.
+        let source = "function f()\nparfor i = 1:10\n    q = pi + i;\nend\nend\n";
+        let tree = parse(source);
+        let eng = engine();
+        assert!(g2_file_ids_with(&eng, &tree, source, "PFIIN").is_empty());
+    }
+
+    #[test]
+    fn test_pfiin_silent_when_loop_in_body_iterates_name() {
+        // Probed (pfbrk_10): a `for` loop in the body assigns its iterator.
+        let source = "function f()\nparfor i = 1:10\n    for k = 1:2\n        if k > 1\n            a(i) = k;\n        end\n    end\nend\nk = 1;\nend\n";
+        let tree = parse(source);
+        let eng = engine();
+        assert!(g2_file_ids_with(&eng, &tree, source, "PFIIN").is_empty());
+    }
+
+    #[test]
+    fn test_pfous_fires_on_overwrite_after_loop_even_for_output() {
+        // Probed (po02, po12, t06, t16): an overwrite after the loop ends the value, even
+        // for a function output. A returned sliced output with no later write is used (t03).
+        let overwritten = "function a = f(n)\na = zeros(1, n);\nparfor i = 1:n\n    a(i) = i;\nend\na(1) = 0;\nend\n";
+        let tree = parse(overwritten);
+        let eng = engine();
+        assert_eq!(g2_file_ids_with(&eng, &tree, overwritten, "PFOUS").len(), 1);
+        let canonical =
+            "function a = f(n)\na = zeros(1, n);\nparfor i = 1:n\n    a(i) = i;\nend\nend\n";
+        let tree = parse(canonical);
+        assert!(g2_file_ids_with(&eng, &tree, canonical, "PFOUS").is_empty());
+        // Probed (po15): `clear a;` in function syntax ends the value.
+        let cleared = "function a = f(n)\na = zeros(1, n);\nparfor i = 1:n\n    a(i) = i;\nend\nclear a;\nend\n";
+        let tree = parse(cleared);
+        assert_eq!(g2_file_ids_with(&eng, &tree, cleared, "PFOUS").len(), 1);
+    }
+
+    #[test]
+    fn test_pfiin_silent_on_lambda_parameter_and_multi_output_target() {
+        // Probed (pu15, pu16, pu18): a lambda parameter and a target of `[i2, ~] = ...` are
+        // not input variables.
+        let source = "function v = f(n)\nv = zeros(1, n);\nparfor i = 1:n\n    g = @(x) x + i;\n    [i2, ~] = deal(i, 2);\n    v(i) = g(1) + i2;\nend\nend\n";
+        let tree = parse(source);
+        let eng = engine();
+        assert!(g2_file_ids_with(&eng, &tree, source, "PFIIN").is_empty());
+    }
+
+    #[test]
+    fn test_pfous_reports_first_write_once_and_silent_for_temporary() {
+        // Probed (pfbrk_01 style, pfslw_18): one PFOUS per variable, at its first write.
+        let source = "function f()\nparfor i = 1:10\n    a(i) = i;\n    a(i) = 2;\nend\nend\n";
+        let tree = parse(source);
+        let eng = engine();
+        assert_eq!(g2_file_ids_with(&eng, &tree, source, "PFOUS").len(), 1);
+        // Probed (pfslo_04): a temporary assigned as a whole first is not a sliced output.
+        let temp = "function f()\nparfor i = 1:10\n    q = zeros(3, 1);\n    q(i) = 1;\nend\nend\n";
+        let tree = parse(temp);
+        assert!(g2_file_ids_with(&eng, &tree, temp, "PFOUS").is_empty());
+    }
+
+    #[test]
     fn test_pfiin_fires_on_uninitialized_input() {
-        let source = "parfor i = 1:10\n    q = z + i;\nend\n";
+        let source = "function f()\nparfor i = 1:10\n    q = z + i;\nend\nz = 1;\nend\n";
         let tree = parse(source);
         let eng = engine();
 
@@ -2130,7 +2943,8 @@ eval(x + y);\nonCleanup(@f);\n[~] = onCleanup(@f);\nc = computer('arch');\nfprin
 
     #[test]
     fn test_pfous_fires_on_output_not_used_after() {
-        let source = "parfor i = 1:10\n    q = i;\nend\n";
+        // Sliced output: `q(i) = i` is reported, a plain `q = i` is not (probes pfo1, pfo5).
+        let source = "function f()\nparfor i = 1:10\n    q(i) = i;\nend\nend\n";
         let tree = parse(source);
         let eng = engine();
 
@@ -2155,7 +2969,8 @@ eval(x + y);\nonCleanup(@f);\n[~] = onCleanup(@f);\nc = computer('arch');\nfprin
 
     #[test]
     fn test_pftusw_fires_on_temp_used_after() {
-        let source = "parfor i = 1:10\n    tmp = compute(i);\n    x(i) = tmp;\nend\ndisp(tmp);\n";
+        let source =
+            "tmp = 0;\nparfor i = 1:10\n    tmp = compute(i);\n    x(i) = tmp;\nend\ndisp(tmp);\n";
         let tree = parse(source);
         let eng = engine();
 
@@ -2166,7 +2981,32 @@ eval(x + y);\nonCleanup(@f);\n[~] = onCleanup(@f);\nc = computer('arch');\nfprin
             .into_iter()
             .find(|d| d.rule_id == "PFTUSW")
             .unwrap();
-        assert!(diag.message.contains("on line 5"), "got: {}", diag.message);
+        assert!(diag.message.contains("on line 6"), "got: {}", diag.message);
+    }
+
+    #[test]
+    fn test_pftusw_silent_for_accumulator_read_first() {
+        // Probed: `q = q + 1` reads the pre-loop value first, so MATLAB stays silent.
+        let source = "function f()\nq = 0;\nparfor i = 1:3\n    q = q + 1;\nend\ndisp(q);\nend\n";
+        let tree = parse(source);
+        assert!(g2_file_ids_with(&engine(), &tree, source, "PFTUSW").is_empty());
+    }
+
+    #[test]
+    fn test_pftusw_silent_when_reassigned_before_read() {
+        // Probed: `x = 5` after the loop replaces the loop's value before it is read.
+        let source =
+            "function f()\nx = 0;\nparfor i = 1:3\n    x = i;\nend\nx = 5;\ndisp(x);\nend\n";
+        let tree = parse(source);
+        assert!(g2_file_ids_with(&engine(), &tree, source, "PFTUSW").is_empty());
+    }
+
+    #[test]
+    fn test_pftusw_fires_without_pre_loop_value_is_pftuse() {
+        // Probed: with no value before the loop, MATLAB reports PFTUSE, not PFTUSW.
+        let source = "function f()\nparfor i = 1:3\n    t = i;\nend\ndisp(t);\nend\n";
+        let tree = parse(source);
+        assert!(g2_file_ids_with(&engine(), &tree, source, "PFTUSW").is_empty());
     }
 
     #[test]
@@ -2179,19 +3019,84 @@ eval(x + y);\nonCleanup(@f);\n[~] = onCleanup(@f);\nc = computer('arch');\nfprin
     }
 
     #[test]
-    fn test_pfuiwx_fires_on_index_used_after() {
+    fn test_pfous_read_before_write_and_struct_array_field() {
+        // Probed (e_so04, e_so03, e_ou02, e_ou17): a read in an earlier statement uses the
+        // value, while `v(i) = v(i) + 1` is still an output; a field write `s(i).x = i` is
+        // one too, and a read of `s` after the loop uses it.
+        let lines = |source: &str, id: &str| -> Vec<usize> {
+            let tree = parse(source);
+            engine()
+                .check_parfor_file_level(&tree, source)
+                .iter()
+                .filter(|d| d.rule_id == id)
+                .map(|d| d.line)
+                .collect()
+        };
+        let read_first = "function f(n)\nv = zeros(1, n);\nparfor i = 1:n\n    x = v(i);\n    v(i) = x;\nend\nend\n";
+        assert!(lines(read_first, "PFOUS").is_empty());
+        let same_statement =
+            "function f(n)\nv = zeros(1, n);\nparfor i = 1:n\n    v(i) = v(i) + 1;\nend\nend\n";
+        assert_eq!(lines(same_statement, "PFOUS"), vec![4]);
+        let field = "function r = f(n)\nr = zeros(1, n);\ns = struct('x', cell(1, n));\nparfor i = 1:n\n    s(i).x = i;\nend\nend\n";
+        assert_eq!(lines(field, "PFOUS"), vec![5]);
+        let used = "function r = f(n)\nr = zeros(1, n);\ns = struct('x', cell(1, n));\nparfor i = 1:n\n    s(i).x = i;\nend\ndisp(s);\nend\n";
+        assert!(lines(used, "PFOUS").is_empty());
+    }
+
+    #[test]
+    fn test_pfiin_for_input_cleared_before_loop() {
+        // Probed (e_ii01, e_ii06): `clear k` before the loop makes `k` an input, reported
+        // as PFIIN at the read. An assignment after the clear sets it again.
+        let lines = |source: &str| -> Vec<usize> {
+            let tree = parse(source);
+            engine()
+                .check_parfor_file_level(&tree, source)
+                .iter()
+                .filter(|d| d.rule_id == "PFIIN")
+                .map(|d| d.line)
+                .collect()
+        };
+        let cleared = "function r = f(n)\nk = 1;\nclear k;\nr = zeros(1, n);\nparfor i = 1:n\n    r(i) = k;\nend\nend\n";
+        assert_eq!(lines(cleared), vec![6]);
+        let reset = "function r = f(n)\nk = 1;\nclear k;\nk = 3;\nr = zeros(1, n);\nparfor i = 1:n\n    r(i) = k;\nend\nend\n";
+        assert!(lines(reset).is_empty());
+    }
+
+    #[test]
+    fn test_pftusw_for_function_output_assigned_whole() {
+        // Probed (e_tw02, e_tw01): a function output assigned whole in the body is returned
+        // after the loop, so PFTUSW is reported on the assignment, naming the header line.
+        let eng = engine();
+        let whole = "function r = f(n)\nr = zeros(1, n);\nparfor i = 1:n\n    r = i;\nend\nend\n";
+        let tree = parse(whole);
+        let diags = eng.check_parfor_file_level(&tree, whole);
+        let pftusw: Vec<_> = diags.iter().filter(|d| d.rule_id == "PFTUSW").collect();
+        assert_eq!(pftusw.len(), 1, "got: {diags:?}");
+        assert_eq!(pftusw[0].line, 4);
+        assert!(
+            pftusw[0].message.contains("on line 1"),
+            "got: {}",
+            pftusw[0].message
+        );
+        // A sliced write is the output itself, not a temporary.
+        let sliced =
+            "function r = f(n)\nr = zeros(1, n);\nparfor i = 1:n\n    r(i) = i;\nend\nend\n";
+        let tree = parse(sliced);
+        assert!(eng
+            .check_parfor_file_level(&tree, sliced)
+            .iter()
+            .all(|d| d.rule_id != "PFTUSW"));
+    }
+
+    #[test]
+    fn test_pfuiwx_silent_for_read_after_loop() {
+        // Probed (e_ux02, e_ux04, e_tu12): a read of the index after the loop is PFUIXE at
+        // the loop header (bugs engine); MATLAB never reports PFUIXW.
         let source = "parfor i = 1:10\n    x(i) = i;\nend\ndisp(i);\n";
         let tree = parse(source);
         let eng = engine();
 
-        let ids = g2_file_ids_with(&eng, &tree, source, "PFUIXW");
-        assert_eq!(ids.len(), 1);
-        let diag = eng
-            .check_parfor_file_level(&tree, source)
-            .into_iter()
-            .find(|d| d.rule_id == "PFUIXW")
-            .unwrap();
-        assert!(diag.message.contains("on line 4"), "got: {}", diag.message);
+        assert!(g2_file_ids_with(&eng, &tree, source, "PFUIXW").is_empty());
     }
 
     #[test]
@@ -2223,10 +3128,10 @@ eval(x + y);\nonCleanup(@f);\n[~] = onCleanup(@f);\nc = computer('arch');\nfprin
     #[test]
     fn test_g2_must_fire_example() {
         let eng = engine();
-        let source = "parfor i = 1:2:10\n    evalin('base','x');\n    x(i) = i;\nend\nparfor i = 1:10\n    tmp = compute(i);\n    x(i) = tmp;\nend\ndisp(tmp);\nparfor i = 1:10\n    x(i) = i;\nend\ndisp(i);\nspmd\n    d = distributed(zeros(100));\nend\n";
+        let source = "parfor i = 1:2:10\n    evalin('base','x');\n    x(i) = i;\nend\ntmp = 0;\nparfor i = 1:10\n    tmp = compute(i);\n    x(i) = tmp;\nend\ndisp(tmp);\nparfor i = 1:10\n    x(i) = i;\nend\ndisp(i);\nspmd\n    d = distributed(zeros(100));\nend\n";
         let tree = parse(source);
         let ids = g2_collect_ids(&eng, &tree, source);
-        for must in ["PFRNI", "PFEVB", "PFTUSW", "PFUIXW", "DSPMDA"] {
+        for must in ["PFRNI", "PFEVB", "PFTUSW", "DSPMDA"] {
             assert!(ids.contains(&must), "{must} missing from: {ids:?}");
         }
     }
@@ -2237,10 +3142,12 @@ eval(x + y);\nonCleanup(@f);\n[~] = onCleanup(@f);\nc = computer('arch');\nfprin
         let source = "parfor i = 1:10\n    evalin('caller','x');\n    x(i) = i;\nend\ny = zeros(1,10);\nparfor i = 1:10\n    x(i) = y(i);\nend\nd = distributed(zeros(100));\nspmd\n    work_with(d);\nend\n";
         let tree = parse(source);
         let ids = g2_collect_ids(&eng, &tree, source);
+        // PFOUS is not a false positive here: `x(i) = ...` is sliced and never read after
+        // the loop, which MATLAB reports too (probe pfo1). The other G2 IDs must stay silent.
         let g2_fired: Vec<&str> = ids
             .iter()
             .copied()
-            .filter(|id| G2_IDS.contains(id))
+            .filter(|id| G2_IDS.contains(id) && *id != "PFOUS")
             .collect();
         assert!(g2_fired.is_empty(), "unexpected G2 fires: {g2_fired:?}");
     }
@@ -2255,11 +3162,60 @@ eval(x + y);\nonCleanup(@f);\n[~] = onCleanup(@f);\nc = computer('arch');\nfprin
             node,
             source,
             file_path: std::path::Path::new("test.m"),
+            ancestors: None,
         };
         ids.extend(eng.check(&ctx).iter().map(|d| d.rule_id));
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
             collect_diagnostics(eng, child, source, ids);
         }
+    }
+
+    #[test]
+    fn test_pfiin_fires_on_indexed_read_of_later_variable() {
+        // Probed (xcp19, xcv02): `a(k) = v(k)` reads `v`, which is set only after the loop.
+        let source = "function f(n)\na = zeros(1, n);\nparfor k = 1:n\n    a(k) = v(k);\nend\nv = 1:n;\nend\n";
+        let tree = parse(source);
+        assert_eq!(
+            g2_file_ids_with(&engine(), &tree, source, "PFIIN"),
+            vec!["PFIIN"]
+        );
+    }
+
+    #[test]
+    fn test_pfiin_silent_on_indexed_read_of_variable_set_before_loop() {
+        // Probed (xcp19 with `v` set first): an input-like read is silent once `v` has a value.
+        let source = "function f(n)\nv = 1:n;\na = zeros(1, n);\nparfor k = 1:n\n    a(k) = v(k);\nend\nend\n";
+        let tree = parse(source);
+        assert!(g2_file_ids_with(&engine(), &tree, source, "PFIIN").is_empty());
+    }
+
+    #[test]
+    fn test_pftuse_output_without_value_before_loop_reports_function_line() {
+        // Probed (xcp37, xcw02): an output set in the body and returned is PFTUSE at the set,
+        // naming the function's line. A value set before the loop gives PFTUSW (xcp07).
+        let source = "function r = f(n)\nparfor k = 1:n\n    r = k;\nend\nend\n";
+        let tree = parse(source);
+        let diags = engine().check_parfor_file_level(&tree, source);
+        let d = diags
+            .iter()
+            .find(|d| d.rule_id == "PFTUSE")
+            .expect("PFTUSE");
+        assert!(d.message.contains("on line 1"), "got: {}", d.message);
+        assert!(
+            !diags.iter().any(|d| d.rule_id == "PFTUSW"),
+            "got: {diags:?}"
+        );
+        let source = "function r = f(n)\nt = 0;\nparfor k = 1:n\n    t = k;\nend\ndisp(t)\nend\n";
+        let tree = parse(source);
+        let diags = engine().check_parfor_file_level(&tree, source);
+        assert!(
+            diags.iter().any(|d| d.rule_id == "PFTUSW"),
+            "got: {diags:?}"
+        );
+        assert!(
+            !diags.iter().any(|d| d.rule_id == "PFTUSE"),
+            "got: {diags:?}"
+        );
     }
 }

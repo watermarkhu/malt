@@ -1,15 +1,11 @@
 use super::*;
 
 impl GoodPracticesEngine {
-    /// DISPLAY: a function or method named `display` overloads the builtin.
+    /// DISPLAY: a `display` method of a classdef overloads the builtin.
     ///
-    /// # Limitations (heuristic)
-    ///
-    /// This flags any function/method named `display` on the name match alone.
-    /// Overloading `display` for a custom class is a common, legitimate pattern
-    /// (the builtin `display` is dispatched on user objects by design); Code
-    /// Analyzer's actual check is more nuanced. No static analysis verifies
-    /// that the definition actually shadows the builtin for a fundamental type.
+    /// Probed: MATLAB reports the method at its name (`function display(obj)` in
+    /// a classdef, column of the name). A plain function file named `display`
+    /// gives no DISPLAY (gp-a__t7:1).
     pub(crate) fn check_display_override(
         &self,
         tree: &tree_sitter::Tree,
@@ -18,26 +14,42 @@ impl GoodPracticesEngine {
         if !self.is_check_enabled("DISPLAY") {
             return Vec::new();
         }
-
-        let meta = FileMeta::build(tree, source);
         let mut diagnostics = Vec::new();
-
-        for func in meta.functions.iter().chain(meta.local_functions.iter()) {
-            if func.name == "display" {
-                diagnostics.push(Diagnostic {
-                    rule_id: "DISPLAY",
-                    message: "Overloading DISPLAY is not recommended.".to_string(),
-                    severity: Severity::Warning,
-                    byte_range: func.byte_range.clone(),
-                    line: func.line,
-                    column: 1,
-                    fix: None,
-                });
+        let mut stack = vec![tree.root_node()];
+        while let Some(node) = stack.pop() {
+            if node.kind() == "function_definition" && within_classdef(node) {
+                if let Some(name) = node.child_by_field_name("name") {
+                    if node_text(name, source).trim() == "display" {
+                        let pos = name.start_position();
+                        diagnostics.push(Diagnostic {
+                            rule_id: "DISPLAY",
+                            message: "Overloading DISPLAY is not recommended.".to_string(),
+                            severity: Severity::Warning,
+                            byte_range: name.byte_range(),
+                            line: pos.row + 1,
+                            column: pos.column + 1,
+                            fix: None,
+                        });
+                    }
+                }
             }
+            let mut cursor = node.walk();
+            stack.extend(node.children(&mut cursor));
         }
-
         diagnostics
     }
+}
+
+/// Whether `node` lies inside a `classdef` block.
+fn within_classdef(node: Node) -> bool {
+    let mut current = node.parent();
+    while let Some(parent) = current {
+        if parent.kind() == "class_definition" {
+            return true;
+        }
+        current = parent.parent();
+    }
+    false
 }
 
 #[cfg(test)]
@@ -49,7 +61,6 @@ mod tests {
         let source = "classdef Foo\n    methods\n        function display(obj)\n            fprintf('x');\n        end\n    end\nend\n";
         let tree = parse(source);
         let eng = engine();
-
         let ids: Vec<&str> = eng
             .check_display_override(&tree, source)
             .iter()
@@ -59,17 +70,24 @@ mod tests {
     }
 
     #[test]
-    fn test_display_fires_on_standalone_display_function() {
+    fn test_display_reported_at_the_method_name() {
+        // Probed: MATLAB reports disp2.m:3:14, the column of `display`.
+        let source = "classdef Foo\n    methods\n        function display(obj)\n            fprintf('x');\n        end\n    end\nend\n";
+        let tree = parse(source);
+        let diags = engine().check_display_override(&tree, source);
+        assert_eq!(diags.len(), 1, "got: {diags:?}");
+        assert_eq!((diags[0].line, diags[0].column), (3, 18));
+    }
+
+    #[test]
+    fn test_display_silent_on_standalone_display_function() {
+        // Probed: MATLAB is silent on `function out = display(x)` in a function file.
         let source = "function display(x)\n    fprintf('x');\nend\n";
         let tree = parse(source);
         let eng = engine();
 
-        let ids: Vec<&str> = eng
-            .check_display_override(&tree, source)
-            .iter()
-            .map(|d| d.rule_id)
-            .collect();
-        assert!(ids.contains(&"DISPLAY"), "got: {ids:?}");
+        let diags = eng.check_display_override(&tree, source);
+        assert!(diags.is_empty(), "got: {diags:?}");
     }
 
     #[test]

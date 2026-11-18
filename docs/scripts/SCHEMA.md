@@ -142,3 +142,13 @@ modules one at a time.
 - `## Configuration` (TOML example) is optional and may follow `## Examples`.
 - `# <META_ID>: <Title>` H1 must contain the meta ID; the front-matter `title`
   may differ in wording but should be consistent.
+
+## Maturity
+
+A check's maturity (`stable` or `experimental`) is not written in the docstring. It comes
+from `crates/malt_rules/src/data/maturity.toml` (everything not listed is stable), and the
+generator renders it: the `Maturity` column of `docs/rules.md`, the `Maturity` line of each
+rule page and each check, and a `## Maturity` section with the reasons. A new experimental
+check or engine is one entry in that file with a `reason`; `--check` fails when an
+experimental check has a recorded MATLAB finding. `--maturity-report` prints the per-engine
+counts.

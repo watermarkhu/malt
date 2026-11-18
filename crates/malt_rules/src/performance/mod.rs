@@ -12,20 +12,19 @@
 //!
 //! ## Rule
 //!
-//! A hybrid rule module implementing 41 performance-related MATLAB lint
+//! A hybrid rule module implementing 40 performance-related MATLAB lint
 //! checks from MATLAB's Code Analyzer. Most checks operate at the node level
-//! (function calls, operators, commands), while AGROW, SAGROW, and PFBNS
+//! (function calls, operators, commands), while AGROW, SAGROW, SPRIX, and PFBNS
 //! require file-level traversal to detect array-growth patterns inside loops.
 //! Each diagnostic carries the specific check ID (e.g. `AGROW`, `MINV`).
 //!
-//! A single `PerformanceEngine` struct handles all 41 checks. Node-level
+//! A single `PerformanceEngine` struct handles all 40 checks. Node-level
 //! checks are dispatched by node kind (`function_call`, `command`,
-//! `binary_operator`, `boolean_operator`, `comparison_operator`,
-//! `unary_operator`); file-level checks traverse the full tree looking for
+//! `binary_operator`, `boolean_operator`, `comparison_operator`, `cell`); file-level checks traverse the full tree looking for
 //! growth patterns inside `for_statement`/`while_statement`. The node-level
 //! `check_*` methods and their tests live in sibling `check_*.rs` modules;
 //! this module keeps the engine, the dispatch, the file-level growth walk
-//! (AGROW/SAGROW/PFBNS), and the shared free helpers.
+//! (AGROW/SAGROW/SPRIX/PFBNS), and the shared free helpers.
 //!
 //! ## Check IDs
 //!
@@ -33,28 +32,27 @@
 //! | --- | --- | --- | --- |
 //! | AGROW | info | no | Variable appears to change size on every loop iteration. Consider preallocating for speed. |
 //! | SAGROW | info | no | Variable appears to change size on every loop iteration (within a script). Consider preallocating for speed. |
-//! | AND2 | info | yes | When both arguments are numeric scalars, consider replacing & with && for performance. |
-//! | OR2 | info | yes | When both arguments are numeric scalars, consider replacing \| with \|\| for performance. |
+//! | AND2 | info | yes (unsafe) | When both arguments are numeric scalars, consider replacing & with && for performance. |
+//! | OR2 | info | yes (unsafe) | When both arguments are numeric scalars, consider replacing \| with \|\| for performance. |
 //! | MINV | info | no | INV(A)*b can be slower and less accurate than A\b. Consider using A\b for INV(A)*b or b/A for b*INV(A). |
 //! | GFLD | info | no | Use dynamic fieldnames with structures instead of GETFIELD. |
 //! | SFLD | info | no | Use dynamic fieldnames with structures instead of SETFIELD. |
 //! | EXIST | info | no | EXIST with two input arguments is generally faster and clearer than with one input argument. |
-//! | PFBNS | info | no | The entire array or structure VAR_NAME is a broadcast variable. This might result in unnecessary communication overhead. |
+//! | PFBNS | info | no | The entire array or structure 'VAR_NAME' is a broadcast variable. This might result in unnecessary communication overhead. |
 //! | CCAT | info | no | For improved performance, concatenate cell arrays using [] instead of extracting cell arrays and reconstructing them. |
 //! | CCAT1 | info | no | { A{I} } can usually be replaced by A(I) or A(I)', which can be much faster. |
-//! | ISMT | info | no | Using ISEMPTY is usually faster than comparing LENGTH to 0. |
-//! | ISCL | info | no | To improve performance, use 'isscalar' instead of length comparison. |
-//! | ST2NM | info | yes | If you are operating on scalar values, consider using 'str2double' for faster performance. |
-//! | FLPST | info | yes | For better performance in some cases, use SORT with the 'descend' option. |
+//! | ISMT | info | yes (unsafe) | Using ISEMPTY is usually faster than comparing LENGTH to 0. |
+//! | ISCL | info | yes (unsafe) | To improve performance, use 'isscalar' instead of length comparison. |
+//! | ST2NM | info | yes (unsafe) | If you are operating on scalar values, consider using 'str2double' for faster performance. |
+//! | FLPST | info | yes (unsafe) | For better performance in some cases, use SORT with the 'descend' option. |
 //! | MXFND | info | no | Use FIND with the 'first' or 'last' option. |
-//! | EFIND | info | no | To improve performance, replace ISEMPTY(FIND(X)) with ISEMPTY(FIND( X, 1 )). |
+//! | EFIND | info | yes (unsafe) | To improve performance, replace ISEMPTY(FIND(X)) with ISEMPTY(FIND( X, 1 )). |
 //! | UDIM | info | no | Instead of using transpose (' or .'), consider using a different DIMENSION input argument to VAR_NAME. |
 //! | FREAD | info | no | FREAD(FID,...,'*char') is more efficient than CHAR(FREAD(...)). |
 //! | N2UNI | info | no | Instead of using 'native2unicode' with 'fread', specify the character encoding scheme in the call to 'fopen'. |
-//! | TNMLP | info | no | Move the toolbox function out of the loop for better performance. |
 //! | LAXES | info | no | Calling AXES(h) in a loop can be slow. Consider moving the call to AXES outside the loop. |
 //! | MMTC | info | no | This use of MAT2CELL should probably be replaced by a simpler, faster call to NUM2CELL. |
-//! | MRPBW | info | yes | To use less memory, replace BWLABEL(bw) by LOGICAL(bw) in a call of REGIONPROPS. |
+//! | MRPBW | info | yes (unsafe) | To use less memory, replace BWLABEL(bw) by LOGICAL(bw) in a call of REGIONPROPS. |
 //! | SPRIX | info | no | This sparse indexing expression is likely to be slow. |
 //! | TRSRT | info | no | Transposing the input to 'sort' is often unnecessary. |
 //! | GRIDD | info | no | Consider replacing GRIDDATA with SCATTEREDINTERPOLANT for better performance. |
@@ -66,21 +64,39 @@
 //! | CLEAR0ARGS | info | no | Avoid using 'clear' to clear more than necessary, this decreases code performance and is usually unnecessary. |
 //! | RGXP1 | info | no | Using REGEXP(str, pattern, 'ONCE') is faster in this case. |
 //! | RGXPI | info | no | Using REGEXPI(str, pattern, 'ONCE') is faster in this case. |
-//! | TRIM1 | info | yes | Use STRTRIM(str) instead of nesting FLIPLR and DEBLANK calls. |
-//! | TRIM2 | info | yes | Use STRTRIM(str) instead of DEBLANK(STRJUST(str,'left')). |
+//! | TRIM1 | info | yes (unsafe) | Use STRTRIM(str) instead of nesting FLIPLR and DEBLANK calls. |
+//! | TRIM2 | info | yes (unsafe) | Use STRTRIM(str) instead of DEBLANK(STRJUST(str,'left')). |
 //! | STTOK | info | no | Use one call to 'split' instead of calling 'strtok' in a loop. |
-//! | STNCI | info | no | Use STRNCMPI(str1,str2) instead of using UPPER/LOWER in a call to STRNCMP. |
+//! | STNCI | info | yes (unsafe) | Use STRNCMPI(str1,str2) instead of using UPPER/LOWER in a call to STRNCMP. |
 //! | STCCS | info | no | It appears that STRCMPI/STRNCMPI can be replaced by a faster, case sensitive compare. |
-//! | FNDSB | info | yes | For array or cell array, performance can be improved using logical indexing instead of 'find'. |
+//! | FNDSB | info | yes (unsafe) | For array or cell array, performance can be improved using logical indexing instead of 'find'. |
 //!
 //! ## Fix
 //!
 //! Rewrites the flagged call or operator into its faster equivalent:
 //!
-//! - `&` → `&&` and `|` → `||` in boolean contexts (AND2, OR2).
-//! - `str2num` → `str2double` (ST2NM), `flipud`/`fliplr` → `flip` (FLPST).
-//! - `im2bw` → `imbinarize` (MRPBW), `deblank` → `strtrim` (TRIM1),
-//!   `strtrim` → `strip` (TRIM2), `findstr` → `contains` (FNDSB).
+//! All rewrites are unsafe fixes (they can change behaviour):
+//!
+//! - `&` → `&&` and `|` → `||` in conditions (AND2, OR2).
+//! - `str2num` → `str2double` (ST2NM).
+//! - `fliplr(sort(x))` → `sort(x, 'descend')` (FLPST).
+//! - `regionprops(bwlabel(bw), …)` → `regionprops(logical(bw), …)` (MRPBW).
+//! - nested `fliplr`/`deblank` and `deblank(strjust(s, 'left'))` → `strtrim(s)` (TRIM1, TRIM2).
+//! - `length(x) == 0` and `0 == length(x)` → `isempty(x)`, `length(x) ~= 0` and
+//!   `length(x) > 0` → `~isempty(x)`, `if length(x)` → `if ~isempty(x)`, in a
+//!   condition `length(x) == 0 & b` → `isempty(x) & b` (ISMT); `length(x) == 1`
+//!   and `numel(x) == 1` → `isscalar(x)` (ISCL). The text is MATLAB's own on
+//!   every fixture; unsafe because a class can overload `length`, `numel`
+//!   or `isempty`.
+//! - `isempty(find(x))` → `isempty(find(x, 1))` (EFIND); not offered when
+//!   `find` or `isempty` is a variable or a function of the file, where MATLAB's
+//!   own fix would break the call. Unsafe: a class may overload `find`.
+//! - `x(find(L))` → `x(L)` and `idx = find(L); x(idx)` → `idx = L; x(idx)`
+//!   (FNDSB). Unsafe: `L` has to be logical at runtime, and the two forms
+//!   do not fail alike when `x` is shorter than `L`.
+//! - `strncmp(lower(a), b, n)` → `strncmpi(a, b, n)` (STNCI); only the first
+//!   conversion goes, as MATLAB's fix leaves the other. Unsafe: case folding
+//!   differs for some non-ASCII text.
 //!
 //! ## Examples
 //!
@@ -92,7 +108,7 @@
 //! end
 //! if a & b                   % AND2
 //! inv(A) * b                 % MINV
-//! exist('foo', 'file')       % EXIST
+//! exist('foo')             % EXIST
 //! ```
 //!
 //! ### Correct
@@ -104,7 +120,7 @@
 //! end
 //! if a && b
 //! A \ b
-//! isfile('foo')
+//! exist('foo', 'file')
 //! ```
 //!
 //! ### Fixed
@@ -122,6 +138,7 @@
 //! skip_checks = ["AGROW", "ST2NM"]
 //! ```
 
+use crate::analysis::callee::{call_path, command_path, Dotted};
 use malt_core::{Category, Config, Diagnostic, FileContext, Fix, NodeContext, Rule, Severity};
 use serde::Deserialize;
 
@@ -134,7 +151,7 @@ mod check_boolean_context_binary;
 mod check_command;
 mod check_comparison;
 mod check_function_call;
-mod check_unary;
+mod check_index_growth;
 
 // ---------------------------------------------------------------------------
 // Rule-specific configuration
@@ -160,7 +177,7 @@ struct CheckMeta {
     description: &'static str,
 }
 
-/// All 41 performance check definitions.
+/// All 40 performance check definitions.
 const CHECKS: &[CheckMeta] = &[
     CheckMeta {
         id: "AGROW",
@@ -180,8 +197,7 @@ const CHECKS: &[CheckMeta] = &[
     },
     CheckMeta {
         id: "MINV",
-        description:
-            "INV(A)*b can be slower and less accurate than A\\b. Consider using A\\b for INV(A)*b or b/A for b*INV(A).",
+        description: "INV(A)*b can be slower and less accurate than A\\b. Consider using A\\b for INV(A)*b or b/A for b*INV(A).",
     },
     CheckMeta {
         id: "GFLD",
@@ -197,7 +213,7 @@ const CHECKS: &[CheckMeta] = &[
     },
     CheckMeta {
         id: "PFBNS",
-        description: "The entire array or structure VAR_NAME is a broadcast variable. This might result in unnecessary communication overhead.",
+        description: "The entire array or structure 'VAR_NAME' is a broadcast variable. This might result in unnecessary communication overhead.",
     },
     CheckMeta {
         id: "CCAT",
@@ -242,10 +258,6 @@ const CHECKS: &[CheckMeta] = &[
     CheckMeta {
         id: "N2UNI",
         description: "Instead of using 'native2unicode' with 'fread', specify the character encoding scheme in the call to 'fopen'.",
-    },
-    CheckMeta {
-        id: "TNMLP",
-        description: "Move the toolbox function out of the loop for better performance.",
     },
     CheckMeta {
         id: "LAXES",
@@ -342,7 +354,7 @@ pub(crate) fn check_description(id: &str) -> &'static str {
 // Rule implementation
 // ---------------------------------------------------------------------------
 
-/// Hybrid performance engine covering 41 performance checks.
+/// Hybrid performance engine covering 40 performance checks.
 ///
 /// Node-level checks fire on `function_call`, `command`, `binary_operator`,
 /// `boolean_operator`, and `comparison_operator`. File-level checks (AGROW,
@@ -358,13 +370,21 @@ const TARGET_NODES: &[&str] = &[
     "binary_operator",
     "boolean_operator",
     "comparison_operator",
-    "unary_operator",
+    "if_statement",
+    "while_statement",
+    "elseif_clause",
+    "cell",
 ];
 
 impl PerformanceEngine {
     /// Factory constructor called by the rule registry.
     pub fn from_config(config: &Config) -> Box<dyn Rule> {
-        let rule_config: PerformanceEngineConfig = config.rule_params("PERFORMANCE_ENGINE");
+        let mut rule_config: PerformanceEngineConfig = config.rule_params("PERFORMANCE_ENGINE");
+        // GRIDD: MATLAB stayed silent on every `griddata` form probed (3, 5 and 6
+        // arguments, in a function) and on the fixture, so it is off by default.
+        rule_config
+            .skip_checks
+            .extend(crate::off_under_mathworks(config, &["GRIDD", "STCCS"]));
         Box::new(Self {
             config: rule_config,
         })
@@ -376,15 +396,88 @@ impl PerformanceEngine {
     }
 
     // -----------------------------------------------------------------------
-    // File-level checks: AGROW, SAGROW, PFBNS
+    // File-level checks: AGROW, SAGROW, SPRIX, PFBNS
     // -----------------------------------------------------------------------
 
-    /// File-level check for array/struct growth inside loops.
+    /// File-level checks: array growth in loops (AGROW/SAGROW), indexed
+    /// assignment into sparse arrays (SPRIX) and broadcast variables in
+    /// `parfor` loops (PFBNS).
     fn check_growth_in_loops(&self, tree: &tree_sitter::Tree, source: &str) -> Vec<Diagnostic> {
         let mut diags = Vec::new();
         let root = tree.root_node();
-        self.traverse_for_growth(&root, source, false, &mut diags);
+        self.traverse_for_growth(&root, source, false, false, &mut diags);
+        self.check_sparse_assignments(root, source, &mut diags);
+        if self.is_enabled("PFBNS") {
+            check_broadcast_variables(root, source, &mut diags);
+        }
         diags
+    }
+
+    /// Whether `node` is inside a `for`, `parfor` or `while` loop.
+    fn in_loop(node: tree_sitter::Node) -> bool {
+        let mut cur = node.parent();
+        while let Some(p) = cur {
+            if matches!(p.kind(), "for_statement" | "while_statement") {
+                return true;
+            }
+            cur = p.parent();
+        }
+        false
+    }
+
+    /// SPRIX: `S(i) = v` where `S` was created by `sparse(...)`/`spalloc(...)`.
+    fn check_sparse_assignments(
+        &self,
+        root: tree_sitter::Node,
+        source: &str,
+        diags: &mut Vec<Diagnostic>,
+    ) {
+        if !self.is_enabled("SPRIX") {
+            return;
+        }
+        let mut sparse_vars: Vec<&str> = Vec::new();
+        let mut stack = vec![root];
+        let mut assignments = Vec::new();
+        while let Some(n) = stack.pop() {
+            if n.kind() == "assignment" {
+                assignments.push(n);
+            }
+            let mut c = n.walk();
+            for ch in n.children(&mut c) {
+                stack.push(ch);
+            }
+        }
+        assignments.sort_by_key(|n| n.start_byte());
+        for a in assignments {
+            let (Some(lhs), Some(rhs)) = (
+                a.child_by_field_name("left"),
+                a.child_by_field_name("right"),
+            ) else {
+                continue;
+            };
+            if lhs.kind() == "identifier" {
+                let name = node_text(lhs, source);
+                let is_sparse = rhs.kind() == "function_call"
+                    && matches!(
+                        call_path(rhs, source, Dotted::Skip),
+                        Some("sparse" | "spalloc")
+                    );
+                if is_sparse {
+                    if !sparse_vars.contains(&name) {
+                        sparse_vars.push(name);
+                    }
+                } else {
+                    sparse_vars.retain(|v| *v != name);
+                }
+            } else if lhs.kind() == "function_call" {
+                if let Some(name) = call_path(lhs, source, Dotted::Skip) {
+                    // MATLAB reports the indexed assignment inside a loop only (probed).
+                    if sparse_vars.contains(&name) && Self::in_loop(a) {
+                        diags.push(make_diag("SPRIX", a));
+                    }
+                }
+            }
+        }
     }
 
     /// Recursive traversal looking for growth patterns inside loops.
@@ -393,57 +486,57 @@ impl PerformanceEngine {
         node: &tree_sitter::Node,
         source: &str,
         in_loop: bool,
+        in_function: bool,
         diags: &mut Vec<Diagnostic>,
     ) {
         let kind = node.kind();
         let entering_loop = kind == "for_statement" || kind == "while_statement";
         let now_in_loop = in_loop || entering_loop;
+        let now_in_function = in_function || kind == "function_definition";
+        // AGROW applies to functions and methods; SAGROW to scripts.
+        let check_id = if now_in_function { "AGROW" } else { "SAGROW" };
 
         // Only check assignment nodes inside loops.
         if now_in_loop && kind == "assignment" {
-            self.check_assignment_growth(*node, source, diags);
+            self.check_assignment_growth(*node, source, check_id, diags);
         }
 
-        // Also detect growth via full-node text for assignments that tree-sitter
-        // may parse differently (e.g., s.field(end+1) = k might parse as
-        // a function_call at statement level rather than an assignment).
+        // Also detect growth via full-node text for statements that
+        // tree-sitter may parse as a bare call (e.g. `s.field(end+1)`).
         if now_in_loop
             && (kind == "function_call" || kind == "cell_index")
             && is_statement_level(node)
+            && self.is_enabled(check_id)
         {
             let text = node_text(*node, source);
             let normalized: String = text.chars().filter(|c| !c.is_whitespace()).collect();
             if normalized.contains("end+1") {
-                let has_dot = text.contains('.');
-                let check_id = if has_dot { "SAGROW" } else { "AGROW" };
-                if self.is_enabled(check_id) {
-                    diags.push(make_diag(check_id, *node));
-                }
+                diags.push(make_diag(check_id, *node));
             }
         }
 
-        let count = node.child_count();
-        for i in 0..count {
-            if let Some(child) = node.child(i) {
-                self.traverse_for_growth(&child, source, now_in_loop, diags);
-            }
+        for child in crate::analysis::symbols::children_of(node) {
+            self.traverse_for_growth(&child, source, now_in_loop, now_in_function, diags);
         }
     }
 
     /// Check a single assignment node for growth patterns.
     ///
     /// Detects:
-    /// 1. `x = [x, val]` or `x = [x; val]` — concatenation growth (AGROW)
-    /// 2. `x(end+1) = val` — end+1 indexing (AGROW)
-    /// 3. `x{end+1} = val` — cell growth (AGROW)
-    /// 4. `s.field(end+1) = val` — struct field growth (SAGROW)
-    /// 5. `x = []` followed by growth — PFBNS (simplified: flag end+1 patterns)
+    /// 1. `x = [x, val]` or `x = [x; val]` — concatenation growth
+    /// 2. `x(end+1) = val` — end+1 indexing
+    /// 3. `x{end+1} = val` — cell growth
+    /// 4. `s.field(end+1) = val` and `s.field = [s.field, val]` — field growth
     fn check_assignment_growth(
         &self,
         node: tree_sitter::Node,
         source: &str,
+        check_id: &'static str,
         diags: &mut Vec<Diagnostic>,
     ) {
+        if !self.is_enabled(check_id) {
+            return;
+        }
         let lhs = match node.child_by_field_name("left").or_else(|| node.child(0)) {
             Some(n) => n,
             None => return,
@@ -454,66 +547,362 @@ impl PerformanceEngine {
         };
 
         let lhs_text = node_text(lhs, source);
-        let rhs_text = node_text(rhs, source);
 
-        // Determine if LHS involves a struct field (for SAGROW vs AGROW).
-        let is_struct = lhs.kind() == "field_expression"
-            || (lhs.kind() == "function_call" && lhs_text.contains('.'));
-
-        let check_id = if is_struct { "SAGROW" } else { "AGROW" };
-
-        if !self.is_enabled(check_id) {
-            return;
-        }
-
-        // Pattern 1: x(end+1) = ... or x{end+1} = ...
-        // LHS is a function_call (indexing) or cell_index containing "end+1"
-        // or "end + 1".
-        if (lhs.kind() == "function_call" || lhs.kind() == "cell_index")
-            && contains_end_plus_pattern(lhs, source)
+        // Pattern 1: x(end+1) = ..., x{end+1} = ... or x(end+1).f = ... (the growth
+        // index is in the first bracket group). `end+1` grows on every initial value
+        // (probed, parameters included); the size form `x(numel(x)+1)` only when `x`
+        // starts empty (probed: silent after `zeros(1,0)`). `s.f(end+1) = ...` names a
+        // field: MATLAB does not report it (probed).
+        let field_base = lhs_text
+            .split(['(', '{'])
+            .next()
+            .is_some_and(|base| base.contains('.'));
+        let base = lhs_text.split(['(', '{']).next().unwrap_or("").trim();
+        let first = check_index_growth::first_index_group(lhs_text);
+        if matches!(
+            lhs.kind(),
+            "function_call" | "cell_index" | "field_expression"
+        ) && !field_base
+            && (check_index_growth::first_group_has_end_plus_one(first)
+                || (check_index_growth::first_group_has_size_plus_one(first, base)
+                    && check_index_growth::starts_growable(lhs, source, base)))
         {
             diags.push(make_diag(check_id, node));
             return;
         }
 
-        // Pattern 1b: s.field(end+1) = ... — may parse with field_expression as LHS
-        // and end+1 in the assignment text before the `=`.
-        if lhs.kind() == "field_expression" {
-            // Check the full assignment text up to the `=` for end+1 pattern.
-            let assign_text = node_text(node, source);
-            if let Some(eq_pos) = assign_text.find('=') {
-                let lhs_full = &assign_text[..eq_pos];
-                let normalized: String = lhs_full.chars().filter(|c| !c.is_whitespace()).collect();
-                if normalized.contains("end+1") {
-                    diags.push(make_diag("SAGROW", node));
-                    return;
+        // Pattern 3: an indexed write with a variable in its index into a variable
+        // that is undefined, `[]`, `{}` or a number before the loop (see
+        // check_index_growth.rs). A field of a struct array, `x(i).f`, counts too.
+        if !field_base
+            && matches!(
+                lhs.kind(),
+                "function_call" | "cell_index" | "field_expression"
+            )
+            && check_index_growth::indexed_write_grows(lhs, source)
+        {
+            diags.push(make_diag(check_id, node));
+            return;
+        }
+
+        // Pattern 2: x = [x, val] or x = [x; val] (or the cell equivalent). MATLAB
+        // reports concatenation as AGROW in scripts too (probed). A field target
+        // such as `s.g = [s.g, i]` is not reported, nor is concatenation in a parfor
+        // loop (probed; `s(end + 1) = i` is still reported there).
+        if lhs.kind() == "identifier"
+            && (rhs.kind() == "matrix" || rhs.kind() == "cell")
+            && matrix_contains_var(rhs, source, lhs_text)
+            && !inside_parfor(node, source)
+            && self.is_enabled("AGROW")
+        {
+            diags.push(make_diag("AGROW", node));
+        }
+    }
+}
+
+/// Whether `name` is the target of a plain assignment that starts before `before`.
+fn defined_before(root: tree_sitter::Node, source: &str, name: &str, before: usize) -> bool {
+    let mut stack = vec![root];
+    while let Some(n) = stack.pop() {
+        if n.kind() == "assignment" && n.start_byte() < before {
+            if let Some(l) = n.child_by_field_name("left") {
+                if l.kind() == "identifier" && node_text(l, source) == name {
+                    return true;
                 }
             }
         }
+        let mut c = n.walk();
+        for ch in n.children(&mut c) {
+            stack.push(ch);
+        }
+    }
+    false
+}
 
-        // Pattern 2: x = [x, val] or x = [x; val]
-        // LHS is a simple identifier, RHS is a matrix containing that identifier.
-        if lhs.kind() == "identifier" {
-            let var_name = lhs_text;
-            if rhs.kind() == "matrix" && matrix_contains_var(rhs, source, var_name) {
-                diags.push(make_diag(check_id, node));
-                return;
+/// One variable read in a parfor body: its name, each indexed access as
+/// `(key, node, broadcast)`, and each bare read of the whole value.
+struct ParforAccess<'a> {
+    name: &'a str,
+    keys: Vec<String>,
+    broadcast: bool,
+    accesses: Vec<(String, tree_sitter::Node<'a>, bool)>,
+    whole: Vec<tree_sitter::Node<'a>>,
+}
+
+/// PFBNS: a variable defined before a `parfor` loop and read in its body as a
+/// broadcast variable. Probed on R2026b: a variable is reported when one of its
+/// accesses is not sliced, when it is accessed in two different ways (two
+/// subscript lists, a field and an index, ...), or when its whole value is read
+/// (`numel(v)`, `disp(v)`, `x = v`) while it is also indexed in the body. An access
+/// `v(...)` is sliced when a subscript is the loop index or the index plus or minus
+/// a constant (`v(i)`, `v(i + 1)`, `v(i, 1)`, `v(1:3, i)`). `v(end)`, `v(:)`,
+/// `v(2)`, `v([1 2])`, `v(1:i)`, `v(i/2)`, `v.f` and `v{k}` are not sliced. A
+/// constant range on its own is neutral (`v(1:3)`, `v(1, 1:3)`). A whole read of a
+/// variable that is not indexed in the body is silent, as are variables assigned in
+/// the loop. The report is at the first unsliced access or whole read; without one,
+/// at the first access whose key differs from the first access's.
+fn check_broadcast_variables(root: tree_sitter::Node, source: &str, diags: &mut Vec<Diagnostic>) {
+    let sym = crate::analysis::symbols::SymbolTable::shared(|| root, source);
+    let mut stack = vec![root];
+    while let Some(n) = stack.pop() {
+        let mut c = n.walk();
+        for ch in n.children(&mut c) {
+            stack.push(ch);
+        }
+        if n.kind() != "for_statement" || !node_text(n, source).trim_start().starts_with("parfor") {
+            continue;
+        }
+        let index = crate::good_practices::extract_parfor_index_var(n, source).unwrap_or_default();
+        let mut accesses: Vec<ParforAccess> = Vec::new();
+        // Variables assigned in the loop, through any target shape.
+        let mut assigned: Vec<&str> = Vec::new();
+        let mut bare_names: Vec<tree_sitter::Node> = Vec::new();
+        // The loop header runs once on the client, so only the body is broadcast
+        // (probed: `parfor k = 1:numel(v)` with `v(k)` in the body is silent).
+        let mut header_cursor = n.walk();
+        let Some(body) = n.children(&mut header_cursor).find(|c| c.kind() == "block") else {
+            continue;
+        };
+        let mut inner = vec![body];
+        while let Some(m) = inner.pop() {
+            if m.kind() == "assignment" {
+                if let Some(base) = m
+                    .child_by_field_name("left")
+                    .and_then(|l| lhs_base(l, source))
+                {
+                    assigned.push(base);
+                }
             }
-            // Also check cell: x = {x, val} — though less common
-            if rhs.kind() == "cell" && matrix_contains_var(rhs, source, var_name) {
-                diags.push(make_diag(check_id, node));
-                return;
+            if m.kind() == "identifier" && is_bare_name(m) {
+                bare_names.push(m);
+            }
+            if let Some((name, key, broadcast, _sliced)) = broadcast_access(m, &index, source) {
+                let access = (key.clone(), m, broadcast);
+                match accesses.iter_mut().find(|a| a.name == name) {
+                    Some(a) => {
+                        if !a.keys.contains(&key) {
+                            a.keys.push(key);
+                        }
+                        a.broadcast |= broadcast;
+                        a.accesses.push(access);
+                    }
+                    None => accesses.push(ParforAccess {
+                        name,
+                        keys: vec![key],
+                        broadcast,
+                        accesses: vec![access],
+                        whole: Vec::new(),
+                    }),
+                }
+            }
+            let mut c = m.walk();
+            for ch in m.children(&mut c) {
+                inner.push(ch);
             }
         }
-
-        // Pattern 3: s.field = [s.field, val]
-        if lhs.kind() == "field_expression" {
-            let field_text = lhs_text;
-            if rhs.kind() == "matrix" && rhs_text.contains(field_text) {
-                diags.push(make_diag("SAGROW", node));
+        for a in &mut accesses {
+            a.whole = bare_names
+                .iter()
+                .filter(|id| node_text(**id, source) == a.name)
+                .copied()
+                .collect();
+        }
+        for a in accesses {
+            // Only variables defined before the loop (not function calls), never
+            // assigned inside it, and broadcast, accessed in two ways, or read whole.
+            if !(a.broadcast || a.keys.len() >= 2 || !a.whole.is_empty())
+                || assigned.contains(&a.name)
+                || !(defined_before(root, source, a.name, n.start_byte())
+                    || crate::good_practices::is_defined_before_parfor(
+                        &sym,
+                        a.name,
+                        n.start_byte(),
+                    ))
+                || is_pool_constant(a.name, &source[..n.start_byte()])
+                || is_function_handle(a.name, &source[..n.start_byte()])
+            {
+                continue;
+            }
+            let unsliced = a
+                .accesses
+                .iter()
+                .filter(|(_, _, broadcast)| *broadcast)
+                .map(|(_, node, _)| *node)
+                .chain(a.whole.iter().copied())
+                .min_by_key(|node| node.start_byte());
+            let at = unsliced.or_else(|| {
+                let first = a
+                    .accesses
+                    .iter()
+                    .min_by_key(|(_, node, _)| node.start_byte())?;
+                let first_key = first.0.clone();
+                a.accesses
+                    .iter()
+                    .filter(|(key, _, _)| *key != first_key)
+                    .map(|(_, node, _)| *node)
+                    .min_by_key(|node| node.start_byte())
+            });
+            if let Some(at) = at {
+                diags.push(make_diag_named("PFBNS", at, a.name));
             }
         }
     }
+}
+
+/// Whether an identifier is a bare name: not the base of an index or call, and not
+/// part of a field access (`v.f`, `s.v`).
+fn is_bare_name(node: tree_sitter::Node) -> bool {
+    let Some(p) = node.parent() else {
+        return true;
+    };
+    match p.kind() {
+        "field_expression" => false,
+        "function_call" | "cell_index" => p.named_child(0).is_none_or(|c| c.id() != node.id()),
+        _ => true,
+    }
+}
+
+/// The variable at the root of an assignment target: `v`, `v(...)`, `v{...}`,
+/// `v.f` or `v(i).f`.
+fn lhs_base<'a>(node: tree_sitter::Node<'a>, source: &'a str) -> Option<&'a str> {
+    let mut current = node;
+    loop {
+        match current.kind() {
+            "identifier" => return Some(node_text(current, source)),
+            "function_call" | "cell_index" | "field_expression" => {
+                current = current.named_child(0)?;
+            }
+            _ => return None,
+        }
+    }
+}
+
+/// A PFBNS access of a variable in a `parfor` body: `(name, key, broadcast, sliced)`.
+/// The key separates access shapes (the subscript list, or the field). `broadcast`
+/// is true for an access that is not sliced and not a constant range.
+fn broadcast_access<'a>(
+    node: tree_sitter::Node<'a>,
+    index: &str,
+    source: &'a str,
+) -> Option<(&'a str, String, bool, bool)> {
+    match node.kind() {
+        "function_call" | "cell_index" => {
+            let base = node.named_child(0)?;
+            let subs: Vec<tree_sitter::Node> = match find_arguments(node) {
+                Some(args) => args.named_children(&mut args.walk()).collect(),
+                None => node.named_children(&mut node.walk()).skip(1).collect(),
+            };
+            if subs.is_empty() {
+                return None;
+            }
+            match base.kind() {
+                "identifier" => {
+                    let texts: Vec<String> = subs
+                        .iter()
+                        .map(|s| {
+                            node_text(*s, source)
+                                .chars()
+                                .filter(|c| !c.is_whitespace())
+                                .collect()
+                        })
+                        .collect();
+                    // The loop index in exactly one subscript (`M(i, i)` is a broadcast).
+                    let sliced = texts.iter().filter(|t| names_index(t, index)).count() == 1
+                        && texts.iter().any(|t| is_sliced_subscript(t, index));
+                    let neutral = texts.iter().any(|t| is_constant_range(t));
+                    Some((
+                        node_text(base, source),
+                        texts.join(","),
+                        !sliced && !neutral,
+                        sliced,
+                    ))
+                }
+                "field_expression" => {
+                    let object = base.named_child(0)?;
+                    (object.kind() == "identifier").then(|| {
+                        (
+                            node_text(object, source),
+                            node_text(base, source).to_string(),
+                            true,
+                            false,
+                        )
+                    })
+                }
+                _ => None,
+            }
+        }
+        "field_expression" => {
+            let object = node.named_child(0)?;
+            (object.kind() == "identifier").then(|| {
+                (
+                    node_text(object, source),
+                    node_text(node, source).to_string(),
+                    true,
+                    false,
+                )
+            })
+        }
+        _ => None,
+    }
+}
+
+/// Whether `name` is assigned a `parallel.pool.Constant` before the loop. MATLAB
+/// does not report a Constant's `.Value` as a broadcast (probed).
+fn is_pool_constant(name: &str, before: &str) -> bool {
+    before.lines().any(|line| {
+        line.trim()
+            .strip_prefix(name)
+            .and_then(|rest| rest.trim_start().strip_prefix('='))
+            .is_some_and(|rhs| rhs.trim_start().starts_with("parallel.pool.Constant"))
+    })
+}
+
+/// Whether the subscript text mentions the loop index as a whole name.
+fn names_index(text: &str, index: &str) -> bool {
+    !index.is_empty()
+        && text
+            .split(|c: char| !(c.is_alphanumeric() || c == '_'))
+            .any(|t| t == index)
+}
+
+/// `i` or `i + k` / `i - k` for a constant `k` or a variable `k` (whitespace-free text).
+/// Probed: MATLAB is silent for `data(i + k)`, so a variable offset counts as sliced.
+fn is_sliced_subscript(text: &str, index: &str) -> bool {
+    if index.is_empty() {
+        return false;
+    }
+    if text == index {
+        return true;
+    }
+    text.strip_prefix(index)
+        .and_then(|rest| rest.strip_prefix(['+', '-']))
+        .is_some_and(|k| {
+            let is_name = k.starts_with(|c: char| c.is_ascii_alphabetic() || c == '_')
+                && k.chars().all(|c| c.is_ascii_alphanumeric() || c == '_');
+            !k.is_empty() && (k.chars().all(|c| c.is_ascii_digit()) || is_name)
+        })
+}
+
+/// Whether `name` is assigned a function handle before the loop: a call of a handle is
+/// a function call to MATLAB, not an indexed broadcast (probed: `g(1)` with `g = @(i) i`).
+fn is_function_handle(name: &str, before: &str) -> bool {
+    before.split(['\n', ';']).any(|statement| {
+        statement
+            .trim()
+            .strip_prefix(name)
+            .and_then(|rest| rest.trim_start().strip_prefix('='))
+            .is_some_and(|rhs| rhs.trim_start().starts_with('@'))
+    })
+}
+
+/// `a:b` or `a:s:b` with constant bounds (whitespace-free text).
+fn is_constant_range(text: &str) -> bool {
+    let parts: Vec<&str> = text.split(':').collect();
+    (2..=3).contains(&parts.len())
+        && parts.iter().all(|p| {
+            let digits = p.strip_prefix('-').unwrap_or(p);
+            !digits.is_empty() && digits.chars().all(|c| c.is_ascii_digit())
+        })
 }
 
 impl Rule for PerformanceEngine {
@@ -556,9 +945,20 @@ impl Rule for PerformanceEngine {
                 Vec::new()
             }
             "comparison_operator" => self.check_comparison(ctx.node, ctx.source),
-            "unary_operator" => self.check_unary(ctx.node, ctx.source),
+            "if_statement" | "while_statement" | "elseif_clause" => {
+                self.check_condition_length(ctx.node, ctx.source)
+            }
+            "cell" => self.check_cell(ctx.node, ctx.source),
             _ => Vec::new(),
         }
+    }
+
+    fn active_check_ids(&self) -> Vec<&'static str> {
+        CHECKS
+            .iter()
+            .map(|check| check.id)
+            .filter(|id| self.is_enabled(id))
+            .collect()
     }
 
     fn check_file(&self, ctx: &FileContext) -> Vec<Diagnostic> {
@@ -630,51 +1030,20 @@ pub(crate) fn node_text<'a>(node: tree_sitter::Node<'a>, source: &'a str) -> &'a
     &source[node.start_byte()..node.end_byte()]
 }
 
-/// Extract function name from a `function_call` node.
-pub(crate) fn extract_func_name<'a>(
-    node: tree_sitter::Node<'a>,
-    source: &'a str,
-) -> Option<&'a str> {
-    if node.kind() != "function_call" {
-        return None;
-    }
-    let name_node = node.child_by_field_name("name")?;
-    Some(&source[name_node.start_byte()..name_node.end_byte()])
-}
-
-/// Extract command name from a `command` node.
-pub(crate) fn extract_command_name<'a>(
-    node: tree_sitter::Node<'a>,
-    source: &'a str,
-) -> Option<&'a str> {
-    if node.kind() != "command" {
-        return None;
-    }
-    let name_node = node.child(0)?;
-    if name_node.kind() == "command_name" {
-        Some(&source[name_node.start_byte()..name_node.end_byte()])
-    } else {
-        None
-    }
-}
-
 /// Extract command arguments as a list of text fragments.
 pub(crate) fn extract_command_args<'a>(
     node: tree_sitter::Node<'a>,
     source: &'a str,
 ) -> Vec<&'a str> {
     let mut args = Vec::new();
-    let count = node.child_count();
-    for i in 0..count {
-        if let Some(child) = node.child(i) {
-            // Skip the command_name (first child) and punctuation.
-            if child.kind() == "command_name" || child.kind() == ";" || child.kind() == "," {
-                continue;
-            }
-            let text = node_text(child, source).trim();
-            if !text.is_empty() {
-                args.push(text);
-            }
+    for child in crate::analysis::symbols::children_of(node) {
+        // Skip the command_name (first child) and punctuation.
+        if child.kind() == "command_name" || child.kind() == ";" || child.kind() == "," {
+            continue;
+        }
+        let text = node_text(child, source).trim();
+        if !text.is_empty() {
+            args.push(text);
         }
     }
     args
@@ -684,144 +1053,44 @@ pub(crate) fn extract_command_args<'a>(
 pub(crate) fn extract_operator<'a>(node: tree_sitter::Node<'a>, source: &'a str) -> &'a str {
     // The operator is typically the second child (between left and right operands),
     // or we can scan children for the operator token.
-    let count = node.child_count();
-    for i in 0..count {
-        if let Some(child) = node.child(i) {
-            let text = node_text(child, source);
-            // Operator tokens are short and not identifiers/expressions.
-            match text {
-                "+" | "-" | "*" | "/" | "\\" | "^" | ".*" | "./" | ".\\" | ".^" | "&" | "|"
-                | "&&" | "||" | "==" | "~=" | "<" | ">" | "<=" | ">=" => return text,
-                _ => continue,
-            }
-        }
-    }
-    ""
-}
-
-/// Extract the operator text from a `unary_operator` node.
-pub(crate) fn extract_unary_operator<'a>(node: tree_sitter::Node<'a>, source: &'a str) -> &'a str {
-    if let Some(child) = node.child(0) {
+    for child in crate::analysis::symbols::children_of(node) {
         let text = node_text(child, source);
+        // Operator tokens are short and not identifiers/expressions.
         match text {
-            "~" | "-" | "+" | "!" => return text,
-            _ => {}
+            "+" | "-" | "*" | "/" | "\\" | "^" | ".*" | "./" | ".\\" | ".^" | "&" | "|" | "&&"
+            | "||" | "==" | "~=" | "<" | ">" | "<=" | ">=" => return text,
+            _ => continue,
         }
     }
     ""
-}
-
-/// Get the first named child of a node.
-pub(crate) fn first_named_child(node: tree_sitter::Node) -> Option<tree_sitter::Node> {
-    let count = node.named_child_count();
-    if count > 0 {
-        node.named_child(0)
-    } else {
-        None
-    }
 }
 
 // ---------------------------------------------------------------------------
 // Helper: argument analysis
 // ---------------------------------------------------------------------------
 
-/// Count the number of arguments in a `function_call` node.
-pub(crate) fn count_args(node: tree_sitter::Node) -> usize {
-    // Arguments are in the `arguments` child node.
-    match find_arguments(node) {
-        Some(args_node) => args_node.named_child_count(),
-        None => 0,
-    }
-}
-
 /// Find the `arguments` child node of a `function_call` node.
 ///
 /// tree-sitter-matlab does not attach a field name to this child, so the
 /// arguments list is located by node kind.
 pub(crate) fn find_arguments<'a>(node: tree_sitter::Node<'a>) -> Option<tree_sitter::Node<'a>> {
-    let count = node.child_count();
-    for i in 0..count {
-        if let Some(child) = node.child(i) {
-            if child.kind() == "arguments" {
-                return Some(child);
-            }
-        }
-    }
-    None
+    crate::analysis::symbols::children_of(node)
+        .into_iter()
+        .find(|child| child.kind() == "arguments")
 }
 
 /// Check if a function_call has a specific string argument.
 pub(crate) fn has_string_arg(node: tree_sitter::Node, source: &str, value: &str) -> bool {
-    let count = node.child_count();
-    for i in 0..count {
-        if let Some(child) = node.child(i) {
-            let text = node_text(child, source);
-            // Match quoted strings: 'value' or "value"
-            let trimmed = text.trim_matches('\'').trim_matches('"');
-            if trimmed.eq_ignore_ascii_case(value) {
-                return true;
-            }
-            // Recurse into arguments node.
-            if child.kind() == "arguments" && has_string_arg(child, source, value) {
-                return true;
-            }
-        }
-    }
-    false
-}
-
-/// Check if `exist(...)` has a second argument indicating type ('file', 'dir', etc.).
-pub(crate) fn has_exist_type_arg(node: tree_sitter::Node, source: &str) -> bool {
-    // exist should have 2 arguments, with the second being a string like 'file', 'dir'.
-    let arg_count = count_args(node);
-    if arg_count < 2 {
-        return false;
-    }
-    has_string_arg(node, source, "file")
-        || has_string_arg(node, source, "dir")
-        || has_string_arg(node, source, "builtin")
-        || has_string_arg(node, source, "class")
-}
-
-/// Check if a regexp/regexpi call has an overly simple pattern (just alphanumeric).
-pub(crate) fn has_simple_regex_pattern(node: tree_sitter::Node, source: &str) -> bool {
-    // Look for the second argument (the pattern) and check if it's purely alphanumeric
-    // (meaning a simple `contains` or `strcmp` would suffice).
-    let args_node = match find_arguments(node) {
-        Some(n) => n,
-        None => return false,
-    };
-
-    // The pattern is usually the 2nd argument.
-    let named_count = args_node.named_child_count();
-    if named_count < 2 {
-        return false;
-    }
-
-    if let Some(pattern_node) = args_node.named_child(1) {
-        let text = node_text(pattern_node, source);
-        // Strip quotes.
-        let inner = text.trim_matches('\'').trim_matches('"');
-        // If the pattern is purely alphanumeric (no regex metacharacters), it's simple.
-        if !inner.is_empty() && inner.chars().all(|c| c.is_alphanumeric() || c == '_') {
+    for child in crate::analysis::symbols::children_of(node) {
+        let text = node_text(child, source);
+        // Match quoted strings: 'value' or "value"
+        let trimmed = text.trim_matches('\'').trim_matches('"');
+        if trimmed.eq_ignore_ascii_case(value) {
             return true;
         }
-    }
-    false
-}
-
-/// Check if the first argument to lower/upper is a strcmp call (STNCI pattern).
-pub(crate) fn has_strcmp_arg(node: tree_sitter::Node, source: &str) -> bool {
-    let args_node = match find_arguments(node) {
-        Some(n) => n,
-        None => return false,
-    };
-
-    if let Some(first_arg) = first_named_child(args_node) {
-        if first_arg.kind() == "function_call" {
-            if let Some(name) = extract_func_name(first_arg, source) {
-                return name == "strcmp" || name == "strcmpi";
-            }
+        // Recurse into arguments node.
+        if child.kind() == "arguments" && has_string_arg(child, source, value) {
+            return true;
         }
     }
     false
@@ -830,25 +1099,6 @@ pub(crate) fn has_strcmp_arg(node: tree_sitter::Node, source: &str) -> bool {
 // ---------------------------------------------------------------------------
 // Helper: pattern detection
 // ---------------------------------------------------------------------------
-
-/// Check if the function_call is a nested call of the same function.
-/// e.g., max(max(x)) — the outer call's first argument is the same function.
-pub(crate) fn is_nested_same_call(node: tree_sitter::Node, source: &str, func_name: &str) -> bool {
-    let args_node = match find_arguments(node) {
-        Some(n) => n,
-        None => return false,
-    };
-
-    // Check if first argument is a function_call with the same name.
-    if let Some(first_arg) = first_named_child(args_node) {
-        if first_arg.kind() == "function_call" {
-            if let Some(inner_name) = extract_func_name(first_arg, source) {
-                return inner_name == func_name;
-            }
-        }
-    }
-    false
-}
 
 /// Check if a function_call node is used as a subscript index.
 /// i.e., the parent is the arguments of another function_call.
@@ -878,20 +1128,6 @@ pub(crate) fn is_statement_level(node: &tree_sitter::Node) -> bool {
         .unwrap_or(false)
 }
 
-/// Check if node is inside a loop (for_statement or while_statement).
-pub(crate) fn is_inside_loop(node: tree_sitter::Node) -> bool {
-    let mut current = node.parent();
-    while let Some(p) = current {
-        match p.kind() {
-            "for_statement" | "while_statement" => return true,
-            "function_definition" => return false, // Stop at function boundary.
-            _ => {}
-        }
-        current = p.parent();
-    }
-    false
-}
-
 /// Check if a node is inside a condition expression (if/while/elseif).
 pub(crate) fn is_in_condition(node: tree_sitter::Node) -> bool {
     let mut current = node.parent();
@@ -904,13 +1140,10 @@ pub(crate) fn is_in_condition(node: tree_sitter::Node) -> bool {
                     return is_descendant_of(node, cond);
                 }
                 // Fallback: check if node appears before the "block" child.
-                let count = p.child_count();
-                for i in 0..count {
-                    if let Some(child) = p.child(i) {
-                        if child.kind() == "block" {
-                            // If node is before the block, it's in the condition.
-                            return node.start_byte() < child.start_byte();
-                        }
+                for child in crate::analysis::symbols::children_of(p) {
+                    if child.kind() == "block" {
+                        // If node is before the block, it's in the condition.
+                        return node.start_byte() < child.start_byte();
                     }
                 }
                 return true;
@@ -930,14 +1163,11 @@ pub(crate) fn is_descendant_of(needle: tree_sitter::Node, haystack: tree_sitter:
 
 /// Check if an `inv()` call is an operand of a binary_operator.
 pub(crate) fn has_inv_operand(node: tree_sitter::Node, source: &str) -> bool {
-    let count = node.child_count();
-    for i in 0..count {
-        if let Some(child) = node.child(i) {
-            if child.kind() == "function_call" {
-                if let Some(name) = extract_func_name(child, source) {
-                    if name == "inv" {
-                        return true;
-                    }
+    for child in crate::analysis::symbols::children_of(node) {
+        if child.kind() == "function_call" {
+            if let Some(name) = call_path(child, source, Dotted::Skip) {
+                if name == "inv" {
+                    return true;
                 }
             }
         }
@@ -945,43 +1175,16 @@ pub(crate) fn has_inv_operand(node: tree_sitter::Node, source: &str) -> bool {
     false
 }
 
-/// Check if both operands of a binary_operator are the same text.
-pub(crate) fn has_same_operands(node: tree_sitter::Node, source: &str) -> bool {
-    // Typically: child(0) = left, child(1) = op, child(2) = right.
-    let left = match node.child(0) {
-        Some(n) => n,
-        None => return false,
-    };
-    let right = match node.child(2) {
-        Some(n) => n,
-        None => return false,
-    };
-    let left_text = node_text(left, source).trim();
-    let right_text = node_text(right, source).trim();
-    !left_text.is_empty() && left_text == right_text
-}
-
-/// Check if an indexing expression contains `end+1` or `end + 1` pattern.
-pub(crate) fn contains_end_plus_pattern(node: tree_sitter::Node, source: &str) -> bool {
-    let text = node_text(node, source);
-    // Simple textual check: look for "end+1" or "end + 1" within parentheses or braces.
-    let normalized: String = text.chars().filter(|c| !c.is_whitespace()).collect();
-    normalized.contains("end+1")
-}
-
 /// Check if a matrix literal `[...]` contains a variable name as an element.
 pub(crate) fn matrix_contains_var(node: tree_sitter::Node, source: &str, var_name: &str) -> bool {
     // Walk the matrix's children looking for an identifier matching var_name.
-    let count = node.child_count();
-    for i in 0..count {
-        if let Some(child) = node.child(i) {
-            if child.kind() == "identifier" && node_text(child, source) == var_name {
-                return true;
-            }
-            // Recurse into rows.
-            if child.kind() == "row" && matrix_contains_var(child, source, var_name) {
-                return true;
-            }
+    for child in crate::analysis::symbols::children_of(node) {
+        if child.kind() == "identifier" && node_text(child, source) == var_name {
+            return true;
+        }
+        // Recurse into rows.
+        if child.kind() == "row" && matrix_contains_var(child, source, var_name) {
+            return true;
         }
     }
     false
@@ -998,14 +1201,15 @@ pub(crate) fn extract_length_comparison<'a>(
     let op_node = node.child(1)?;
     let right = node.child(2)?;
 
+    // `~=` is accepted for ISMT (`length(x) ~= 0`); callers gate ISCL on `==`.
     let op = node_text(op_node, source);
-    if op != "==" {
+    if op != "==" && op != "~=" {
         return None;
     }
 
     // Check if left is a function_call to length/numel/size.
     if left.kind() == "function_call" {
-        if let Some(name) = extract_func_name(left, source) {
+        if let Some(name) = call_path(left, source, Dotted::Skip) {
             if name == "length" || name == "numel" {
                 return Some((name, node_text(right, source).trim()));
             }
@@ -1014,7 +1218,7 @@ pub(crate) fn extract_length_comparison<'a>(
 
     // Also check reversed: 0 == length(x)
     if right.kind() == "function_call" {
-        if let Some(name) = extract_func_name(right, source) {
+        if let Some(name) = call_path(right, source, Dotted::Skip) {
             if name == "length" || name == "numel" {
                 return Some((name, node_text(left, source).trim()));
             }
@@ -1051,13 +1255,10 @@ pub(crate) fn fix_replace_operator(
     old_op: &str,
     new_op: &str,
 ) -> Option<Fix> {
-    let count = node.child_count();
-    for i in 0..count {
-        if let Some(child) = node.child(i) {
-            let text = node_text(child, source);
-            if text == old_op {
-                return Some(Fix::new(child.start_byte()..child.end_byte(), new_op));
-            }
+    for child in crate::analysis::symbols::children_of(node) {
+        let text = node_text(child, source);
+        if text == old_op {
+            return Some(Fix::new(child.start_byte()..child.end_byte(), new_op));
         }
     }
     None
@@ -1101,14 +1302,14 @@ mod tests {
 
     #[test]
     fn agrow_fires_on_concatenation_growth() {
-        let src = "for i = 1:10\n    x = [x, i];\nend\n";
+        let src = "function f()\nfor i = 1:10\n    x = [x, i];\nend\nend\n";
         let diags = lint_file(&*engine(), src);
         assert!(has_id(&diags, "AGROW"), "got: {diags:?}");
     }
 
     #[test]
     fn agrow_fires_on_end_plus_one() {
-        let src = "for i = 1:10\n    x(end+1) = i;\nend\n";
+        let src = "function f()\nfor i = 1:10\n    x(end+1) = i;\nend\nend\n";
         let diags = lint_file(&*engine(), src);
         assert!(has_id(&diags, "AGROW"), "got: {diags:?}");
     }
@@ -1123,24 +1324,141 @@ mod tests {
     // -- SAGROW (file-level) -------------------------------------------------
 
     #[test]
-    fn sagrow_fires_on_struct_field_growth() {
-        let src = "for i = 1:10\n    s.data(end+1) = i;\nend\n";
+    fn sagrow_fires_on_script_growth() {
+        let src = "for i = 1:10\n    x(end+1) = i;\nend\n";
         let diags = lint_file(&*engine(), src);
         assert!(has_id(&diags, "SAGROW"), "got: {diags:?}");
     }
 
     #[test]
-    fn sagrow_fires_on_struct_field_concatenation() {
-        let src = "for i = 1:10\n    s.data = [s.data, i];\nend\n";
-        let diags = lint_file(&*engine(), src);
-        assert!(has_id(&diags, "SAGROW"), "got: {diags:?}");
+    fn sagrow_fires_on_numel_and_length_growth() {
+        // Probed in MATLAB: `n(numel(n)+1)` and `n(length(n)+1)` report SAGROW.
+        for src in [
+            "n = [];\nfor i = 1:3\n    n(numel(n)+1) = i;\nend\n",
+            "n = [];\nfor i = 1:3\n    n(length(n) + 1) = i;\nend\n",
+        ] {
+            let diags = lint_file(&*engine(), src);
+            assert!(has_id(&diags, "SAGROW"), "{src}: got: {diags:?}");
+        }
     }
 
     #[test]
-    fn sagrow_not_fire_on_struct_indexed_assignment() {
+    fn sagrow_silent_on_size_of_another_variable() {
+        // Not probed: the index counts a different variable, so it is not this growth.
+        let src = "n = [];\nfor i = 1:3\n    n(numel(m)+1) = i;\nend\n";
+        let diags = lint_file(&*engine(), src);
+        assert!(!has_id(&diags, "SAGROW"), "got: {diags:?}");
+    }
+
+    #[test]
+    fn agrow_fires_on_script_concatenation() {
+        // Concatenation is AGROW in scripts too (probed); a field target is silent.
+        let src = "for i = 1:10\n    y = [y, i];\nend\n";
+        let diags = lint_file(&*engine(), src);
+        assert!(
+            has_id(&diags, "AGROW") && !has_id(&diags, "SAGROW"),
+            "got: {diags:?}"
+        );
+        let field = "for i = 1:10\n    s.data = [s.data, i];\nend\n";
+        let diags = lint_file(&*engine(), field);
+        assert!(
+            !has_id(&diags, "AGROW") && !has_id(&diags, "SAGROW"),
+            "got: {diags:?}"
+        );
+    }
+
+    #[test]
+    fn sagrow_not_fire_on_indexed_assignment() {
         let src = "for i = 1:10\n    s.data(i) = i;\nend\n";
         let diags = lint_file(&*engine(), src);
         assert!(!has_id(&diags, "SAGROW"), "got: {diags:?}");
+    }
+
+    #[test]
+    fn agrow_in_function_sagrow_in_script() {
+        let f = "function f()\nfor i = 1:10\n    x(end+1) = i;\nend\nend\n";
+        let d = lint_file(&*engine(), f);
+        assert!(has_id(&d, "AGROW") && !has_id(&d, "SAGROW"), "got: {d:?}");
+        let s = "for i = 1:10\n    x(end+1) = i;\nend\n";
+        let d = lint_file(&*engine(), s);
+        assert!(has_id(&d, "SAGROW") && !has_id(&d, "AGROW"), "got: {d:?}");
+    }
+
+    #[test]
+    fn sprix_fires_on_indexed_assignment_into_sparse() {
+        let src = "S = sparse(10, 10);\nfor k = 1:3\n    S(k) = 1;\nend\n";
+        assert!(has_id(&lint_file(&*engine(), src), "SPRIX"));
+        // MATLAB reports it inside a loop only.
+        let src = "S = sparse(10, 10);\nS(3) = 1;\n";
+        assert!(!has_id(&lint_file(&*engine(), src), "SPRIX"));
+        let src = "S = zeros(10);\nS(3) = 1;\n";
+        assert!(!has_id(&lint_file(&*engine(), src), "SPRIX"));
+        let src = "S = sparse(10, 10);\nS = full(S);\nS(3) = 1;\n";
+        assert!(!has_id(&lint_file(&*engine(), src), "SPRIX"));
+    }
+
+    #[test]
+    fn pfbns_follows_matlab_broadcast_rule() {
+        // Probed on R2026b: a non-sliced access is a broadcast on its own, and so are
+        // two different access shapes.
+        for body in [
+            "r(i) = data(1);",
+            "r(i) = data(end);",
+            "r(i) = data(:);",
+            "r(i) = data(floor(i));",
+            "r(i) = data.x;",
+            "r(i) = cfg.scale;",
+            "r(i) = data(i) + data(i + 1);",
+            "r(i) = data(i + 1) + data(1:3);",
+        ] {
+            let src = format!("data = foo();\ncfg = foo();\nr = zeros(1, 10);\nparfor i = 1:10\n    {body}\nend\n");
+            assert!(has_id(&lint_file(&*engine(), &src), "PFBNS"), "{body}");
+        }
+        // Probed: a `parallel.pool.Constant` is not a broadcast variable.
+        let src = "c = parallel.pool.Constant(@() 1);\nr = zeros(1, 10);\nparfor i = 1:10\n    r(i) = c.Value;\nend\n";
+        assert!(!has_id(&lint_file(&*engine(), src), "PFBNS"));
+        // Probed: one sliced shape, a constant range alone, a whole read and an
+        // indexed field are silent.
+        for body in [
+            "r(i) = data(i) + data(i);",
+            "r(i) = data(2:5);",
+            "r(i) = numel(data);",
+            "r(i) = sum(data);",
+            "r(i) = data(1, 1:3);",
+            "r(i) = cfg(i).scale + cfg(i).offset;",
+        ] {
+            let src = format!("data = foo();\ncfg = foo();\nr = zeros(1, 10);\nparfor i = 1:10\n    {body}\nend\n");
+            assert!(!has_id(&lint_file(&*engine(), &src), "PFBNS"), "{body}");
+        }
+    }
+
+    #[test]
+    fn pfbns_follows_matlab_for_repeated_index_and_handles() {
+        // Probed (bn58): the index in two subscripts of `M(i, i)` is a broadcast. Probed
+        // (bn30): a variable offset `data(i + k)` is silent. Probed (lp12): a call of a
+        // function handle is a function call, not an indexed broadcast.
+        let src = "data = foo();\nM = foo();\nk = 1;\nr = zeros(1, 10);\nparfor i = 1:10\n    r(i) = M(i, i);\nend\n";
+        assert!(has_id(&lint_file(&*engine(), src), "PFBNS"));
+        let src = "data = foo();\nk = 1;\nr = zeros(1, 10);\nparfor i = 1:10\n    r(i) = data(i + k);\nend\n";
+        assert!(!has_id(&lint_file(&*engine(), src), "PFBNS"));
+        let src = "g = @(i) i;\nr = zeros(1, 10);\nparfor i = 1:10\n    r(i) = g(1);\nend\n";
+        assert!(!has_id(&lint_file(&*engine(), src), "PFBNS"));
+    }
+
+    #[test]
+    fn pfbns_fires_on_broadcast_variable_with_name() {
+        let src = "c = foo();\nparfor i = 1:N\n    a(i) = c(i,1);\n    b(i) = c(i,2);\nend\n";
+        let d = lint_file(&*engine(), src);
+        let p = d.iter().find(|d| d.rule_id == "PFBNS").expect("PFBNS");
+        assert!(p.message.contains("'c' is a broadcast"), "{}", p.message);
+        // The loop header runs once on the client: a whole read there is not broadcast.
+        let src = "v = rand(1, 10);\nout = zeros(1, 10);\nparfor k = 1:numel(v)\n    out(k) = v(k) * 2;\nend\n";
+        assert!(!has_id(&lint_file(&*engine(), src), "PFBNS"));
+        assert!(!p.message.contains("VAR_NAME"));
+        let src = "c = foo();\nparfor i = 1:N\n    a(i) = c(i,1);\n    b(i) = c(i,1);\nend\n";
+        assert!(!has_id(&lint_file(&*engine(), src), "PFBNS"));
+        let src = "c = foo();\nfor i = 1:N\n    a(i) = c(i,1);\n    b(i) = c(i,2);\nend\n";
+        assert!(!has_id(&lint_file(&*engine(), src), "PFBNS"));
     }
 
     // -- Config-respected test --------------------------------------------------
@@ -1157,7 +1475,7 @@ skip_checks = ["AGROW", "ST2NM"]
         let rule = PerformanceEngine::from_config(&config);
 
         // Skipped check no longer fires.
-        let src = "for i = 1:10\n    x = [x, i];\nend\n";
+        let src = "function f()\nfor i = 1:10\n    x = [x, i];\nend\nend\n";
         let diags = lint_file(&*rule, src);
         assert!(!has_id(&diags, "AGROW"), "got: {diags:?}");
 
@@ -1170,4 +1488,41 @@ skip_checks = ["AGROW", "ST2NM"]
         let diags = lint_nodes(&*rule, src);
         assert!(has_id(&diags, "MINV"), "got: {diags:?}");
     }
+}
+
+#[cfg(test)]
+mod active_check_tests {
+    use super::*;
+
+    #[test]
+    fn active_check_ids_are_the_checks_not_skipped() {
+        let active = PerformanceEngine::from_config(&Config::default()).active_check_ids();
+        assert!(active.contains(&"PFBNS") && active.contains(&"LAXES"));
+        assert!(active.contains(&"AGROW"));
+        // GRIDD is switched off under the mathworks preset. MATLAB reports an
+        // unused `%#ok<GRIDD>` (probed), but malt cannot tell which off-by-default
+        // checks MATLAB keeps active (CTCH is silent), so it declares none of them.
+        assert!(!active.contains(&"GRIDD"));
+
+        let config =
+            Config::from_toml("[lint.rules.PERFORMANCE_ENGINE]\nskip_checks = [\"PFBNS\"]\n")
+                .unwrap();
+        let active = PerformanceEngine::from_config(&config).active_check_ids();
+        assert!(!active.contains(&"PFBNS"));
+        assert!(active.contains(&"LAXES"));
+    }
+}
+
+/// Whether `node` is in the body of a `parfor` loop. MATLAB reports no AGROW there (probed).
+fn inside_parfor(node: tree_sitter::Node, source: &str) -> bool {
+    let mut current = node.parent();
+    while let Some(p) = current {
+        // The grammar parses `parfor` as a `for_statement`.
+        if p.kind() == "for_statement" && source[p.byte_range()].trim_start().starts_with("parfor")
+        {
+            return true;
+        }
+        current = p.parent();
+    }
+    false
 }

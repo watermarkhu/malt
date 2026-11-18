@@ -50,6 +50,16 @@ mod tests {
     }
 
     #[test]
+    fn test_spevb_fires_on_upper_case_base() {
+        // Probed: MATLAB matches 'BASE' too (se07).
+        let source = "spmd\n    evalin('BASE', 'x');\nend\n";
+        let tree = parse(source);
+        let eng = engine();
+        let spmd = find_child_of_kind(tree.root_node(), "spmd_statement").unwrap();
+        assert_eq!(eng.check_spevb(spmd, source).len(), 1);
+    }
+
+    #[test]
     fn test_spevb_silent_on_caller_workspace_in_spmd() {
         let source = "spmd\n    evalin('caller','x');\nend\n";
         let tree = parse(source);

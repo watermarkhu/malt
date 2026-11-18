@@ -1,0 +1,1 @@
+dlmwrite('out.txt', data);

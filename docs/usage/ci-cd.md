@@ -48,6 +48,10 @@ jobs:
           find . -name '*.m' -not -path './vendor/*' | xargs malt
 ```
 
+## Large files and shared runners
+
+malt skips a file over `max_file_size` (5 MiB by default) with a `MALT_TOO_BIG` error, which fails the build like any other error-level diagnostic (exit code `1`): exclude the file with `[lint] exclude`, or raise the limit for the project. On a small shared runner you can also lower `max_threads` and `max_file_size`. Raising a limit lets one file take gigabytes of memory; read [Resource limits](../configuration.md#resource-limits) first.
+
 ## Exit Codes for CI
 
 malt's exit codes are designed for CI use:

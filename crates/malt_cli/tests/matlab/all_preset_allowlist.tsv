@@ -1,0 +1,114 @@
+# Differences between malt --preset all and MATLAB's checkcode with every check enabled, that are accepted.
+# Read by tests/matlab_conformance_all.rs. Columns, tab-separated: path (relative to tests/fixtures, or *),
+# line (or *), check ID, direction (malt-only: malt reports and MATLAB does not; matlab-only: the reverse),
+# reason. A * path and line accepts every difference of that check and direction. An entry that matches
+# no difference fails the test, so the list only shrinks. See docs/VERIFY.md, 'Preset all against MATLAB'.
+fix/gp-a__t2.m	39	ADAPPREF	malt-only	Experimental check that MATLAB never reports with every check enabled (0 MATLAB findings over the fixtures): a demotion candidate (docs/VERIFY.md, 'Preset all against MATLAB').
+recorded/silent/cmdand.m	3	CMDAND	malt-only	Experimental check that MATLAB never reports with every check enabled (0 MATLAB findings over the fixtures): a demotion candidate (docs/VERIFY.md, 'Preset all against MATLAB').
+recorded/silent/cmdand.m	4	CMDOR	malt-only	Experimental check that MATLAB never reports with every check enabled (0 MATLAB findings over the fixtures): a demotion candidate (docs/VERIFY.md, 'Preset all against MATLAB').
+recorded/generic_a.m	46	COEFF1	malt-only	Experimental check that MATLAB never reports with every check enabled (0 MATLAB findings over the fixtures): a demotion candidate (docs/VERIFY.md, 'Preset all against MATLAB').
+corpus4/j/j_image_old.m	63	COLMP	malt-only	malt reports a `colormap(...)` call whose size it assumes; MATLAB reports other lines of the same shapes. The condition is not established.
+corpus4/j/j_plot_toolkit.m	66	COLMP	malt-only	malt reports a `colormap(...)` call whose size it assumes; MATLAB reports other lines of the same shapes. The condition is not established.
+corpus4/j/j_plot_toolkit.m	67	COLMP	malt-only	malt reports a `colormap(...)` call whose size it assumes; MATLAB reports other lines of the same shapes. The condition is not established.
+*	*	CTOINW	malt-only	malt's CTOINW_CALL flags `max(max(A))`-style nesting; MATLAB reports only a constructed object passed to a constructor (1 line).
+fix/unused__a3.m	18	ERTAG	malt-only	MATLAB resolves the value of a variable first argument (`x = 'a:b'; error(x)` is silent) or the position decides; malt does not track values.
+recorded/engines/ertxt.m	2	ERTAG	malt-only	MATLAB resolves the value of a variable first argument (`x = 'a:b'; error(x)` is silent) or the position decides; malt does not track values.
+fix/gp-b__t2.m	35	ERTAG	matlab-only	Known gap: MATLAB reports a second `error` after an earlier `error(s)` (struct argument that may be empty, so it does not end the flow); malt treats every `error(...)` as ending the flow.
+fix_matlab/gp-b__t2.NBRAK1.m	35	ERTAG	matlab-only	Known gap: MATLAB reports a second `error` after an earlier `error(s)` (struct argument that may be empty, so it does not end the flow); malt treats every `error(...)` as ending the flow.
+recorded/generic_f.m	3	FCCPV	malt-only	Known gap: `x @double` (a class-property validation spelled with `@`) is not validation in MATLAB.
+phase2/douqt_multiline.m	1	FCDQS	malt-only	Known gap: a double-quoted string that runs over a line break (a syntax error in MATLAB).
+fix/syntax__t13.m	3	FCDQS	matlab-only	Known gap: a file with a syntax error where the parser stops before the string.
+fix/syntax__w10.m	1	FCHBL	malt-only	Known gap: a literal too long to be a number (more than 64 bits) is a syntax error in MATLAB; malt reports FCHBL as well.
+recorded/engines3/binary.m	1	FCHBL	malt-only	Known gap: a literal too long to be a number (more than 64 bits) is a syntax error in MATLAB; malt reports FCHBL as well.
+fix/bugs__f1.m	1	FCLFS	matlab-only	Known gap: files with a syntax error, where malt does not see a script with local functions.
+fix/bugs__f2.m	1	FCLFS	matlab-only	Known gap: files with a syntax error, where malt does not see a script with local functions.
+fix/t__fv4.m	1	FCLFS	matlab-only	Known gap: files with a syntax error, where malt does not see a script with local functions.
+recorded/engines/fvaci.m	1	FCNVA	malt-only	Known gap: `c{key = 'Name'} = 5` is not Name=Value syntax in MATLAB (an index assignment).
+*	*	FPASE	matlab-only	Known gap: MATLAB infers a possible fixed-point type through data flow (a reassignment after an unknown-typed value); malt reports only after `fi(...)`.
+fix/ls-b__f6.m	9	FVOOOV	matlab-only	Not implemented: validation functions that use variables other than the output argument being validated.
+fix/ls-b__o1.m	4	FVOOOV	matlab-only	Not implemented: validation functions that use variables other than the output argument being validated.
+fix/ls-b__t5.m	7	GPNES	malt-only	Experimental check that MATLAB never reports with every check enabled (0 MATLAB findings over the fixtures): a demotion candidate (docs/VERIFY.md, 'Preset all against MATLAB').
+fix/ls-b__t5.m	8	GPNES	malt-only	Experimental check that MATLAB never reports with every check enabled (0 MATLAB findings over the fixtures): a demotion candidate (docs/VERIFY.md, 'Preset all against MATLAB').
+fix/ls-b__t6.m	6	GPNES	malt-only	Experimental check that MATLAB never reports with every check enabled (0 MATLAB findings over the fixtures): a demotion candidate (docs/VERIFY.md, 'Preset all against MATLAB').
+fix/performance__t3.m	35	GRIDD	malt-only	Experimental check that MATLAB never reports with every check enabled (0 MATLAB findings over the fixtures): a demotion candidate (docs/VERIFY.md, 'Preset all against MATLAB').
+fix_matlab/performance__t3.EFIND.m	35	GRIDD	malt-only	Experimental check that MATLAB never reports with every check enabled (0 MATLAB findings over the fixtures): a demotion candidate (docs/VERIFY.md, 'Preset all against MATLAB').
+fix_matlab/performance__t3.FNDSB.m	35	GRIDD	malt-only	Experimental check that MATLAB never reports with every check enabled (0 MATLAB findings over the fixtures): a demotion candidate (docs/VERIFY.md, 'Preset all against MATLAB').
+fix_matlab/performance__t3.MRPBW.m	35	GRIDD	malt-only	Experimental check that MATLAB never reports with every check enabled (0 MATLAB findings over the fixtures): a demotion candidate (docs/VERIFY.md, 'Preset all against MATLAB').
+fix_matlab/performance__t3.RPMT1.m	35	GRIDD	malt-only	Experimental check that MATLAB never reports with every check enabled (0 MATLAB findings over the fixtures): a demotion candidate (docs/VERIFY.md, 'Preset all against MATLAB').
+fix_matlab/performance__t3.STNCI.m	35	GRIDD	malt-only	Experimental check that MATLAB never reports with every check enabled (0 MATLAB findings over the fixtures): a demotion candidate (docs/VERIFY.md, 'Preset all against MATLAB').
+fix_matlab/performance__t3.TRIM2.m	35	GRIDD	malt-only	Experimental check that MATLAB never reports with every check enabled (0 MATLAB findings over the fixtures): a demotion candidate (docs/VERIFY.md, 'Preset all against MATLAB').
+fix/gp-a__t5.m	3	GTARG	malt-only	Experimental check that MATLAB never reports with every check enabled (0 MATLAB findings over the fixtures): a demotion candidate (docs/VERIFY.md, 'Preset all against MATLAB').
+*	*	IDISVARHIGH	malt-only	Experimental check that MATLAB never reports with every check enabled (0 MATLAB findings over the fixtures): a demotion candidate (docs/VERIFY.md, 'Preset all against MATLAB').
+fix/gp-a__t10.m	28	IDISVARLOW	malt-only	Experimental check that MATLAB never reports with every check enabled (0 MATLAB findings over the fixtures): a demotion candidate (docs/VERIFY.md, 'Preset all against MATLAB').
+fix/ls-c__scr1.m	8	IDISVARLOW	malt-only	Experimental check that MATLAB never reports with every check enabled (0 MATLAB findings over the fixtures): a demotion candidate (docs/VERIFY.md, 'Preset all against MATLAB').
+phase2/fvniv2_08.m	3	IDISVARLOW	malt-only	Experimental check that MATLAB never reports with every check enabled (0 MATLAB findings over the fixtures): a demotion candidate (docs/VERIFY.md, 'Preset all against MATLAB').
+phase3/nodef_p5_builtin_name_later.m	2	IDISVARLOW	malt-only	Experimental check that MATLAB never reports with every check enabled (0 MATLAB findings over the fixtures): a demotion candidate (docs/VERIFY.md, 'Preset all against MATLAB').
+phase3/nodef_p5_call_name_in_if.m	4	IDISVARLOW	malt-only	Experimental check that MATLAB never reports with every check enabled (0 MATLAB findings over the fixtures): a demotion candidate (docs/VERIFY.md, 'Preset all against MATLAB').
+phase3/nodef_p5_call_name_later.m	2	IDISVARLOW	malt-only	Experimental check that MATLAB never reports with every check enabled (0 MATLAB findings over the fixtures): a demotion candidate (docs/VERIFY.md, 'Preset all against MATLAB').
+phase3/pf_indexed_input_later.m	4	IDISVARLOW	malt-only	Experimental check that MATLAB never reports with every check enabled (0 MATLAB findings over the fixtures): a demotion candidate (docs/VERIFY.md, 'Preset all against MATLAB').
+corpus3/g/g_old_toolbox.m	34	ISROW	malt-only	Experimental check that MATLAB never reports with every check enabled (0 MATLAB findings over the fixtures): a demotion candidate (docs/VERIFY.md, 'Preset all against MATLAB').
+fix/c4__m1.m	41	ITERS	malt-only	Experimental check that MATLAB never reports with every check enabled (0 MATLAB findings over the fixtures): a demotion candidate (docs/VERIFY.md, 'Preset all against MATLAB').
+fix/performance__t1.m	20	ITERS	malt-only	Experimental check that MATLAB never reports with every check enabled (0 MATLAB findings over the fixtures): a demotion candidate (docs/VERIFY.md, 'Preset all against MATLAB').
+*	*	LOGSUM	malt-only	MATLAB reports LOGSUM only for the shapes it recognises (`sum(x(:) <= 1)`); malt's general `sum(<logical>)` (LOGSUM_ANY) is the experimental extension and is silent in MATLAB.
+recorded/generic_a.m	43	LSRET	malt-only	Experimental check that MATLAB never reports with every check enabled (0 MATLAB findings over the fixtures): a demotion candidate (docs/VERIFY.md, 'Preset all against MATLAB').
+corpus10/c/c_inventory.m	65	LTARG	malt-only	Experimental check that MATLAB never reports with every check enabled (0 MATLAB findings over the fixtures): a demotion candidate (docs/VERIFY.md, 'Preset all against MATLAB').
+fix/gp-a__t5.m	2	LTARG	malt-only	Experimental check that MATLAB never reports with every check enabled (0 MATLAB findings over the fixtures): a demotion candidate (docs/VERIFY.md, 'Preset all against MATLAB').
+fix/gp-a__t5.m	4	LTARG	malt-only	Experimental check that MATLAB never reports with every check enabled (0 MATLAB findings over the fixtures): a demotion candidate (docs/VERIFY.md, 'Preset all against MATLAB').
+fix/gp-a__t10.m	24	MCKBD	malt-only	Known gap: `keyboard;` in a function that also assigns `keyboard = 3` is a variable, MATLAB is silent; malt does not look at the scope.
+fix/deployment__t1.m	36	MCTBX	matlab-only	Known gap: MATLAB reports `fullfile(matlabroot, 'toolbox', ...)` (a toolbox folder built from parts); malt reads string literals only.
+corpus2/e/e_climate_stats.m	44	MFAMB	malt-only	Known gap: malt's MFAMB flags a callee that is also assigned as a variable; MATLAB's semantics are different (see the matlab-only entry).
+fix/bugs__t2.m	8	MFAMB	malt-only	Known gap: malt's MFAMB flags a callee that is also assigned as a variable; MATLAB's semantics are different (see the matlab-only entry).
+fix/gp-a__t10.m	28	MFAMB	malt-only	Known gap: malt's MFAMB flags a callee that is also assigned as a variable; MATLAB's semantics are different (see the matlab-only entry).
+fix/ls-c__scr1.m	8	MFAMB	malt-only	Known gap: malt's MFAMB flags a callee that is also assigned as a variable; MATLAB's semantics are different (see the matlab-only entry).
+fix/naming__e.m	12	MFAMB	malt-only	Known gap: malt's MFAMB flags a callee that is also assigned as a variable; MATLAB's semantics are different (see the matlab-only entry).
+phase3/nodef_p5_call_name_in_if.m	4	MFAMB	malt-only	Known gap: malt's MFAMB flags a callee that is also assigned as a variable; MATLAB's semantics are different (see the matlab-only entry).
+phase3/nodef_p5_call_name_later.m	2	MFAMB	malt-only	Known gap: malt's MFAMB flags a callee that is also assigned as a variable; MATLAB's semantics are different (see the matlab-only entry).
+phase3/pf_indexed_input_later.m	4	MFAMB	malt-only	Known gap: malt's MFAMB flags a callee that is also assigned as a variable; MATLAB's semantics are different (see the matlab-only entry).
+*	*	MFAMB	matlab-only	Known gap: with the check enabled MATLAB reports, per function or script scope, the last use of each name that is not a variable (calls, bare names, `end`, `nargin`; not anonymous-function bodies, fields or command arguments); malt's MFAMB is narrower (a callee that is also a variable).
+corpus2/f/f_mex_wrapper.m	27	MIPC1	malt-only	Experimental check that MATLAB never reports with every check enabled (0 MATLAB findings over the fixtures): a demotion candidate (docs/VERIFY.md, 'Preset all against MATLAB').
+fix/gp-b__t1.m	50	MIPC1	malt-only	Experimental check that MATLAB never reports with every check enabled (0 MATLAB findings over the fixtures): a demotion candidate (docs/VERIFY.md, 'Preset all against MATLAB').
+fix_matlab/gp-b__t1.NBRAK1.m	50	MIPC1	malt-only	Experimental check that MATLAB never reports with every check enabled (0 MATLAB findings over the fixtures): a demotion candidate (docs/VERIFY.md, 'Preset all against MATLAB').
+fix/incomplete__di200.m	6	MNCSN	matlab-only	Known gap: files whose nesting runs into malt's depth limit (INCOMPLETE analysis): malt stops before the level that MATLAB reports.
+fix/incomplete__s15.m	6	MNCSN	matlab-only	Known gap: files whose nesting runs into malt's depth limit (INCOMPLETE analysis): malt stops before the level that MATLAB reports.
+fix/incomplete__s16.m	6	MNCSN	matlab-only	Known gap: files whose nesting runs into malt's depth limit (INCOMPLETE analysis): malt stops before the level that MATLAB reports.
+fix/bugs__t2.m	17	MOCUP	malt-only	Experimental check that MATLAB never reports with every check enabled (0 MATLAB findings over the fixtures): a demotion candidate (docs/VERIFY.md, 'Preset all against MATLAB').
+fix/secondpass__msnu.m	7	MSNU	malt-only	Known gap: MATLAB's MSNU depends on the suppressed check's own report (`%#ok` with nothing to suppress on a line it analyses differently).
+recorded/engines3/n2.m	2	NCHKE	malt-only	Experimental check that MATLAB never reports with every check enabled (0 MATLAB findings over the fixtures): a demotion candidate (docs/VERIFY.md, 'Preset all against MATLAB').
+recorded/generic_a.m	35	NOV6	malt-only	Experimental check that MATLAB never reports with every check enabled (0 MATLAB findings over the fixtures): a demotion candidate (docs/VERIFY.md, 'Preset all against MATLAB').
+recorded/generic_a.m	36	NOV6	malt-only	Experimental check that MATLAB never reports with every check enabled (0 MATLAB findings over the fixtures): a demotion candidate (docs/VERIFY.md, 'Preset all against MATLAB').
+fix/codegen__f1.m	1	NSTIMP	malt-only	Experimental check that MATLAB never reports with every check enabled (0 MATLAB findings over the fixtures): a demotion candidate (docs/VERIFY.md, 'Preset all against MATLAB').
+recorded/engines3/pffora.m	4	PFMLTI	malt-only	Experimental check that MATLAB never reports with every check enabled (0 MATLAB findings over the fixtures): a demotion candidate (docs/VERIFY.md, 'Preset all against MATLAB').
+recorded/silent/pfmlti.m	4	PFMLTI	malt-only	Experimental check that MATLAB never reports with every check enabled (0 MATLAB findings over the fixtures): a demotion candidate (docs/VERIFY.md, 'Preset all against MATLAB').
+fix/bugs__t2.m	3	PFUTVR	malt-only	Experimental check that MATLAB never reports with every check enabled (0 MATLAB findings over the fixtures): a demotion candidate (docs/VERIFY.md, 'Preset all against MATLAB').
+fix/bugs__t2.m	4	PFUTVR	malt-only	Experimental check that MATLAB never reports with every check enabled (0 MATLAB findings over the fixtures): a demotion candidate (docs/VERIFY.md, 'Preset all against MATLAB').
+fix/c3__p1.m	20	PFUTVR	malt-only	Experimental check that MATLAB never reports with every check enabled (0 MATLAB findings over the fixtures): a demotion candidate (docs/VERIFY.md, 'Preset all against MATLAB').
+fix/c3__p1fix.m	20	PFUTVR	malt-only	Experimental check that MATLAB never reports with every check enabled (0 MATLAB findings over the fixtures): a demotion candidate (docs/VERIFY.md, 'Preset all against MATLAB').
+fix/c4__m1.m	3	PFUTVR	malt-only	Experimental check that MATLAB never reports with every check enabled (0 MATLAB findings over the fixtures): a demotion candidate (docs/VERIFY.md, 'Preset all against MATLAB').
+recorded/generic_a.m	44	READSZR	malt-only	Experimental check that MATLAB never reports with every check enabled (0 MATLAB findings over the fixtures): a demotion candidate (docs/VERIFY.md, 'Preset all against MATLAB').
+recorded/generic_a.m	41	REPUDD	malt-only	Experimental check that MATLAB never reports with every check enabled (0 MATLAB findings over the fixtures): a demotion candidate (docs/VERIFY.md, 'Preset all against MATLAB').
+fix/bugs__f3.m	15	SHOCIRF	malt-only	Experimental check that MATLAB never reports with every check enabled (0 MATLAB findings over the fixtures): a demotion candidate (docs/VERIFY.md, 'Preset all against MATLAB').
+*	*	SIMPT	malt-only	Experimental check that MATLAB never reports with every check enabled (0 MATLAB findings over the fixtures): a demotion candidate (docs/VERIFY.md, 'Preset all against MATLAB').
+recorded/generic_a.m	47	SMPLMODE	malt-only	Experimental check that MATLAB never reports with every check enabled (0 MATLAB findings over the fixtures): a demotion candidate (docs/VERIFY.md, 'Preset all against MATLAB').
+recorded/silent/stccs1.m	3	STCCS	malt-only	Experimental check that MATLAB never reports with every check enabled (0 MATLAB findings over the fixtures): a demotion candidate (docs/VERIFY.md, 'Preset all against MATLAB').
+recorded/silent/subs1.m	3	SUBSINDEX	malt-only	Experimental check that MATLAB never reports with every check enabled (0 MATLAB findings over the fixtures): a demotion candidate (docs/VERIFY.md, 'Preset all against MATLAB').
+fix/ls-c__pf1.m	23	SUSENS	malt-only	Known gap: malt's script-scope unset analysis flags growth patterns (`y = [y, i]`) and `[tk, r] = strtok(r)` that MATLAB does not.
+fix/performance__t1.m	4	SUSENS	malt-only	Known gap: malt's script-scope unset analysis flags growth patterns (`y = [y, i]`) and `[tk, r] = strtok(r)` that MATLAB does not.
+fix/performance__t1.m	9	SUSENS	malt-only	Known gap: malt's script-scope unset analysis flags growth patterns (`y = [y, i]`) and `[tk, r] = strtok(r)` that MATLAB does not.
+fix/performance__t1.m	10	SUSENS	malt-only	Known gap: malt's script-scope unset analysis flags growth patterns (`y = [y, i]`) and `[tk, r] = strtok(r)` that MATLAB does not.
+fix/performance__t1.m	11	SUSENS	malt-only	Known gap: malt's script-scope unset analysis flags growth patterns (`y = [y, i]`) and `[tk, r] = strtok(r)` that MATLAB does not.
+fix/performance__t1.m	17	SUSENS	malt-only	Known gap: malt's script-scope unset analysis flags growth patterns (`y = [y, i]`) and `[tk, r] = strtok(r)` that MATLAB does not.
+fix/performance__t3.m	24	SUSENS	malt-only	Known gap: malt's script-scope unset analysis flags growth patterns (`y = [y, i]`) and `[tk, r] = strtok(r)` that MATLAB does not.
+fix_matlab/performance__t3.EFIND.m	24	SUSENS	malt-only	Known gap: malt's script-scope unset analysis flags growth patterns (`y = [y, i]`) and `[tk, r] = strtok(r)` that MATLAB does not.
+fix_matlab/performance__t3.FNDSB.m	24	SUSENS	malt-only	Known gap: malt's script-scope unset analysis flags growth patterns (`y = [y, i]`) and `[tk, r] = strtok(r)` that MATLAB does not.
+fix_matlab/performance__t3.MRPBW.m	24	SUSENS	malt-only	Known gap: malt's script-scope unset analysis flags growth patterns (`y = [y, i]`) and `[tk, r] = strtok(r)` that MATLAB does not.
+fix_matlab/performance__t3.RPMT1.m	24	SUSENS	malt-only	Known gap: malt's script-scope unset analysis flags growth patterns (`y = [y, i]`) and `[tk, r] = strtok(r)` that MATLAB does not.
+fix_matlab/performance__t3.STNCI.m	24	SUSENS	malt-only	Known gap: malt's script-scope unset analysis flags growth patterns (`y = [y, i]`) and `[tk, r] = strtok(r)` that MATLAB does not.
+fix_matlab/performance__t3.TRIM2.m	24	SUSENS	malt-only	Known gap: malt's script-scope unset analysis flags growth patterns (`y = [y, i]`) and `[tk, r] = strtok(r)` that MATLAB does not.
+*	*	SUSENS	matlab-only	Known gap: script-scope unset-variable analysis (names used before assignment in a script, in cell and index expressions) is narrower in malt.
+phase3/yc_e04.m	3	USENS	malt-only	Experimental check that MATLAB never reports with every check enabled (0 MATLAB findings over the fixtures): a demotion candidate (docs/VERIFY.md, 'Preset all against MATLAB').
+phase3/yc_u06.m	3	USENS	malt-only	Experimental check that MATLAB never reports with every check enabled (0 MATLAB findings over the fixtures): a demotion candidate (docs/VERIFY.md, 'Preset all against MATLAB').
+*	*	USESWNS	malt-only	Experimental check that MATLAB never reports with every check enabled (0 MATLAB findings over the fixtures): a demotion candidate (docs/VERIFY.md, 'Preset all against MATLAB').
+recorded/compat_13.m	20	V2MTX	malt-only	Experimental check that MATLAB never reports with every check enabled (0 MATLAB findings over the fixtures): a demotion candidate (docs/VERIFY.md, 'Preset all against MATLAB').
+corpus16/d/d_nasgu_varargin.m	19	VANUS	matlab-only	Known gap: unused `varargin` where malt's use analysis sees a use (a nested or in-script use); one line.
+fix/ls-b__f4.m	5	VINONA	matlab-only	Not implemented: a validation function that refers to a name that is not an argument.
+recorded/compat_04.m	46	WEBBEHAVE	malt-only	Experimental check that MATLAB never reports with every check enabled (0 MATLAB findings over the fixtures): a demotion candidate (docs/VERIFY.md, 'Preset all against MATLAB').

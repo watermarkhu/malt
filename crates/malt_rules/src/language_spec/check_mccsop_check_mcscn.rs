@@ -3,7 +3,7 @@
 use super::*;
 
 impl LanguageSpecEngine {
-    /// MCCSOP: the constructor cannot modify Constant properties.
+    /// MCCSOP: a function cannot modify Constant properties.
     pub(crate) fn check_mccsop(
         &self,
         class: &ClassMeta,
@@ -13,26 +13,24 @@ impl LanguageSpecEngine {
         if !self.is_check_enabled("MCCSOP") {
             return;
         }
-        let root = ctx.tree.root_node();
-        let constructor = self.find_function_definition_by_name(root, &class.name, ctx.source);
-        if let Some(node) = constructor {
-            Self::walk_constant_assignments(node, class, ctx.source, true, diagnostics);
-        }
-    }
-
-    /// MCSCN: any method that sets a Constant property.
-    pub(crate) fn check_mcscn(
-        &self,
-        class: &ClassMeta,
-        ctx: &FileContext,
-        diagnostics: &mut Vec<Diagnostic>,
-    ) {
-        if !self.is_check_enabled("MCSCN") {
-            return;
-        }
+        // MATLAB reports the assignment in the constructor and in any other method alike.
         let functions = self.collect_c2_function_definitions(ctx.tree.root_node(), ctx.source);
-        for (node, _) in functions {
-            Self::walk_constant_assignments(node, class, ctx.source, false, diagnostics);
+        for (node, name) in functions {
+            // The object is the first input of a method, the output of a constructor.
+            let is_constructor = name == class.name;
+            let method = class
+                .methods_blocks
+                .iter()
+                .flat_map(|mb| mb.methods.iter())
+                .find(|m| m.byte_range.start == node.start_byte());
+            let object = method.and_then(|m| {
+                if is_constructor {
+                    m.outputs.iter().find(|o| *o != "~").map(String::as_str)
+                } else {
+                    m.inputs.iter().find(|i| *i != "~").map(String::as_str)
+                }
+            });
+            Self::walk_constant_assignments(node, class, ctx.source, object, diagnostics);
         }
     }
 
@@ -41,21 +39,10 @@ impl LanguageSpecEngine {
         node: tree_sitter::Node,
         class: &ClassMeta,
         source: &str,
-        is_constructor: bool,
+        object: Option<&str>,
         diagnostics: &mut Vec<Diagnostic>,
     ) {
-        let method_name = node
-            .child_by_field_name("name")
-            .map(|n| node_text(n, source).to_string())
-            .unwrap_or_default();
-        Self::walk_constant_assignments_dfs(
-            node,
-            class,
-            source,
-            is_constructor,
-            &method_name,
-            diagnostics,
-        );
+        Self::walk_constant_assignments_dfs(node, class, source, object, diagnostics);
     }
 
     /// DFS helper for [`Self::walk_constant_assignments`].
@@ -63,31 +50,27 @@ impl LanguageSpecEngine {
         node: tree_sitter::Node,
         class: &ClassMeta,
         source: &str,
-        is_constructor: bool,
-        method_name: &str,
+        object: Option<&str>,
         diagnostics: &mut Vec<Diagnostic>,
     ) {
         if node.kind() == "assignment" {
             if let Some(prop_name) = assignment_field_property(node, source) {
                 let is_constant = class.properties_blocks.iter().any(|pb| {
-                    pb.attributes
-                        .iter()
-                        .any(|a| a.name == "Constant" && !a.negated)
+                    Attributes(&pb.attributes).is_present("Constant")
                         && pb.properties.iter().any(|p| p.name == prop_name)
                 });
-                if is_constant {
+                // Only an assignment through the object is MCCSOP. `ClassName.K = v`
+                // builds a struct instead: MATLAB reports that as MCCSPS (good_practices).
+                let through = node
+                    .child(0)
+                    .and_then(|lhs| lhs.child_by_field_name("object"))
+                    .map(|o| node_text(o, source));
+                if is_constant && object.is_some() && through == object {
                     let pos = node.start_position();
-                    let (rule_id, message) = if is_constructor {
-                        (
-                            "MCCSOP",
-                            format!("Unable to modify Constant property {prop_name}."),
-                        )
-                    } else {
-                        (
-                            "MCSCN",
-                            format!("Method {method_name} tries to set a constant property."),
-                        )
-                    };
+                    let (rule_id, message) = (
+                        "MCCSOP",
+                        format!("Unable to modify Constant property '{prop_name}'."),
+                    );
                     diagnostics.push(Diagnostic {
                         rule_id,
                         message,
@@ -102,41 +85,8 @@ impl LanguageSpecEngine {
         }
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
-            Self::walk_constant_assignments_dfs(
-                child,
-                class,
-                source,
-                is_constructor,
-                method_name,
-                diagnostics,
-            );
+            Self::walk_constant_assignments_dfs(child, class, source, object, diagnostics);
         }
-    }
-
-    /// Find a `function_definition` node by name in a tree.
-    pub(crate) fn find_function_definition_by_name<'a>(
-        &self,
-        root: tree_sitter::Node<'a>,
-        name: &str,
-        source: &str,
-    ) -> Option<tree_sitter::Node<'a>> {
-        let mut stack = vec![root];
-        while let Some(n) = stack.pop() {
-            if n.kind() == "function_definition" {
-                let fname = n
-                    .child_by_field_name("name")
-                    .map(|f| node_text(f, source))
-                    .unwrap_or("");
-                if fname == name {
-                    return Some(n);
-                }
-            }
-            let mut cursor = n.walk();
-            for child in n.children(&mut cursor) {
-                stack.push(child);
-            }
-        }
-        None
     }
 }
 
@@ -190,7 +140,7 @@ end
     }
 
     #[test]
-    fn test_mcscn_fires_method_sets_constant() {
+    fn test_mccsop_fires_method_sets_constant() {
         let source = "\
 classdef Foo
     properties (Constant)
@@ -206,15 +156,15 @@ classdef Foo
 end
 ";
         let diags = check_source(source, "Foo.m");
-        let hits = filter_by_id(&diags, "MCSCN");
+        let hits = filter_by_id(&diags, "MCCSOP");
         assert!(
             !hits.is_empty(),
-            "MCSCN should fire when a method sets a Constant property"
+            "MCCSOP should fire when a method sets a Constant property"
         );
     }
 
     #[test]
-    fn test_mcscn_no_fire() {
+    fn test_mccsop_no_fire_non_constant() {
         let source = "\
 classdef Foo
     properties
@@ -230,10 +180,34 @@ classdef Foo
 end
 ";
         let diags = check_source(source, "Foo.m");
-        let hits = filter_by_id(&diags, "MCSCN");
+        let hits = filter_by_id(&diags, "MCCSOP");
         assert!(
             hits.is_empty(),
-            "MCSCN should NOT fire for a non-Constant property"
+            "MCCSOP should NOT fire for a non-Constant property"
         );
+    }
+
+    #[test]
+    fn test_mccsop_no_fire_class_qualified_assignment() {
+        let source = "classdef Foo\n    properties (Constant)\n        K = 1\n    end\n    methods (Static)\n        function s()\n            Foo.K = 3;\n        end\n    end\nend\n";
+        let diags = crate::language_spec::tests::check_source(source, "Foo.m");
+        assert!(crate::language_spec::tests::filter_by_id(&diags, "MCCSOP").is_empty());
+        assert!(crate::language_spec::tests::filter_by_id(&diags, "MCSCN").is_empty());
+    }
+
+    #[test]
+    fn mccsop_only_through_the_object_and_not_in_constructors_with_class_name() {
+        // Probed: `obj.K = 5` in a method is MCCSOP; `other.K = 5` (a new struct)
+        // is silent; `Foo.K = 5` in a constructor is MCCSPS, not MCCSOP.
+        let head = "classdef Foo\n    properties (Constant)\n        K = 1\n    end\n";
+        let method = format!("{head}    methods\n        function m(obj)\n            obj.K = 5;\n        end\n    end\nend\n");
+        assert_eq!(
+            filter_by_id(&check_source(&method, "Foo.m"), "MCCSOP").len(),
+            1
+        );
+        let other = format!("{head}    methods\n        function m(obj)\n            other.K = 5;\n            disp(other)\n        end\n    end\nend\n");
+        assert!(filter_by_id(&check_source(&other, "Foo.m"), "MCCSOP").is_empty());
+        let constructor = format!("{head}    methods\n        function obj = Foo()\n            Foo.K = 5;\n        end\n    end\nend\n");
+        assert!(filter_by_id(&check_source(&constructor, "Foo.m"), "MCCSOP").is_empty());
     }
 }

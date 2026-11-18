@@ -19,34 +19,49 @@ impl GoodPracticesEngine {
             return Vec::new();
         };
 
-        let attr = match class
-            .attributes
-            .iter()
-            .find(|a| a.name == "Abstract" && !a.negated)
-        {
+        // The named attributes drop the unnamed `~Abstract` form, so it is read from the
+        // written ones.
+        let class_node = find_child_of_kind(tree.root_node(), "class_definition");
+        let written = class_node
+            .map(|cn| attributes_of(cn, source, AttrForms::Written))
+            .unwrap_or_default();
+        if let Some(neg) = written.iter().find(|a| {
+            a.negated && a.name == "Abstract" && &source[a.byte_range.clone()] == "~Abstract"
+        }) {
+            if !self.is_check_enabled("ATTOF") {
+                return Vec::new();
+            }
+            return vec![Diagnostic {
+                rule_id: "ATTOF",
+                message: "Setting the class attribute Abstract to false is not recommended."
+                    .to_string(),
+                severity: Severity::Warning,
+                byte_range: neg.byte_range.clone(),
+                line: neg.line,
+                column: neg.column,
+                fix: None,
+            }];
+        }
+        let attr = match class.attributes.iter().find(|a| a.name == "Abstract") {
             Some(a) => a,
             None => return Vec::new(),
         };
-
-        let Some(value) = attr.value.as_deref() else {
-            return Vec::new();
+        // `~Abstract` is `Abstract = false`; a bare `Abstract` is true and not checked.
+        let value = match attr.value.as_deref() {
+            _ if attr.negated => "false",
+            Some(v) => v,
+            None => return Vec::new(),
         };
 
-        let class_node = find_child_of_kind(tree.root_node(), "class_definition");
-        let attr_node = class_node.and_then(|cn| find_attribute_node(cn, "Abstract", source));
-        let (start_byte, end_byte, line, column) = match attr_node {
-            Some(an) => (
-                an.start_byte(),
-                an.end_byte(),
-                an.start_position().row + 1,
-                an.start_position().column + 1,
-            ),
-            None => (class.byte_range.start, class.byte_range.end, class.line, 1),
-        };
+        let (start_byte, end_byte, line, column) = (
+            attr.byte_range.start,
+            attr.byte_range.end,
+            attr.line,
+            attr.column,
+        );
 
-        let lower = value.to_lowercase();
-        let is_valid_literal =
-            matches!(lower.as_str(), "true" | "false" | "1" | "0" | "on" | "off");
+        // MATLAB reads the literals case-sensitively: `Abstract = FALSE` is ATTF (probed).
+        let is_valid_literal = matches!(value, "true" | "false" | "1" | "0" | "on" | "off");
 
         let mut diagnostics = Vec::new();
         if !is_valid_literal && self.is_check_enabled("ATTF") {
@@ -59,12 +74,12 @@ impl GoodPracticesEngine {
                 column,
                 fix: None,
             });
-        } else if lower == "false" && self.is_check_enabled("ATTOF") {
+        } else if matches!(value, "false" | "0") && self.is_check_enabled("ATTOF") {
             diagnostics.push(Diagnostic {
                 rule_id: "ATTOF",
                 message: "Setting the class attribute Abstract to false is not recommended."
                     .to_string(),
-                severity: Severity::Info,
+                severity: Severity::Warning,
                 byte_range: start_byte..end_byte,
                 line,
                 column,
@@ -118,5 +133,34 @@ mod tests {
         let source = "classdef (Abstract = false) Foo\nend\n";
         let tree = parse(source);
         assert!(eng.check_attf_attof(&tree, source).is_empty());
+    }
+}
+
+#[cfg(test)]
+mod probe_p2a_tests {
+    use crate::test_util::lint_file;
+    use malt_core::Config;
+
+    /// Lines of the `id` diagnostics that the default (mathworks) engine reports for `src`.
+    fn lines(src: &str, id: &str) -> Vec<usize> {
+        let e = crate::good_practices::GoodPracticesEngine::from_config(&Config::default());
+        lint_file(&*e, src)
+            .iter()
+            .filter(|d| d.rule_id == id)
+            .map(|d| d.line)
+            .collect()
+    }
+
+    #[test]
+    fn attf_and_attof_follow_the_probed_literals() {
+        // Probed: `FALSE` is not understood (ATTF); `0` and `~Abstract` are false (ATTOF).
+        assert_eq!(
+            lines("classdef (Abstract = FALSE) C\nend\n", "ATTF"),
+            vec![1]
+        );
+        assert_eq!(lines("classdef (Abstract = 0) C\nend\n", "ATTOF"), vec![1]);
+        assert_eq!(lines("classdef (~Abstract) C\nend\n", "ATTOF"), vec![1]);
+        assert!(lines("classdef (Abstract = true) C\nend\n", "ATTOF").is_empty());
+        assert!(lines("classdef (Abstract) C\nend\n", "ATTF").is_empty());
     }
 }

@@ -23,11 +23,23 @@ impl FormattingEngine {
 
         for pair in elements.windows(2) {
             let gap = &source[pair[0].end_byte()..pair[1].start_byte()];
-            if gap.contains(',') {
+            // A `;` in the gap is a row break: MATLAB reports LHROW there, not NCOMMA.
+            if gap.contains(',') || gap.contains(';') {
+                continue;
+            }
+            // Probed: `[~ a]` and `[~ ~ a]` are silent, `[a ~]` is reported: a gap
+            // after an ignored output is not reported.
+            if pair[0].kind() == "ignored_argument" {
                 continue;
             }
             let pos = pair[1].start_position();
-            let insert_pos = pair[1].start_byte();
+            // Replace the whitespace gap by `, `: `[a b]` becomes `[a, b]`, not
+            // `[a , b]`. A gap holding anything else (a comment, a continuation)
+            // is reported but left alone.
+            let fix = gap
+                .chars()
+                .all(|c| c == ' ' || c == '\t')
+                .then(|| Fix::new(pair[0].end_byte()..pair[1].start_byte(), ", "));
             diagnostics.push(Diagnostic {
                 rule_id: "NCOMMA",
                 message: "Best practice is to separate output variables with commas.".to_string(),
@@ -35,7 +47,7 @@ impl FormattingEngine {
                 byte_range: pair[0].end_byte()..pair[1].start_byte(),
                 line: pos.row + 1,
                 column: pos.column + 1,
-                fix: Some(Fix::insert(insert_pos, ", ")),
+                fix,
             });
         }
     }
@@ -49,6 +61,13 @@ mod tests {
     // -- NCOMMA --------------------------------------------------------------
 
     #[test]
+    fn ncomma_row_break_is_not_ncomma() {
+        // Probed: MATLAB reports only LHROW for `[a, b; c]` (syntax__t19:2).
+        let diags = lint("[a, b; c] = deal(1,2);\n");
+        assert!(!has_id(&diags, "NCOMMA"), "got: {diags:?}");
+    }
+
+    #[test]
     fn ncomma_space_separated_output() {
         let source = "[a b] = f();\n";
         let diags = lint(source);
@@ -60,6 +79,23 @@ mod tests {
         let source = "[a, b] = f();\n";
         let diags = lint(source);
         assert!(!has_id(&diags, "NCOMMA"), "got: {diags:?}");
+    }
+
+    #[test]
+    fn ncomma_gap_after_ignored_output_is_silent() {
+        // Probed: `[~ a]` and `[~ ~ a]` are silent; `[a ~]` is reported at the `~`.
+        assert!(!has_id(&lint("[~ a] = deal(1,2);\n"), "NCOMMA"));
+        assert!(!has_id(&lint("[~ ~ a] = deal(1,2,3);\n"), "NCOMMA"));
+        assert!(has_id(&lint("[a ~] = deal(1,2);\n"), "NCOMMA"));
+    }
+
+    #[test]
+    fn ncomma_reports_only_the_pair_after_an_ignored_output() {
+        // Probed: `[~ a b]` gives one NCOMMA, at the `b` (column 6).
+        let diags = lint("[~ a b] = deal(1,2,3);\n");
+        let ncomma: Vec<_> = diags.iter().filter(|d| d.rule_id == "NCOMMA").collect();
+        assert_eq!(ncomma.len(), 1, "got: {diags:?}");
+        assert_eq!(ncomma[0].column, 6);
     }
 
     #[test]

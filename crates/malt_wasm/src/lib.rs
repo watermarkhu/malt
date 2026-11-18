@@ -16,7 +16,7 @@ mod wasm {
     use std::collections::HashMap;
     use std::path::Path;
 
-    use malt_core::{apply_fixes, position_of, Config, Diagnostic, RuleRegistry, Severity};
+    use malt_core::{fix_source, position_of, Config, Diagnostic, FixMode, RuleRegistry, Severity};
     use wasm_bindgen::prelude::*;
 
     /// A single diagnostic serialized for JavaScript consumers.
@@ -77,7 +77,7 @@ mod wasm {
     }
 
     /// JavaScript-facing configuration object mirroring rumdl's `LinterConfig`.
-    #[derive(Debug, Default, serde::Deserialize)]
+    #[derive(Debug, serde::Deserialize)]
     pub struct LinterConfig {
         /// Rule IDs to disable (e.g., `["AGROW", "NOSEMI"]`).
         #[serde(default)]
@@ -109,10 +109,32 @@ mod wasm {
         /// "recommended"). Defaults to "mathworks" when absent.
         #[serde(default)]
         pub preset: Option<String>,
+        /// Run the experimental checks too (`[lint] experimental`). Defaults to false.
+        #[serde(default)]
+        pub experimental: bool,
     }
 
     fn default_true() -> bool {
         true
+    }
+
+    /// The configuration of `new Linter()`: the same as an empty object. A derived `Default`
+    /// would turn `%#ok` suppression off (`bool::default()`), which only `new Linter(null)`
+    /// and `new Linter()` would see, not `new Linter({})`.
+    impl Default for LinterConfig {
+        fn default() -> Self {
+            Self {
+                disable: Vec::new(),
+                enable: Vec::new(),
+                extend_disable: Vec::new(),
+                extend_enable: Vec::new(),
+                rules: HashMap::new(),
+                exclude: Vec::new(),
+                inline_suppression: default_true(),
+                preset: None,
+                experimental: false,
+            }
+        }
     }
 
     impl LinterConfig {
@@ -121,13 +143,16 @@ mod wasm {
             let mut config = Config {
                 exclude: self.exclude.clone(),
                 inline_suppression: self.inline_suppression,
+                experimental: self.experimental,
                 ..Config::default()
             };
 
-            if let Some(name) = &self.preset {
-                config.preset = malt_core::preset::resolve(name)
-                    .unwrap_or_else(|| malt_core::preset::default_preset());
-            }
+            let preset = match &self.preset {
+                Some(name) => malt_core::preset::resolve(name)
+                    .unwrap_or_else(|| malt_core::preset::default_preset()),
+                None => malt_core::preset::default_preset(),
+            };
+            config.set_preset(preset);
 
             // If `enable` is provided, disable every rule we know about first.
             let all_rule_ids = malt_rules::all_rules(&Config::default())
@@ -155,7 +180,10 @@ mod wasm {
     /// string (host-testable; the `#[wasm_bindgen]` wrapper maps it to `JsValue`).
     fn from_toml_str(toml: &str) -> Result<Linter, String> {
         let malt_config = Config::from_toml(toml).map_err(|e| format!("Invalid config: {e}"))?;
-        Ok(build_linter(malt_config))
+        let warnings = malt_rules::config_check::config_warnings(&malt_config);
+        let mut linter = build_linter(malt_config);
+        linter.config_warnings = warnings;
+        Ok(linter)
     }
 
     /// Mark a rule ID as disabled in the config.
@@ -184,6 +212,10 @@ mod wasm {
         let registry = RuleRegistry::new(rules, &malt_config);
         let mut linter = malt_core::Linter::new(registry);
         linter.set_inline_suppression(malt_config.inline_suppression);
+        // About 1 MiB of stack, little memory and no thread to enlarge the stack:
+        // stop earlier than natively (200 levels, 2 MiB, 1,000 nested brackets)
+        // unless the config's `[lint.limits]` says otherwise.
+        linter.set_limits(malt_config.limits.resolve(malt_core::Limits::wasm()));
         Linter {
             linter,
             config_warnings: Vec::new(),
@@ -249,8 +281,8 @@ mod wasm {
         /// * `path` - Optional file path (see `check`).
         pub fn fix(&mut self, content: &str, path: Option<String>) -> String {
             let path = Path::new(path.as_deref().unwrap_or("untitled.m"));
-            match self.linter.lint(content, path) {
-                Ok(diagnostics) => apply_fixes(content, &diagnostics),
+            match fix_source(&mut self.linter, content, path, FixMode::Safe) {
+                Ok(outcome) => outcome.source,
                 Err(_) => content.to_string(),
             }
         }
@@ -289,6 +321,167 @@ mod wasm {
             from_config(LinterConfig::default())
         }
 
+        /// Every conformance fixture (`matlab_files.txt`, with the findings MATLAB R2026b
+        /// recorded in `matlab_expected.tsv`) through the same `check` the browser calls:
+        /// the wasm package must report what the native build reports. Both lists are read
+        /// from the CLI's test folder at test time.
+        #[test]
+        fn conformance_fixtures_match_the_recorded_matlab_findings() {
+            use std::collections::BTreeSet;
+            let fixtures = Path::new(env!("CARGO_MANIFEST_DIR")).join("../malt_cli/tests/fixtures");
+            let list = std::fs::read_to_string(fixtures.join("matlab_files.txt")).unwrap();
+            let files: Vec<&str> = list
+                .lines()
+                .map(str::trim)
+                .filter(|l| !l.is_empty() && !l.starts_with('#'))
+                .collect();
+            let recorded = std::fs::read_to_string(fixtures.join("matlab_expected.tsv")).unwrap();
+            let expected: BTreeSet<(String, usize, String)> = recorded
+                .lines()
+                .filter(|l| !l.starts_with('#') && !l.trim().is_empty())
+                .map(|l| {
+                    let c: Vec<&str> = l.split('\t').collect();
+                    (c[0].to_string(), c[1].parse().unwrap(), c[2].to_string())
+                })
+                .collect();
+
+            // The depth guard of the wasm build is lower than the native one, so a fixture
+            // that nests deeper than it reports MALT_TOO_DEEP here: none may.
+            let found = std::thread::Builder::new()
+                .stack_size(256 * 1024 * 1024)
+                .spawn({
+                    let files: Vec<String> = files.iter().map(|f| f.to_string()).collect();
+                    let fixtures = fixtures.clone();
+                    move || {
+                        let mut linter = linter();
+                        let mut found = BTreeSet::new();
+                        for file in &files {
+                            let source = std::fs::read_to_string(fixtures.join(file)).unwrap();
+                            let json = linter.check(&source, Some(file.clone()));
+                            let warnings: Vec<serde_json::Value> =
+                                serde_json::from_str(&json).unwrap();
+                            for w in warnings {
+                                let id = w["rule_id"].as_str().expect("a rule_id").to_string();
+                                let line = w["line"].as_u64().expect("a line") as usize;
+                                found.insert((file.clone(), line, id));
+                            }
+                        }
+                        found
+                    }
+                })
+                .unwrap()
+                .join()
+                .unwrap();
+
+            // Known differences of the wasm build. `fix/incomplete__di200.m` nests 200 levels
+            // deep: the wasm depth guard (200, see malt_core::limits::WASM_MAX_TREE_DEPTH) reports MALT_TOO_DEEP
+            // where the native one (1,000) does not. A trap was measured at about 750
+            // chained binary operators in V8, so the lower guard is deliberate.
+            let found: BTreeSet<_> = found
+                .into_iter()
+                .filter(|(file, _, id)| {
+                    !(file == "fix/incomplete__di200.m" && id == "MALT_TOO_DEEP")
+                })
+                .collect();
+            let missing: Vec<_> = expected.difference(&found).take(10).collect();
+            let extra: Vec<_> = found.difference(&expected).take(10).collect();
+            assert!(
+                missing.is_empty() && extra.is_empty(),
+                "wasm differs from the recorded findings over {} files:\nrecorded but not reported: {missing:?}\nreported but not recorded: {extra:?}",
+                files.len()
+            );
+        }
+
+        #[test]
+        fn a_default_config_honors_inline_suppression_like_an_empty_object() {
+            // `new Linter()` and `new Linter(null)` use `LinterConfig::default()`.
+            assert!(LinterConfig::default().inline_suppression);
+            let empty: LinterConfig = serde_json::from_str("{}").unwrap();
+            assert_eq!(
+                empty.inline_suppression,
+                LinterConfig::default().inline_suppression
+            );
+            let mut l = linter();
+            let suppressed = l.check(
+                "x = [];\nfor i=1:3\n    x(end+1) = i; %#ok<SAGROW>\nend\n",
+                None,
+            );
+            assert!(!suppressed.contains("GROW"), "{suppressed}");
+        }
+
+        #[test]
+        fn from_toml_keeps_rule_key_warnings() {
+            let l = from_toml_str("[lint.rules]\nNOSMI = \"off\"\n").expect("valid TOML");
+            let warnings: Vec<String> = serde_json::from_str(&l.get_config_warnings()).unwrap();
+            assert_eq!(warnings.len(), 1, "{warnings:?}");
+            assert!(
+                warnings[0].contains("did you mean 'NOSEMI'?"),
+                "{warnings:?}"
+            );
+            let clean = from_toml_str("[lint.rules]\nNOSEMI = \"warn\"\n").expect("valid TOML");
+            assert_eq!(clean.get_config_warnings(), "[]");
+        }
+
+        #[test]
+        fn wasm_defaults_are_lower_than_native() {
+            // Over the wasm default of 2 MiB: refused without parsing.
+            let mut l = linter();
+            let big = "x = 1;\n".repeat(2 * 1024 * 1024 / 7 + 1);
+            let json = l.check(&big, None);
+            assert!(
+                json.contains("MALT_TOO_BIG"),
+                "{}",
+                &json[..json.len().min(300)]
+            );
+            assert!(json.contains("not a MATLAB message"));
+            // Nesting past the wasm default of 1,000 brackets: refused without parsing.
+            let nested = format!("x = {}1{};\n", "(".repeat(1_001), ")".repeat(1_001));
+            assert!(l.check(&nested, None).contains("MALT_TOO_DEEP"));
+        }
+
+        #[test]
+        fn from_toml_limits_override_the_wasm_defaults() {
+            let mut l = from_toml_str("[lint.limits]\nmax_file_size = \"1 KiB\"\n").unwrap();
+            assert!(l.get_config_warnings() == "[]");
+            let json = l.check(&"x = 1;\n".repeat(300), None);
+            assert!(
+                json.contains("MALT_TOO_BIG") && json.contains("1 KiB"),
+                "{json}"
+            );
+            assert!(!l.check("x = 1;\n", None).contains("MALT_TOO_BIG"));
+            // Raising the size leaves the other wasm defaults in place (the lint of a file of
+            // megabytes would take minutes in a debug test, so the boundary is tested small).
+            let mut l = from_toml_str("[lint.limits]\nmax_file_size = \"4 KiB\"\n").unwrap();
+            let src = "x = 1;\n".repeat(400);
+            assert!(!l.check(&src, None).contains("MALT_TOO_BIG"));
+            assert!(l
+                .check(&"x = 1;\n".repeat(700), None)
+                .contains("MALT_TOO_BIG"));
+            // A lower tree depth than 200.
+            let mut l = from_toml_str("[lint.limits]\nmax_tree_depth = 5\n").unwrap();
+            assert!(l
+                .check("if a\nif b\nif c\nx = 1;\nend\nend\nend\n", None)
+                .contains("MALT_TOO_DEEP"));
+        }
+
+        #[test]
+        fn from_toml_rejects_invalid_limits_and_warns_about_unknown_keys() {
+            for bad in [
+                "[lint.limits]\nmax_file_size = 0\n",
+                "[lint.limits]\nmax_tree_depth = -1\n",
+                "[lint.limits]\nmax_file_size = \"lots\"\n",
+            ] {
+                match from_toml_str(bad) {
+                    Err(e) => assert!(e.contains("[lint.limits]"), "{e}"),
+                    Ok(_) => panic!("{bad} must be rejected"),
+                }
+            }
+            let l = from_toml_str("[lint.limits]\nmax_file_sise = 1\n").unwrap();
+            let warnings: Vec<String> = serde_json::from_str(&l.get_config_warnings()).unwrap();
+            assert_eq!(warnings.len(), 1, "{warnings:?}");
+            assert!(warnings[0].contains("max_file_size"), "{warnings:?}");
+        }
+
         #[test]
         fn version_matches_cargo() {
             assert_eq!(Linter::get_version(), env!("CARGO_PKG_VERSION"));
@@ -307,8 +500,8 @@ mod wasm {
             let warnings = l.check("x = 1\n", None);
             let parsed: Vec<serde_json::Value> = serde_json::from_str(&warnings).unwrap();
             assert!(
-                parsed.iter().any(|w| w["rule_id"] == "NOSEMI"),
-                "expected NOSEMI warning, got: {warnings}"
+                parsed.iter().any(|w| w["rule_id"] == "NOPTS"),
+                "expected NOPTS warning, got: {warnings}"
             );
         }
 
@@ -316,12 +509,12 @@ mod wasm {
         fn check_clean_code_has_no_nosemi() {
             let mut l = linter();
             // A simple script statement with a trailing semicolon is clean from
-            // the formatting perspective; no NOSEMI (and no parse error).
+            // the formatting perspective; no NOPTS (and no parse error).
             let warnings = l.check("result = 1;\n", None);
             let parsed: Vec<serde_json::Value> = serde_json::from_str(&warnings).unwrap();
             assert!(
-                !parsed.iter().any(|w| w["rule_id"] == "NOSEMI"),
-                "unexpected NOSEMI, got: {warnings}"
+                !parsed.iter().any(|w| w["rule_id"] == "NOPTS"),
+                "unexpected NOPTS, got: {warnings}"
             );
             assert!(
                 parsed.iter().all(|w| w.get("error").is_none()),
@@ -334,7 +527,7 @@ mod wasm {
             let mut l = linter();
             let warnings = l.check("x = 1\n", None);
             let parsed: Vec<serde_json::Value> = serde_json::from_str(&warnings).unwrap();
-            let nosemi = parsed.iter().find(|w| w["rule_id"] == "NOSEMI").unwrap();
+            let nosemi = parsed.iter().find(|w| w["rule_id"] == "NOPTS").unwrap();
             assert!(nosemi["line"].as_u64().is_some());
             assert!(nosemi["column"].as_u64().is_some());
             assert!(nosemi["end_line"].as_u64().is_some());
@@ -356,15 +549,15 @@ mod wasm {
         #[test]
         fn disable_rule_suppresses_diagnostic() {
             let config = LinterConfig {
-                disable: vec!["NOSEMI".to_string()],
+                disable: vec!["NOPTS".to_string()],
                 ..Default::default()
             };
             let mut l = from_config(config);
             let warnings = l.check("x = 1\n", None);
             let parsed: Vec<serde_json::Value> = serde_json::from_str(&warnings).unwrap();
             assert!(
-                !parsed.iter().any(|w| w["rule_id"] == "NOSEMI"),
-                "NOSEMI should be disabled, got: {warnings}"
+                !parsed.iter().any(|w| w["rule_id"] == "NOPTS"),
+                "NOPTS should be disabled, got: {warnings}"
             );
         }
 
@@ -378,8 +571,8 @@ mod wasm {
             let warnings = l.check("x = 1\n", None);
             let parsed: Vec<serde_json::Value> = serde_json::from_str(&warnings).unwrap();
             assert!(
-                !parsed.iter().any(|w| w["rule_id"] == "NOSEMI"),
-                "NOSEMI should be disabled when only AGROW is enabled"
+                !parsed.iter().any(|w| w["rule_id"] == "NOPTS"),
+                "NOPTS should be disabled when only AGROW is enabled"
             );
         }
 
@@ -401,20 +594,22 @@ mod wasm {
 
         #[test]
         fn from_toml_disables_rule() {
-            let mut l = from_toml_str("[lint.rules]\nNOSEMI = \"off\"\n").unwrap();
+            let mut l = from_toml_str("[lint.rules]\nNOPTS = \"off\"\n").unwrap();
             let warnings = l.check("x = 1\n", None);
             let parsed: Vec<serde_json::Value> = serde_json::from_str(&warnings).unwrap();
             assert!(
-                !parsed.iter().any(|w| w["rule_id"] == "NOSEMI"),
-                "NOSEMI should be disabled, got: {warnings}"
+                !parsed.iter().any(|w| w["rule_id"] == "NOPTS"),
+                "NOPTS should be disabled, got: {warnings}"
             );
         }
 
         #[test]
         fn from_toml_reenables_default_off_engine() {
-            // A bare script triggers EMSCR (codegen) only when CODEGEN_ENGINE is on.
+            // A script marked `%#codegen` triggers EMSCR (codegen checks fire only there)
+            // when CODEGEN_ENGINE is on.
+            let source = "%#codegen\nx = 1\n";
             let mut default_linter = linter();
-            let default_warnings = default_linter.check("x = 1\n", None);
+            let default_warnings = default_linter.check(source, None);
             let default_parsed: Vec<serde_json::Value> =
                 serde_json::from_str(&default_warnings).unwrap();
             assert!(
@@ -424,7 +619,7 @@ mod wasm {
 
             let mut l =
                 from_toml_str("[lint.rules.CODEGEN_ENGINE]\nseverity = \"error\"\n").unwrap();
-            let warnings = l.check("x = 1\n", None);
+            let warnings = l.check(source, None);
             let parsed: Vec<serde_json::Value> = serde_json::from_str(&warnings).unwrap();
             assert!(
                 parsed.iter().any(|w| w["rule_id"] == "EMSCR"),
@@ -434,7 +629,7 @@ mod wasm {
 
         #[test]
         fn from_toml_rejects_invalid_toml() {
-            assert!(from_toml_str("[lint.rules\nNOSEMI = ").is_err());
+            assert!(from_toml_str("[lint.rules\nNOPTS = ").is_err());
         }
     }
 }
@@ -454,15 +649,37 @@ mod preset_tests {
 
     #[test]
     fn from_toml_reads_preset() {
-        // `recommended` disables formatting (which includes NOSEMI).
+        // `recommended` disables formatting (which includes NOPTS).
         let mut l = Linter::from_toml("[lint]\npreset = \"recommended\"\n").unwrap();
-        assert!(!rule_ids(&mut l, "x = 1\n").contains(&"NOSEMI".to_string()));
+        assert!(!rule_ids(&mut l, "x = 1\n").contains(&"NOPTS".to_string()));
     }
 
     #[test]
     fn from_toml_mathworks_keeps_formatting() {
         let mut l = Linter::from_toml("").unwrap();
-        assert!(rule_ids(&mut l, "x = 1\n").contains(&"NOSEMI".to_string()));
+        assert!(rule_ids(&mut l, "x = 1\n").contains(&"NOPTS".to_string()));
+    }
+
+    #[test]
+    fn from_toml_honours_the_experimental_flag() {
+        // CTCH is on the mathworks off-list (experimental): on only with the flag.
+        let mut plain = Linter::from_toml("").unwrap();
+        let mut flagged = Linter::from_toml("[lint]\nexperimental = true\n").unwrap();
+        let code = "try\n  x = 1;\ncatch\nend\n";
+        assert!(!rule_ids(&mut plain, code).contains(&"CTCH".to_string()));
+        assert!(rule_ids(&mut flagged, code).contains(&"CTCH".to_string()));
+        let mut all = Linter::from_toml("[lint]\npreset = \"all\"\n").unwrap();
+        assert!(rule_ids(&mut all, code).contains(&"CTCH".to_string()));
+    }
+
+    #[test]
+    fn linter_config_experimental_field() {
+        let config = LinterConfig {
+            experimental: true,
+            ..Default::default()
+        };
+        let mut l = from_config(config);
+        assert!(rule_ids(&mut l, "try\n  x = 1;\ncatch\nend\n").contains(&"CTCH".to_string()));
     }
 
     #[test]
@@ -472,6 +689,6 @@ mod preset_tests {
             ..Default::default()
         };
         let mut l = from_config(config);
-        assert!(!rule_ids(&mut l, "x = 1\n").contains(&"NOSEMI".to_string()));
+        assert!(!rule_ids(&mut l, "x = 1\n").contains(&"NOPTS".to_string()));
     }
 }

@@ -6,17 +6,47 @@
 #
 # Fields:
 #   id            - Check ID matching MATLAB Code Analyzer (e.g., "CSVRD")
-#   function_name - The function/class name to match against (empty for generic)
+#   function_name - The function/class name to match against (empty for generic).
+#                   Qualified names (sigwin.hamming) match the whole path.
 #   message       - Human-readable diagnostic message
 #   replacement   - Recommended replacement function/syntax
+#   pattern       - Non-empty: never matched by name ("unverified": MATLAB never
+#                   reported it in probes; "object": a method of a class instance)
+#   min_args / max_args, literal_args (any argument, command syntax included),
+#   arg_at / arg_kinds / not_arg_kinds / arg_text (function syntax only),
+#   arg_through_variables: the argument variable takes the kinds it is assigned
+#                   (`x = 5; year(x)`), see suggested_improvements.rs.
+#   version_at_least: the argument at arg_at is a dotted release number (`9.10`) at
+#                   least this one (`9.9`); `R2021a` never matches.
+#   within_parfor, not_in_call / not_in_call_literal: usage conditions, see
+#   suggested_improvements.rs. A bare name (`clock`) is a use with no arguments.
+#   literal_at (the literal is that argument), literal_exact (case-sensitive),
+#   literal_has_value (a name followed by a value), min_outputs, function_only (no
+#   command syntax), not_assigned (not `y = f;`), statement_only (`f(x);` alone).
+
+#   handle        - true (default): `@name` is reported. false: MATLAB is silent on the
+#                   handle form of that entry (`@now`, `@hour`); the 58 false entries
+#                   were probed one `h = @name;` each.
+#   shadowed_command - true: command syntax with arguments (`corner abc`) is reported
+#                   although a variable of that name shadows the function (`corner = 5`).
+#                   The other entries are silent then (`hour abc` with `hour = 5`).
+#   not_all_arg_kinds - not when every argument is one of these kinds (IMPORTDYN: MATLAB
+#                   is silent on `import('a', 'b')` and reports `import('a', 1)`, `import(x)`).
 
 # =============================================================================
 # Suggested Improvements (243 checks)
 # =============================================================================
 
+# MATLAB reports function syntax with any argument that is not a single-quoted
+# literal (`import(1)`, `import(x)`, `import('abc', 1)`); `import('abc')` and
+# `import('a', 'b')` are silent. Command syntax never matches.
 [[checks]]
 id = "IMPORTDYN"
 function_name = "import"
+function_only = true
+statement_only = true
+min_args = 1
+not_all_arg_kinds = ["char"]
 message = "Using function syntax to call 'import' is not recommended. With appropriate code changes, use command syntax instead."
 replacement = ""
 
@@ -28,318 +58,502 @@ replacement = ""
 
 [[checks]]
 id = "EVLC"
+handle = false
 function_name = "evalc"
+# MATLAB reports evalc with two arguments only.
+max_args = 2
+min_args = 2
 message = "Using 'evalc' with two arguments is not recommended. Use try/catch statements instead to make code more clear and efficient."
 replacement = ""
 
 [[checks]]
 id = "RAND"
+handle = false
 function_name = "rand"
+literal_exact = true
+literal_at = 1
 message = "RAND or RANDN with the 'seed', 'state', or 'twister' inputs is not recommended. Use RNG instead."
 replacement = "rng"
+# MATLAB reports the seed/state/twister inputs in the first position only, lowercase (`rand('seed')`, `rand seed`).
+literal_args = ["seed", "state", "twister"]
+
+[[checks]]
+id = "RAND"
+handle = false
+function_name = "randn"
+literal_exact = true
+literal_at = 1
+message = "RAND or RANDN with the 'seed', 'state', or 'twister' inputs is not recommended. Use RNG instead."
+replacement = "rng"
+literal_args = ["seed", "state", "twister"]
 
 [[checks]]
 id = "HOUGH"
+handle = false
 function_name = "hough"
+min_args = 3
+literal_at = 2
+# MATLAB reports the 'ThetaResolution' form only with three or more arguments, with the name in position 2.
+literal_args = ["ThetaResolution"]
 message = "HOUGH(BW,'ThetaResolution',VAL) is not recommended. Use HOUGH(BW,'Theta',-90:VAL:(90-VAL) ) instead."
 replacement = ""
 
 [[checks]]
 id = "THOUR"
+handle = false
 function_name = "hour"
+arg_kinds = ["number", "signed_number", "text", "cell"]
+arg_through_variables = true
 message = "'hour' with serial date number or text inputs is not recommended. With appropriate code changes, use 'datetime' as input instead."
 replacement = "datetime"
 
 [[checks]]
 id = "TMNTH"
+handle = false
 function_name = "month"
+arg_kinds = ["number", "signed_number", "text", "cell"]
+arg_through_variables = true
 message = "'month' with serial date number or text inputs is not recommended. With appropriate code changes, use 'datetime' as input instead."
 replacement = "datetime"
 
 [[checks]]
 id = "TMNUT"
+handle = false
 function_name = "minute"
+arg_kinds = ["number", "signed_number", "text", "cell"]
+arg_through_variables = true
 message = "'minute' with serial date number or text inputs is not recommended. With appropriate code changes, use 'datetime' as input instead."
 replacement = "datetime"
 
 [[checks]]
 id = "TNDAY"
+handle = false
 function_name = "day"
+arg_kinds = ["number", "signed_number", "text", "cell"]
+arg_through_variables = true
 message = "'day' with serial date number or text inputs is not recommended. With appropriate code changes, use 'datetime' as input instead."
 replacement = "datetime"
 
 [[checks]]
 id = "TSCND"
+handle = false
 function_name = "second"
+arg_kinds = ["number", "signed_number", "text", "cell"]
+arg_through_variables = true
 message = "'second' with serial date number or text inputs is not recommended. With appropriate code changes, use 'datetime' as input instead."
 replacement = "datetime"
 
 [[checks]]
 id = "TQURT"
+handle = false
 function_name = "quarter"
+arg_kinds = ["number", "text", "cell"]
+arg_through_variables = true
 message = "'quarter' with serial date number or text inputs is not recommended. With appropriate code changes, use 'datetime' as input instead."
 replacement = "datetime"
 
 [[checks]]
 id = "TYEAR"
+handle = false
 function_name = "year"
+arg_kinds = ["number", "signed_number", "text", "cell"]
+arg_through_variables = true
 message = "'year' with serial date number or text inputs is not recommended. With appropriate code changes, use 'datetime' as input instead."
 replacement = "datetime"
 
 [[checks]]
 id = "TDTVEC"
+handle = false
 function_name = "datevec"
+arg_kinds = ["number", "text", "cell"]
+arg_through_variables = true
 message = "'datevec' with serial date number or text inputs is not recommended. With appropriate code changes, use 'datetime' instead."
 replacement = "datetime"
 
 [[checks]]
 id = "TNOW1"
+handle = false
 function_name = "now"
+not_in_call = "datetime"
+not_in_call_literal = "datenum"
 message = "'now' is not recommended. With appropriate code changes, use 'datetime(\"now\")' instead."
 replacement = "datetime"
 
 [[checks]]
 id = "TNOW2"
+handle = false
 function_name = "datetime"
+max_args = 3
+# MATLAB reports the three-argument form only (`datetime(now, 'ConvertFrom', 'datenum')`).
+min_args = 3
+literal_args = ["datenum"]
+arg_text = "now"
 message = "'datetime(now, 'ConvertFrom', 'datenum')' is not recommended. Use 'datetime(\"now\")' instead, which is a direct replacement."
 replacement = "datetime"
+rewrite = "node"
+rewrite_text = "datetime(\"now\")"
+rewrite_unsafe = true
 
 [[checks]]
 id = "TTDAY1"
+handle = false
 function_name = "today"
+not_in_call = "datetime"
+not_in_call_literal = "datenum"
 message = "'today' is not recommended. With appropriate code changes, use 'datetime(\"today\")' instead."
 replacement = "datetime"
 
 [[checks]]
 id = "TTDAY2"
+handle = false
 function_name = "datetime"
+literal_args = ["datenum"]
+arg_text = "today"
 message = "'datetime(today, 'ConvertFrom', 'datenum')' is not recommended. Use 'datetime(\"today\")' instead, which is a direct replacement."
 replacement = "datetime"
 
 [[checks]]
 id = "MATCH2"
+handle = false
 function_name = "strmatch"
+# MATLAB reports strmatch with one or two arguments, and with four or more (not three: MATCH3).
+max_args = 2
+message = "STRMATCH is not recommended. Use STRNCMP or VALIDATESTRING instead."
+replacement = "strncmp"
+
+[[checks]]
+id = "MATCH2"
+handle = false
+function_name = "strmatch"
+min_args = 4
 message = "STRMATCH is not recommended. Use STRNCMP or VALIDATESTRING instead."
 replacement = "strncmp"
 
 [[checks]]
 id = "IMGDT"
+handle = false
 function_name = "imageInputLayer"
+literal_has_value = true
+# MATLAB reports the name only when a value follows it (`imageInputLayer(sz, 'DataAugmentation', 'none')`).
+literal_args = ["DataAugmentation"]
 message = "Using 'DataAugmentation' in function 'imageInputLayer' is not recommended. Use function 'augmentedImageDatastore' instead."
 replacement = "augmentedImageDatastore"
 
 [[checks]]
 id = "MATCH3"
+handle = false
 function_name = "strmatch"
+max_args = 3
+# MATLAB reports strmatch with exactly three arguments (STRCMP with 'exact').
+min_args = 3
 message = "STRMATCH is not recommended. Use STRCMP instead."
 replacement = "strcmp"
 
 [[checks]]
 id = "MTFA1"
+handle = false
 function_name = "maketform"
+max_args = 2
+literal_at = 1
+# MATLAB reports maketform with the affine type (any case) and up to two arguments.
+literal_args = ["affine"]
 message = "MAKETFORM('AFFINE',A) is not recommended. Use AFFINE2D or AFFINE3D instead."
 replacement = "affine2d"
 
 [[checks]]
 id = "MTFA2"
+handle = false
 function_name = "maketform"
+min_args = 3
+literal_at = 1
+# MATLAB reports maketform with the affine type and three or more arguments.
+literal_args = ["affine"]
 message = "MAKETFORM('AFFINE',U,X) is not recommended. Use FITGEOTRANS instead."
 replacement = "fitgeotrans"
 
 [[checks]]
 id = "MTFP1"
+handle = false
 function_name = "maketform"
+max_args = 2
+literal_at = 1
+# MATLAB reports maketform with the projective type and up to two arguments.
+literal_args = ["projective"]
 message = "MAKETFORM('PROJECTIVE',A) is not recommended. Use PROJECTIVE2D instead."
 replacement = "projective2d"
 
 [[checks]]
 id = "MTFP2"
+handle = false
 function_name = "maketform"
+min_args = 3
+literal_at = 1
+# MATLAB reports maketform with the projective type and three or more arguments.
+literal_args = ["projective"]
 message = "MAKETFORM('PROJECTIVE',U,X) is not recommended. Use FITGEOTRANS instead."
 replacement = "fitgeotrans"
 
 [[checks]]
 id = "MTFB"
+handle = false
 function_name = "maketform"
+literal_at = 1
+# MATLAB reports maketform with the box type.
+literal_args = ["box"]
 message = "MAKETFORM('BOX',...) is not recommended. Use IMREF2D or IMREF3D instead."
 replacement = "imref2d"
 
 [[checks]]
 id = "OOPS"
 function_name = ""
+# MATLAB reported nothing for a function-file class in 3 probes (not reproduced)
+pattern = "unverified"
 message = "Defining a class using 'function' syntax is not recommended. With appropriate code changes, use 'classdef' syntax instead."
 replacement = "classdef"
 
 [[checks]]
 id = "PMTMCONF"
+handle = false
 function_name = "pmtm"
+# MATLAB reports pmtm with three output arguments only.
+min_outputs = 3
 message = "When using PMTM with three output arguments, the 'ConfidenceLevel' input argument is recommended."
 replacement = ""
 
 [[checks]]
 id = "NCHKI"
+handle = false
+shadowed_command = true
 function_name = "nargchk"
+# MATLAB is silent on a call with no argument (`nargchk;`, `y = nargchk;`).
+min_args = 1
 message = "NARGCHK is not recommended. Use NARGINCHK instead."
 replacement = "narginchk"
 
 [[checks]]
 id = "NCHKO"
 function_name = "nargchk"
+pattern = "unverified"
 message = "Using NARGCHK with NARGOUT is not recommended. Use NARGOUTCHK instead."
 replacement = "nargoutchk"
 
 [[checks]]
 id = "NCHKN"
 function_name = "nargchk"
+pattern = "unverified"
 message = "NARGCHK is not recommended. Use NARGINCHK without ERROR instead."
 replacement = "narginchk"
 
 [[checks]]
 id = "NCHKM"
 function_name = "nargchk"
+pattern = "unverified"
 message = "NARGCHK is not recommended. Use NARGOUTCHK without ERROR instead."
 replacement = "nargoutchk"
 
 [[checks]]
 id = "ISCLSTR"
+handle = false
 function_name = "iscellstr"
+max_args = 1
 message = "To support string in addition to cellstr, include a call to 'isstring'."
 replacement = "isstring"
+# MATLAB reports only an unknown or handle argument: silent for a number, text, cell or struct (known or through a variable), and when the statement or `if` header also calls isstring.
+not_with_call = "isstring"
+arg_through_variables = true
+not_arg_kinds = ["cell", "number", "char", "text", "struct"]
 
 [[checks]]
 id = "EMTAG"
 function_name = "eml"
+# MATLAB reported nothing: eml is not an R2026b function, no probe fired (not reproduced)
+pattern = "unverified"
 message = "The compilation directive (or pragma) 'eml' is not recommended. Use 'codegen' instead."
 replacement = "codegen"
 
 [[checks]]
 id = "EMXTR"
 function_name = "eml"
+# MATLAB reported nothing: eml is not an R2026b function, no probe fired (not reproduced)
+pattern = "unverified"
 message = "The 'eml' namespace is not recommended. Use 'codegen' instead."
 replacement = "codegen"
 
 [[checks]]
 id = "NVREPLA"
 function_name = "addParamValue"
+# addParamValue: MATLAB reported nothing in 65 probes (not reproduced)
+pattern = "unverified"
 message = "'addParamValue' is not recommended. Use 'addParameter' instead."
 replacement = "addParameter"
 
 [[checks]]
 id = "NVREPLM"
 function_name = "risetime"
+# MidPctRef: MATLAB reported nothing in 81 probes (not reproduced)
+pattern = "unverified"
 message = "'MidPctRef' is not recommended. Use 'MidPercentReferenceLevel' instead."
 replacement = "MidPercentReferenceLevel"
 
 [[checks]]
 id = "NVREPLP"
+handle = false
 function_name = "risetime"
+# MATLAB reports the PctRefLevels option (any case) in any position.
+literal_args = ["PctRefLevels"]
 message = "'PctRefLevels' is not recommended. Use 'PercentReferenceLevels' instead."
 replacement = "PercentReferenceLevels"
 
 [[checks]]
 id = "VIDREAD"
-function_name = "VideoReader"
+function_name = "get"
+# get NumberOfFrames: MATLAB reported nothing in 110 probes (not reproduced)
+pattern = "unverified"
+literal_args = ["NumberOfFrames"]
 message = "'NumberOfFrames' is not recommended. Use 'NumFrames' instead."
 replacement = "NumFrames"
 
 [[checks]]
 id = "CRNR"
+handle = false
+shadowed_command = true
 function_name = "corner"
 message = "CORNER is not recommended. Use detectHarrisFeatures or detectMinEigenFeatures in Computer Vision Toolbox instead."
 replacement = "detectHarrisFeatures"
 
 [[checks]]
 id = "CRNRM"
+handle = false
+shadowed_command = true
 function_name = "cornermetric"
 message = "CORNERMETRIC is not recommended. Use detectHarrisFeatures or detectMinEigenFeatures and the cornerPoints class in Computer Vision Toolbox instead."
 replacement = "detectHarrisFeatures"
 
 [[checks]]
 id = "MDFLT1"
+handle = false
+arg_at = 3
+arg_kinds = ["number"]
 function_name = "medfilt1"
+# MATLAB reports medfilt1 only with three or more arguments.
+min_args = 3
 message = "BLKSZ is required for backward compatibility and is ignored. Use [] instead."
 replacement = ""
 
 [[checks]]
 id = "INTRPP"
 function_name = "interp1"
+# interp1 pp: MATLAB reported nothing in 57 probes (not reproduced)
+pattern = "unverified"
+literal_args = ["pp"]
 message = "'pp' is not recommended. Use the griddedInterpolant class instead."
 replacement = "griddedInterpolant"
 
 [[checks]]
 id = "DISPLAYPROG"
+handle = false
+shadowed_command = true
 function_name = "display"
+# MATLAB reports a known value (a number, text, cell or struct, a variable of one too), not a handle or an unknown argument.
+arg_kinds = ["number", "text", "cell", "struct"]
+arg_through_variables = true
+min_args = 1
+max_args = 1
 message = "Programmatic use of DISPLAY is not recommended. Use DISP or FPRINTF instead."
 replacement = "disp"
 
 [[checks]]
 id = "HGSTGT"
 function_name = "hgsetget"
+# hgsetget: MATLAB reported nothing in 49 probes (not reproduced)
+pattern = "unverified"
 message = "hgsetget is not recommended. Use matlab.mixin.SetGet or matlab.mixin.SetGetExactNames instead."
 replacement = "matlab.mixin.SetGet"
 
 [[checks]]
 id = "LEGACYMD"
 function_name = ""
+# never matched by name (no function name); MATLAB reported nothing in 21 probes
+pattern = "unverified"
 message = "Setting LegacyMode to true is not recommended. Set LegacyMode to false instead."
 replacement = ""
 
 [[checks]]
 id = "LEGACYTRD"
 function_name = ""
+# never matched by name (no function name); MATLAB reported nothing in 21 probes
+pattern = "unverified"
 message = "'DetectorMethod' is applicable only when LegacyMode is set to true. However, setting LegacyMode to true is not recommended."
 replacement = ""
 
 [[checks]]
 id = "LEGACYTRL"
 function_name = ""
+# never matched by name (no function name); MATLAB reported nothing in 21 probes
+pattern = "unverified"
 message = "'LoopMethod' is applicable only when LegacyMode is set to true. However, setting LegacyMode to true is not recommended."
 replacement = ""
 
 [[checks]]
 id = "LEGACYTRU"
 function_name = ""
+# never matched by name (no function name); MATLAB reported nothing in 21 probes
+pattern = "unverified"
 message = "'UpdatePeriod' is applicable only when LegacyMode is set to true. However, setting LegacyMode to true is not recommended."
 replacement = ""
 
 [[checks]]
 id = "LEGACYTRS"
 function_name = ""
+# never matched by name (no function name); MATLAB reported nothing in 21 probes
+pattern = "unverified"
 message = "'StepSize' is applicable only when LegacyMode is set to true. However, setting LegacyMode to true is not recommended."
 replacement = ""
 
 [[checks]]
 id = "LEGACYTRG"
 function_name = ""
+# never matched by name (no function name); MATLAB reported nothing in 21 probes
+pattern = "unverified"
 message = "'GainOutputPort' is applicable only when LegacyMode is set to true. However, setting LegacyMode to true is not recommended."
 replacement = ""
 
 [[checks]]
 id = "EZPLT"
+handle = false
+shadowed_command = true
 function_name = "ezplot"
 message = "EZPLOT is not recommended. Use FPLOT or FIMPLICIT instead."
 replacement = "fplot"
 
 [[checks]]
 id = "EZGRPH3"
+handle = false
+shadowed_command = true
 function_name = "ezgraph3"
 message = "EZGRAPH3 is not recommended. Use FCONTOUR, FMESH, FPLOT, FPLOT3 or FSURF instead."
 replacement = "fsurf"
 
 [[checks]]
 id = "EZCNTRF"
+handle = false
+shadowed_command = true
 function_name = "ezcontourf"
 message = "EZCONTOURF is not recommended. Use FCONTOUR instead, and set the 'Fill' value to 'on'."
 replacement = "fcontour"
 
 [[checks]]
 id = "EZMSHC"
+handle = false
+shadowed_command = true
 function_name = "ezmeshc"
 message = "EZMESHC is not recommended. Use FMESH instead, and set the 'ShowContours' value to 'on'."
 replacement = "fmesh"
 
 [[checks]]
 id = "EZSRFC"
+handle = false
+shadowed_command = true
 function_name = "ezsurfc"
 message = "EZSURFC is not recommended. Use FSURF instead, and set the 'ShowContours' value to 'on'."
 replacement = "fsurf"
@@ -347,132 +561,211 @@ replacement = "fsurf"
 [[checks]]
 id = "FISADR"
 function_name = "addrule"
+# addrule: MATLAB reported nothing in 63 probes (not reproduced)
+pattern = "unverified"
 message = "'addrule' is not recommended. Use 'addRule' instead."
 replacement = "addRule"
 
 [[checks]]
 id = "STRQUOT"
+handle = false
 function_name = "string"
+function_only = true
+# MATLAB reports string with one argument only, and not as a command. A variable
+# counts when its one reaching value is text (`x = 'abc'; string(x)`).
+max_args = 1
+arg_kinds = ["text"]
+arg_sole_value = true
 message = "string('...') is not recommended. Use \"...\" instead."
 replacement = ""
+rewrite = "string"
 
 [[checks]]
 id = "STRCLQT"
+handle = false
 function_name = "string"
+arg_kinds = ["char_cell"]
+max_args = 1
 message = "'string({'str1', 'str2'})' is not recommended. Use '[\"str1\", \"str2\"]' instead."
 replacement = ""
 
 [[checks]]
 id = "SIM"
+handle = false
 function_name = "sim"
+within_parfor = true
 message = "'sim' in parfor loop is not recommended. Replace the parfor loop with 'parsim'."
 replacement = "parsim"
 
 [[checks]]
 id = "NUMCH"
-function_name = "audioread"
+function_name = "get"
+# get NumberOfChannels: MATLAB reported nothing in 110 probes (not reproduced)
+pattern = "unverified"
+literal_args = ["NumberOfChannels"]
 message = "'NumberOfChannels' is not recommended. Use 'NumChannels' instead."
 replacement = "NumChannels"
 
 [[checks]]
 id = "GTRED"
+handle = false
 function_name = "geotiffread"
+max_args = 1
+# MATLAB reports geotiffread with one argument only.
+min_args = 1
 message = "'geotiffread' is not recommended, except when reading a GeoTIFF file from a URL. With appropriate code changes, use 'readgeoraster' instead."
 replacement = "readgeoraster"
 
 [[checks]]
 id = "GETFSP"
 function_name = "get"
+# get FormatSpacing: MATLAB reported nothing in 110 probes (not reproduced)
+pattern = "unverified"
+literal_args = ["FormatSpacing"]
 message = "Using get for retrieving values of line spacing is not recommended. With appropriate code changes, use 'settings' object instead."
 replacement = "settings"
 
 [[checks]]
 id = "SETFMT"
 function_name = "set"
+# set Format: MATLAB reported nothing in 76 probes (not reproduced)
+pattern = "unverified"
+literal_args = ["Format"]
 message = "Using set for assigning values of numeric display format is not recommended. With appropriate code changes, use 'settings' object instead."
 replacement = "settings"
 
 [[checks]]
 id = "SETFSP"
 function_name = "set"
+# set FormatSpacing: MATLAB reported nothing in 76 probes (not reproduced)
+pattern = "unverified"
+literal_args = ["FormatSpacing"]
 message = "Using set for assigning values of line spacing is not recommended. With appropriate code changes, use 'settings' object instead."
 replacement = "settings"
 
 [[checks]]
 id = "GETFMT"
 function_name = "get"
+# get Format: MATLAB reported nothing in 110 probes (not reproduced)
+pattern = "unverified"
+literal_args = ["Format"]
 message = "Using get for retrieving values of numeric display format is not recommended. With appropriate code changes, use 'settings' object instead."
 replacement = "settings"
 
 [[checks]]
 id = "EV2IN"
+handle = false
 function_name = "eval"
+# MATLAB reports eval with two arguments only.
+max_args = 2
+min_args = 2
 message = "Using 'eval' with two arguments is not recommended. Use try/catch statements instead to make code more clear and efficient."
 replacement = ""
 
 [[checks]]
 id = "EV3IN"
+handle = false
 function_name = "evalin"
+# MATLAB reports evalin with three arguments only.
+max_args = 3
+min_args = 3
 message = "Using 'evalin' with three arguments is not recommended. Use try/catch statements instead to make code more clear and efficient."
 replacement = ""
 
 [[checks]]
 id = "PRTOG"
+handle = false
 function_name = "print"
+literal_args = ["-opengl"]
 message = "'-opengl' is not recommended. Use '-image' instead, which is a direct replacement."
 replacement = ""
+rewrite = "literal"
+rewrite_text = "-image"
+rewrite_unsafe = true
 
 [[checks]]
 id = "PRTPT"
+handle = false
 function_name = "print"
+literal_args = ["-painters"]
 message = "'-painters' is not recommended. Use '-vector' instead, which is a direct replacement."
 replacement = ""
+rewrite = "literal"
+rewrite_text = "-vector"
+rewrite_unsafe = true
 
 [[checks]]
 id = "FORMATNOI"
+handle = false
 function_name = "format"
+# MATLAB reports the call used as a statement or an anonymous body, not `y = format;` (and not a handle).
+not_assigned = true
+max_args = 0
 message = "'format' with no input or output arguments is not recommended. Use 'format(\"default\")' instead."
 replacement = ""
+rewrite = "node"
+rewrite_text = "format(\"default\")"
 
 [[checks]]
 id = "XFRWSB"
+handle = false
 function_name = "batchsim"
+literal_has_value = true
+# MATLAB reports the option only when a value follows it.
+literal_args = ["TransferBaseWorkspaceVariables"]
 message = "The 'TransferBaseWorkspaceVariables' option is not recommended for 'batchsim'. With appropriate code changes, consider using project startup scripts or the 'SetupFcn' option instead."
 replacement = ""
 
 [[checks]]
 id = "XFRWSP"
+handle = false
 function_name = "parsim"
+literal_has_value = true
+# MATLAB reports the option only when a value follows it.
+literal_args = ["TransferBaseWorkspaceVariables"]
 message = "The 'TransferBaseWorkspaceVariables' option is not recommended for 'parsim'. With appropriate code changes, consider using project startup scripts or the 'SetupFcn' option instead."
 replacement = ""
 
 [[checks]]
 id = "OLDSIM"
+handle = false
 function_name = "sim"
+min_outputs = 2
+arg_kinds = ["char"]
 message = "This syntax of the 'sim' command which returns multiple arguments is not recommended. With appropriate code changes, turn on 'ReturnWorkspaceOutputs' and return simulation results using the single-output format instead."
 replacement = ""
 
 [[checks]]
 id = "INSTHWI"
+handle = false
 function_name = "instrhwinfo"
+literal_args = ["ivi"]
 message = "'instrhwinfo('ivi')' is not recommended. With appropriate code changes, use 'ividriverlist' or 'ividevlist' instead."
 replacement = "ividriverlist"
 
 [[checks]]
 id = "INWVX"
+handle = false
 function_name = "instrhwinfo"
+literal_args = ["vxipnp"]
 message = "'instrhwinfo('vxipnp')' is not recommended. With appropriate code changes, use 'ividriverlist' or 'ividevlist' instead."
 replacement = "ividriverlist"
 
 [[checks]]
 id = "VERMATLAB"
+handle = false
 function_name = "ver"
+literal_args = ["matlab"]
 message = "ver('matlab') is not recommended. With appropriate code changes, use 'matlabRelease' instead."
 replacement = "matlabRelease"
 
 [[checks]]
 id = "VERLESSMATLAB"
+handle = false
 function_name = "verLessThan"
+literal_args = ["matlab"]
+arg_at = 2
+version_at_least = "9.9"
 message = "verLessThan('matlab', ...) is not recommended. With appropriate code changes, use 'isMATLABReleaseOlderThan' instead."
 replacement = "isMATLABReleaseOlderThan"
 
@@ -520,9 +813,14 @@ replacement = "modelCalibrationPlot"
 
 [[checks]]
 id = "HOLDALL"
+handle = false
 function_name = "hold"
+literal_args = ["all"]
 message = "'hold('all')' is not recommended. Use 'hold('on')' instead, which is a direct replacement."
 replacement = ""
+rewrite = "literal"
+rewrite_text = "on"
+rewrite_unsafe = true
 
 [[checks]]
 id = "MASSO"
@@ -538,13 +836,18 @@ replacement = "IntMainSolverOptions"
 
 [[checks]]
 id = "CDFEPOCH2DATE"
+handle = false
 function_name = "cdfread"
+literal_args = ["ConvertEpochToDatenum"]
+literal_has_value = true
 message = "'ConvertEpochToDatenum' is not recommended. With appropriate code changes, use the 'DatetimeType' parameter of 'cdfread' instead."
 replacement = ""
 
 [[checks]]
 id = "FEATGPID"
+handle = false
 function_name = "feature"
+literal_args = ["getpid"]
 message = "'feature('getpid')' is unsupported and not recommended. With appropriate code changes, use the function 'matlabProcessID' instead."
 replacement = "matlabProcessID"
 
@@ -583,6 +886,7 @@ id = "CAXIS"
 function_name = "caxis"
 message = "'caxis' is not recommended. Use 'clim' instead, which is a direct replacement."
 replacement = "clim"
+renames_call = true
 
 [[checks]]
 id = "CDFEPOCH"
@@ -697,12 +1001,14 @@ id = "DGTORD"
 function_name = "degtorad"
 message = "'degtorad' is not recommended. Use 'deg2rad' instead, which is a direct replacement."
 replacement = "deg2rad"
+renames_call = true
 
 [[checks]]
 id = "RDTODG"
 function_name = "radtodeg"
 message = "'radtodeg' is not recommended. Use 'rad2deg' instead, which is a direct replacement."
 replacement = "rad2deg"
+renames_call = true
 
 [[checks]]
 id = "EZCONTR"
@@ -781,6 +1087,7 @@ id = "FISWRT"
 function_name = "writefis"
 message = "'writefis' is not recommended. Use 'writeFIS' instead, which is a direct replacement."
 replacement = "writeFIS"
+renames_call = true
 
 [[checks]]
 id = "FISADM"
@@ -841,24 +1148,6 @@ id = "IM2BW"
 function_name = "im2bw"
 message = "'im2bw' is not recommended. With appropriate code changes, use 'imbinarize' instead."
 replacement = "imbinarize"
-
-[[checks]]
-id = "ISPIX"
-function_name = "pixelLabelImageSource"
-message = "'pixelLabelImageSource' is not recommended. Use 'pixelLabelImageDatastore' instead, which is a direct replacement."
-replacement = "pixelLabelImageDatastore"
-
-[[checks]]
-id = "ISAUG"
-function_name = "augmentedImageSource"
-message = "'augmentedImageSource' is not recommended. Use 'augmentedImageDatastore' instead, which is a direct replacement."
-replacement = "augmentedImageDatastore"
-
-[[checks]]
-id = "ISDNS"
-function_name = "denoisingImageSource"
-message = "'denoisingImageSource' is not recommended. Use 'denoisingImageDatastore' instead, which is a direct replacement."
-replacement = "denoisingImageDatastore"
 
 [[checks]]
 id = "IMFREEH"
@@ -949,6 +1238,7 @@ id = "ISDIR"
 function_name = "isdir"
 message = "'isdir' is not recommended. Use 'isfolder' instead, which is a direct replacement."
 replacement = "isfolder"
+renames_call = true
 
 [[checks]]
 id = "DISEQN"
@@ -961,66 +1251,77 @@ id = "DGCAT"
 function_name = "gcat"
 message = "'gcat' is not recommended. Use 'spmdCat' instead, which is a direct replacement."
 replacement = "spmdCat"
+renames_call = true
 
 [[checks]]
 id = "DGOP"
 function_name = "gop"
 message = "'gop' is not recommended. Use 'spmdReduce' instead, which is a direct replacement."
 replacement = "spmdReduce"
+renames_call = true
 
 [[checks]]
 id = "DGPLUS"
 function_name = "gplus"
 message = "'gplus' is not recommended. Use 'spmdPlus' instead, which is a direct replacement."
 replacement = "spmdPlus"
+renames_call = true
 
 [[checks]]
 id = "DLABBARRIER"
 function_name = "labBarrier"
 message = "'labBarrier' is not recommended. Use 'spmdBarrier' instead, which is a direct replacement."
 replacement = "spmdBarrier"
+renames_call = true
 
 [[checks]]
 id = "DLABBROADCAST"
 function_name = "labBroadcast"
 message = "'labBroadcast' is not recommended. Use 'spmdBroadcast' instead, which is a direct replacement."
 replacement = "spmdBroadcast"
+renames_call = true
 
 [[checks]]
 id = "DLABINDEX"
 function_name = "labindex"
 message = "'labindex' is not recommended. Use 'spmdIndex' instead, which is a direct replacement."
 replacement = "spmdIndex"
+renames_call = true
 
 [[checks]]
 id = "DLABPROBE"
 function_name = "labProbe"
 message = "'labProbe' is not recommended. Use 'spmdProbe' instead, which is a direct replacement."
 replacement = "spmdProbe"
+renames_call = true
 
 [[checks]]
 id = "DLABRECEIVE"
 function_name = "labReceive"
 message = "'labReceive' is not recommended. Use 'spmdReceive' instead, which is a direct replacement."
 replacement = "spmdReceive"
+renames_call = true
 
 [[checks]]
 id = "DLABSEND"
 function_name = "labSend"
 message = "'labSend' is not recommended. Use 'spmdSend' instead, which is a direct replacement."
 replacement = "spmdSend"
+renames_call = true
 
 [[checks]]
 id = "DLABSENDRECEIVE"
 function_name = "labSendReceive"
 message = "'labSendReceive' is not recommended. Use 'spmdSendReceive' instead, which is a direct replacement."
 replacement = "spmdSendReceive"
+renames_call = true
 
 [[checks]]
 id = "DNUMLABS"
 function_name = "numlabs"
 message = "'numlabs' is not recommended. Use 'spmdSize' instead, which is a direct replacement."
 replacement = "spmdSize"
+renames_call = true
 
 [[checks]]
 id = "AGRED"
@@ -1045,6 +1346,7 @@ id = "MLNT"
 function_name = "mlint"
 message = "'mlint' is not recommended. Use 'checkcode' instead, which is a direct replacement."
 replacement = "checkcode"
+renames_call = true
 
 [[checks]]
 id = "MNRFIT"
@@ -1327,6 +1629,7 @@ id = "SIMVARIANT"
 function_name = "Simulink.Variant"
 message = "'Simulink.Variant' is not recommended. Use 'Simulink.VariantExpression' instead, which is a direct replacement."
 replacement = "Simulink.VariantExpression"
+renames_call = true
 
 [[checks]]
 id = "COMBNK"
@@ -1451,23 +1754,39 @@ replacement = "reshape"
 [[checks]]
 id = "MDFRD"
 function_name = "mdf"
+pattern = "object"
 message = "'read' method of 'mdf' class is not recommended. With appropriate code changes, use 'mdfRead' function instead."
 replacement = "mdfRead"
 
 [[checks]]
 id = "MDFCHL"
 function_name = "mdf"
+pattern = "object"
 message = "'channelList' method of 'mdf' class is not recommended. With appropriate code changes, use 'mdfChannelInfo' function instead."
 replacement = "mdfChannelInfo"
 
 [[checks]]
 id = "MDFSVA"
 function_name = "mdf"
+pattern = "object"
 message = "'saveAttachment' method of 'mdf' class is not recommended. With appropriate code changes, use 'mdfSaveAttachment' function instead."
 replacement = "mdfSaveAttachment"
 
 [[checks]]
 id = "MINELV"
 function_name = ""
+# MATLAB was silent in every probe form (call, name-value, struct field, assignment,
+# command), so this entry is kept but never matched.
+pattern = "unverified"
 message = "'MinElevationAngle' is not recommended. Use 'MaskElevationAngle' instead, which is a direct replacement when specified as scalar values. Row vector values must be transposed."
 replacement = "MaskElevationAngle"
+
+[[checks]]
+id = "BLCHID"
+handle = false
+function_name = "blfread"
+arg_at = 2
+arg_kinds = ["number"]
+arg_through_variables = true
+message = "Specifying the channel ID as the second positional argument in 'blfread' is not recommended. With appropriate code changes, use the 'ChannelID' name-value argument instead."
+replacement = "ChannelID"

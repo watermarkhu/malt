@@ -12,11 +12,18 @@ impl LanguageSpecEngine {
         if !self.is_check_enabled("FVOBI") {
             return;
         }
+        // MATLAB reports only the first input block after an output block
+        // (readability__t2.m:8, not the later `arguments (Input)` at line 11).
         let mut saw_output = false;
+        let mut reported = false;
         for block in blocks {
             if block.role.is_output() || block.is_output_repeating() {
                 saw_output = true;
-            } else if saw_output && (block.role.is_input() || block.is_input_repeating()) {
+            } else if saw_output
+                && !reported
+                && (block.role.is_input() || block.is_input_repeating())
+            {
+                reported = true;
                 self.push_block_diag(
                     block,
                     "FVOBI",
@@ -69,5 +76,30 @@ end
             filter_by_id(&diags, "FVOBI").is_empty(),
             "FVOBI should NOT fire when input blocks precede output blocks"
         );
+    }
+
+    #[test]
+    fn test_fvobi_reports_first_input_block_only() {
+        // MATLAB reports FVOBI once, on the first input block after the output
+        // block (readability__t2.m:8); later input blocks are silent.
+        let source = "\
+function y = f(x, z)
+    arguments (Output)
+        y (1,1) double
+    end
+    arguments
+        x (1,1) double
+    end
+    arguments (Input)
+        z (1,1) double
+    end
+end
+";
+        let diags = check_source(source, "f.m");
+        let lines: Vec<usize> = filter_by_id(&diags, "FVOBI")
+            .iter()
+            .map(|d| d.line)
+            .collect();
+        assert_eq!(lines, vec![5]);
     }
 }

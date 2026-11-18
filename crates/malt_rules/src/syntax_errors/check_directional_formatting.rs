@@ -3,38 +3,43 @@
 use super::*;
 
 impl SyntaxErrorsEngine {
-    pub(crate) fn check_directional_formatting(&self, source: &str) -> Vec<Diagnostic> {
-        if !self.is_check_enabled("BADCT") {
-            return Vec::new();
-        }
-
+    /// Unicode directional formatting characters (U+202A..U+202E, U+2066..U+2069).
+    /// MATLAB reports them as BADCT at the start of the comment or string that holds
+    /// them (probed: `x = 3 % <LRE> c` is column 7, the `%`), and as BADCH at the
+    /// character when they are in code (probed: `x = 3;<LRE>` is BADCH).
+    pub(crate) fn check_directional_formatting(
+        &self,
+        source: &str,
+        skip_ranges: &[Range<usize>],
+    ) -> Vec<Diagnostic> {
         let mut diagnostics = Vec::new();
-        let mut line = 1usize;
-        let mut line_start = 0usize;
 
         for (i, ch) in source.char_indices() {
-            if ch == '\n' {
-                line += 1;
-                line_start = i + 1;
+            let cp = ch as u32;
+            if !((0x202A..=0x202E).contains(&cp) || (0x2066..=0x2069).contains(&cp)) {
                 continue;
             }
-            let cp = ch as u32;
-            // U+202A..U+202E (LRE, RLE, PDF, LRO, RLO) and
-            // U+2066..U+2069 (LRI, RLI, FSI, PDI) are directional formatting
-            // characters that MATLAB rejects.
-            if (0x202A..=0x202E).contains(&cp) || (0x2066..=0x2069).contains(&cp) {
-                diagnostics.push(Diagnostic {
-                    rule_id: "BADCT",
-                    message:
-                        "Unicode explicit directional formatting characters are not supported."
-                            .to_string(),
-                    severity: Severity::Error,
-                    byte_range: i..i + ch.len_utf8(),
-                    line,
-                    column: i - line_start + 1,
-                    fix: None,
-                });
+            let (rule_id, message, at) = match skip_ranges.iter().find(|r| r.contains(&i)) {
+                Some(r) => (
+                    "BADCT",
+                    "Unicode explicit directional formatting characters are not supported.",
+                    r.start,
+                ),
+                None => ("BADCH", "Invalid text character(s).", i),
+            };
+            if !self.is_check_enabled(rule_id) {
+                continue;
             }
+            let (line, column) = line_col(source, at);
+            diagnostics.push(Diagnostic {
+                rule_id,
+                message: message.to_string(),
+                severity: Severity::Error,
+                byte_range: at..at + 1,
+                line,
+                column,
+                fix: None,
+            });
         }
 
         diagnostics
@@ -64,30 +69,58 @@ mod tests {
         SyntaxErrorsEngine::from_config(&config)
     }
 
-    // -- BADCT: Unicode directional formatting characters --------------------
-
-    #[test]
-    fn badct_fires_on_directional_formatting() {
-        let diags = lint_file(&*engine(), "x = 1;\u{202a}\n");
-        assert!(has_id(&diags, "BADCT"), "got: {diags:?}");
+    fn find<'a>(diags: &'a [Diagnostic], id: &str) -> &'a Diagnostic {
+        diags
+            .iter()
+            .find(|d| d.rule_id == id)
+            .unwrap_or_else(|| panic!("no {id} in {diags:?}"))
     }
 
+    // Probe b2: a directional character in code is BADCH at the character.
     #[test]
-    fn badct_fires_on_rlo() {
-        let diags = lint_file(&*engine(), "x = 1;\u{202e}\n");
+    fn badch_fires_on_directional_formatting_in_code() {
+        let diags = lint_file(&*engine(), "x = 3;\u{202a}\n");
+        assert!(has_id(&diags, "BADCH"), "got: {diags:?}");
+        assert!(!has_id(&diags, "BADCT"), "got: {diags:?}");
+        assert_eq!(
+            (find(&diags, "BADCH").line, find(&diags, "BADCH").column),
+            (1, 7)
+        );
+    }
+
+    // Probe b2: in a comment, BADCT is at the `%` (column 7), not at the character.
+    #[test]
+    fn badct_fires_at_comment_start() {
+        let diags = lint_file(&*engine(), "x = 3 % \u{202a} comment\n");
         assert!(has_id(&diags, "BADCT"), "got: {diags:?}");
+        assert_eq!(
+            (find(&diags, "BADCT").line, find(&diags, "BADCT").column),
+            (1, 7)
+        );
+    }
+
+    // Probe b2: in a string, BADCT is at the opening quote (column 5).
+    #[test]
+    fn badct_fires_at_string_start() {
+        let diags = lint_file(&*engine(), "x = '\u{202a}';\n");
+        assert!(has_id(&diags, "BADCT"), "got: {diags:?}");
+        assert_eq!(
+            (find(&diags, "BADCT").line, find(&diags, "BADCT").column),
+            (1, 5)
+        );
     }
 
     #[test]
     fn badct_ok_on_plain_source() {
         let diags = lint_file(&*engine(), "x = 1;\n");
         assert!(!has_id(&diags, "BADCT"), "got: {diags:?}");
+        assert!(!has_id(&diags, "BADCH"), "got: {diags:?}");
     }
 
     #[test]
     fn badct_disabled_in_config_does_not_fire() {
         let engine = engine_with_disabled(&["BADCT"]);
-        let diags = lint_file(&*engine, "x = 1;\u{202a}\n");
+        let diags = lint_file(&*engine, "x = 3 % \u{202a}\n");
         assert!(!has_id(&diags, "BADCT"), "got: {diags:?}");
     }
 }

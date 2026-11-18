@@ -32,7 +32,7 @@ def test_lints_a_file(tmp_path: Path) -> None:
     source = tmp_path / "script.m"
     source.write_text("x = 1\n")
     result = run(str(source))
-    assert "NOSEMI" in result.stdout, result.stdout + result.stderr
+    assert "NOPTS" in result.stdout, result.stdout + result.stderr
 
 
 def test_clean_file_passes(tmp_path: Path) -> None:

@@ -2,17 +2,18 @@
 
 use super::*;
 
+/// MWKCL is off until MATLAB reports it: probes with an untyped, function-validated, struct,
+/// class or numeric WeakHandle property gave no finding.
+const MWKCL_REPORTED: bool = false;
+
 impl LanguageSpecEngine {
     /// MWKCL: a WeakHandle property must have a class validation (type constraint).
     pub(crate) fn check_mwkcl(&self, class: &ClassMeta, diagnostics: &mut Vec<Diagnostic>) {
-        if !self.is_check_enabled("MWKCL") {
+        if !MWKCL_REPORTED || !self.is_check_enabled("MWKCL") {
             return;
         }
         for pb in &class.properties_blocks {
-            let is_weak = pb
-                .attributes
-                .iter()
-                .any(|a| a.name == "WeakHandle" && !a.negated);
+            let is_weak = Attributes(&pb.attributes).is_set("WeakHandle");
             if !is_weak {
                 continue;
             }
@@ -41,6 +42,7 @@ mod tests {
     use crate::language_spec::tests::{check_source, filter_by_id};
 
     #[test]
+    #[ignore = "MWKCL is gated off: MATLAB reported no WeakHandle case"]
     fn test_mwkcl_fires_untyped_weakhandle() {
         let source = "\
 classdef Foo
@@ -72,5 +74,18 @@ end
             hits.is_empty(),
             "MWKCL should NOT fire for a typed property"
         );
+    }
+
+    #[test]
+    fn test_mwkcl_no_fire_weak_handle_set_false() {
+        let source = "\
+classdef C < handle
+    properties (WeakHandle = false)
+        p
+    end
+end
+";
+        let diags = check_source(source, "C.m");
+        assert!(filter_by_id(&diags, "MWKCL").is_empty());
     }
 }
