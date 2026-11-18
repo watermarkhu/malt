@@ -65,3 +65,37 @@ fn rderr_fires_on_directory() {
     );
     assert!(!output.status.success(), "expected non-zero exit status");
 }
+
+/// A file that is not valid UTF-8 is read as Latin-1, as MATLAB reads it, and analyzed: no
+/// RDERR. `--fix` leaves it untouched (it would have to be written in another encoding).
+#[test]
+fn a_latin1_file_is_analyzed_and_not_rewritten_by_fix() {
+    let dir = tempfile::tempdir().expect("failed to create temp dir");
+    let path = dir.path().join("latin1.m");
+    let source = b"function latin1(x)\n% caf\xe9 \xe9\xe8\ny = 1\nend\n";
+    std::fs::write(&path, source).expect("failed to write test file");
+
+    let output = Command::new(malt_bin())
+        .arg(&path)
+        .output()
+        .expect("failed to run malt");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(!stdout.contains("RDERR"), "{stdout}");
+    assert!(
+        stdout.contains("INUSD") && stdout.contains("NASGU"),
+        "{stdout}"
+    );
+    assert!(!stdout.contains("--fix"), "no fix is advertised: {stdout}");
+
+    let output = Command::new(malt_bin())
+        .arg("--fix")
+        .arg(&path)
+        .output()
+        .expect("failed to run malt");
+    assert!(!String::from_utf8_lossy(&output.stdout).contains("Fixed"));
+    assert_eq!(
+        std::fs::read(&path).unwrap(),
+        source,
+        "the file is not rewritten"
+    );
+}

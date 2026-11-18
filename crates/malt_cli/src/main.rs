@@ -386,8 +386,21 @@ fn check_file_untimed(linter: &mut Linter, file_path: &Path, cli: &Cli) -> Resul
             ));
         }
     }
-    let source = match fs::read_to_string(file_path) {
-        Ok(s) => s,
+    // MATLAB reads a file that is not valid UTF-8 as Latin-1 (every byte is a character) and
+    // analyzes it; so does malt. Such a file is only analyzed: `--fix` would have to write it
+    // back in another encoding, so it is left alone.
+    let (source, utf8) = match fs::read(file_path) {
+        Ok(bytes) => match String::from_utf8(bytes) {
+            Ok(text) => (text, true),
+            Err(invalid) => (
+                invalid
+                    .into_bytes()
+                    .iter()
+                    .map(|&b| char::from(b))
+                    .collect(),
+                false,
+            ),
+        },
         Err(e) if e.kind() == io::ErrorKind::NotFound => {
             // NOFIL — file not found. Skip lint + fix; never write an empty file
             // to a missing path.
@@ -420,7 +433,7 @@ fn check_file_untimed(linter: &mut Linter, file_path: &Path, cli: &Cli) -> Resul
         }
     };
 
-    let diagnostics = if cli.fix {
+    let diagnostics = if cli.fix && utf8 {
         let mode = if cli.unsafe_fixes {
             FixMode::All
         } else {
@@ -441,9 +454,16 @@ fn check_file_untimed(linter: &mut Linter, file_path: &Path, cli: &Cli) -> Resul
         }
         outcome.remaining
     } else {
-        linter
+        let mut diagnostics = linter
             .lint(&source, file_path)
-            .with_context(|| format!("failed to parse {}", file_path.display()))?
+            .with_context(|| format!("failed to parse {}", file_path.display()))?;
+        if !utf8 {
+            // Not fixable here (see above): do not advertise `--fix`.
+            for diagnostic in &mut diagnostics {
+                diagnostic.fix = None;
+            }
+        }
+        diagnostics
     };
     Ok(FileOutcome::Linted(diagnostics))
 }

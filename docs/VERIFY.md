@@ -993,7 +993,7 @@ What remains after the fixes, none of it a rule defect:
 
 - **Parser-caused (recorded, grammar not edited).** The 56 + 50 differences of `matlab` are in files made of deliberate syntax errors (`t41FunctionDefinitions`, `t54LineContinuationInAnonymousFunctions`, `t57Operators`, `t23LineContinuationCall`, `t30functionContinuation`, `vscode-textmate/.../test.m`, `ClassWithErrors`, `f_inputargs_error`): SYNER, ENDCT2/3, EOLPAR, NOPAR2, EOFER, BADCH, RESWD and the findings that follow from the recovery (DEFNU, NASGU, NOPTS on code after the break). Same for Octave: every file is a syntax-error file for MATLAB.
 - **MCATP (4)**: `name@char = v` property restrictions; the tree-sitter grammar has no node for them. **IMPKEY (1)**: `import module.submodule.class.function`, a keyword inside the import name.
-- **A file that is not UTF-8** (`f_with_latin_1.m`): MATLAB reads it and reports INUSD; malt reports RDERR (`malt_cli` reads the file as UTF-8). Not changed here (the CLI was being edited in parallel).
+- **A file that is not UTF-8** (`f_with_latin_1.m`): MATLAB reads it and reports INUSD. Fixed after the run: `malt_cli` reads such a file as Latin-1 (every byte a character), analyzes it and leaves it alone under `--fix` (it would have to be written in another encoding); test in `crates/malt_cli/tests/nofil_rderr.rs`.
 - **`%#ok<INUSL>`** (`advanced-logger/test/+mlog/+test/TestLogger.m:522`): MATLAB accepts `INUSL` as a suppression ID that suppresses INUSD (probes j6, j7: both unused inputs of `function f(a, b) %#ok<INUSL>` are silent), although `INUSL` is not one of the 2,728 messages of `checkcode -allmsg`. malt reports INUSD and an MSNE for `INUSL` (2 extra findings). The fix is in `malt_core` (`known_ids` and the suppression map: an alias INUSL for INUSD), which this step did not touch. Open: which other legacy IDs MATLAB accepts in `%#ok<...>` is unknown, so MSNE for an ID outside malt's list is a false-positive risk in general.
 
 ### Fixes (MATLAB evidence; probe sets of 3 to 22 files, one MATLAB call each)
@@ -1038,7 +1038,7 @@ Defects found only through `--preset all` (no MATLAB comparison; unit tests):
 ### Known gaps found here (not fixed)
 
 - `%#ok<INUSL>`: suppression alias and MSNE (see above; `malt_core`).
-- A non-UTF-8 file gives RDERR; MATLAB reads it (`malt_cli`).
+- A non-UTF-8 file is read as Latin-1 and analyzed (not fixed by `--fix`); its columns count bytes, as MATLAB's do for Latin-1 files (unprobed for multi-byte text).
 - `[obj.Value(end)]` (NBRAK2) and the other bracket forms were probed on indexed fields only; `[s.a(1).b]` is untested and silent.
 - MCSUP: a value-class setter of a Dependent property without an output that reads a private property is reported by MATLAB (b3, b4) and silent in malt.
 - A file with `end;` after its main function (`function p1(a) ... end;`, one probe) gets DEFNU and SEMFU in MATLAB and NOSEMI only in malt; SEMFU is not emitted.

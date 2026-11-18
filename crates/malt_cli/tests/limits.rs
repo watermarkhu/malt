@@ -35,7 +35,8 @@ fn statements() -> Vec<u8> {
 
 #[test]
 fn a_file_over_max_file_size_is_not_read() {
-    // Not valid UTF-8: reading it would give RDERR, so MALT_TOO_BIG proves it was not read.
+    // Eight KiB of 0xff bytes: analyzed (as Latin-1) it would give many findings, so the single
+    // MALT_TOO_BIG finding below proves the file was refused before it was read.
     let mut bytes = vec![0xff; 8 * 1024];
     bytes.push(b'\n');
     let dir = project(
