@@ -132,7 +132,11 @@ end
         assert_eq!(mcdir.len(), 1);
         // MATLAB quotes the class name and names the file by its absolute path.
         let message = &mcdir[0].message;
-        assert!(message.starts_with("Class name 'Bar' and @directory name do not agree: '/"));
+        // The path is absolute: `/…` on Unix, `C:\…` on Windows.
+        let quoted = message
+            .strip_prefix("Class name 'Bar' and @directory name do not agree: '")
+            .unwrap_or_else(|| panic!("{message}"));
+        assert!(std::path::Path::new(quoted).is_absolute(), "{message}");
         assert!(message.ends_with("Qux.m'."), "{message}");
         let diags = check_source("classdef Zed\nend\n", "@Zed/other.m");
         assert_eq!(filter_by_id(&diags, "MCFIL").len(), 1);
