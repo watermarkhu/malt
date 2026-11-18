@@ -9,7 +9,7 @@ icon: lucide/archive
 **Category:** Compatibility
 **Can be disabled:** Yes
 **Enabled by default:** Yes
-**Maturity:** Mixed (1102 of 1832 experimental)
+**Maturity:** Mixed (1123 of 1832 experimental)
 
 ## What this rule does
 
@@ -236,12 +236,12 @@ properties) and dispatched from `check_file`.
 | <a id="perfref"></a>`PERFREF` | warning | experimental | 'perfect-reflector' value will be removed in a future release. Use value 'PEC' instead, which is a direct replacement. |
 | <a id="yolov"></a>`YOLOV` | error | stable | 'yolov2ReorgLayer' has been removed. With appropriate code changes, use 'spaceToDepthLayer' instead. |
 | <a id="ddtrd"></a>`DDTRD` | warning | stable | 'dataread' will be removed in a future release. With appropriate code changes, use 'textscan' instead. |
-| <a id="impivd"></a>`IMPIVD` | warning | stable | Malformed import argument VAR_NAME will not be supported in a future release. |
-| <a id="impkey"></a>`IMPKEY` | warning | stable | Importing VAR_NAME will not be supported in a future release because VAR_NAME is a reserved word. |
+| <a id="impivd"></a>`IMPIVD` | warning | stable | Malformed import argument 'VAR_NAME' will not be supported in a future release. |
+| <a id="impkey"></a>`IMPKEY` | warning | stable | Importing 'VAR_NAME' will not be supported in a future release because 'VAR_WORD' is a reserved word. |
 | <a id="redefgi"></a>`REDEFGI` | warning | stable | Declaring an input or output variable to be global might not be supported in a future release. |
 | <a id="redefgg"></a>`REDEFGG` | warning | stable | Declaring a variable to be global more than once might not be supported in a future release. |
 | <a id="mcpdc"></a>`MCPDC` | error | stable | Specifying both the 'Constant' and 'Dependent' attributes on the same property is not supported. |
-| <a id="nov6"></a>`NOV6` | warning | stable | 'v6' will be removed in a future release. There is no simple replacement for this. |
+| <a id="nov6"></a>`NOV6` | warning | experimental | 'v6' will be removed in a future release. There is no simple replacement for this. |
 | <a id="v6on"></a>`V6ON` | warning | experimental | USEV6PLOTAPI('on') will be removed in a future release. There is no simple replacement for this. |
 | <a id="pstat"></a>`PSTAT` | error | stable | The 'Static' attribute on properties has been removed. Use the 'Constant' attribute instead. |
 | <a id="fgren"></a>`FGREN` | warning | stable | 'Renderer' will be removed in a future release and currently has no effect. There is no simple replacement for this. |
@@ -257,8 +257,8 @@ properties) and dispatched from `check_file`.
 | <a id="hesst"></a>`HESST` | error | stable | 'InitialHessType' has been removed. There is no simple replacement for this. |
 | <a id="hessm"></a>`HESSM` | error | stable | 'InitialHessMatrix' has been removed. There is no simple replacement for this. |
 | <a id="bufsize"></a>`BUFSIZE` | error | stable | Option 'Bufsize' has been removed. Manual buffering in 'textscan' is no longer needed. |
-| <a id="feglo"></a>`FEGLO` | error | stable | 'global' has been removed. There is no simple replacement for this. |
-| <a id="smplmode"></a>`SMPLMODE` | error | stable | The property 'FrameBasedProcessing' has been removed. |
+| <a id="feglo"></a>`FEGLO` | error | experimental | 'global' has been removed. There is no simple replacement for this. |
+| <a id="smplmode"></a>`SMPLMODE` | error | experimental | The property 'FrameBasedProcessing' has been removed. |
 | <a id="resou"></a>`RESOU` | error | stable | 'resources' is a reserved folder. Running MATLAB files located in a folder named 'resources' is not supported. |
 | <a id="ttsmp"></a>`TTSMP` | error | stable | 'SamplingRate' has been removed. Use 'SampleRate' instead. |
 | <a id="finsi"></a>`FINSI` | error | stable | Support for 'inputname' in a script has been removed. |
@@ -267,13 +267,13 @@ properties) and dispatched from `check_file`.
 | <a id="disgver"></a>`DISGVER` | error | stable | 'matlab.graphics.internal.isGraphicsVersion1' has been removed. Use 'verLessThan('matlab','8.4.0')' instead. |
 | <a id="dndla"></a>`DNDLA` | error | stable | 'discard' has been removed. There is no simple replacement for this. |
 | <a id="eitycn"></a>`EITYCN` | error | stable | feature('EightyColumns') and feature('EightyColumns', VALUE) are unsupported and have been removed. With appropriate code changes, use 'settings' object instead. |
-| <a id="repudd"></a>`REPUDD` | error | stable | Classes defined using schema.m files are no longer supported. Use MATLAB Classes defined using the classdef keyword instead. |
+| <a id="repudd"></a>`REPUDD` | error | experimental | Classes defined using schema.m files are no longer supported. Use MATLAB Classes defined using the classdef keyword instead. |
 | <a id="rtwhwdr"></a>`RTWHWDR` | error | stable | 'RTW.HWDeviceRegistry' is unsupported and has been removed. The replacement strategy can be found in MATLAB documentation. |
 | <a id="invhcrm"></a>`INVHCRM` | warning | stable | The 'InvertHardCopy' property will be removed in a future release and currently has no effect. With appropriate code changes, set the 'Color' property of the figure before printing or call the 'exportgraphics' function to control the color for exporting. |
 | <a id="dinvhcrm"></a>`DINVHCRM` | warning | stable | The 'defaultFigureInvertHardCopy' setting will be removed in a future release and currently has no effect. With appropriate code changes, set the 'Color' property of the figure before printing or call the 'exportgraphics' function to control the color for exporting. |
 | <a id="chkgr"></a>`CHKGR` | error | stable | The 'CheckGradients' option has been removed from 'optimoptions'. With appropriate code changes, use the 'checkGradients' function instead. |
 | <a id="linprogs"></a>`LINPROGS` | error | stable | 'simplex' algorithm has been removed. With appropriate code changes, set 'Algorithm' value to 'interior-point' or 'dual-simplex' instead. |
-| <a id="lsret"></a>`LSRET` | error | stable | 'LaserReturns' has been removed. Use 'LaserReturn' instead, which is a direct replacement. |
+| <a id="lsret"></a>`LSRET` | error | experimental | 'LaserReturns' has been removed. Use 'LaserReturn' instead, which is a direct replacement. |
 | <a id="raynr"></a>`RAYNR` | error | stable | Input argument 'NumReflections' has been removed. Use 'MaxNumReflections' property of a ray tracing propagation model object instead. |
 | <a id="japimathworks"></a>`JAPIMATHWORKS` | warning | stable | 'com.mathworks' namespace and sub namespaces will be removed in a future release. There is no simple replacement for this. |
 | <a id="imclass"></a>`IMCLASS` | warning | stable | In a future release, 'ismethod' will treat a string or character vector in its first input as a 'string' or 'char' class object. Pass an object to 'ismethod' or use any(strcmp('methodName', methods('ClassName'))) instead. |
@@ -282,8 +282,8 @@ properties) and dispatched from `check_file`.
 | <a id="tcps"></a>`TCPS` | error | stable | 'tcpip' with 'server' as a 'NetworkRole' has been removed. With appropriate code changes, use 'tcpserver' instead. |
 | <a id="qamdepm"></a>`QAMDEPM` | error | stable | 'qammod' no longer accepts the initial phase of a signal. |
 | <a id="qamdepd"></a>`QAMDEPD` | error | stable | 'qamdemod' no longer accepts the initial phase of a signal. |
-| <a id="geterr"></a>`GETERR` | error | stable | The 'ErrorMessage' property has been removed. At the command line, use 'MException.last' instead. |
-| <a id="seterr"></a>`SETERR` | error | stable | The 'ErrorMessage' property has been removed. There is no simple replacement for this. |
+| <a id="geterr"></a>`GETERR` | error | experimental | The 'ErrorMessage' property has been removed. At the command line, use 'MException.last' instead. |
+| <a id="seterr"></a>`SETERR` | error | experimental | The 'ErrorMessage' property has been removed. There is no simple replacement for this. |
 | <a id="mapvw"></a>`MAPVW` | error | stable | 'mapview' has been removed. With appropriate code changes, use 'mapshow' instead. |
 | <a id="maptool"></a>`MAPTOOL` | error | stable | 'maptool' has been removed. There is no simple replacement for this. |
 | <a id="dfeatureparam1"></a>`DFEATUREPARAM1` | error | stable | 'UseHG2' has been removed. With appropriate code changes, use '~verLessThan('matlab','8.4.0')' instead. |
@@ -748,17 +748,17 @@ properties) and dispatched from `check_file`.
 | <a id="intlleg22"></a>`INTLLEG22` | error | stable | 'RootLPMaxIterations' option for the 'intlinprog' solver has been removed. There is no simple replacement for this. |
 | <a id="intlpouta"></a>`INTLPOUTA` | error | experimental | 'algorithm' field of the 'intlinprog' solution process summary has been removed. 'intlinprog' always uses the 'highs' algorithm. |
 | <a id="coeffs"></a>`COEFFS` | error | stable | The property 'FilterSpecification' has been removed. |
-| <a id="coeff1"></a>`COEFF1` | error | stable | The property 'FirstFilterCoefficients' has been removed. |
-| <a id="coeff2"></a>`COEFF2` | error | stable | The property 'SecondFilterCoefficients' has been removed. |
-| <a id="coeff3"></a>`COEFF3` | error | stable | The property 'ThirdFilterCoefficients' has been removed. |
-| <a id="coeffd1"></a>`COEFFD1` | error | stable | The property 'FirstFilterCoefficientsDataType' has been removed. |
-| <a id="coeffd2"></a>`COEFFD2` | error | stable | The property 'SecondFilterCoefficientsDataType' has been removed. |
-| <a id="coeffd3"></a>`COEFFD3` | error | stable | The property 'ThirdFilterCoefficientsDataType' has been removed. |
-| <a id="coeffc1"></a>`COEFFC1` | error | stable | The property 'CustomFirstFilterCoefficientsDataType' has been removed. |
-| <a id="coeffc2"></a>`COEFFC2` | error | stable | The property 'CustomSecondFilterCoefficientsDataType' has been removed. |
-| <a id="coeffc3"></a>`COEFFC3` | error | stable | The property 'CustomThirdFilterCoefficientsDataType' has been removed. |
-| <a id="readszk"></a>`READSZK` | error | stable | The property 'KeyValueLimit' has been removed. |
-| <a id="readszr"></a>`READSZR` | error | stable | The property 'RowsPerRead' has been removed. |
+| <a id="coeff1"></a>`COEFF1` | error | experimental | The property 'FirstFilterCoefficients' has been removed. |
+| <a id="coeff2"></a>`COEFF2` | error | experimental | The property 'SecondFilterCoefficients' has been removed. |
+| <a id="coeff3"></a>`COEFF3` | error | experimental | The property 'ThirdFilterCoefficients' has been removed. |
+| <a id="coeffd1"></a>`COEFFD1` | error | experimental | The property 'FirstFilterCoefficientsDataType' has been removed. |
+| <a id="coeffd2"></a>`COEFFD2` | error | experimental | The property 'SecondFilterCoefficientsDataType' has been removed. |
+| <a id="coeffd3"></a>`COEFFD3` | error | experimental | The property 'ThirdFilterCoefficientsDataType' has been removed. |
+| <a id="coeffc1"></a>`COEFFC1` | error | experimental | The property 'CustomFirstFilterCoefficientsDataType' has been removed. |
+| <a id="coeffc2"></a>`COEFFC2` | error | experimental | The property 'CustomSecondFilterCoefficientsDataType' has been removed. |
+| <a id="coeffc3"></a>`COEFFC3` | error | experimental | The property 'CustomThirdFilterCoefficientsDataType' has been removed. |
+| <a id="readszk"></a>`READSZK` | error | experimental | The property 'KeyValueLimit' has been removed. |
+| <a id="readszr"></a>`READSZR` | error | experimental | The property 'RowsPerRead' has been removed. |
 | <a id="optmopt"></a>`OPTMOPT` | error | stable | solve(PROBLEM, OPTIONS) has been removed. Use solve(PROBLEM, 'Options', OPTIONS) instead. |
 | <a id="optmslv"></a>`OPTMSLV` | error | stable | solve(PROBLEM, SOLVER) has been removed. Use solve(PROBLEM, 'Solver', SOLVER) instead. |
 | <a id="optmnvp"></a>`OPTMNVP` | error | stable | solve(PROBLEM, SOLVER, OPTIONS) has been removed. Use solve(PROBLEM, 'Solver', SOLVER, 'Options', OPTIONS) instead. |
@@ -1260,9 +1260,9 @@ properties) and dispatched from `check_file`.
 | <a id="japiext817"></a>`JAPIEXT817` | warning | experimental | 'javax.help.search' Java package and subpackages are not available in MATLAB. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
 | <a id="japiext818"></a>`JAPIEXT818` | warning | experimental | 'javax.help.tagext' Java package and subpackages are not available in MATLAB. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
 | <a id="japiext824"></a>`JAPIEXT824` | warning | experimental | 'schemaorg_apache_xmlbeans.system.sD023D6490046BA0250A839A9AD24C443' Java package and subpackages are not available in MATLAB. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
-| <a id="rosdfobject"></a>`ROSDFOBJECT` | warning | stable | For improved performance and code generation workflows, specify 'DataFormat' name-value argument as 'struct'. In a future release, the default format will change to 'struct'. |
-| <a id="rosscfun"></a>`ROSSCFUN` | warning | stable | Add the service type as the second input argument to 'rossvcclient'. In a future release, the service type will be a required input argument. |
-| <a id="rosscpkg"></a>`ROSSCPKG` | warning | stable | Add the service type as the third input argument to 'ros.ServiceClient'. In a future release, the service type will be a required input argument. |
+| <a id="rosdfobject"></a>`ROSDFOBJECT` | warning | experimental | For improved performance and code generation workflows, specify 'DataFormat' name-value argument as 'struct'. In a future release, the default format will change to 'struct'. |
+| <a id="rosscfun"></a>`ROSSCFUN` | warning | experimental | Add the service type as the second input argument to 'rossvcclient'. In a future release, the service type will be a required input argument. |
+| <a id="rosscpkg"></a>`ROSSCPKG` | warning | experimental | Add the service type as the third input argument to 'ros.ServiceClient'. In a future release, the service type will be a required input argument. |
 | <a id="rosdfmissing"></a>`ROSDFMISSING` | warning | experimental | Use name-value argument 'DataFormat' to specify the message format as the default message format will change to 'struct' in a future release. |
 | <a id="japiext2"></a>`JAPIEXT2` | warning | experimental | 'javax.annotation.security' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
 | <a id="japiext3"></a>`JAPIEXT3` | warning | experimental | 'javax.annotation.sql' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
@@ -1893,11 +1893,13 @@ Experimental checks are off by default and run with `[lint] experimental = true`
 
 13 checks (marked in the table above): Silent in every probe form; never emitted.
 
+914 checks (marked in the table above): Entries MATLAB lists with low reliability (behavior-change messages), and the generic checks MATLAB stayed silent on in every probed shape (NOV6, REPUDD, LSRET, READSZK, READSZR, SMPLMODE, GETERR, SETERR, COEFF1 to COEFFC3; docs/VERIFY.md 'Recording the stable checks'). Off under the mathworks preset, on with the behavior-changes category.
+
+`FEGLO`, `ROSDFOBJECT`, `ROSSCFUN`, `ROSSCPKG`: Declared but never emitted: no code path (FEGLO, TMMSG), an empty denylist (RMWRN), an unreachable arm (MATLAB reports ATAS, ATUNK and ATPPP in the shapes of ATNAS, ATNPI and ATNPP), a data entry without function name or pattern (MASSO, IMSSO, the RISK checks on class methods), or a toolbox that is not installed (ROS).
+
 `FCLEN`, `FCCPV`, `FCDQS`, `FCFAV`, `FCHBL`, `FCLFS`, `FCNVA`, `IDISVARHIGH`: Forward-compatibility gates and IDISVARHIGH: MATLAB's default analysis never reports them; off under the mathworks preset.
 
 `SHVAI`: MATLAB never reported them in 11 to 35 probes each; the check is gated off in the engine (not reproduced), the code is kept.
-
-897 checks (marked in the table above): Entries MATLAB lists with low reliability (behavior-change messages); 60 were probed in 3 shapes each without a report. Off under the mathworks preset, on with the behavior-changes category.
 
 183 checks (marked in the table above): MATLAB reports these only on a variable of the class, which needs class tracking that malt does not have; never emitted.
 

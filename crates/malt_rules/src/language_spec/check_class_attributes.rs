@@ -237,7 +237,31 @@ impl LanguageSpecEngine {
         level: AttrLevel,
         diagnostics: &mut Vec<Diagnostic>,
     ) {
-        // ATVIZE: the 'Visible' attribute is invalid for classes and events.
+        // ATVIZE: the 'Visible' attribute is invalid for classes and events. On a
+        // properties block MATLAB reports the compatibility check ATVIZW instead (and
+        // ATTF for a value it cannot evaluate), never ATVIZE (probed in R2026b).
+        if attr.name == "Visible" && matches!(level, AttrLevel::Property) {
+            if let Some(value) = attr.value.as_deref() {
+                if !matches!(value, "true" | "false" | "1" | "0") && self.is_check_enabled("ATTF") {
+                    diagnostics.push(Diagnostic {
+                        rule_id: "ATTF",
+                        message: "The Code Analyzer is unable to determine if the expression \
+                                  assigned to the 'Visible' attribute evaluates to true or false."
+                            .to_string(),
+                        severity: Severity::Warning,
+                        byte_range: range.clone(),
+                        line,
+                        column: 1,
+                        fix: None,
+                    });
+                }
+            }
+            return;
+        }
+        if attr.name == "Static" && matches!(level, AttrLevel::Property) {
+            // PSTAT (compatibility) reports a removed attribute; MATLAB adds no ATUNK.
+            return;
+        }
         if attr.name == "Visible" {
             if self.is_check_enabled("ATVIZE") {
                 diagnostics.push(Diagnostic {

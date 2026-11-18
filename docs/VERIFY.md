@@ -18,7 +18,7 @@ of how it got here is in git and in the plan's progress log.
 `tests/fixtures/matlab_expected.tsv` holds what MATLAB reports for every fixture
 (path, line, ID: facts only, no message text), recorded with the release named in
 `tests/fixtures/matlab_release.txt`. The test fails on any difference, a
-missed finding or an extra one: malt matches MATLAB on all 899 fixtures under the default configuration, among them
+missed finding or an extra one: malt matches MATLAB on all 1,133 fixtures under the default configuration, among them
 `corpus1/` to `corpus4/` (31, 31, 33 and 32 fresh files, written independently of the rules). A new fixture needs
 its MATLAB expectations and a line in `matlab_files.txt`; `crates/malt_cli/tests/fixtures/README.md` gives the steps.
 
@@ -883,33 +883,33 @@ runs everything), explicit per-rule and per-category entries still win (also `"o
 
 **Evidence method.** `bun docs/scripts/gen_rules_docs.ts --maturity-report` counts, per engine, the
 unique check IDs, how many the table marks experimental, how many appear in a recorded MATLAB run
-(`matlab_expected.tsv`, 288 IDs, plus the 19 recorded configuration cases), and the stable ones without a
+(`matlab_expected.tsv`, 1,313 IDs since 'Recording the stable checks', plus the 19 recorded configuration cases), and the stable ones without a
 recording. `--check` fails when an experimental check has a recorded MATLAB finding or when the table
 names an unknown engine or ID. A Rust test (`maturity::tests::default_output_has_no_experimental_check`)
 fails when the default output reports an experimental ID.
 
 | Engine | Checks | Stable | Experimental | Recorded by MATLAB | Stable without a recording |
 | --- | --- | --- | --- | --- | --- |
-| `BUGS_ENGINE` | 33 | 31 | 2 | 18 | 13 |
+| `BUGS_ENGINE` | 33 | 26 | 7 | 26 | 0 |
 | `CODEGEN_ENGINE` | 14 | 0 | 14 | 0 | 0 |
-| `COMPAT` | 1832 | 730 | 1102 | 12 | 718 |
+| `COMPAT` | 1832 | 709 | 1123 | 709 | 0 |
 | `CUSTOM_CHECKS` | 25 | 5 | 20 | 5 | 0 |
 | `DEPLOYMENT_ENGINE` | 10 | 0 | 10 | 0 | 0 |
 | `FORMATTING_ENGINE` | 6 | 6 | 0 | 6 | 0 |
-| `GOOD_PRACTICES_ENGINE` | 106 | 93 | 13 | 54 | 39 |
-| `INCOMPLETE_ANALYSIS` | 10 | 10 | 0 | 1 | 9 |
-| `LANGUAGE_SPEC_ENGINE` | 161 | 154 | 7 | 67 | 87 |
+| `GOOD_PRACTICES_ENGINE` | 106 | 91 | 15 | 91 | 0 |
+| `INCOMPLETE_ANALYSIS` | 10 | 9 | 1 | 6 | 3 |
+| `LANGUAGE_SPEC_ENGINE` | 161 | 148 | 13 | 141 | 7 |
 | `NAMING_ENGINE` | 81 | 4 | 77 | 4 | 0 |
 | `NOSEMI` | 1 | 1 | 0 | 1 | 0 |
-| `PERFORMANCE_ENGINE` | 40 | 39 | 1 | 29 | 10 |
-| `READABILITY_ENGINE` | 35 | 31 | 4 | 15 | 16 |
-| `SUGGESTED_IMPROVEMENTS` | 241 | 241 | 0 | 45 | 196 |
-| `SYNTAX_ERRORS_ENGINE` | 49 | 49 | 0 | 22 | 27 |
+| `PERFORMANCE_ENGINE` | 40 | 38 | 2 | 38 | 0 |
+| `READABILITY_ENGINE` | 35 | 31 | 4 | 31 | 0 |
+| `SUGGESTED_IMPROVEMENTS` | 241 | 209 | 32 | 209 | 0 |
+| `SYNTAX_ERRORS_ENGINE` | 50 | 50 | 0 | 38 | 12 |
 | `SYSTEM_OBJECTS_ENGINE` | 9 | 0 | 9 | 0 | 0 |
 | `UNSET_VARIABLES_ENGINE` | 5 | 3 | 2 | 3 | 0 |
 | `UNSUPPORTED_ENGINE` | 13 | 0 | 13 | 0 | 0 |
-| `UNUSED_ENGINE` | 15 | 13 | 2 | 12 | 1 |
-| **Total** | 2686 | 1410 | 1276 | 294 | 1116 |
+| `UNUSED_ENGINE` | 15 | 13 | 2 | 13 | 0 |
+| **Total** | 2687 | 1343 | 1344 | 1321 | 22 |
 
 Experimental groups (reasons in the table file):
 
@@ -921,13 +921,16 @@ Experimental groups (reasons in the table file):
 | `mathworks` off-list (SHOCIRF, MOCUP, ERTAG, WNTAG, CTCH, ..., VANUS, NOEFF, SUSENS, USENS) | 26 | MATLAB's default analysis reported none in 4 or more probe shapes each |
 | Forward-compatibility gates and IDISVARHIGH | 8 | never reported by default |
 | Gated off, not reproduced (SHVAI, SHVAU, LNGNM, FVATF, CTOINE, MWKCL) | 6 | silent in 11 to 35 probes each |
-| Compatibility entries: low-reliability, `object`, `unverified` pattern | 897 + 183 + 13, as unique IDs | low-reliability flag of MATLAB's own list; `object` needs class tracking; `unverified` silent in every probe |
+| Compatibility entries: low-reliability (MATLAB's own list: 897, plus 17 generic checks MATLAB was silent on), `object`, `unverified` pattern | 914 + 183 + 13, as unique IDs | low-reliability flag; `object` needs class tracking; `unverified` silent in every probe |
+| Suggested-improvement entries with `pattern = "unverified"` or `"object"`: 23 IDs, plus 9 never matched (`MASSO`, `IMSSO`, the seven `RISK*`) | 32 | the 37 `unverified`-pattern entries counted earlier were 13 compatibility IDs and 24 suggested-improvement entries; the second set was never in the table and is listed by ID now |
+| MATLAB silent on every probed shape malt reported (CMDAND, CMDOR, DEFSIZE, FUNFUN, MEXCEP, MCHDT, SUBSINDEX, PFCEL, PFFRNG, PFMLTI, STCCS, NCHKE) | 12 | see 'Recording the stable checks' |
+| Declared, never emitted (FEGLO, ROS\*, RMWRN, TMMSG, ATNAS, ATNPI, ATNPP) | 7 | no code path, empty denylist or unreachable arm; ROS needs a toolbox that is not installed |
 
-**Counts.** 2,686 unique IDs in the engine tables (the 2,692 of the Rules Reference add the six emitted outside the engines): 1,410 stable and 1,276 experimental. Of the 1,410 stable IDs 294 have a
-recorded MATLAB finding; 1,116 are stable because they belong to the default analysis (probed in
-the audits, no fixture finding): these are the first candidates for new fixtures. The IDs that are
-declared but never emitted (the code-gated ones such as `PRTCAL` or `XCREDS`, listed in 'Official IDs
-malt does not emit') are not all in the table: only the ones with an engine entry are listed.
+**Counts.** 2,687 unique IDs in the engine tables (the 2,692 of the Rules Reference add the IDs emitted outside the engines): 1,343 stable and 1,344 experimental. Of the 1,343 stable IDs 1,321 have a
+recorded MATLAB finding; 22 are stable without a recording (before 'Recording the stable checks':
+1,413 stable, 301 recorded, 1,112 without a recording). The IDs that are declared but never emitted
+(the code-gated ones such as `PRTCAL` or `XCREDS`, listed in 'Official IDs malt does not emit') are
+not all in the table: only the ones with an engine entry or a listed ID are there.
 
 **Verified by the byte-identity run.** A release binary of HEAD (before the change) and the new one
 gave identical output over all 879 fixture files for the default, `--preset all` and
@@ -1047,4 +1050,89 @@ Defects found only through `--preset all` (no MATLAB comparison; unit tests):
 
 ### Gates
 
-`cargo fmt --all --check`, `cargo clippy --all-targets --locked -- -D warnings`, `MALT_MATLAB_REQUIRE=1 cargo test --workspace --exclude malt-py --locked --no-fail-fast` (conformance 899 fixtures, live check: recorded findings and message text agree with MATLAB 2026b), `bun docs/scripts/gen_rules_docs.ts --check` and `bun run docs:build` pass.
+`cargo fmt --all --check`, `cargo clippy --all-targets --locked -- -D warnings`, `MALT_MATLAB_REQUIRE=1 cargo test --workspace --exclude malt-py --locked --no-fail-fast` (conformance 1,133 fixtures, live check: recorded findings and message text agree with MATLAB 2026b), `bun docs/scripts/gen_rules_docs.ts --check` and `bun run docs:build` pass.
+
+## Recording the stable checks
+
+Follow-up of 'Rule maturity (plan 6.3)'. The principle of that table is: STABLE means MATLAB reported the check in a recorded run. At the start, 1,413 of the 2,687 unique IDs were `stable`, but 1,112 of them only because they belong to the default analysis, with no finding in `matlab_expected.tsv` (718 compatibility entries, 195 suggested improvements, 199 ordinary engine checks). The goal: for as many as possible, ask MATLAB R2026b and record the answer, so that every ID ends as RECORDED (MATLAB reports the same ID on the same line with the same message), DISAGREEMENT (MATLAB is silent where malt reports: fix the rule, or make malt silent and move the ID to `experimental`) or NOT TRIGGERABLE.
+
+### Method
+
+1. **Inventory.** `bun docs/scripts/gen_rules_docs.ts --unrecorded` lists `engine<TAB>ID` of every stable check without a recorded MATLAB finding (the same set as the last column of `--maturity-report`).
+2. **Triggers.** The data-driven entries were generated from the data files (a call of the entry's function with the arguments its conditions need: `min_args`, `args_any`, `literal_args`, `arg_kinds`, `number_arg_at`, `pairs_from`, `min_outputs`, `shadowed_command`) and packed 50 per file (`recorded/compat_NN.m`, `recorded/si_NN.m`). The engine checks came from the unit tests: every string literal of every test module (5,300 sources, with the file name the test passes, because several checks depend on it) was linted with the default preset, and the smallest sources on which malt reports a wanted ID were taken to MATLAB. The limits (nesting, operator and bracket depth, 8 nested block comments), the parfor shapes and the syntax shapes were written by hand from the MATLAB probes recorded in the unit tests.
+3. **MATLAB.** `matlab -batch` with `docs/scripts/matlab_probe.m` over at most 60 files per call (`timeout 600`), then a comparison per (file, line, ID) and per message text against malt's default and `--preset all` output.
+4. **Fixtures.** Files where MATLAB and malt agree on every finding became fixtures under `crates/malt_cli/tests/fixtures/recorded/` (234 files, 1,230 recorded rows): a minimal set cover of the IDs for the harvested files, the packed files for the data-driven entries, and `silent/` for the shapes MATLAB is silent on, which pin the fixes below. `matlab_files.txt` and `matlab_expected.tsv` were regenerated with `generate_checkcode.m` (README of the fixtures folder). The live message check agrees on all of them (0 differences, 21 accepted as before).
+
+### Counts
+
+| | Before | After |
+| --- | --- | --- |
+| Stable IDs | 1,413 | 1,343 |
+| Experimental IDs | 1,274 | 1,344 |
+| Stable, MATLAB finding recorded (fixtures or configuration cases) | 301 | 1,321 |
+| Stable, no recording | 1,112 | 22 |
+| IDs in `matlab_expected.tsv` | 288 | 1,313 |
+| Fixture files | 899 | 1,133 |
+
+Of the 1,112: 1,020 are now recorded (compatibility 12 to 709 IDs, suggested improvements 46 to 209, the engines 243 to 403), 70 moved to `experimental` and 22 stay. The three states:
+
+- **Recorded** (1,020 IDs). 656 data-driven compatibility IDs with a function name (650 on the first run, the rest after fixing the shape: `optimoptions('fmincon', 'CheckGradients', true)`, `savefig(gcf, 'f', 'compact')`, `solve(p, 'linprog')` with `p = optimproblem`, `com.mathworks.mde.desk.MLDesktop.getInstance`) and 38 generic compatibility IDs; 160 suggested-improvement IDs (`iscellstr(x)` with an unknown `x` and `datetime(today, 'ConvertFrom', 'datenum')` needed their own shape; a zero-argument call of a `nan*` function is LTARG in MATLAB, so every plain trigger has one argument) and the three `nargchk` forms (NCHKM, NCHKN, NCHKO); 160 engine IDs from harvested and hand-written files (`engines/`, `engines2/`, `engines3/`).
+- **Disagreement** (below): 29 IDs made silent and moved to `experimental`, and about 25 rules corrected.
+- **Not triggerable** (below): 41 moved to `experimental` as never emitted, 22 stay stable without a recording.
+
+### Disagreements and fixes
+
+MATLAB stayed silent, or reported another ID, where malt reported. The false positives cost more than the misses, so each was narrowed to the shape MATLAB reports, or switched off.
+
+| IDs | MATLAB | Change |
+| --- | --- | --- |
+| FPRENAME, XPCRENAME, SLRTRENAME, PSRENAME, DCRENAME, SERENAME | only `ver('fixpoint')` and `verLessThan(...)`; `license('test', ...)` is silent | reported in `ver` and `verLessThan` only |
+| HHCNA, HHCWE | only `hereHDLMConfiguration(...)` | `hereHDLMReader` no longer fires |
+| FROPT, FROPTX | `print('-dill', ...)`; `-dill` in other calls not probed | `print` only |
+| FGREM | `figure('RendererMode', ...)`; `set(gcf, ...)` and `get` are silent | `figure` only |
+| DFEATUREPARAM1, DFEATUREPARAM2 | `feature('UseHG2')`; `setpref` is silent | `feature` only |
+| TTSMP | `timetable(x, 'SamplingRate', ...)`; `set(gcf, ...)` is silent | `timetable` only |
+| COEFFS | `dsp.DigitalDownConverter('FilterSpecification', ...)`; other calls silent | that constructor only |
+| HESST, HESSM | `optimoptions` | `optimoptions` only |
+| SMTHF | `axes(...)` and `text(...)` constructors; `figure`, `set` and `get` silent | `axes` and `text` only |
+| RESOU | a file whose own folder is `resources` (reported on line 0); `cd resources` is silent, a deeper file is silent | path-based now (`recorded/resources/`) |
+| IMPKEY | `import pkg.if` (a reserved word as the last name); `import if`, `import if.x`, `import pkg.if.*` silent; message names `'pkg.if'` and `'if'` | rule and message |
+| IMPIVD | two or more `*` (`import a.*.*`); `import *` and `import a.*.b` silent | rule and message |
+| JAPIMATHWORKS | also on `import com.mathworks...` | reported for the import command |
+| MCPDC | `properties (Constant, Dependent)`, not the classdef attributes (those are ATUNK) | moved to the properties block |
+| MCATP | `x @double` in a class `properties` block; in a function `arguments` block it is FVSYN | class properties only |
+| ATVIZE | not on a properties block (ATVIZW, with ATTF for a value it cannot evaluate) | no ATVIZE, no ATUNK for `Static` on properties |
+| PFUIXW | the index was assigned before the loop (otherwise PFUIXE) | PFUIXW added to the PFUIXE check |
+| PFNAR | `s = e - s` is not a reduction: no PFRIN or PFRUS | skipped there |
+| SPRIX | indexed assignment into a sparse matrix inside a loop only | loop only |
+| NCHKI, NCHKM, NCHKN, NCHKO | `error(nargchk(.., nargin))` is NCHKN, `error(nargchk(.., nargout))` NCHKM, a `nargout` third argument NCHKO; NCHKE is never reported | remapped; NCHKE off |
+| VAR_NAME messages | MATLAB quotes the name (`'Foo'`) and upper-cases the keyword or function in SPNF, SPRET, UDIM and ENDCT2 | 21 messages: ENDPAR, FCONV, MCANI, MCASC, MCCBS, MCNPN, MCNPR, MCRED, MCSCC, MHERIT, MHERM, PFNAR, PFRFH, PFSLO, PFSLRD, PFSLW, VALST, SPNF, SPRET, UDIM, ENDCT2 (names the block keyword, not the line) |
+
+Made silent and moved to `experimental` with the evidence in the reason (`maturity.toml`):
+
+- 17 generic compatibility IDs flagged `low_reliability` in `compatibility.toml`: NOV6 (`save`, `load`, `rand`, `griddata`, `scatteredInterpolant`, `ode23` all silent), REPUDD (every `schema.*` shape and `schema.m` files silent), LSRET, READSZK, READSZR, SMPLMODE, GETERR, SETERR, COEFF1 to COEFFC3 (the owning class never found).
+- 12 engine IDs in the `mathworks` off-lists: CMDAND and CMDOR (`a &b` as a command and in `if`, `x &y` is REDEF), DEFSIZE (function and class shapes, a file named `size.m`), FUNFUN (`arrayfun('f', x)`), MEXCEP (`warning(E.message)`, in a `catch` too), MCHDT (MATLAB reports MCHDP for a handle default), SUBSINDEX, PFCEL, PFFRNG, PFMLTI (MATLAB reports PFFORA for an assigned inner loop variable), STCCS (`strcmpi(a, '123')` in several shapes), NCHKE. The bugs engine now honours `disabled_checks` for every finding, not only the ones that looked at it.
+
+### Not triggerable
+
+Experimental, never emitted (41 IDs): FEGLO and TMMSG (no code path), RMWRN (empty denylist), ATNAS, ATNPI and ATNPP (an unreachable arm: MATLAB reports ATAS, ATUNK and ATPPP in those shapes), ROSDFOBJECT, ROSSCFUN and ROSSCPKG (ROS Toolbox is not installed; `DataFormat()`, `rossvcclient()`, `ros.ServiceClient()` are silent), MASSO, IMSSO and the seven RISK checks (data entries without function name or pattern: class methods of the Risk Management Toolbox), and 23 suggested-improvement entries with `pattern = "unverified"` or `"object"` (EMTAG ... VIDREAD). This also resolves the 37-versus-13 mismatch of 'Rule maturity': 37 = 13 compatibility IDs plus 24 suggested-improvement entries with the same `unverified` pattern, and only the compatibility ones were selectable. The suggested-improvement ones are listed by ID now.
+
+Stay stable without a recording (22 IDs), with the reason:
+
+| IDs | Why |
+| --- | --- |
+| MDOTM, MDMCR | the file extension is not `.m` or is deployed: a fixture is a `.m` file |
+| CLSUNK | needs the search path (`--index`): not a fixture shape |
+| TMSMS | 1,001 parse errors: MATLAB reports it, but a fixture would hold 1,000 SYNER rows whose message text differs (`Parse error at '\'` against `at end`) |
+| PFVARS | 1,100 variables in a parfor: MATLAB reports it, the fixture would hold 1,100 NASGU rows |
+| CLSAT, BADOT, CLIS, SEMFU, ENDCT4 | MATLAB reports them; malt differs in a neighbour (CLSAT: malt gives SYNER and ENDCT2; BADOT: `3 .. 4` and `a..'` are missed; CLIS: an extra MCFIL; SEMFU: FNDEF where MATLAB says DEFNU; ENDCT4: line 1 where MATLAB says 2) |
+| CLANS, MCSCC, ENDPAR | the files differ in a neighbour (an extra NOANS; MATLAB adds NODEF; MATLAB adds NOPTS) |
+| MCMIO, FVONV, FNSWA, NOLHS, SEPEXC, UNSET, SYNEND, NOPAR2, ENDCT | no shape found where malt reports it at the command line and MATLAB the same ID: the engine fires on them in unit tests only (`= 5;` is a SYNER at the command line, `_f` a BADCH) |
+
+### Comparing `--preset all` with MATLAB
+
+Not built. A cheap way exists: `matlab_probe.m` runs `checkcode(path, '-id')` with MATLAB's default configuration only, so the experimental IDs would need `checkcode(path, '-config=...')` with a settings file that turns every check on (`codeAnalyzerConfiguration.json`, which malt already reads) and a second expectation file for `--preset all`. The packed trigger files (`recorded/compat_NN.m`, `si_NN.m`) already hold one shape per entry, so they would be the fixtures of that run.
+
+### Gates
+
+`cargo fmt --all --check`, `cargo clippy --all-targets --locked -- -D warnings`, `MALT_MATLAB_REQUIRE=1 cargo test --workspace --exclude malt-py --locked --no-fail-fast`, `cargo test --locked -p malt_wasm --features wasm`, `bun docs/scripts/gen_rules_docs.ts --check`, `bun run docs:build` and `rumdl` pass (see the final report of the session).

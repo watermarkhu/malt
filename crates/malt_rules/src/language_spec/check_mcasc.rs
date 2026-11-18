@@ -13,7 +13,7 @@ impl LanguageSpecEngine {
                         diagnostics.push(Diagnostic {
                             rule_id: "MCASC",
                             message: format!(
-                                "Abstract property {} cannot be used in a Sealed class.",
+                                "Abstract property '{}' cannot be used in a Sealed class.",
                                 prop.name
                             ),
                             severity: Severity::Error,

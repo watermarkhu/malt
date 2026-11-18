@@ -394,7 +394,7 @@ impl PerformanceEngine {
             && args.len() == 1
             && is_transpose(args[0], source)
         {
-            diags.push(make_diag_named("UDIM", node, func_name));
+            diags.push(make_diag_named("UDIM", node, &func_name.to_uppercase()));
         }
 
         // FREAD: char(fread(...)) -> fread(..., '*char')
@@ -766,7 +766,7 @@ mod tests {
     fn udim_fires_on_reduction_of_transpose() {
         let d = lint_nodes(&*engine(), "s = sum(x');\n");
         let u = d.iter().find(|d| d.rule_id == "UDIM").expect("UDIM");
-        assert!(u.message.contains("argument to sum"), "{}", u.message);
+        assert!(u.message.contains("argument to SUM"), "{}", u.message);
         assert!(!u.message.contains("VAR_NAME"));
         assert!(fires("m = mean(x.');\n", "UDIM"));
         assert!(!fires("s = sum(x);\n", "UDIM"));
@@ -918,7 +918,15 @@ mod tests {
 
     #[test]
     fn stccs_fires_on_case_insensitive_compare_without_letters() {
-        assert!(fires("x = strcmpi(a, '123');\n", "STCCS"));
+        // Off under the mathworks preset: MATLAB stayed silent on every probed shape.
+        let all = PerformanceEngine::from_config(
+            &Config::from_toml("[lint]\npreset = \"all\"\n").unwrap(),
+        );
+        assert!(has_id(
+            &lint_nodes(&*all, "x = strcmpi(a, '123');\n"),
+            "STCCS"
+        ));
+        assert!(!fires("x = strcmpi(a, '123');\n", "STCCS"));
         assert!(!fires("x = strcmpi(a, 'abc');\n", "STCCS"));
         assert!(!fires("x = ~isempty(strfind(a, 'b'));\n", "STCCS"));
     }

@@ -21,6 +21,7 @@
  *     bun docs/scripts/gen_rules_docs.ts --check          # exit 1 if any generated file is stale
  *     bun docs/scripts/gen_rules_docs.ts --check-module <slug>  # check a single rule page only
  *     bun docs/scripts/gen_rules_docs.ts --maturity-report # per-engine maturity counts
+ *     bun docs/scripts/gen_rules_docs.ts --unrecorded       # stable checks without a MATLAB recording
  */
 import { existsSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
@@ -559,6 +560,19 @@ function maturityProblems(modules: RuleModule[]): string[] {
   return problems
 }
 
+/** `engine<TAB>id` of every stable check without a recorded MATLAB finding (`--unrecorded`). */
+function unrecordedList(modules: RuleModule[]): string {
+  const recorded = recordedIds()
+  const rows: string[] = []
+  for (const mod of modules) {
+    const ids = mod.checks.length ? mod.checks.map((c) => c.id) : [mod.frontmatter.id]
+    for (const id of [...new Set(ids)]) {
+      if (!experimentalReason(mod.frontmatter.id, id) && !recorded.has(id)) rows.push(`${mod.frontmatter.id}\t${id}`)
+    }
+  }
+  return rows.join('\n') + '\n'
+}
+
 /** The markdown report behind the table in docs/VERIFY.md (`--maturity-report`). */
 function maturityReport(modules: RuleModule[]): string {
   const recorded = recordedIds()
@@ -1055,6 +1069,10 @@ function main(): number {
   }
   if (has('--maturity-report')) {
     process.stdout.write(maturityReport(discoverModules()))
+    return 0
+  }
+  if (has('--unrecorded')) {
+    process.stdout.write(unrecordedList(discoverModules()))
     return 0
   }
   if (has('--check-module')) {

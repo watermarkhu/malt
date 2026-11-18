@@ -40,7 +40,7 @@ impl SyntaxErrorsEngine {
                     diagnostics.push(Diagnostic {
                         rule_id: "ENDPAR",
                         message: format!(
-                            "A {bracket} might be missing a closing {bracket}, causing invalid syntax at end of file."
+                            "A '{bracket}' might be missing a closing '{bracket}', causing invalid syntax at end of file."
                         ),
                         severity: Severity::Error,
                         byte_range: start..end,
@@ -79,7 +79,7 @@ impl SyntaxErrorsEngine {
             if !eof_like {
                 return None;
             }
-            ("ENDPAR", format!("A {bracket} might be missing a closing {closer}, causing invalid syntax at end of file."))
+            ("ENDPAR", format!("A '{bracket}' might be missing a closing '{closer}', causing invalid syntax at end of file."))
         } else {
             // The first `;` or `=` (not a comparison) on the opener's line is the token MATLAB names.
             let line = &source[opener + 1..];

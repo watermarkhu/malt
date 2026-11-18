@@ -10,7 +10,7 @@ impl LanguageSpecEngine {
                 diagnostics.push(Diagnostic {
                     rule_id: "MHERIT",
                     message: format!(
-                        "Deriving from the built-in MATLAB {sc} class is not supported."
+                        "Deriving from the built-in MATLAB '{sc}' class is not supported."
                     ),
                     severity: Severity::Error,
                     byte_range: class.byte_range.clone(),

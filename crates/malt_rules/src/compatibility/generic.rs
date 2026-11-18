@@ -15,6 +15,7 @@ use malt_core::Diagnostic;
 mod check_behavior_prop; // 4.5-D: behavior-change figure/axes properties
 mod check_forward_gates; // 4.5-C: forward-compat version gates + scope/unset
 mod check_input_syntax; // 4.5-B: input-arg renames + class/scripting syntax
+pub(crate) use check_input_syntax::RESOU_MSG;
 mod check_property_attr; // 4.5-A: property/attribute + option removals
 mod check_script_nargin; // FINSNI: bare nargin in a script
 mod check_szcln; // SZCLN: colon operands from size() (MATLAB R2026b)

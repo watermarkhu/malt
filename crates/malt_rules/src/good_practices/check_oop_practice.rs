@@ -583,7 +583,7 @@ fn check_method_body(
                     diagnostics.push(Diagnostic {
                         rule_id: "MCNPN",
                         message: format!(
-                            "{name} is referenced but is not a property, method, or event name defined in this class."
+                            "'{name}' is referenced but is not a property, method, or event name defined in this class."
                         ),
                         severity: Severity::Warning,
                         byte_range: field.start_byte()..field.end_byte(),
@@ -608,7 +608,7 @@ fn check_method_body(
                             diagnostics.push(Diagnostic {
                                 rule_id: "MCNPR",
                                 message: format!(
-                                    "{name} is not a property, but is the target of an assignment."
+                                    "'{name}' is not a property, but is the target of an assignment."
                                 ),
                                 severity: Severity::Warning,
                                 byte_range: field.start_byte()..field.end_byte(),

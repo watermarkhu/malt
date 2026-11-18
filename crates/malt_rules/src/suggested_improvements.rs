@@ -899,9 +899,17 @@ impl Rule for SuggestedImprovementsEngine {
         let start = node.start_position();
         applicable
             .into_iter()
-            .map(|entry| Diagnostic {
-                rule_id: entry.id,
-                message: entry.message.to_string(),
+            .map(|entry| {
+                let (rule_id, message) = if entry.id == "NCHKI" {
+                    nargchk_variant(node, &args, ctx.source)
+                } else {
+                    (entry.id, entry.message)
+                };
+                (entry, rule_id, message)
+            })
+            .map(|(entry, rule_id, message)| Diagnostic {
+                rule_id,
+                message: message.to_string(),
                 severity: Severity::Info,
                 byte_range: node.start_byte()..node.end_byte(),
                 line: start.row + 1,
@@ -913,6 +921,44 @@ impl Rule for SuggestedImprovementsEngine {
                     .or_else(|| rewrite_fix(entry, node, &args, ctx.source)),
             })
             .collect()
+    }
+}
+
+/// The check MATLAB reports for a `nargchk` call (probed in R2026b): NCHKM for
+/// `error(nargchk(.., nargout))`, NCHKN for `error(nargchk(..))`, NCHKO for a call with
+/// `nargout` as its third argument, else NCHKI.
+fn nargchk_variant(
+    node: tree_sitter::Node,
+    args: &[tree_sitter::Node],
+    source: &str,
+) -> (&'static str, &'static str) {
+    let nargout = args
+        .get(2)
+        .is_some_and(|a| source[a.byte_range()] == *"nargout");
+    let in_error = node
+        .parent()
+        .filter(|p| p.kind() == "arguments")
+        .and_then(|p| p.parent())
+        .filter(|c| c.kind() == "function_call")
+        .and_then(|c| c.child_by_field_name("name"))
+        .is_some_and(|n| source[n.byte_range()] == *"error");
+    match (in_error, nargout) {
+        (true, true) => (
+            "NCHKM",
+            "NARGCHK is not recommended. Use NARGOUTCHK without ERROR instead.",
+        ),
+        (true, false) => (
+            "NCHKN",
+            "NARGCHK is not recommended. Use NARGINCHK without ERROR instead.",
+        ),
+        (false, true) => (
+            "NCHKO",
+            "Using NARGCHK with NARGOUT is not recommended. Use NARGOUTCHK instead.",
+        ),
+        (false, false) => (
+            "NCHKI",
+            "NARGCHK is not recommended. Use NARGINCHK instead.",
+        ),
     }
 }
 
@@ -1720,6 +1766,9 @@ mod tests {
     #[test]
     fn nargchk_geotiffread_medfilt1_and_format_arities() {
         assert_eq!(rule_ids("n = nargchk(1, 2, 3);\n"), vec!["NCHKI"]);
+        assert_eq!(rule_ids("error(nargchk(1, 2, nargin));\n"), vec!["NCHKN"]);
+        assert_eq!(rule_ids("error(nargchk(1, 2, nargout));\n"), vec!["NCHKM"]);
+        assert_eq!(rule_ids("m = nargchk(1, 2, nargout);\n"), vec!["NCHKO"]);
         assert!(rule_ids("y = nargchk;\n").is_empty());
         assert_eq!(rule_ids("img = geotiffread(f);\n"), vec!["GTRED"]);
         assert!(rule_ids("img = geotiffread(f, 1);\n").is_empty());

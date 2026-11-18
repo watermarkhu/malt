@@ -57,7 +57,7 @@ impl LanguageSpecEngine {
                         diagnostics.push(Diagnostic {
                             rule_id: "MCCBS",
                             message: format!(
-                                "A superclass constructor is being called, but {super_name} is not a declared superclass name."
+                                "A superclass constructor is being called, but '{super_name}' is not a declared superclass name."
                             ),
                             severity: Severity::Error,
                             byte_range: call_node.start_byte()..call_node.end_byte(),
@@ -193,7 +193,7 @@ impl LanguageSpecEngine {
                         let pos = func_node.start_position();
                         diagnostics.push(Diagnostic {
                             rule_id: "MCSCC",
-                            message: format!("To call the superclass constructor, the name of the subclass constructor {} must match the name of the subclass {}.", mname, class.name),
+                            message: format!("To call the superclass constructor, the name of the subclass constructor '{}' must match the name of the subclass '{}'.", mname, class.name),
                             severity: Severity::Error,
                             byte_range: call_node.start_byte()..call_node.end_byte(),
                             line: pos.row + 1,

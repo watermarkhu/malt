@@ -342,6 +342,25 @@ impl Rule for CompatibilityEngine {
         });
         diagnostics.retain(|d| d.rule_id != "IDISVARHIGH" || self.idisvar_high);
         diagnostics.retain(|d| self.low_reliability || !is_low_reliability(d.rule_id));
+        // RESOU depends on where the file is, not on its code: MATLAB reports a file
+        // whose own folder is named `resources` (on line 0; probed: not a deeper file,
+        // not a folder further up).
+        if ctx
+            .file_path
+            .parent()
+            .and_then(|dir| dir.file_name())
+            .is_some_and(|name| name == "resources")
+        {
+            diagnostics.push(Diagnostic {
+                rule_id: "RESOU",
+                message: generic::RESOU_MSG.to_string(),
+                severity: Severity::Error,
+                byte_range: 0..0,
+                line: 1,
+                column: 1,
+                fix: None,
+            });
+        }
         diagnostics
     }
 

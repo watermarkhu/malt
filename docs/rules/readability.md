@@ -9,7 +9,7 @@ icon: lucide/eye
 **Category:** Readability
 **Can be disabled:** Yes
 **Enabled by default:** Yes
-**Maturity:** Mixed (3 of 35 experimental)
+**Maturity:** Mixed (4 of 35 experimental)
 
 ## What this rule does
 
@@ -49,7 +49,7 @@ WARNING takes SPRINTF-like arguments directly.
 
 ### NCHKE
 
-Severity: **info** · Auto-fix: **no** · Maturity: **stable**
+Severity: **info** · Auto-fix: **no** · Maturity: **experimental**
 
 Use NARGOUTCHK without ERROR.
 
@@ -242,6 +242,8 @@ For readability, consider using the 'newline' function instead of 'sprintf('\n')
 ## Maturity
 
 Experimental checks are off by default and run with `[lint] experimental = true`, the `all` preset, or an explicit rule setting (see [Experimental checks](../configuration.md#experimental-checks)).
+
+`NCHKE`: MATLAB stayed silent on every probed shape malt reported them on (`a &b` as a command, `size` overloads, `arrayfun('f', x)`, `warning(E.message)`, a handle default or `subsindex` in a class, parfor cell and nested-loop shapes, `strcmpi` with a digit literal); PFMLTI is reported as PFFORA, NCHKE as NCHKM. Off under the mathworks preset (docs/VERIFY.md 'Recording the stable checks').
 
 `ISROW`, `ISCOL`, `MFAMB`: On the mathworks off-list: MATLAB's default analysis reported none of them in 4 or more probe shapes each, so their on-side (the --preset all behaviour) is not compared with MATLAB.
 

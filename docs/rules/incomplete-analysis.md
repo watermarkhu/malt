@@ -9,7 +9,7 @@ icon: lucide/wrench
 **Category:** Incomplete Analysis
 **Can be disabled:** Yes
 **Enabled by default:** Yes
-**Maturity:** Stable
+**Maturity:** Mixed (1 of 10 experimental)
 
 ## What this rule does
 
@@ -44,7 +44,7 @@ is analysed (see `Linter::lint`).
 
 ### TMMSG
 
-Severity: **error** · Auto-fix: **no** · Maturity: **stable**
+Severity: **error** · Auto-fix: **no** · Maturity: **experimental**
 
 More than 10,000 Code Analyzer messages were generated, leading to some being deleted.
 
@@ -101,6 +101,12 @@ Functions are nested too deeply.
 Severity: **error** · Auto-fix: **no** · Maturity: **stable**
 
 Code analysis did not complete. File contains too many syntax errors.
+
+## Maturity
+
+Experimental checks are off by default and run with `[lint] experimental = true`, the `all` preset, or an explicit rule setting (see [Experimental checks](../configuration.md#experimental-checks)).
+
+`TMMSG`: Declared but never emitted: no code path (FEGLO, TMMSG), an empty denylist (RMWRN), an unreachable arm (MATLAB reports ATAS, ATUNK and ATPPP in the shapes of ATNAS, ATNPI and ATNPP), a data entry without function name or pattern (MASSO, IMSSO, the RISK checks on class methods), or a toolbox that is not installed (ROS).
 
 ## Examples
 

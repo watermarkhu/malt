@@ -27,6 +27,22 @@ fn is_field_name(node: Node) -> bool {
 
 /// First read of variable `name` in the statements following `parfor`, in the
 /// same block, up to the point where `name` is assigned again.
+/// Whether `name` is assigned (`name = ...`) before `parfor` among the statements of its block.
+fn assigned_before(parfor: Node, name: &str, source: &str) -> bool {
+    let mut sibling = parfor.prev_sibling();
+    while let Some(stmt) = sibling {
+        if stmt.kind() == "assignment"
+            && stmt
+                .child_by_field_name("left")
+                .is_some_and(|l| l.kind() == "identifier" && node_text(l, source) == name)
+        {
+            return true;
+        }
+        sibling = stmt.prev_sibling();
+    }
+    false
+}
+
 fn later_use<'a>(parfor: Node<'a>, name: &str, source: &str) -> Option<Node<'a>> {
     let mut sibling = parfor.next_sibling();
     while let Some(stmt) = sibling {
@@ -209,11 +225,24 @@ impl BugsEngine {
             if let Some(use_node) = later_use(parfor, lv, source) {
                 let header =
                     crate::good_practices::find_parfor_index_identifier(parfor).unwrap_or(parfor);
-                diagnostics.push(diag(
-                    "PFUIXE",
-                    header,
-                    format!("The index variable '{lv}' might be used after the PARFOR loop on line {}, but it is unavailable after the loop.", use_node.start_position().row + 1),
-                ));
+                let line = use_node.start_position().row + 1;
+                // An index set before the loop gives the warning (probed): the value set
+                // there is not available after the loop. Without it the read is an error.
+                if assigned_before(parfor, lv, source) {
+                    let mut d = diag(
+                        "PFUIXW",
+                        header,
+                        format!("The index variable '{lv}' might be used after the PARFOR loop on line {line}. The value set on this line is not available after the loop."),
+                    );
+                    d.severity = Severity::Warning;
+                    diagnostics.push(d);
+                } else {
+                    diagnostics.push(diag(
+                        "PFUIXE",
+                        header,
+                        format!("The index variable '{lv}' might be used after the PARFOR loop on line {line}, but it is unavailable after the loop."),
+                    ));
+                }
             }
         }
 

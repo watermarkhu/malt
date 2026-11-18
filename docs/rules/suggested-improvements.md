@@ -9,7 +9,7 @@ icon: lucide/lightbulb
 **Category:** Suggested Improvements
 **Can be disabled:** Yes
 **Enabled by default:** Yes
-**Maturity:** Stable
+**Maturity:** Mixed (32 of 243 experimental)
 
 ## What this rule does
 
@@ -55,46 +55,46 @@ ID from the matched entry (e.g. `CSVRD`, not the meta ID
 | <a id="mtfp1"></a>`MTFP1` | warning | stable | MAKETFORM('PROJECTIVE',A) is not recommended. Use PROJECTIVE2D instead. |
 | <a id="mtfp2"></a>`MTFP2` | warning | stable | MAKETFORM('PROJECTIVE',U,X) is not recommended. Use FITGEOTRANS instead. |
 | <a id="mtfb"></a>`MTFB` | warning | stable | MAKETFORM('BOX',...) is not recommended. Use IMREF2D or IMREF3D instead. |
-| <a id="oops"></a>`OOPS` | warning | stable | Defining a class using 'function' syntax is not recommended. With appropriate code changes, use 'classdef' syntax instead. |
+| <a id="oops"></a>`OOPS` | warning | experimental | Defining a class using 'function' syntax is not recommended. With appropriate code changes, use 'classdef' syntax instead. |
 | <a id="pmtmconf"></a>`PMTMCONF` | warning | stable | When using PMTM with three output arguments, the 'ConfidenceLevel' input argument is recommended. |
 | <a id="nchki"></a>`NCHKI` | warning | stable | NARGCHK is not recommended. Use NARGINCHK instead. |
 | <a id="nchko"></a>`NCHKO` | warning | stable | Using NARGCHK with NARGOUT is not recommended. Use NARGOUTCHK instead. |
 | <a id="nchkn"></a>`NCHKN` | warning | stable | NARGCHK is not recommended. Use NARGINCHK without ERROR instead. |
 | <a id="nchkm"></a>`NCHKM` | warning | stable | NARGCHK is not recommended. Use NARGOUTCHK without ERROR instead. |
 | <a id="isclstr"></a>`ISCLSTR` | warning | stable | To support string in addition to cellstr, include a call to 'isstring'. |
-| <a id="emtag"></a>`EMTAG` | warning | stable | The compilation directive (or pragma) 'eml' is not recommended. Use 'codegen' instead. |
-| <a id="emxtr"></a>`EMXTR` | warning | stable | The 'eml' namespace is not recommended. Use 'codegen' instead. |
-| <a id="nvrepla"></a>`NVREPLA` | warning | stable | 'addParamValue' is not recommended. Use 'addParameter' instead. |
-| <a id="nvreplm"></a>`NVREPLM` | warning | stable | 'MidPctRef' is not recommended. Use 'MidPercentReferenceLevel' instead. |
+| <a id="emtag"></a>`EMTAG` | warning | experimental | The compilation directive (or pragma) 'eml' is not recommended. Use 'codegen' instead. |
+| <a id="emxtr"></a>`EMXTR` | warning | experimental | The 'eml' namespace is not recommended. Use 'codegen' instead. |
+| <a id="nvrepla"></a>`NVREPLA` | warning | experimental | 'addParamValue' is not recommended. Use 'addParameter' instead. |
+| <a id="nvreplm"></a>`NVREPLM` | warning | experimental | 'MidPctRef' is not recommended. Use 'MidPercentReferenceLevel' instead. |
 | <a id="nvreplp"></a>`NVREPLP` | warning | stable | 'PctRefLevels' is not recommended. Use 'PercentReferenceLevels' instead. |
-| <a id="vidread"></a>`VIDREAD` | warning | stable | 'NumberOfFrames' is not recommended. Use 'NumFrames' instead. |
+| <a id="vidread"></a>`VIDREAD` | warning | experimental | 'NumberOfFrames' is not recommended. Use 'NumFrames' instead. |
 | <a id="crnr"></a>`CRNR` | warning | stable | CORNER is not recommended. Use detectHarrisFeatures or detectMinEigenFeatures in Computer Vision Toolbox instead. |
 | <a id="crnrm"></a>`CRNRM` | warning | stable | CORNERMETRIC is not recommended. Use detectHarrisFeatures or detectMinEigenFeatures and the cornerPoints class in Computer Vision Toolbox instead. |
 | <a id="mdflt1"></a>`MDFLT1` | warning | stable | BLKSZ is required for backward compatibility and is ignored. Use [] instead. |
-| <a id="intrpp"></a>`INTRPP` | warning | stable | 'pp' is not recommended. Use the griddedInterpolant class instead. |
+| <a id="intrpp"></a>`INTRPP` | warning | experimental | 'pp' is not recommended. Use the griddedInterpolant class instead. |
 | <a id="displayprog"></a>`DISPLAYPROG` | warning | stable | Programmatic use of DISPLAY is not recommended. Use DISP or FPRINTF instead. |
 | <a id="hgstgt"></a>`HGSTGT` | warning | stable | hgsetget is not recommended. Use matlab.mixin.SetGet or matlab.mixin.SetGetExactNames instead. |
-| <a id="legacymd"></a>`LEGACYMD` | warning | stable | Setting LegacyMode to true is not recommended. Set LegacyMode to false instead. |
-| <a id="legacytrd"></a>`LEGACYTRD` | warning | stable | 'DetectorMethod' is applicable only when LegacyMode is set to true. However, setting LegacyMode to true is not recommended. |
-| <a id="legacytrl"></a>`LEGACYTRL` | warning | stable | 'LoopMethod' is applicable only when LegacyMode is set to true. However, setting LegacyMode to true is not recommended. |
-| <a id="legacytru"></a>`LEGACYTRU` | warning | stable | 'UpdatePeriod' is applicable only when LegacyMode is set to true. However, setting LegacyMode to true is not recommended. |
-| <a id="legacytrs"></a>`LEGACYTRS` | warning | stable | 'StepSize' is applicable only when LegacyMode is set to true. However, setting LegacyMode to true is not recommended. |
-| <a id="legacytrg"></a>`LEGACYTRG` | warning | stable | 'GainOutputPort' is applicable only when LegacyMode is set to true. However, setting LegacyMode to true is not recommended. |
+| <a id="legacymd"></a>`LEGACYMD` | warning | experimental | Setting LegacyMode to true is not recommended. Set LegacyMode to false instead. |
+| <a id="legacytrd"></a>`LEGACYTRD` | warning | experimental | 'DetectorMethod' is applicable only when LegacyMode is set to true. However, setting LegacyMode to true is not recommended. |
+| <a id="legacytrl"></a>`LEGACYTRL` | warning | experimental | 'LoopMethod' is applicable only when LegacyMode is set to true. However, setting LegacyMode to true is not recommended. |
+| <a id="legacytru"></a>`LEGACYTRU` | warning | experimental | 'UpdatePeriod' is applicable only when LegacyMode is set to true. However, setting LegacyMode to true is not recommended. |
+| <a id="legacytrs"></a>`LEGACYTRS` | warning | experimental | 'StepSize' is applicable only when LegacyMode is set to true. However, setting LegacyMode to true is not recommended. |
+| <a id="legacytrg"></a>`LEGACYTRG` | warning | experimental | 'GainOutputPort' is applicable only when LegacyMode is set to true. However, setting LegacyMode to true is not recommended. |
 | <a id="ezplt"></a>`EZPLT` | warning | stable | EZPLOT is not recommended. Use FPLOT or FIMPLICIT instead. |
 | <a id="ezgrph3"></a>`EZGRPH3` | warning | stable | EZGRAPH3 is not recommended. Use FCONTOUR, FMESH, FPLOT, FPLOT3 or FSURF instead. |
 | <a id="ezcntrf"></a>`EZCNTRF` | warning | stable | EZCONTOURF is not recommended. Use FCONTOUR instead, and set the 'Fill' value to 'on'. |
 | <a id="ezmshc"></a>`EZMSHC` | warning | stable | EZMESHC is not recommended. Use FMESH instead, and set the 'ShowContours' value to 'on'. |
 | <a id="ezsrfc"></a>`EZSRFC` | warning | stable | EZSURFC is not recommended. Use FSURF instead, and set the 'ShowContours' value to 'on'. |
-| <a id="fisadr"></a>`FISADR` | warning | stable | 'addrule' is not recommended. Use 'addRule' instead. |
+| <a id="fisadr"></a>`FISADR` | warning | experimental | 'addrule' is not recommended. Use 'addRule' instead. |
 | <a id="strquot"></a>`STRQUOT` | warning | stable | string('...') is not recommended. Use \ |
 | <a id="strclqt"></a>`STRCLQT` | warning | stable | 'string({'str1', 'str2'})' is not recommended. Use '[\ |
 | <a id="sim"></a>`SIM` | warning | stable | 'sim' in parfor loop is not recommended. Replace the parfor loop with 'parsim'. |
-| <a id="numch"></a>`NUMCH` | warning | stable | 'NumberOfChannels' is not recommended. Use 'NumChannels' instead. |
+| <a id="numch"></a>`NUMCH` | warning | experimental | 'NumberOfChannels' is not recommended. Use 'NumChannels' instead. |
 | <a id="gtred"></a>`GTRED` | warning | stable | 'geotiffread' is not recommended, except when reading a GeoTIFF file from a URL. With appropriate code changes, use 'readgeoraster' instead. |
-| <a id="getfsp"></a>`GETFSP` | warning | stable | Using get for retrieving values of line spacing is not recommended. With appropriate code changes, use 'settings' object instead. |
-| <a id="setfmt"></a>`SETFMT` | warning | stable | Using set for assigning values of numeric display format is not recommended. With appropriate code changes, use 'settings' object instead. |
-| <a id="setfsp"></a>`SETFSP` | warning | stable | Using set for assigning values of line spacing is not recommended. With appropriate code changes, use 'settings' object instead. |
-| <a id="getfmt"></a>`GETFMT` | warning | stable | Using get for retrieving values of numeric display format is not recommended. With appropriate code changes, use 'settings' object instead. |
+| <a id="getfsp"></a>`GETFSP` | warning | experimental | Using get for retrieving values of line spacing is not recommended. With appropriate code changes, use 'settings' object instead. |
+| <a id="setfmt"></a>`SETFMT` | warning | experimental | Using set for assigning values of numeric display format is not recommended. With appropriate code changes, use 'settings' object instead. |
+| <a id="setfsp"></a>`SETFSP` | warning | experimental | Using set for assigning values of line spacing is not recommended. With appropriate code changes, use 'settings' object instead. |
+| <a id="getfmt"></a>`GETFMT` | warning | experimental | Using get for retrieving values of numeric display format is not recommended. With appropriate code changes, use 'settings' object instead. |
 | <a id="ev2in"></a>`EV2IN` | warning | stable | Using 'eval' with two arguments is not recommended. Use try/catch statements instead to make code more clear and efficient. |
 | <a id="ev3in"></a>`EV3IN` | warning | stable | Using 'evalin' with three arguments is not recommended. Use try/catch statements instead to make code more clear and efficient. |
 | <a id="prtog"></a>`PRTOG` | warning | stable | '-opengl' is not recommended. Use '-image' instead, which is a direct replacement. |
@@ -107,16 +107,16 @@ ID from the matched entry (e.g. `CSVRD`, not the meta ID
 | <a id="inwvx"></a>`INWVX` | warning | stable | 'instrhwinfo('vxipnp')' is not recommended. With appropriate code changes, use 'ividriverlist' or 'ividevlist' instead. |
 | <a id="vermatlab"></a>`VERMATLAB` | warning | stable | ver('matlab') is not recommended. With appropriate code changes, use 'matlabRelease' instead. |
 | <a id="verlessmatlab"></a>`VERLESSMATLAB` | warning | stable | verLessThan('matlab', ...) is not recommended. With appropriate code changes, use 'isMATLABReleaseOlderThan' instead. |
-| <a id="risklmm"></a>`RISKLMM` | warning | stable | 'Model' property of 'risk.credit.pd.LifetimePDModel' class is not recommended. Use 'UnderlyingModel' property of 'risk.credit.pd.LifetimePDModel' class instead. |
-| <a id="risklma"></a>`RISKLMA` | warning | stable | 'modelAccuracy' method of 'risk.credit.pd.LifetimePDModel' class is not recommended. Use 'modelCalibration' method of 'risk.credit.pd.LifetimePDModel' class instead. |
-| <a id="risklmap"></a>`RISKLMAP` | warning | stable | 'modelAccuracyPlot' method of 'risk.credit.pd.LifetimePDModel' class is not recommended. Use 'modelCalibrationPlot' method of 'risk.credit.pd.LifetimePDModel' class instead. |
-| <a id="risklgdma"></a>`RISKLGDMA` | warning | stable | 'modelAccuracy' method of 'risk.credit.lgd.LGDModel' class is not recommended. Use 'modelCalibration' method of 'risk.credit.lgd.LGDModel' class instead. |
-| <a id="risklgdmap"></a>`RISKLGDMAP` | warning | stable | 'modelAccuracyPlot' method of 'risk.credit.lgd.LGDModel' class is not recommended. Use 'modelCalibrationPlot' method of 'risk.credit.lgd.LGDModel' class instead. |
-| <a id="riskeadma"></a>`RISKEADMA` | warning | stable | 'modelAccuracy' method of 'risk.credit.ead.EADModel' class is not recommended. Use 'modelCalibration' method of 'risk.credit.ead.EADModel' class instead. |
-| <a id="riskeadmap"></a>`RISKEADMAP` | warning | stable | 'modelAccuracyPlot' method of 'risk.credit.ead.EADModel' class is not recommended. Use 'modelCalibrationPlot' method of 'risk.credit.ead.EADModel' class instead. |
+| <a id="risklmm"></a>`RISKLMM` | warning | experimental | 'Model' property of 'risk.credit.pd.LifetimePDModel' class is not recommended. Use 'UnderlyingModel' property of 'risk.credit.pd.LifetimePDModel' class instead. |
+| <a id="risklma"></a>`RISKLMA` | warning | experimental | 'modelAccuracy' method of 'risk.credit.pd.LifetimePDModel' class is not recommended. Use 'modelCalibration' method of 'risk.credit.pd.LifetimePDModel' class instead. |
+| <a id="risklmap"></a>`RISKLMAP` | warning | experimental | 'modelAccuracyPlot' method of 'risk.credit.pd.LifetimePDModel' class is not recommended. Use 'modelCalibrationPlot' method of 'risk.credit.pd.LifetimePDModel' class instead. |
+| <a id="risklgdma"></a>`RISKLGDMA` | warning | experimental | 'modelAccuracy' method of 'risk.credit.lgd.LGDModel' class is not recommended. Use 'modelCalibration' method of 'risk.credit.lgd.LGDModel' class instead. |
+| <a id="risklgdmap"></a>`RISKLGDMAP` | warning | experimental | 'modelAccuracyPlot' method of 'risk.credit.lgd.LGDModel' class is not recommended. Use 'modelCalibrationPlot' method of 'risk.credit.lgd.LGDModel' class instead. |
+| <a id="riskeadma"></a>`RISKEADMA` | warning | experimental | 'modelAccuracy' method of 'risk.credit.ead.EADModel' class is not recommended. Use 'modelCalibration' method of 'risk.credit.ead.EADModel' class instead. |
+| <a id="riskeadmap"></a>`RISKEADMAP` | warning | experimental | 'modelAccuracyPlot' method of 'risk.credit.ead.EADModel' class is not recommended. Use 'modelCalibrationPlot' method of 'risk.credit.ead.EADModel' class instead. |
 | <a id="holdall"></a>`HOLDALL` | warning | stable | 'hold('all')' is not recommended. Use 'hold('on')' instead, which is a direct replacement. |
-| <a id="masso"></a>`MASSO` | warning | stable | 'MasterSolverOptions' is not recommended. Use 'MainSolverOptions' instead, which is a direct replacement. |
-| <a id="imsso"></a>`IMSSO` | warning | stable | 'IntMasterSolverOptions' is not recommended. Use 'IntMainSolverOptions' instead, which is a direct replacement. |
+| <a id="masso"></a>`MASSO` | warning | experimental | 'MasterSolverOptions' is not recommended. Use 'MainSolverOptions' instead, which is a direct replacement. |
+| <a id="imsso"></a>`IMSSO` | warning | experimental | 'IntMasterSolverOptions' is not recommended. Use 'IntMainSolverOptions' instead, which is a direct replacement. |
 | <a id="cdfepoch2date"></a>`CDFEPOCH2DATE` | warning | stable | 'ConvertEpochToDatenum' is not recommended. With appropriate code changes, use the 'DatetimeType' parameter of 'cdfread' instead. |
 | <a id="featgpid"></a>`FEATGPID` | warning | stable | 'feature('getpid')' is unsupported and not recommended. With appropriate code changes, use the function 'matlabProcessID' instead. |
 | <a id="dtrirep"></a>`DTRIREP` | warning | stable | 'TriRep' is not recommended. With appropriate code changes, use 'triangulation' instead. |
@@ -266,11 +266,19 @@ ID from the matched entry (e.g. `CSVRD`, not the meta ID
 | <a id="urlwr"></a>`URLWR` | warning | stable | 'urlwrite' is not recommended. With appropriate code changes, use 'websave' instead. |
 | <a id="urlrd"></a>`URLRD` | warning | stable | 'urlread' is not recommended. With appropriate code changes, use 'webread' or 'webwrite' instead. |
 | <a id="vemat"></a>`VEMAT` | warning | stable | 'vec2mat' is not recommended. With appropriate code changes, use 'reshape' instead. |
-| <a id="mdfrd"></a>`MDFRD` | warning | stable | 'read' method of 'mdf' class is not recommended. With appropriate code changes, use 'mdfRead' function instead. |
-| <a id="mdfchl"></a>`MDFCHL` | warning | stable | 'channelList' method of 'mdf' class is not recommended. With appropriate code changes, use 'mdfChannelInfo' function instead. |
-| <a id="mdfsva"></a>`MDFSVA` | warning | stable | 'saveAttachment' method of 'mdf' class is not recommended. With appropriate code changes, use 'mdfSaveAttachment' function instead. |
-| <a id="minelv"></a>`MINELV` | warning | stable | 'MinElevationAngle' is not recommended. Use 'MaskElevationAngle' instead, which is a direct replacement when specified as scalar values. Row vector values must be transposed. |
+| <a id="mdfrd"></a>`MDFRD` | warning | experimental | 'read' method of 'mdf' class is not recommended. With appropriate code changes, use 'mdfRead' function instead. |
+| <a id="mdfchl"></a>`MDFCHL` | warning | experimental | 'channelList' method of 'mdf' class is not recommended. With appropriate code changes, use 'mdfChannelInfo' function instead. |
+| <a id="mdfsva"></a>`MDFSVA` | warning | experimental | 'saveAttachment' method of 'mdf' class is not recommended. With appropriate code changes, use 'mdfSaveAttachment' function instead. |
+| <a id="minelv"></a>`MINELV` | warning | experimental | 'MinElevationAngle' is not recommended. Use 'MaskElevationAngle' instead, which is a direct replacement when specified as scalar values. Row vector values must be transposed. |
 | <a id="blchid"></a>`BLCHID` | warning | stable | Specifying the channel ID as the second positional argument in 'blfread' is not recommended. With appropriate code changes, use the 'ChannelID' name-value argument instead. |
+
+## Maturity
+
+Experimental checks are off by default and run with `[lint] experimental = true`, the `all` preset, or an explicit rule setting (see [Experimental checks](../configuration.md#experimental-checks)).
+
+23 checks (marked in the table above): Suggested-improvement entries with `pattern = \"unverified\"` or `\"object\"`: silent in every probe form or needing a class instance, never matched (the same selectors as the compatibility entries; NCHKM, NCHKN and NCHKO are emitted since the nargchk variants are recorded).
+
+`RISKLMM`, `RISKLMA`, `RISKLMAP`, `RISKLGDMA`, `RISKLGDMAP`, `RISKEADMA`, `RISKEADMAP`, `MASSO`, `IMSSO`: Declared but never emitted: no code path (FEGLO, TMMSG), an empty denylist (RMWRN), an unreachable arm (MATLAB reports ATAS, ATUNK and ATPPP in the shapes of ATNAS, ATNPI and ATNPP), a data entry without function name or pattern (MASSO, IMSSO, the RISK checks on class methods), or a toolbox that is not installed (ROS).
 
 ## Automatic fixes
 

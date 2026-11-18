@@ -9,7 +9,7 @@ icon: lucide/zap
 **Category:** Performance
 **Can be disabled:** Yes
 **Enabled by default:** Yes
-**Maturity:** Mixed (1 of 40 experimental)
+**Maturity:** Mixed (2 of 40 experimental)
 
 ## What this rule does
 
@@ -259,7 +259,7 @@ Use STRNCMPI(str1,str2) instead of using UPPER/LOWER in a call to STRNCMP.
 
 ### STCCS
 
-Severity: **info** · Auto-fix: **no** · Maturity: **stable**
+Severity: **info** · Auto-fix: **no** · Maturity: **experimental**
 
 It appears that STRCMPI/STRNCMPI can be replaced by a faster, case sensitive compare.
 
@@ -274,6 +274,8 @@ For array or cell array, performance can be improved using logical indexing inst
 Experimental checks are off by default and run with `[lint] experimental = true`, the `all` preset, or an explicit rule setting (see [Experimental checks](../configuration.md#experimental-checks)).
 
 `GRIDD`: On the mathworks off-list: MATLAB's default analysis reported none of them in 4 or more probe shapes each, so their on-side (the --preset all behaviour) is not compared with MATLAB.
+
+`STCCS`: MATLAB stayed silent on every probed shape malt reported them on (`a &b` as a command, `size` overloads, `arrayfun('f', x)`, `warning(E.message)`, a handle default or `subsindex` in a class, parfor cell and nested-loop shapes, `strcmpi` with a digit literal); PFMLTI is reported as PFFORA, NCHKE as NCHKM. Off under the mathworks preset (docs/VERIFY.md 'Recording the stable checks').
 
 ## Automatic fixes
 

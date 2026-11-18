@@ -35,6 +35,11 @@ impl GoodPracticesEngine {
                 continue;
             }
             for (name, lhs_node) in collect_reduction_assignments(body, source) {
+                // `s = e - s` is PFNAR (language-spec engine), not a reduction: MATLAB gives
+                // no PFRIN or PFRUS for it.
+                if subtracts_itself(lhs_node, &name, source) {
+                    continue;
+                }
                 if self.is_check_enabled("PFRIN")
                     && !is_defined_before_parfor(&sym, &name, parfor.start_byte())
                 {
@@ -73,6 +78,25 @@ impl GoodPracticesEngine {
 
         diagnostics
     }
+}
+
+/// Whether the assignment of `lhs` is `name = <expr> - name`.
+fn subtracts_itself(lhs: Node, name: &str, source: &str) -> bool {
+    let Some(assign) = lhs.parent().filter(|p| p.kind() == "assignment") else {
+        return false;
+    };
+    let Some(rhs) = assign.child_by_field_name("right") else {
+        return false;
+    };
+    let (Some(left), Some(right)) = (
+        rhs.child_by_field_name("left"),
+        rhs.child_by_field_name("right"),
+    ) else {
+        return false;
+    };
+    rhs.kind() == "binary_operator"
+        && source[left.end_byte()..right.start_byte()].trim() == "-"
+        && node_text(right, source) == name
 }
 
 /// Whether a parfor body calls `evalin` or `assignin`, which MATLAB reports as

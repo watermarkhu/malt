@@ -46,7 +46,7 @@ impl GoodPracticesEngine {
         vec![Diagnostic {
             rule_id: "MHERM",
             message: format!(
-                "Parenthesize the multiplication of {a} and its transpose to ensure the result is Hermitian."
+                "Parenthesize the multiplication of '{a}' and its transpose to ensure the result is Hermitian."
             ),
             severity: Severity::Warning,
             byte_range: factor.start_byte()..factor.end_byte(),

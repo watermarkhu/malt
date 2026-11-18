@@ -417,6 +417,10 @@ impl GoodPracticesEngine {
                     // MCCPE: never reported by MATLAB in 8 probes (a call of a property is CPROP there,
                     // and `%#ok<MCCPE>` gives MSNU, so it is not generated).
                     "MCCPE",
+                    // MCHDT, SUBSINDEX: silent in every probed class shape (MATLAB reports MCHDP
+                    // for a handle default; `subsindex` in a class derived from `double`).
+                    "MCHDT",
+                    "SUBSINDEX",
                 ],
             ));
         Box::new(Self {

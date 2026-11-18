@@ -9,7 +9,7 @@ icon: lucide/bug
 **Category:** Bugs
 **Can be disabled:** Yes
 **Enabled by default:** Yes
-**Maturity:** Mixed (2 of 33 experimental)
+**Maturity:** Mixed (7 of 33 experimental)
 
 ## What this rule does
 
@@ -84,13 +84,13 @@ Severity: **error** · Auto-fix: **yes** · Maturity: **stable**
 
 ### CMDAND
 
-Severity: **error** · Auto-fix: **yes** · Maturity: **stable**
+Severity: **error** · Auto-fix: **yes** · Maturity: **experimental**
 
 Use 'A && B' or 'A & B' to test whether A and B are both true in MATLAB.
 
 ### CMDOR
 
-Severity: **error** · Auto-fix: **yes** · Maturity: **stable**
+Severity: **error** · Auto-fix: **yes** · Maturity: **experimental**
 
 Use 'A
 
@@ -126,13 +126,13 @@ Since both operands are identical, the second operand has no effect on the &lt;r
 
 ### FUNFUN
 
-Severity: **error** · Auto-fix: **no** · Maturity: **stable**
+Severity: **error** · Auto-fix: **no** · Maturity: **experimental**
 
 The first input argument must be a function handle. Did you mean '@&lt;name&gt;'?
 
 ### DEFSIZE
 
-Severity: **error** · Auto-fix: **no** · Maturity: **stable**
+Severity: **error** · Auto-fix: **no** · Maturity: **experimental**
 
 Do not overload 'size' for fundamental data types.
 
@@ -192,7 +192,7 @@ This case cannot be matched due to a call to UPPER or LOWER on the SWITCH value.
 
 ### MEXCEP
 
-Severity: **error** · Auto-fix: **no** · Maturity: **stable**
+Severity: **error** · Auto-fix: **no** · Maturity: **experimental**
 
 To report an MException as a warning, use a format specifier to ensure the message is printed correctly. For example, 'warning(E.identifier, "%s", E.message)'.
 
@@ -231,6 +231,8 @@ Parfor reduction variable &lt;name&gt; must be used in the same position in each
 Experimental checks are off by default and run with `[lint] experimental = true`, the `all` preset, or an explicit rule setting (see [Experimental checks](../configuration.md#experimental-checks)).
 
 `SHOCIRF`, `MOCUP`: On the mathworks off-list: MATLAB's default analysis reported none of them in 4 or more probe shapes each, so their on-side (the --preset all behaviour) is not compared with MATLAB.
+
+`CMDAND`, `CMDOR`, `FUNFUN`, `DEFSIZE`, `MEXCEP`: MATLAB stayed silent on every probed shape malt reported them on (`a &b` as a command, `size` overloads, `arrayfun('f', x)`, `warning(E.message)`, a handle default or `subsindex` in a class, parfor cell and nested-loop shapes, `strcmpi` with a digit literal); PFMLTI is reported as PFFORA, NCHKE as NCHKM. Off under the mathworks preset (docs/VERIFY.md 'Recording the stable checks').
 
 ## Automatic fixes
 

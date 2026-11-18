@@ -417,18 +417,12 @@ impl SyntaxErrorsEngine {
         let has_end = lower.contains("end");
         if !has_end {
             // Whole words only: `elseif` is not an `if` opener.
-            let opener_in_text = BLOCK_OPENERS
-                .iter()
-                .any(|kw| Self::contains_whole_word(&lower, kw));
-            let opener_in_prev = node
-                .prev_sibling()
-                .map(|prev| {
-                    let prev_text = source[prev.start_byte()..prev.end_byte()].to_lowercase();
-                    BLOCK_OPENERS
-                        .iter()
-                        .any(|kw| Self::contains_whole_word(&prev_text, kw))
-                })
-                .unwrap_or(false);
+            let text_opener = Self::first_opener(&lower);
+            let opener_in_text = text_opener.is_some();
+            let prev_opener = node.prev_sibling().and_then(|prev| {
+                Self::first_opener(&source[prev.start_byte()..prev.end_byte()].to_lowercase())
+            });
+            let opener_in_prev = prev_opener.is_some();
             if opener_in_text || opener_in_prev {
                 let raw_end = node.end_position().row;
                 let end_line = if source[..node_end].ends_with('\n') {
@@ -436,17 +430,12 @@ impl SyntaxErrorsEngine {
                 } else {
                     raw_end + 1
                 };
-                let opener_line = if opener_in_text {
-                    line
-                } else {
-                    node.prev_sibling()
-                        .map(|p| p.start_position().row + 1)
-                        .unwrap_or(line)
-                };
+                // MATLAB names the block keyword it expects the END to close.
+                let opener = text_opener.or(prev_opener).unwrap_or("").to_uppercase();
                 return Some((
                     "ENDCT2",
                     format!(
-                        "An END might be missing (after line {end_line}), possibly matching {opener_line}."
+                        "An END might be missing (after line {end_line}), possibly matching {opener}."
                     ),
                 ));
             }
@@ -505,6 +494,32 @@ impl SyntaxErrorsEngine {
     // -----------------------------------------------------------------------
 
     /// Whole-word substring check: `needle` must not be part of a larger word.
+    /// The block opener that occurs first as a whole word in `haystack`.
+    fn first_opener(haystack: &str) -> Option<&'static str> {
+        BLOCK_OPENERS
+            .iter()
+            .filter(|kw| Self::contains_whole_word(haystack, kw))
+            .min_by_key(|kw| Self::whole_word_position(haystack, kw))
+            .copied()
+    }
+
+    /// Byte position of the first whole-word occurrence of `needle` in `haystack`.
+    fn whole_word_position(haystack: &str, needle: &str) -> usize {
+        let mut search_start = 0;
+        while let Some(rel) = haystack[search_start..].find(needle) {
+            let idx = search_start + rel;
+            let prev = haystack[..idx].chars().next_back();
+            let next = haystack[idx + needle.len()..].chars().next();
+            let left_ok = prev.is_none_or(|c| !c.is_ascii_alphanumeric() && c != '_');
+            let right_ok = next.is_none_or(|c| !c.is_ascii_alphanumeric() && c != '_');
+            if left_ok && right_ok {
+                return idx;
+            }
+            search_start = idx + needle.len();
+        }
+        usize::MAX
+    }
+
     pub(crate) fn contains_whole_word(haystack: &str, needle: &str) -> bool {
         let mut search_start = 0;
         while let Some(rel) = haystack[search_start..].find(needle) {

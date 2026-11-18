@@ -31,8 +31,8 @@ const FCLFS_MSG: &str = "Local functions in a script are not available before R2
 const FCNVA_MSG: &str =
     "Name=Value syntax is not available before R2021a. Use comma-separated syntax instead.";
 const IMPIVD_MSG: &str =
-    "Malformed import argument VAR_NAME will not be supported in a future release.";
-const IMPKEY_MSG: &str = "Importing VAR_NAME will not be supported in a future release because VAR_NAME is a reserved word.";
+    "Malformed import argument 'VAR_NAME' will not be supported in a future release.";
+const IMPKEY_MSG: &str = "Importing 'VAR_NAME' will not be supported in a future release because 'VAR_WORD' is a reserved word.";
 const REDEFGI_MSG: &str = "Declaring an input or output variable to be global might not be supported in a future release.";
 const REDEFGG_MSG: &str =
     "Declaring a variable to be global more than once might not be supported in a future release.";
@@ -208,20 +208,36 @@ impl CompatibilityEngine {
             }
         }
         for arg in &args {
-            // IMPKEY: importing a reserved word.
-            let base = arg.split('.').next().unwrap_or(&arg[..]);
-            if RESERVED.contains(&base) {
+            let segments: Vec<&str> = arg.split('.').collect();
+            // JAPIMATHWORKS: importing from the `com.mathworks` namespace (probed:
+            // the wildcard, a class and a package are all reported).
+            if segments.len() >= 2 && segments[0] == "com" && segments[1] == "mathworks" {
+                push_diag(
+                    "JAPIMATHWORKS",
+                    "'com.mathworks' namespace and sub namespaces will be removed in a future release. There is no simple replacement for this.".to_string(),
+                    node,
+                    Severity::Warning,
+                    diagnostics,
+                );
+            }
+            // IMPKEY: a reserved word as the last name of a package path
+            // (`import pkg.if`); `import if`, `import if.x` and `import pkg.if.*` are
+            // silent in MATLAB (probed in R2026b).
+            if segments.len() >= 2 && RESERVED.contains(segments.last().unwrap_or(&"")) {
                 push_diag(
                     "IMPKEY",
-                    IMPKEY_MSG.replace("VAR_NAME", arg),
+                    IMPKEY_MSG
+                        .replace("VAR_NAME", arg)
+                        .replace("VAR_WORD", segments.last().unwrap_or(&"")),
                     node,
                     Severity::Warning,
                     diagnostics,
                 );
                 return;
             }
-            // IMPIVD: malformed import argument (no package structure).
-            if !arg.contains('.') && arg.chars().any(|c| !c.is_alphanumeric() && c != '_') {
+            // IMPIVD: more than one wildcard (`import a.*.*`, `import a.*.b.*`);
+            // a single wildcard anywhere (`import a.*.b`) is silent.
+            if segments.iter().filter(|seg| **seg == "*").count() >= 2 {
                 push_diag(
                     "IMPIVD",
                     IMPIVD_MSG.replace("VAR_NAME", arg),
@@ -618,7 +634,7 @@ mod tests {
 
     #[test]
     fn impkey_reserved_import_fires() {
-        let d = lint_file(&*engine(), "import if;\n");
+        let d = lint_file(&*engine(), "import pkg.if;\n");
         assert!(has_id(&d, "IMPKEY"), "got: {d:?}");
     }
 

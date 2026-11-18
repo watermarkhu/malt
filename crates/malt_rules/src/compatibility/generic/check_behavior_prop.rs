@@ -151,6 +151,14 @@ impl CompatibilityEngine {
 
     /// SMTHF: `'FontSmoothing'` figure property used as a name-value pair.
     pub(crate) fn check_smthf(&self, node: Node, source: &str, diagnostics: &mut Vec<Diagnostic>) {
+        // MATLAB reports the property in the `axes` and `text` constructors only:
+        // `figure`, `set(h, ...)` and `get(h, ...)` are silent (probed in R2026b).
+        if !matches!(
+            call_path(node, source, Dotted::Trailing),
+            Some("axes") | Some("text")
+        ) {
+            return;
+        }
         scan_name_args(
             node,
             source,
@@ -576,12 +584,14 @@ mod tests {
 
     #[test]
     fn smthf_figure_name_value_fires() {
-        fires("figure('FontSmoothing', 'off');", "SMTHF");
+        fires("axes('FontSmoothing', 'off');", "SMTHF");
+        not_fires("figure('FontSmoothing', 'off');", "SMTHF");
     }
 
     #[test]
     fn smthf_get_fires() {
-        fires("get(gcf, 'FontSmoothing');", "SMTHF");
+        fires("text(0, 0, 'a', 'FontSmoothing', 'off');", "SMTHF");
+        not_fires("get(gcf, 'FontSmoothing');", "SMTHF");
     }
 
     #[test]

@@ -14,6 +14,7 @@ MATLAB R2026b reports for each of them, `matlab_files.txt` lists them, and
 | `fix_matlab/` | The committed MATLAB-fix differential: `<fixture>.<ID>.m`, MATLAB's own fixed text for the pairs whose Safe fix must equal it (10 files). | `<fixture>.<ID>.m`, e.g. `formatting__sepcomma.NOPTS.m` |
 | `phase2/`, `phase3/` | Probe shapes from the audit phases. `phase3/` is the current one. | `<check>_<nn>.m` (`bdlog2_02.m`), `<topic>_<what>.m` (`nasgu_error_literal.m`) or `yc_<letter><nn>.m` |
 | `corpusN/<letter>/` | Fresh corpora, written apart from the rules to measure how well malt generalises (`corpus16/` is the odd one: 20 minimal reductions of the dogfooding differences, plan 6.2). | `<letter>_<topic>.m` in a folder per letter (`a/`, `b/`, ...) |
+| `recorded/` | Trigger files for checks that were stable without a MATLAB recording (plan 6.3, 'Recording the stable checks' in `docs/VERIFY.md`): the data-driven compatibility and suggested-improvement entries packed one trigger per line (`compat_NN.m`, `si_NN.m`), the generic compatibility shapes (`generic_*.m`, `resources/`), one file per engine check (`engines/`, `engines2/`, `engines3/`: harvested from the unit tests, nested limits, parfor shapes) and the shapes MATLAB is silent on (`silent/`). 234 files. | `compat_NN.m`, `<id>.m`, own folder where the path matters (`private/`, `resources/`) |
 | `realistic/` | Realistic programs, with its own `README.md`. | free |
 | top level | The expectations and the lists: `matlab_expected.tsv`, `matlab_files.txt`, `matlab_release.txt`. | |
 
@@ -69,7 +70,7 @@ an old corpus (a measured corpus is no longer fresh).
 A fixture with zero findings is listed in `matlab_files.txt` and has no rows in
 `matlab_expected.tsv`. The conformance test then requires malt to report nothing on it. The
 live check (`checkcode_files.txt`) proves MATLAB checked it: a file that is listed but
-was not checked fails the live test. 166 of the 899 files have no rows at the moment.
+was not checked fails the live test. 171 of the 1,133 files have no rows at the moment.
 
 ## Running the checks
 

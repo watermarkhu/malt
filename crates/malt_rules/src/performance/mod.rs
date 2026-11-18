@@ -384,7 +384,7 @@ impl PerformanceEngine {
         // arguments, in a function) and on the fixture, so it is off by default.
         rule_config
             .skip_checks
-            .extend(crate::off_under_mathworks(config, &["GRIDD"]));
+            .extend(crate::off_under_mathworks(config, &["GRIDD", "STCCS"]));
         Box::new(Self {
             config: rule_config,
         })
@@ -411,6 +411,18 @@ impl PerformanceEngine {
             check_broadcast_variables(root, source, &mut diags);
         }
         diags
+    }
+
+    /// Whether `node` is inside a `for`, `parfor` or `while` loop.
+    fn in_loop(node: tree_sitter::Node) -> bool {
+        let mut cur = node.parent();
+        while let Some(p) = cur {
+            if matches!(p.kind(), "for_statement" | "while_statement") {
+                return true;
+            }
+            cur = p.parent();
+        }
+        false
     }
 
     /// SPRIX: `S(i) = v` where `S` was created by `sparse(...)`/`spalloc(...)`.
@@ -459,7 +471,8 @@ impl PerformanceEngine {
                 }
             } else if lhs.kind() == "function_call" {
                 if let Some(name) = call_path(lhs, source, Dotted::Skip) {
-                    if sparse_vars.contains(&name) {
+                    // MATLAB reports the indexed assignment inside a loop only (probed).
+                    if sparse_vars.contains(&name) && Self::in_loop(a) {
                         diags.push(make_diag("SPRIX", a));
                     }
                 }
@@ -1373,8 +1386,11 @@ mod tests {
 
     #[test]
     fn sprix_fires_on_indexed_assignment_into_sparse() {
-        let src = "S = sparse(10, 10);\nS(3) = 1;\n";
+        let src = "S = sparse(10, 10);\nfor k = 1:3\n    S(k) = 1;\nend\n";
         assert!(has_id(&lint_file(&*engine(), src), "SPRIX"));
+        // MATLAB reports it inside a loop only.
+        let src = "S = sparse(10, 10);\nS(3) = 1;\n";
+        assert!(!has_id(&lint_file(&*engine(), src), "SPRIX"));
         let src = "S = zeros(10);\nS(3) = 1;\n";
         assert!(!has_id(&lint_file(&*engine(), src), "SPRIX"));
         let src = "S = sparse(10, 10);\nS = full(S);\nS(3) = 1;\n";

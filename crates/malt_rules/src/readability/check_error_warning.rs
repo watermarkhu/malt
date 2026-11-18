@@ -187,8 +187,14 @@ mod tests {
 
     #[test]
     fn nchke_error_of_nargchk_on_nargout_fires() {
-        let diags = lint_nodes(&*engine(), "error(nargchk(1, 2, nargout));\n");
+        // Off under the mathworks preset: MATLAB reports NCHKM (suggested improvements) instead.
+        let all = ReadabilityEngine::from_config(
+            &malt_core::Config::from_toml("[lint]\npreset = \"all\"\n").unwrap(),
+        );
+        let diags = lint_nodes(&*all, "error(nargchk(1, 2, nargout));\n");
         assert!(has_id(&diags, "NCHKE"), "got: {diags:?}");
+        let diags = lint_nodes(&*engine(), "error(nargchk(1, 2, nargout));\n");
+        assert!(!has_id(&diags, "NCHKE"), "got: {diags:?}");
     }
 
     #[test]

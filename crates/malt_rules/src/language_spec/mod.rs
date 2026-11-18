@@ -397,7 +397,12 @@ impl LanguageSpecEngine {
             .disabled_checks
             .extend(crate::off_under_mathworks(
                 config,
-                &["USESWNS", "PFUTVR", "GPNES", "FVORDO"],
+                &[
+                    "USESWNS", "PFUTVR", "GPNES", "FVORDO",
+                    // PFCEL, PFFRNG, PFMLTI: MATLAB stayed silent (PFMLTI: it reports PFFORA for
+                    // an assigned inner loop variable) on every probed shape.
+                    "PFCEL", "PFFRNG", "PFMLTI",
+                ],
             ));
         Box::new(Self {
             config: rule_config,
@@ -754,7 +759,7 @@ impl LanguageSpecEngine {
                     let pos = node.start_position();
                     diagnostics.push(Diagnostic {
                         rule_id: "SPRET",
-                        message: "return statement cannot be used inside an SPMD block."
+                        message: "RETURN statement cannot be used inside an SPMD block."
                             .to_string(),
                         severity: Severity::Error,
                         byte_range: node.start_byte()..node.end_byte(),
@@ -1833,7 +1838,7 @@ impl LanguageSpecEngine {
                     *start,
                     *start + 1,
                     "PFNAR",
-                    &format!("Subtracting reduction variable {var} from expressions is not supported in parfor loops."),
+                    &format!("Subtracting reduction variable '{var}' from expressions is not supported in parfor loops."),
                     diagnostics,
                 );
             }
@@ -1851,7 +1856,7 @@ impl LanguageSpecEngine {
                         *start,
                         *start + 1,
                         "PFRFH",
-                        &format!("The parfor reduction function {callee} must either be a function name or a broadcast variable."),
+                        &format!("The parfor reduction function '{callee}' must either be a function name or a broadcast variable."),
                         diagnostics,
                     );
                 }
@@ -1977,7 +1982,7 @@ impl LanguageSpecEngine {
                     first,
                     first + 1,
                     "PFSLRD",
-                    &format!("Parfor loop variable {var} is accessed with an invalid combination of sliced indexing expressions and non-indexed reads. It is not valid to access the whole value of a sliced output variable."),
+                    &format!("Parfor loop variable '{var}' is accessed with an invalid combination of sliced indexing expressions and non-indexed reads. It is not valid to access the whole value of a sliced output variable."),
                     diagnostics,
                 );
                 continue;
@@ -1998,7 +2003,7 @@ impl LanguageSpecEngine {
                         first,
                         first + 1,
                         "PFSLRD",
-                        &format!("Parfor loop variable {var} is accessed with an invalid combination of sliced indexing expressions and non-indexed reads. It is not valid to access the whole value of a sliced output variable."),
+                        &format!("Parfor loop variable '{var}' is accessed with an invalid combination of sliced indexing expressions and non-indexed reads. It is not valid to access the whole value of a sliced output variable."),
                         diagnostics,
                     );
                 }
@@ -2065,7 +2070,7 @@ impl LanguageSpecEngine {
                     first,
                     first + 1,
                     "PFSLO",
-                    &format!("Variable {var} is indexed using the parfor loop variable, but it is not a valid sliced output variable."),
+                    &format!("Variable '{var}' is indexed using the parfor loop variable, but it is not a valid sliced output variable."),
                     diagnostics,
                 );
             } else if lists.iter().any(|l| *l != lists[0]) {
@@ -2074,7 +2079,7 @@ impl LanguageSpecEngine {
                     first,
                     first + 1,
                     "PFSLW",
-                    &format!("Parfor loop variable {var} has multiple sliced accesses, but they do not all have the same list of subscripts. Each access to a sliced variable must use precisely the same list of subscripts."),
+                    &format!("Parfor loop variable '{var}' has multiple sliced accesses, but they do not all have the same list of subscripts. Each access to a sliced variable must use precisely the same list of subscripts."),
                     diagnostics,
                 );
             }
@@ -2285,11 +2290,11 @@ impl LanguageSpecEngine {
                     .first_body_mention(parfor_node, source, var)
                     .unwrap_or(*start);
                 let (id, message, at) = if uses.whole {
-                    ("PFSLRD", format!("Parfor loop variable {var} is accessed with an invalid combination of sliced indexing expressions and non-indexed reads. It is not valid to access the whole value of a sliced output variable."), first)
+                    ("PFSLRD", format!("Parfor loop variable '{var}' is accessed with an invalid combination of sliced indexing expressions and non-indexed reads. It is not valid to access the whole value of a sliced output variable."), first)
                 } else if let Some(offset) = uses.loop_indexed {
                     ("PFANON", "Using a sliced output variable in an anonymous function is not supported in parfor loops.".to_string(), *start + offset)
                 } else if uses.constant {
-                    ("PFSLO", format!("Variable {var} is indexed using the parfor loop variable, but it is not a valid sliced output variable."), first)
+                    ("PFSLO", format!("Variable '{var}' is indexed using the parfor loop variable, but it is not a valid sliced output variable."), first)
                 } else {
                     continue;
                 };
@@ -4754,7 +4759,7 @@ function f()
     end
 end
 ";
-        let diags = check_source(source, "f.m");
+        let diags = check_source_all_presets(source, "f.m");
         assert!(
             !filter_by_id(&diags, "PFCEL").is_empty(),
             "PFCEL should fire for cell array arguments"
@@ -4969,7 +4974,7 @@ function f()
     end
 end
 ";
-        let diags = check_source(source, "f.m");
+        let diags = check_source_all_presets(source, "f.m");
         assert!(
             !filter_by_id(&diags, "PFFRNG").is_empty(),
             "PFFRNG should fire for a non-constant nested loop range"
@@ -5081,7 +5086,7 @@ function f()
     end
 end
 ";
-        let diags = check_source(source, "f.m");
+        let diags = check_source_all_presets(source, "f.m");
         assert!(
             !filter_by_id(&diags, "PFMLTI").is_empty(),
             "PFMLTI should fire when the nested for variable is assigned"

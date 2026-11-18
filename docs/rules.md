@@ -9,20 +9,20 @@ icon: lucide/list-checks
 
 | Rule ID | Category | Description | Default Severity | Auto-fix | Maturity |
 | ------- | -------- | ----------- | ---------------- | -------- | -------- |
-| [`BUGS_ENGINE`](rules/bugs.md) | Bugs | Bug detection checks for likely bugs and logic errors | Error | Yes | Mixed (2 of 33 experimental) |
+| [`BUGS_ENGINE`](rules/bugs.md) | Bugs | Bug detection checks for likely bugs and logic errors | Error | Yes | Mixed (7 of 33 experimental) |
 | [`CODEGEN_ENGINE`](rules/codegen.md) | Code Generation | MATLAB code generation constraint checks | Error | No | Experimental |
-| [`COMPAT`](rules/compatibility.md) | Compatibility | Deprecated or removed function usage | Warning | No | Mixed (1102 of 1832 experimental) |
+| [`COMPAT`](rules/compatibility.md) | Compatibility | Deprecated or removed function usage | Warning | No | Mixed (1123 of 1832 experimental) |
 | [`CUSTOM_CHECKS`](rules/custom-checks.md) | Custom Checks | Code complexity and style metrics | Warning | No | Mixed (20 of 25 experimental) |
 | [`DEPLOYMENT_ENGINE`](rules/deployment.md) | Deployment | MATLAB Compiler deployment constraint checks | Warning | No | Experimental |
 | [`FORMATTING_ENGINE`](rules/formatting.md) | Formatting | Formatting suggestion checks (NOCOMMA, NO4LP, ALIGN, NOPTS, NOPRT, NCOMMA) | Info | Yes | Stable |
-| [`GOOD_PRACTICES_ENGINE`](rules/good-practices.md) | Good Practices | Common best-practice checks for MATLAB code | Warning | Yes | Mixed (12 of 106 experimental) |
-| [`INCOMPLETE_ANALYSIS`](rules/incomplete-analysis.md) | Incomplete Analysis | Internal linter limits and analysis integrity checks | Error | No | Stable |
-| [`LANGUAGE_SPEC_ENGINE`](rules/language-spec.md) | Language Specification | Language specification constraint violation | Error | Yes | Mixed (7 of 161 experimental) |
+| [`GOOD_PRACTICES_ENGINE`](rules/good-practices.md) | Good Practices | Common best-practice checks for MATLAB code | Warning | Yes | Mixed (15 of 106 experimental) |
+| [`INCOMPLETE_ANALYSIS`](rules/incomplete-analysis.md) | Incomplete Analysis | Internal linter limits and analysis integrity checks | Error | No | Mixed (1 of 10 experimental) |
+| [`LANGUAGE_SPEC_ENGINE`](rules/language-spec.md) | Language Specification | Language specification constraint violation | Error | Yes | Mixed (13 of 161 experimental) |
 | [`NAMING_ENGINE`](rules/naming.md) | Naming | Naming convention checks (81 sub-rules for 9 entity types x 9 check types) | Info | No | Mixed (77 of 81 experimental) |
 | [`NOSEMI`](rules/nosemi.md) | Formatting | Extra semicolon is unnecessary | Info | Yes | Stable |
-| [`PERFORMANCE_ENGINE`](rules/performance.md) | Performance | Performance improvement suggestions | Info | Yes | Mixed (1 of 40 experimental) |
-| [`READABILITY_ENGINE`](rules/readability.md) | Readability | Readability improvement checks for MATLAB code | Info | Yes | Mixed (3 of 35 experimental) |
-| [`SUGGESTED_IMPROVEMENTS`](rules/suggested-improvements.md) | Suggested Improvements | Not-recommended function or pattern with suggested replacement | Info | Yes | Stable |
+| [`PERFORMANCE_ENGINE`](rules/performance.md) | Performance | Performance improvement suggestions | Info | Yes | Mixed (2 of 40 experimental) |
+| [`READABILITY_ENGINE`](rules/readability.md) | Readability | Readability improvement checks for MATLAB code | Info | Yes | Mixed (4 of 35 experimental) |
+| [`SUGGESTED_IMPROVEMENTS`](rules/suggested-improvements.md) | Suggested Improvements | Not-recommended function or pattern with suggested replacement | Info | Yes | Mixed (32 of 243 experimental) |
 | [`SYNTAX_ERRORS_ENGINE`](rules/syntax-errors.md) | Syntax Errors | Parser-level and semantic syntax validation | Error | Yes | Stable |
 | [`SYSTEM_OBJECTS_ENGINE`](rules/system-objects.md) | System Objects | System object validation checks | Warning | No | Experimental |
 | [`UNSET_VARIABLES_ENGINE`](rules/unset-variables.md) | Unset Variables | Detects variables that might not be defined before use | Warning | No | Mixed (2 of 5 experimental) |
@@ -33,7 +33,7 @@ These rows are generated from the rule docstrings by `docs/scripts/gen_rules_doc
 
 <!-- GENERATED: Check Counts -->
 
-**How many checks malt implements.** 2693 unique check IDs, counted from the rule sources whenever these pages are generated: 532 in the engine tables above, 81 `naming.<entity>.<check>` IDs, 1 single-check rule (`NOSEMI`), 1832 compatibility entries (920 compatibility, 7 forward-compatibility, 905 behavior-changes; 897 of them are low-reliability and off by default), 243 suggested-improvement entries (241 unique IDs), and 6 emitted outside the rule engines (`MSNE`, `MSNU`, `QUIT`, `NOFIL`, `RDERR`, `SZCLN`). 1274 of them are experimental (verified against the documentation only, or low-reliability: off by default, see [Experimental checks](configuration.md#experimental-checks)). Which of them are on by default, and which engines are verified against MATLAB, is on the [How malt is verified](verification.md) page.
+**How many checks malt implements.** 2693 unique check IDs, counted from the rule sources whenever these pages are generated: 532 in the engine tables above, 81 `naming.<entity>.<check>` IDs, 1 single-check rule (`NOSEMI`), 1832 compatibility entries (920 compatibility, 7 forward-compatibility, 905 behavior-changes; 914 of them are low-reliability and off by default), 243 suggested-improvement entries (241 unique IDs), and 6 emitted outside the rule engines (`MSNE`, `MSNU`, `QUIT`, `NOFIL`, `RDERR`, `SZCLN`). 1344 of them are experimental (verified against the documentation only, or low-reliability: off by default, see [Experimental checks](configuration.md#experimental-checks)). Which of them are on by default, and which engines are verified against MATLAB, is on the [How malt is verified](verification.md) page.
 
 ## Data-Driven Check IDs
 
@@ -238,8 +238,8 @@ to refresh them whenever `data/compatibility.toml` or
 | [`PERFREF`](rules/compatibility.md#perfref) | 'perfect-reflector' value will be removed in a future release. Use value 'PEC' instead, which is a direct replacement. |
 | [`YOLOV`](rules/compatibility.md#yolov) | 'yolov2ReorgLayer' has been removed. With appropriate code changes, use 'spaceToDepthLayer' instead. |
 | [`DDTRD`](rules/compatibility.md#ddtrd) | 'dataread' will be removed in a future release. With appropriate code changes, use 'textscan' instead. |
-| [`IMPIVD`](rules/compatibility.md#impivd) | Malformed import argument VAR_NAME will not be supported in a future release. |
-| [`IMPKEY`](rules/compatibility.md#impkey) | Importing VAR_NAME will not be supported in a future release because VAR_NAME is a reserved word. |
+| [`IMPIVD`](rules/compatibility.md#impivd) | Malformed import argument 'VAR_NAME' will not be supported in a future release. |
+| [`IMPKEY`](rules/compatibility.md#impkey) | Importing 'VAR_NAME' will not be supported in a future release because 'VAR_WORD' is a reserved word. |
 | [`REDEFGI`](rules/compatibility.md#redefgi) | Declaring an input or output variable to be global might not be supported in a future release. |
 | [`REDEFGG`](rules/compatibility.md#redefgg) | Declaring a variable to be global more than once might not be supported in a future release. |
 | [`MCPDC`](rules/compatibility.md#mcpdc) | Specifying both the 'Constant' and 'Dependent' attributes on the same property is not supported. |

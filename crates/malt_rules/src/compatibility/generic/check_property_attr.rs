@@ -67,7 +67,6 @@ pub(crate) fn collect_checks(
     diagnostics: &mut Vec<Diagnostic>,
 ) {
     match node.kind() {
-        "class_definition" => engine.check_class_attributes(node, source, diagnostics),
         "properties" => engine.check_properties_block(node, source, diagnostics),
         "string" => engine.check_removed_name(node, source, diagnostics),
         _ => {}
@@ -75,16 +74,13 @@ pub(crate) fn collect_checks(
 }
 
 impl CompatibilityEngine {
-    /// MCPDC: a classdef's own attributes contain both Constant and Dependent.
-    fn check_class_attributes(&self, node: Node, source: &str, diagnostics: &mut Vec<Diagnostic>) {
-        if !has_attributes_with_both(node, "Constant", "Dependent", source) {
-            return;
-        }
-        push_diag("MCPDC", MCPDC_MSG, node, Severity::Error, diagnostics);
-    }
-
-    /// PSTAT / ATVIZW: a properties block uses Static or Visible attributes.
+    /// MCPDC / PSTAT / ATVIZW: a properties block uses these attributes.
     fn check_properties_block(&self, node: Node, source: &str, diagnostics: &mut Vec<Diagnostic>) {
+        // MCPDC: both `Constant` and `Dependent` on the block (the same on a classdef is
+        // an unknown attribute, ATUNK, in MATLAB).
+        if has_attributes_with_both(node, "Constant", "Dependent", source) {
+            push_diag("MCPDC", MCPDC_MSG, node, Severity::Error, diagnostics);
+        }
         if has_attribute(node, "Static", source) {
             push_diag("PSTAT", PSTAT_MSG, node, Severity::Error, diagnostics);
         }
@@ -102,6 +98,14 @@ impl CompatibilityEngine {
         }
         for (name, id, msg) in REMOVED_NAMES {
             if text == *name {
+                let owners = removed_name_callees(id);
+                if !owners.is_empty()
+                    && !owners
+                        .iter()
+                        .any(|class| call_references_class(node, class, source))
+                {
+                    return;
+                }
                 // DSPIDF vs DSPFDF: distinguish by the owning class in the same call.
                 let severity = Severity::Error;
                 if *id == "DSPIDF"
@@ -118,6 +122,20 @@ impl CompatibilityEngine {
                 return;
             }
         }
+    }
+}
+
+/// The calls MATLAB reports a removed name in (probed in R2026b); empty: no
+/// restriction known. The names whose owner MATLAB never showed (LSRET, READSZK,
+/// READSZR, SMPLMODE, GETERR, SETERR, COEFF1 to COEFFC3) are flagged `low_reliability`
+/// in the data file, so they are off by default.
+fn removed_name_callees(id: &str) -> &'static [&'static str] {
+    match id {
+        "TTSMP" => &["timetable"],
+        "COEFFS" => &["dsp.DigitalDownConverter"],
+        "DFEATUREPARAM1" | "DFEATUREPARAM2" => &["feature"],
+        "HESST" | "HESSM" => &["optimoptions"],
+        _ => &[],
     }
 }
 
@@ -267,14 +285,26 @@ mod tests {
     use crate::test_util::{has_id, lint_file};
     use malt_core::Config;
 
+    /// The engine with the low-reliability checks on (the `all` preset): the checks MATLAB
+    /// stayed silent on are off by default.
+    fn all_engine() -> Box<dyn malt_core::Rule> {
+        let config = Config::from_toml("[lint]\npreset = \"all\"\n").unwrap();
+        CompatibilityEngine::from_config(&config)
+    }
+
     fn engine() -> Box<dyn malt_core::Rule> {
         CompatibilityEngine::from_config(&Config::default())
     }
 
     #[test]
     fn mcpdc_constant_dependent_fires() {
-        let d = lint_file(&*engine(), "classdef (Constant, Dependent) Foo\nend\n");
+        let d = lint_file(
+            &*engine(),
+            "classdef Foo\nproperties (Constant, Dependent)\n x = 1\nend\nend\n",
+        );
         assert!(has_id(&d, "MCPDC"), "got: {d:?}");
+        let d = lint_file(&*engine(), "classdef (Constant, Dependent) Foo\nend\n");
+        assert!(!has_id(&d, "MCPDC"), "classdef attributes are ATUNK: {d:?}");
     }
 
     #[test]
@@ -324,8 +354,10 @@ mod tests {
 
     #[test]
     fn ttsmp_samplingrate_fires() {
-        let d = lint_file(&*engine(), "set(gcf, 'SamplingRate', 100);\n");
+        let d = lint_file(&*engine(), "timetable(x, 'SamplingRate', 100);\n");
         assert!(has_id(&d, "TTSMP"), "got: {d:?}");
+        let d = lint_file(&*engine(), "set(gcf, 'SamplingRate', 100);\n");
+        assert!(!has_id(&d, "TTSMP"), "only timetable: {d:?}");
     }
 
     #[test]
@@ -345,8 +377,10 @@ mod tests {
 
     #[test]
     fn lsret_laserreturns_fires() {
-        let d = lint_file(&*engine(), "m = raytracing('LaserReturns', true);\n");
+        let d = lint_file(&*all_engine(), "m = raytracing('LaserReturns', true);\n");
         assert!(has_id(&d, "LSRET"), "got: {d:?}");
+        let d = lint_file(&*engine(), "m = raytracing('LaserReturns', true);\n");
+        assert!(!has_id(&d, "LSRET"), "off by default: {d:?}");
     }
 
     #[test]
@@ -357,8 +391,10 @@ mod tests {
 
     #[test]
     fn dfeatureparam_usehg2_fires() {
-        let d = lint_file(&*engine(), "setpref('dummy','UseHG2',true);\n");
+        let d = lint_file(&*engine(), "feature('UseHG2',true);\n");
         assert!(has_id(&d, "DFEATUREPARAM1"), "got: {d:?}");
+        let d = lint_file(&*engine(), "setpref('dummy','UseHG2',true);\n");
+        assert!(!has_id(&d, "DFEATUREPARAM1"), "only feature: {d:?}");
     }
 
     /// MATLAB is silent on READSZK in every probed form (`readstruct`, `set`, `get`,
@@ -371,8 +407,10 @@ mod tests {
 
     #[test]
     fn readszr_rowsperread_fires() {
-        let d = lint_file(&*engine(), "readtable('f.txt', 'RowsPerRead', 100);\n");
+        let d = lint_file(&*all_engine(), "readtable('f.txt', 'RowsPerRead', 100);\n");
         assert!(has_id(&d, "READSZR"), "got: {d:?}");
+        let d = lint_file(&*engine(), "readtable('f.txt', 'RowsPerRead', 100);\n");
+        assert!(!has_id(&d, "READSZR"), "off by default: {d:?}");
     }
 
     #[test]
@@ -403,17 +441,27 @@ mod tests {
 
     #[test]
     fn coeffs_filterspecification_fires() {
-        let d = lint_file(&*engine(), "s = struct('FilterSpecification', 1);\n");
+        let d = lint_file(
+            &*engine(),
+            "dsp.DigitalDownConverter('FilterSpecification', 'Coefficients');\n",
+        );
         assert!(has_id(&d, "COEFFS"), "got: {d:?}");
+        let d = lint_file(&*engine(), "s = struct('FilterSpecification', 1);\n");
+        assert!(!has_id(&d, "COEFFS"), "only the converter: {d:?}");
     }
 
     #[test]
     fn coeffc3_customthird_fires() {
         let d = lint_file(
-            &*engine(),
+            &*all_engine(),
             "set(obj, 'CustomThirdFilterCoefficientsDataType', x);\n",
         );
         assert!(has_id(&d, "COEFFC3"), "got: {d:?}");
+        let d = lint_file(
+            &*engine(),
+            "set(obj, 'CustomThirdFilterCoefficientsDataType', x);\n",
+        );
+        assert!(!has_id(&d, "COEFFC3"), "off by default: {d:?}");
     }
 
     #[test]

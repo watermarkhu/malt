@@ -57,7 +57,8 @@ impl LanguageSpecEngine {
                         node,
                         "SPNF",
                         &format!(
-                            "The nested function {other} cannot be called from within an SPMD block."
+                            "The nested function {} cannot be called from within an SPMD block.",
+                            other.to_uppercase()
                         ),
                         diagnostics,
                     );

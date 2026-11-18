@@ -35,7 +35,7 @@ impl LanguageSpecEngine {
                 diagnostics.push(Diagnostic {
                     rule_id: "FCONV",
                     message: format!(
-                        "Unable to define variable {} because it has the same name as the script.",
+                        "Unable to define variable '{}' because it has the same name as the script.",
                         def.name
                     ),
                     severity: Severity::Error,

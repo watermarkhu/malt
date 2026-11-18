@@ -9,7 +9,7 @@ icon: lucide/book-marked
 **Category:** Language Specification
 **Can be disabled:** Yes
 **Enabled by default:** Yes
-**Maturity:** Mixed (7 of 161 experimental)
+**Maturity:** Mixed (13 of 161 experimental)
 
 ## What this rule does
 
@@ -108,7 +108,7 @@ Severity: **error** · Auto-fix: **no** · Maturity: **stable**
 
 ### PFCEL
 
-Severity: **error** · Auto-fix: **no** · Maturity: **stable**
+Severity: **error** · Auto-fix: **no** · Maturity: **experimental**
 
 The function VAR_NAME does not support cell arrays (argument VAR_NUMBER).
 
@@ -126,7 +126,7 @@ EVALIN('caller') and ASSIGNIN('caller') are invalid inside of a PARFOR loop.
 
 ### PFFRNG
 
-Severity: **error** · Auto-fix: **no** · Maturity: **stable**
+Severity: **error** · Auto-fix: **no** · Maturity: **experimental**
 
 When indexing a sliced variable with a nested for loop variable, the range of the for loop variable must be a row vector of positive constant numbers or variables.
 
@@ -156,7 +156,7 @@ Severity: **error** · Auto-fix: **no** · Maturity: **stable**
 
 ### PFMLTI
 
-Severity: **error** · Auto-fix: **no** · Maturity: **stable**
+Severity: **error** · Auto-fix: **no** · Maturity: **experimental**
 
 When indexing a sliced variable with a nested for loop variable, the for loop variable must not be assigned other than by its for statement.
 
@@ -258,19 +258,19 @@ Attribute 'Input' and 'Output' must not be assigned a value or negated.
 
 ### ATNAS
 
-Severity: **error** · Auto-fix: **no** · Maturity: **stable**
+Severity: **error** · Auto-fix: **no** · Maturity: **experimental**
 
 Set attribute to a single meta-class object or a cell array of meta-class objects.
 
 ### ATNPI
 
-Severity: **error** · Auto-fix: **no** · Maturity: **stable**
+Severity: **error** · Auto-fix: **no** · Maturity: **experimental**
 
 Set attribute to 'public', 'private', 'protected', 'immutable', or a cell array of meta-classes instead.
 
 ### ATNPP
 
-Severity: **error** · Auto-fix: **no** · Maturity: **stable**
+Severity: **error** · Auto-fix: **no** · Maturity: **experimental**
 
 Set attribute to 'public', 'private', 'protected', or a cell array of meta-classes instead.
 
@@ -992,7 +992,11 @@ Specify a warning message with the message identifier.
 
 Experimental checks are off by default and run with `[lint] experimental = true`, the `all` preset, or an explicit rule setting (see [Experimental checks](../configuration.md#experimental-checks)).
 
+`PFCEL`, `PFFRNG`, `PFMLTI`: MATLAB stayed silent on every probed shape malt reported them on (`a &b` as a command, `size` overloads, `arrayfun('f', x)`, `warning(E.message)`, a handle default or `subsindex` in a class, parfor cell and nested-loop shapes, `strcmpi` with a digit literal); PFMLTI is reported as PFFORA, NCHKE as NCHKM. Off under the mathworks preset (docs/VERIFY.md 'Recording the stable checks').
+
 `PFUTVR`, `FVORDO`, `GPNES`, `USESWNS`: On the mathworks off-list: MATLAB's default analysis reported none of them in 4 or more probe shapes each, so their on-side (the --preset all behaviour) is not compared with MATLAB.
+
+`ATNAS`, `ATNPI`, `ATNPP`: Declared but never emitted: no code path (FEGLO, TMMSG), an empty denylist (RMWRN), an unreachable arm (MATLAB reports ATAS, ATUNK and ATPPP in the shapes of ATNAS, ATNPI and ATNPP), a data entry without function name or pattern (MASSO, IMSSO, the RISK checks on class methods), or a toolbox that is not installed (ROS).
 
 `MWKCL`, `FVATF`, `CTOINE`: MATLAB never reported them in 11 to 35 probes each; the check is gated off in the engine (not reproduced), the code is kept.
 

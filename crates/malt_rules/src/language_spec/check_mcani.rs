@@ -13,7 +13,7 @@ impl LanguageSpecEngine {
                         diagnostics.push(Diagnostic {
                             rule_id: "MCANI",
                             message: format!(
-                                "Abstract property {} cannot be initialized.",
+                                "Abstract property '{}' cannot be initialized.",
                                 prop.name
                             ),
                             severity: Severity::Error,

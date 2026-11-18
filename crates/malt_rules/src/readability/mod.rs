@@ -226,12 +226,13 @@ impl ReadabilityEngine {
         // script or a function) nor in the fixtures, so it is off by default too.
         // ISROW/ISCOL: MATLAB stayed silent on `size(x, 1) == 1` and `size(x, 2) == 1`
         // in six probes (undefined, input, constant and reassigned `x`), so they are
-        // off by default too.
+        // off by default too. NCHKE: MATLAB reports NCHKM for `error(nargchk(.., nargout))`
+        // (a suggested-improvement check), never NCHKE.
         rule_config
             .disabled_checks
             .extend(crate::off_under_mathworks(
                 config,
-                &["LOGSUM_ANY", "MFAMB", "ISROW", "ISCOL"],
+                &["LOGSUM_ANY", "MFAMB", "ISROW", "ISCOL", "NCHKE"],
             ));
         Box::new(Self {
             config: rule_config,

@@ -248,12 +248,27 @@ impl BugsEngine {
         let mut rule_config: BugsConfig = config.rule_params("BUGS_ENGINE");
         // SHOCIRF: MATLAB reports LOGEMP for `isempty(a && b)` in all six probes.
         // MOCUP: MATLAB stayed silent on onCleanup with `clear n` in four probes and bugs__t2:17.
+        // CMDAND, CMDOR, DEFSIZE, FUNFUN, MEXCEP: MATLAB stayed silent on every probed shape
+        // (`a &b` as a command, `size` overloads in a function and in a class, `arrayfun('f', x)`,
+        // `warning(E.message)`; docs/VERIFY.md 'Recording the stable checks').
         rule_config
             .disabled_checks
-            .extend(crate::off_under_mathworks(config, &["SHOCIRF", "MOCUP"]));
+            .extend(crate::off_under_mathworks(
+                config,
+                &[
+                    "SHOCIRF", "MOCUP", "CMDAND", "CMDOR", "DEFSIZE", "FUNFUN", "MEXCEP",
+                ],
+            ));
         Box::new(Self {
             config: rule_config,
         })
+    }
+
+    /// Drop the findings of the checks switched off (`disabled_checks`).
+    fn retain_enabled(&self, diagnostics: &mut Vec<Diagnostic>) {
+        if !self.config.disabled_checks.is_empty() {
+            diagnostics.retain(|d| !self.config.disabled_checks.iter().any(|id| id == d.rule_id));
+        }
     }
 
     /// Get the effective debug function list.
@@ -807,6 +822,7 @@ impl Rule for BugsEngine {
             _ => {}
         }
 
+        self.retain_enabled(&mut diagnostics);
         diagnostics
     }
 
@@ -826,6 +842,7 @@ impl Rule for BugsEngine {
         diagnostics.extend(self.check_mocup(root, source));
         diagnostics.extend(self.check_size_overload(root, source));
 
+        self.retain_enabled(&mut diagnostics);
         diagnostics
     }
 }

@@ -116,7 +116,7 @@ generated from the rule sources. Which of them run depends on the preset:
 
 | Preset | On | Off |
 | ------ | -- | --- |
-| `mathworks` *(default)* | 1377 | the `custom-checks` (25) and `naming` (81) categories; the Coder (14), Compiler (10), System Object (9) and Unsupported (13) engines; 24 individual checks MATLAB never reports by default (the [off-list](VERIFY.md#policy), without `VANUS`/`NOEFF` below); 905 compatibility entries (the 897 MATLAB marks low-reliability, the seven `FC*` gates and `IDISVARHIGH`); and 234 declared IDs that are never emitted at all (`VANUS` and `NOEFF` plus the code-gated ones like `SHVAU` or `LNGNM`, the 183 `object`-pattern compatibility entries that need a variable of the class, and the 37 `unverified`-pattern entries MATLAB was silent on) |
+| `mathworks` *(default)* | 1347 | the `custom-checks` (25) and `naming` (81) categories; the Coder (14), Compiler (10), System Object (9) and Unsupported (13) engines; 36 individual checks MATLAB never reports by default (the [off-list](VERIFY.md#policy), without `VANUS`/`NOEFF` below); 922 compatibility entries (the 897 MATLAB marks low-reliability, the 17 generic checks it was silent on, the seven `FC*` gates and `IDISVARHIGH`); and 234 declared IDs that are never emitted at all (`VANUS` and `NOEFF` plus the code-gated ones like `SHVAU` or `LNGNM`, the 183 `object`-pattern compatibility entries that need a variable of the class, and the 37 `unverified`-pattern entries MATLAB was silent on) |
 | `all` | 2458 | the 234 never-emitted IDs above |
 | `recommended` | — | `mathworks` plus the `performance`, `readability`, `formatting` and `suggested-improvements` categories |
 

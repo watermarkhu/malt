@@ -9,7 +9,7 @@ icon: lucide/check-circle
 **Category:** Good Practices
 **Can be disabled:** Yes
 **Enabled by default:** Yes
-**Maturity:** Mixed (12 of 106 experimental)
+**Maturity:** Mixed (15 of 106 experimental)
 
 ## What this rule does
 
@@ -395,7 +395,7 @@ RMFIELD output must be assigned back to the structure.
 
 ### RMWRN
 
-Severity: **warning** · Auto-fix: **no** · Maturity: **stable**
+Severity: **warning** · Auto-fix: **no** · Maturity: **experimental**
 
 The warning with tag VAR_NAME has been removed from MATLAB, so this statement has no effect.
 
@@ -533,7 +533,7 @@ A property default value that is a handle will cause all instances to share the 
 
 ### MCHDT
 
-Severity: **warning** · Auto-fix: **no** · Maturity: **stable**
+Severity: **warning** · Auto-fix: **no** · Maturity: **experimental**
 
 Declaring the value of a property as a handle might cause all instances to share the same default handle. To avoid sharing, create the handle for this property in the constructor. To express that sharing is intentional, use the Constant property attribute.
 
@@ -593,7 +593,7 @@ Calling the computer function with 'arch' returns 'win64', 'glnxa64', or 'maca64
 
 ### SUBSINDEX
 
-Severity: **warning** · Auto-fix: **no** · Maturity: **stable**
+Severity: **warning** · Auto-fix: **no** · Maturity: **experimental**
 
 Do not overload 'subsindex' for fundamental data types.
 
@@ -676,6 +676,10 @@ Experimental checks are off by default and run with `[lint] experimental = true`
 `CTCH`, `WNTAG`, `ERTAG`, `ITERS`, `ADAPPREF`, `MCCPE`, `GTARG`, `LTARG`, `SIMPT`, `MIPC1`: On the mathworks off-list: MATLAB's default analysis reported none of them in 4 or more probe shapes each, so their on-side (the --preset all behaviour) is not compared with MATLAB.
 
 `LNGNM`, `SHVAU`: MATLAB never reported them in 11 to 35 probes each; the check is gated off in the engine (not reproduced), the code is kept.
+
+`RMWRN`: Declared but never emitted: no code path (FEGLO, TMMSG), an empty denylist (RMWRN), an unreachable arm (MATLAB reports ATAS, ATUNK and ATPPP in the shapes of ATNAS, ATNPI and ATNPP), a data entry without function name or pattern (MASSO, IMSSO, the RISK checks on class methods), or a toolbox that is not installed (ROS).
+
+`MCHDT`, `SUBSINDEX`: MATLAB stayed silent on every probed shape malt reported them on (`a &b` as a command, `size` overloads, `arrayfun('f', x)`, `warning(E.message)`, a handle default or `subsindex` in a class, parfor cell and nested-loop shapes, `strcmpi` with a digit literal); PFMLTI is reported as PFFORA, NCHKE as NCHKM. Off under the mathworks preset (docs/VERIFY.md 'Recording the stable checks').
 
 ## Automatic fixes
 

@@ -1,0 +1,2 @@
+classdef (Visible) Foo
+end
