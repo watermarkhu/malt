@@ -1,5 +1,4 @@
 use super::*;
-use crate::analysis::elementwise::elementwise_operands;
 
 /// Functions that return `true` for a scalar logical produced by `&&`/`||`.
 const ALWAYS_TRUE: &[&str] = &["isscalar", "islogical", "isreal"];
@@ -68,29 +67,23 @@ impl BugsEngine {
         }]
     }
 
-    /// LBODUP: both operands of a logical operator are identical
-    /// (`A && A`, `A || A`, `A & A`, `A | A`).
+    /// LBODUP: both operands of a short-circuit operator are identical
+    /// (`A && A`, `A || A`).
     pub(crate) fn check_identical_operands(&self, node: Node, source: &str) -> Vec<Diagnostic> {
         if node.kind() != "boolean_operator" && node.kind() != "binary_operator" {
             return Vec::new();
         }
         let op = find_operator_text(node, source);
-        if !matches!(op.as_str(), "&&" | "||" | "&" | "|") {
+        // Probed (plan 6.2, 16 shapes): only the short-circuit operators are reported.
+        // MATLAB is silent on `a & a`, `a | a`, `x(1) & x(1)`, `1 & 1` and the same
+        // inside an `if` condition.
+        if !matches!(op.as_str(), "&&" | "||") {
             return Vec::new();
         }
-        // `&` and `|` bind looser than comparisons in MATLAB, not in the tree:
-        // compare the operands MATLAB sees (`x & x > 1` is `x` and `x > 1`).
-        let (left_text, right_text) = if op == "&" || op == "|" {
-            let Some((left, right)) = elementwise_operands(node, source) else {
-                return Vec::new();
-            };
-            (left.text(source), right.text(source))
-        } else {
-            let (Some(left), Some(right)) = (node.child(0), node.child(2)) else {
-                return Vec::new();
-            };
-            (node_text(left, source), node_text(right, source))
+        let (Some(left), Some(right)) = (node.child(0), node.child(2)) else {
+            return Vec::new();
         };
+        let (left_text, right_text) = (node_text(left, source), node_text(right, source));
         if normalize_whitespace(left_text) != normalize_whitespace(right_text) {
             return Vec::new();
         }
@@ -144,7 +137,7 @@ mod tests {
 
     #[test]
     fn lbodup_fires_on_identical_operands() {
-        let diags = node_diags("y = a && a;\nz = b | b;\n");
+        let diags = node_diags("y = a && a;\nz = b || b;\nw = c | c;\nv = c & c;\n");
         assert_eq!(
             diags.iter().filter(|d| d.rule_id == "LBODUP").count(),
             2,

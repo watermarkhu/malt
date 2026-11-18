@@ -25,14 +25,9 @@ impl LanguageSpecEngine {
                 .chars()
                 .all(|c| c.is_ascii_alphanumeric() || c == '_');
         if valid_file_name && file_stem != class.name {
-            // Don't fire if the file is in a @directory (MCDIR handles that)
-            let in_at_dir = ctx
-                .file_path
-                .parent()
-                .and_then(|p| p.file_name())
-                .and_then(|n| n.to_str())
-                .is_some_and(|dir| dir.starts_with('@'));
-            if !in_at_dir {
+            // Probed (plan 6.2): MCFIL is independent of an `@directory`; a class
+            // in `@Qux/Qux.m` named `Bar` gets MCDIR and MCFIL.
+            {
                 // MATLAB's own fix renames the classdef AND every constructor
                 // method to the file name (probed on fix/t__Cls.m:
                 // `classdef Cls` becomes `classdef t__Cls` and
@@ -125,6 +120,25 @@ end
             !mcfil.is_empty(),
             "MCFIL should fire when class name != file name"
         );
+    }
+
+    #[test]
+    fn test_mcfil_fires_inside_an_at_directory() {
+        // Probed (plan 6.2): `@Qux/Qux.m` holding `classdef Bar` is MCDIR and MCFIL;
+        // `@Zed/other.m` holding `classdef Zed` is MCFIL alone.
+        let diags = check_source("classdef Bar\nend\n", "@Qux/Qux.m");
+        assert_eq!(filter_by_id(&diags, "MCFIL").len(), 1);
+        let mcdir = filter_by_id(&diags, "MCDIR");
+        assert_eq!(mcdir.len(), 1);
+        // MATLAB quotes the class name and names the file by its absolute path.
+        let message = &mcdir[0].message;
+        assert!(message.starts_with("Class name 'Bar' and @directory name do not agree: '/"));
+        assert!(message.ends_with("Qux.m'."), "{message}");
+        let diags = check_source("classdef Zed\nend\n", "@Zed/other.m");
+        assert_eq!(filter_by_id(&diags, "MCFIL").len(), 1);
+        assert!(filter_by_id(&diags, "MCDIR").is_empty());
+        let diags = check_source("classdef Foo\nend\n", "@Foo/Foo.m");
+        assert!(filter_by_id(&diags, "MCFIL").is_empty());
     }
 
     #[test]

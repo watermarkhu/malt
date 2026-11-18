@@ -9,6 +9,7 @@ icon: lucide/align-left
 **Category:** Formatting
 **Can be disabled:** Yes
 **Enabled by default:** Yes
+**Maturity:** Stable
 
 ## What this rule does
 
@@ -23,37 +24,37 @@ can be enabled, disabled, or reconfigured through their own
 
 ### NOCOMMA
 
-Severity: **info** · Auto-fix: **yes**
+Severity: **info** · Auto-fix: **yes** · Maturity: **stable**
 
 Extra comma is unnecessary.
 
 ### NO4LP
 
-Severity: **info** · Auto-fix: **yes**
+Severity: **info** · Auto-fix: **yes** · Maturity: **stable**
 
 Parentheses are not needed in a FOR statement.
 
 ### ALIGN
 
-Severity: **info** · Auto-fix: **yes**
+Severity: **info** · Auto-fix: **yes** · Maturity: **stable**
 
 This keyword might not be aligned with its matching END on line VAR_NUMBER.
 
 ### NOPTS
 
-Severity: **info** · Auto-fix: **yes**
+Severity: **info** · Auto-fix: **yes** · Maturity: **stable**
 
 Add a semicolon after the statement to hide the output (in a script).
 
 ### NOPRT
 
-Severity: **info** · Auto-fix: **yes**
+Severity: **info** · Auto-fix: **yes** · Maturity: **stable**
 
 Add a semicolon after the statement to hide the output (in a function).
 
 ### NCOMMA
 
-Severity: **info** · Auto-fix: **yes**
+Severity: **info** · Auto-fix: **yes** · Maturity: **stable**
 
 Best practice is to separate output variables with commas.
 

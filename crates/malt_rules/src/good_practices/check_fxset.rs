@@ -103,6 +103,16 @@ mod tests {
     }
 
     #[test]
+    fn test_fxseta_silent_on_loop_variable_as_index_of_an_output() {
+        // Dogfooding (plan 6.2): `[a(k), b(k)] = f(k)` only reads `k`.
+        let source = "for k = 1:3\n  [a(k), b{k}] = deal(1, 2);\nend\n";
+        let tree = parse(source);
+        let eng = engine();
+        let for_node = find_child_of_kind(tree.root_node(), "for_statement").unwrap();
+        assert!(eng.check_fxset(for_node, source).is_empty());
+    }
+
+    #[test]
     fn test_fxseta_silent_on_field_with_the_loop_name() {
         let source = "for k = 1:3\n  s.k = 1;\nend\n";
         let tree = parse(source);

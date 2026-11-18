@@ -18,7 +18,7 @@ of how it got here is in git and in the plan's progress log.
 `tests/fixtures/matlab_expected.tsv` holds what MATLAB reports for every fixture
 (path, line, ID: facts only, no message text), recorded with the release named in
 `tests/fixtures/matlab_release.txt`. The test fails on any difference, a
-missed finding or an extra one: malt matches MATLAB on all 879 fixtures under the default configuration, among them
+missed finding or an extra one: malt matches MATLAB on all 899 fixtures under the default configuration, among them
 `corpus1/` to `corpus4/` (31, 31, 33 and 32 fresh files, written independently of the rules). A new fixture needs
 its MATLAB expectations and a line in `matlab_files.txt`; `crates/malt_cli/tests/fixtures/README.md` gives the steps.
 
@@ -34,10 +34,10 @@ the repository (`~/.local/share/malt-reference/`: `matlab-allmsg.txt` from
   analysis never reports are off under it and on under `--preset all` (or with an explicit
   rule or category setting):
   - bugs: SHOCIRF, MOCUP
-  - good_practices: ERTAG, WNTAG, CTCH, CTOINW, GTARG, LTARG, SIMPT, ITERS, ADAPPREF, MIPC1,
+  - good_practices: ERTAG, WNTAG, CTCH, CTOINW (the `C(C(x))` call form only; a constructor taking its own output is reported), GTARG, LTARG, SIMPT, ITERS, ADAPPREF, MIPC1,
     MCCPE (MATLAB never generates it)
   - language_spec: FVORDO, USESWNS, PFUTVR, GPNES
-  - readability: LOGSUM, MFAMB, ISROW, ISCOL; performance: GRIDD; unused: VANUS, NOEFF;
+  - readability: LOGSUM (the general `sum(<logical>)`; the slice-and-literal shapes MATLAB reports are on), MFAMB, ISROW, ISCOL; performance: GRIDD; unused: VANUS, NOEFF;
     unset_variables: SUSENS, USENS
   - compatibility: IDISVARHIGH, the forward-compatibility gates (FCLEN, FCCPV, FCDQS, FCFAV,
     FCHBL, FCLFS, FCNVA) and the 897 entries MATLAB lists as "low reliability"
@@ -852,3 +852,199 @@ withheld; `tests/unsafe_fixes.rs` the new Unsafe ones.
 not change malt's `checkcode` parity and needs no action. malt's MSNU does not report a
 directive naming an ID that malt switches off by policy (NOPRT under the default preset):
 MATLAB does, so the fixtures use active IDs for MSNU.
+
+## Rule maturity (plan 6.3)
+
+Every check is `stable` or `experimental` (metadata, `malt_core::Maturity`). The classification is
+one table, `crates/malt_rules/src/data/maturity.toml`, with a reason per entry; everything not
+listed is stable. `malt_rules::maturity` reads it (`engine_maturity`, `check_maturity`,
+`experimental_reason`), and `docs/scripts/gen_rules_docs.ts` renders the Maturity column of
+`docs/rules.md`, the per-check maturity and the `## Maturity` section of each rule page, and the
+count in the check-inventory paragraph.
+
+**Rule.** STABLE: MATLAB's Code Analyzer reported the check on a recorded fixture
+(`matlab_expected.tsv`) or in a recorded configuration case (`tests/matlab_config/expected.tsv`),
+or the check is part of the default analysis of the `mathworks` preset, which the conformance suite
+and the live checkcode parity cover as a whole. EXPERIMENTAL: MATLAB reported it nowhere that was
+recorded and it is off under `mathworks`: verified against the documentation index only, silent
+in the probes, or low-reliability. So a default-on check is never experimental, and the default
+output cannot change.
+
+**Behaviour.** `[lint] experimental = true|false` (default `false`; `docs/configuration.md`,
+'Experimental checks'). The experimental checks are the ones that are off by default already
+(rule default off, or the `mathworks` off-list, low-reliability and gate entries): the flag selects
+the experimental variant of the preset (`PresetDef::with_experimental`, the same preset with
+`enables_default_off` on and its disabled categories unchanged), so every engine that reads
+`preset.enables_default_off` honours it without a change. `--preset all` is unchanged (it already
+runs everything), explicit per-rule and per-category entries still win (also `"off"` over the flag),
+`naming` and `custom-checks` stay opt-in by category. `Config::set_preset` keeps the flag over a
+`--preset` override; the WebAssembly `LinterConfig` has an `experimental` field and
+`Linter.from_toml` reads the key. An invalid value is a parse error (exit code 2).
+
+**Evidence method.** `bun docs/scripts/gen_rules_docs.ts --maturity-report` counts, per engine, the
+unique check IDs, how many the table marks experimental, how many appear in a recorded MATLAB run
+(`matlab_expected.tsv`, 288 IDs, plus the 19 recorded configuration cases), and the stable ones without a
+recording. `--check` fails when an experimental check has a recorded MATLAB finding or when the table
+names an unknown engine or ID. A Rust test (`maturity::tests::default_output_has_no_experimental_check`)
+fails when the default output reports an experimental ID.
+
+| Engine | Checks | Stable | Experimental | Recorded by MATLAB | Stable without a recording |
+| --- | --- | --- | --- | --- | --- |
+| `BUGS_ENGINE` | 33 | 31 | 2 | 18 | 13 |
+| `CODEGEN_ENGINE` | 14 | 0 | 14 | 0 | 0 |
+| `COMPAT` | 1832 | 730 | 1102 | 12 | 718 |
+| `CUSTOM_CHECKS` | 25 | 5 | 20 | 5 | 0 |
+| `DEPLOYMENT_ENGINE` | 10 | 0 | 10 | 0 | 0 |
+| `FORMATTING_ENGINE` | 6 | 6 | 0 | 6 | 0 |
+| `GOOD_PRACTICES_ENGINE` | 106 | 93 | 13 | 54 | 39 |
+| `INCOMPLETE_ANALYSIS` | 10 | 10 | 0 | 1 | 9 |
+| `LANGUAGE_SPEC_ENGINE` | 161 | 154 | 7 | 67 | 87 |
+| `NAMING_ENGINE` | 81 | 4 | 77 | 4 | 0 |
+| `NOSEMI` | 1 | 1 | 0 | 1 | 0 |
+| `PERFORMANCE_ENGINE` | 40 | 39 | 1 | 29 | 10 |
+| `READABILITY_ENGINE` | 35 | 31 | 4 | 15 | 16 |
+| `SUGGESTED_IMPROVEMENTS` | 241 | 241 | 0 | 45 | 196 |
+| `SYNTAX_ERRORS_ENGINE` | 49 | 49 | 0 | 22 | 27 |
+| `SYSTEM_OBJECTS_ENGINE` | 9 | 0 | 9 | 0 | 0 |
+| `UNSET_VARIABLES_ENGINE` | 5 | 3 | 2 | 3 | 0 |
+| `UNSUPPORTED_ENGINE` | 13 | 0 | 13 | 0 | 0 |
+| `UNUSED_ENGINE` | 15 | 13 | 2 | 12 | 1 |
+| **Total** | 2686 | 1410 | 1276 | 294 | 1116 |
+
+Experimental groups (reasons in the table file):
+
+| Group | IDs | Why |
+| --- | --- | --- |
+| Coder, Compiler, System Object, Unsupported engines | 14 + 10 + 9 + 13 | `checkcode` never emitted one in the probes; documentation index only; engines off by default |
+| Naming, except `naming.variable.casing`, `maxLength`, `requiredPrefix`, `disallowedSuffix` | 77 | MATLAB reports naming only through a configuration; only these four have recorded cases (c07 to c09) |
+| Custom checks without a recorded case (everything but FCNLL, CYCCOM, MNCSN, DAFSC, DAFAF) | 20 | mapped from message text, not compared with a live configuration |
+| `mathworks` off-list (SHOCIRF, MOCUP, ERTAG, WNTAG, CTCH, ..., VANUS, NOEFF, SUSENS, USENS) | 26 | MATLAB's default analysis reported none in 4 or more probe shapes each |
+| Forward-compatibility gates and IDISVARHIGH | 8 | never reported by default |
+| Gated off, not reproduced (SHVAI, SHVAU, LNGNM, FVATF, CTOINE, MWKCL) | 6 | silent in 11 to 35 probes each |
+| Compatibility entries: low-reliability, `object`, `unverified` pattern | 897 + 183 + 13, as unique IDs | low-reliability flag of MATLAB's own list; `object` needs class tracking; `unverified` silent in every probe |
+
+**Counts.** 2,686 unique IDs in the engine tables (the 2,692 of the Rules Reference add the six emitted outside the engines): 1,410 stable and 1,276 experimental. Of the 1,410 stable IDs 294 have a
+recorded MATLAB finding; 1,116 are stable because they belong to the default analysis (probed in
+the audits, no fixture finding): these are the first candidates for new fixtures. The IDs that are
+declared but never emitted (the code-gated ones such as `PRTCAL` or `XCREDS`, listed in 'Official IDs
+malt does not emit') are not all in the table: only the ones with an engine entry are listed.
+
+**Verified by the byte-identity run.** A release binary of HEAD (before the change) and the new one
+gave identical output over all 879 fixture files for the default, `--preset all` and
+`--preset recommended` runs (4,221, 5,161 and 2,690 lines), and `experimental = true` with
+`preset = "all"` equals `all`; the flag alone adds findings only.
+
+## Dogfooding (plan 6.2, 2026-11-18)
+
+malt run on real MATLAB code, with the default (`mathworks`) preset and with `--preset all`, and the default run compared with MATLAB R2026b's `checkcode` file by file (`matlab_probe.m` in one `matlab -batch` call of at most 170 files, then `diff_against_matlab.ts --preset mathworks` per (file, line, ID), then the message text). The code is read-only input under `/home/watermarkhu/repositories` and `/tmp/probe/corpus5_src`; none of it is copied into the repository. The fixtures of this step are the session's own minimal reductions (`corpus16/`, 20 files).
+
+| Codebase (names only) | .m files | Role |
+| --- | --- | --- |
+| OpenTelemetry-MATLAB (`maxx/submodule`) | 143 | MathWorks-style OOP code, test classes, packages |
+| advanced-logger (`maxx/submodule`) | 35 | classes, packages, tests (diffed together with mkdocstrings-matlab/test as `lm`, 50 files) |
+| matlab (matlabdomain, textmate, sphinx-matlab, ...) | 170 | parser and documentation test data: many deliberate syntax errors |
+| mkdocstrings-matlab/test | 15 | class folders, package folders |
+| matlab-agentic-toolkit (re-cloned, depth 1) | 145 | current MathWorks skills code |
+| gnu-octave-statistics (every fourth file) | 116 | Octave code: robustness input only. MATLAB reports a syntax error (`endfunction`, `#` comments, ...) in all 116 files, so there is no meaningful diff; malt does not crash or stall |
+
+`zed-matlab` holds no `.m` file. Times are for one `malt` call over the codebase, release build: 12 to 640 ms (default) and 13 to 740 ms (`all`); the largest input is 2.6 MB over 624 files. Memory stayed under 3 GB used.
+
+### Counts
+
+Default preset (findings, files with a finding, distinct rules; top ten by count):
+
+| Codebase | Findings | Files | Rules | Top ten |
+| --- | --- | --- | --- | --- |
+| otel | 2 | 1 of 143 | 1 | NBRAK2 2 |
+| logger | 4 | 2 of 35 | 4 | DATST 1, INUSD 1, MSNE 1, VERLESSMATLAB 1 |
+| matlab | 278 | 78 of 170 | 40 | SYNER 53, INUSD 48, MANU 23, NOPRT 21, INUSA 21, NASGU 13, NOPTS 12, STOUT 10, ENDCT2 9, NOSEMI 8 |
+| mkdoc | 32 | 10 of 15 | 8 | INUSD 12, INUSA 8, STOUT 4, MCFIL 3, MANU 2, MCDIR 1, MCNPR 1, FVORDN 1 |
+| toolkit | 34 | 20 of 145 | 13 | STOUT 7, AGROW 6, INUSA 6, BDFIL 4, INUSD 2, NOCOMMA 2, NASGU 1, MSNU 1, CCAT1 1, FNDEF 1 |
+| octave | 16,842 | 116 of 116 | 69 | SYNER 14,405, NOPAR 497, FINSNI 265, IJCL 235, ENDCT2 223, ENDCT3 158, NBRAK2 153, UNRCH 134, BADNE 96, EOLPAR 83 |
+| overall (without octave) | 350 | | 51 | INUSD 63, SYNER 53, INUSA 35, MANU 25, NOPRT 21, STOUT 21, NASGU 14, NOPTS 12, ENDCT2 9, NOSEMI 8 |
+
+`--preset all`:
+
+| Codebase | Findings | Files | Rules | Top ten |
+| --- | --- | --- | --- | --- |
+| otel | 2,089 | 108 of 143 | 13 | FCDQS 1,815, LLMNC 105, FCFAV 62, FCCPV 35, FCNVA 34, CTCH 15, LOGSUM 9, CYCCOM 4, MCYCCOM 4, SIMPT 2 |
+| logger | 208 | 20 of 35 | 15 | FCDQS 160, FCCPV 16, FCFAV 12, LLMNC 4, SIMPT 4, FCNVA 2, MCCD 2, CYCCOM 1, MCYCCOM 1, ERTAG 1 |
+| matlab | 375 | 101 of 170 | 45 | SYNER 53, INUSD 48, FCDQS 46, MANU 23, NOPRT 21, INUSA 21, FCFAV 17, NASGU 13, LLMNC 13, NOPTS 12 |
+| mkdoc | 39 | 10 of 15 | 10 | INUSD 12, INUSA 8, FCFAV 6, STOUT 4, MCFIL 3, MANU 2, MCDIR 1, MCNPR 1, FCDQS 1, FVORDN 1 |
+| toolkit | 2,377 | 116 of 145 | 36 | FCDQS 1,918, FCNVA 168, FCFAV 96, LLMNC 44, CTCH 31, CYCCOM 22, MCYCCOM 20, LOGSUM 17, STOUT 7, FCNIL 6 |
+| octave | 19,520 | 116 of 116 | 84 | SYNER 14,405, FCDQS 2,231, NOPAR 497, FINSNI 265, IJCL 235, ENDCT2 223, ENDCT3 158, NBRAK2 153, ERTAG 145, UNRCH 134 |
+| overall (without octave) | 5,088 | | 75 | FCDQS 3,940, FCNVA 204, FCFAV 193, LLMNC 166, FCCPV 65, INUSD 63, SYNER 53, CTCH 46, INUSA 35, CYCCOM 27 |
+
+The full per-rule table is not kept here (75 rules under `all`); to reproduce: run `malt --preset all` over the codebases and count the third field.
+
+### MATLAB diff of the default preset
+
+Per codebase, (file, line, ID) triples, before the fixes of this step and after:
+
+| Codebase | MATLAB findings | Before: both / matlab-only / malt-only | After |
+| --- | --- | --- | --- |
+| otel (143 files) | 1 | 1 / 0 / 7 | 1 / 0 / 0 |
+| logger + mkdoc (50) | 26 | 25 / 1 / 5 | 26 / 0 / 2 |
+| matlab (170) | 258 | 188 / 70 / 55 | 202 / 56 / 50 |
+| toolkit (145) | 34 | 34 / 0 / 0 | 34 / 0 / 0 |
+| octave (116, robustness) | 13,925 | not recorded | 1,903 / 12,022 / 10,308 |
+
+What remains after the fixes, none of it a rule defect:
+
+- **Parser-caused (recorded, grammar not edited).** The 56 + 50 differences of `matlab` are in files made of deliberate syntax errors (`t41FunctionDefinitions`, `t54LineContinuationInAnonymousFunctions`, `t57Operators`, `t23LineContinuationCall`, `t30functionContinuation`, `vscode-textmate/.../test.m`, `ClassWithErrors`, `f_inputargs_error`): SYNER, ENDCT2/3, EOLPAR, NOPAR2, EOFER, BADCH, RESWD and the findings that follow from the recovery (DEFNU, NASGU, NOPTS on code after the break). Same for Octave: every file is a syntax-error file for MATLAB.
+- **MCATP (4)**: `name@char = v` property restrictions; the tree-sitter grammar has no node for them. **IMPKEY (1)**: `import module.submodule.class.function`, a keyword inside the import name.
+- **A file that is not UTF-8** (`f_with_latin_1.m`): MATLAB reads it and reports INUSD; malt reports RDERR (`malt_cli` reads the file as UTF-8). Not changed here (the CLI was being edited in parallel).
+- **`%#ok<INUSL>`** (`advanced-logger/test/+mlog/+test/TestLogger.m:522`): MATLAB accepts `INUSL` as a suppression ID that suppresses INUSD (probes j6, j7: both unused inputs of `function f(a, b) %#ok<INUSL>` are silent), although `INUSL` is not one of the 2,728 messages of `checkcode -allmsg`. malt reports INUSD and an MSNE for `INUSL` (2 extra findings). The fix is in `malt_core` (`known_ids` and the suppression map: an alias INUSL for INUSD), which this step did not touch. Open: which other legacy IDs MATLAB accepts in `%#ok<...>` is unknown, so MSNE for an ID outside malt's list is a false-positive risk in general.
+
+### Fixes (MATLAB evidence; probe sets of 3 to 22 files, one MATLAB call each)
+
+Each is a unit test and, for the default-analysis ones, a `corpus16/` fixture (20 files, 899 in all; `MALT_MATLAB_REQUIRE=1 cargo test -p malt-cli --test matlab_conformance --test matlab_live` passes, message text included).
+
+- **D1 REDEF on `get.X` next to `set.X`** (`syntax_errors/check_statements.rs`). The duplicate-method check keyed methods by the part after the dot, so every property with both accessors got a REDEF error (a defect from Phase 4). The key keeps the `get.`/`set.` prefix (probes b1, b2, b5: silent; 143 OpenTelemetry files had 2 such errors).
+- **D2 MCSUP for a Dependent property's setter** (`good_practices/check_oop_practice.rs`). Silent when the property being set is Dependent, with or without a get method, with or without an output (d3 to d8, e1 to e5, f1 to f5); reported for a non-Dependent property (d1, d2, d6, e3, e4, e6). A value-class setter without an output that reads a private property was still reported by MATLAB in two probes (b3, b4); malt is silent there (a miss).
+- **D3 ATUNK and the superclass** (`language_spec/check_class_attributes.rs`). MATLAB reports an unknown attribute only in a class without a superclass, with `handle`, or with a `matlab.mixin` class; silent with `matlab.System`, `ComponentContainer`, any unknown base and `SomeBase & handle` (g1 to g12, h1 to h9). `UsedInUpdate` in a `ComponentContainer` was the dogfooding case.
+- **D4 FXSETA and `[a(k), b] = f()`** (`good_practices/mod.rs`, `assigns_loop_variable`). An index inside an output element is a read of the loop variable; the element `[a, k]` still writes it (OpenTelemetry `processAttributes.m`: 2 extras).
+- **D5 NASGU for `varargin`** (`unused/check_nasgu.rs`). A dead store to `varargin` is NASGU (k1 to k7: `varargin = {}`, `varargin = varargin{2:nargin}`, in a branch, after a read); malt had exempted it with the always-used names, which also caused a false MSNU on `%#ok<NASGU>` (advanced-logger).
+- **D6 MCFIL inside an `@directory`** (`language_spec/check_mcfil.rs`). The `@Qux/Qux.m` holding `classdef Bar` is MCDIR and MCFIL; `@Zed/other.m` holding `classdef Zed` is MCFIL only. The old guard silenced MCFIL in every `@` folder. The MCDIR text was also wrong: MATLAB quotes the class name and ends with the absolute path of the file (`Class name 'Bar' and @directory name do not agree: '/abs/@Qux/Qux.m'.`), not the folder name.
+- **D7 INUSD for an input that is also an output** (`unused/check_unused_inputs.rs`, `analysis/liveness.rs`). `function out = f(out, x)` with `out = x + 1` is INUSD (m1 to m6); the entry-value analysis keeps `out` used when it reaches the exit (`if x, out = 1; end`, an empty body). Where the analysis cannot follow the scope, silent as before (f_with_utf8 and f_with_latin_1 of matlabdomain).
+- **D8 VARARG right-hand sides** (`bugs/mod.rs`, 22 probes). Reported for a number, text, `[]`, a function handle, `ones(...)`, `struct()` and `true`; silent for a variable, an operator, an index, a field, `x'`, any other call (`cellfun`, `num2cell`), `[x, y]`. The old rule reported every non-cell value (matlabdomain: 3 extras).
+- **D9 CTPCT for `error` and `warning`** (`good_practices/check_ctpct.rs`, 20 probes). The first argument is the format unless it is an identifier (colon-separated components starting with a letter) or, for `warning`, a control word (`on off query error verbose backtrace debug`); an identifier first makes the second argument the format: `error('msg', x)`, `error('ErrorID', x, y)`, `error('A:b', 'fmt', 1)`, `warning('msg', 1, 2)` are CTPCT; `warning('off', 'all')`, `error('Mod:sub', x)`, `error('msg %d', 1)` are not. This closes the Phase 4 gap 'CTPCT for a non-identifier first argument'.
+- **D10 MANU for a returned input** (`unused/check_manu.rs`): `function obj = f(obj)` whose body only calls `error(...)` is MANU (matlabdomain `ClassWithStrings`); a body that returns `obj` unchanged is not.
+- **D11 CTOINW for a constructor that takes its own output** (`good_practices/check_misc_general.rs`). `function obj = C(obj, args)`: reported at the input, any position, `~` before it, any output name; a method that is not the constructor is silent (q1 to q9). The `C(C(x))` call form was never reported and stays off under `mathworks` (pseudo check `CTOINW_CALL`). CTOINW leaves the experimental list of the maturity table.
+- **D12 NBRAK1 and NBRAK2 for an indexed field** (`good_practices/check_nbrak1.rs`, `readability/check_unnecessary_brackets.rs`). `[obj.Value( end ) ]* n` is NBRAK1 and `[obj.Value(end)]` NBRAK2; `[obj.a] * n` stays silent (a comma-separated list).
+- **D13 NOSEMI after a method `end;`** (`nosemi.rs`): inside a `methods` block the `;` is a child of `methods`.
+- **D14 UNRCH after a `switch`** (`analysis/control_flow.rs`): a `switch` with `otherwise` whose every branch ends the flow ends it, like `if`/`else`; without `otherwise` the next statement is reachable.
+- **D15 LBODUP only for `&&` and `||`** (`bugs/check_short_circuit.rs`). MATLAB is silent on `a & a`, `a | a`, `x(1) & x(1)`, `1 & 1`, `1 &1` and the same in an `if` (16 probes). The older unit test that expected `b | b` was wrong; `Operand::text` (dead now) is gone.
+- **D16 VTPOD** (`syntax_errors/check_validation_order.rs`). A class written before the size (`a double (1,1)`) is VTPOD at the class name, in an `arguments` block and in a `properties` block (the parser leaves the class as an ERROR node before `dimensions`, which malt reported as MCPLD); error severity. VTPOD joins the syntax table again (see `docs/migration.md`).
+- **D17 HGSTGT for a superclass** (`suggested_improvements.rs`). `classdef C < hgsetget` and `< handle & hgsetget` are HGSTGT at the name; calls and bare names stayed silent in 49 earlier probes.
+- **D18 LOGSUM, the shapes MATLAB reports** (`readability/check_logical.rs`, 16 probes; closes G2 of the Phase 4 rounds). `sum` of a comparison (`> < >= <= ~= ==`) of a slice with a positive number literal, on either side: `v(:)`, `v(:, k)`, `v(1, :)`. Silent for `v(:) > w`, `v(:) > -1`, `v(:, :)`, `&`, a char, `v > 3`, `v(2) > 3`. They are on by default; the general `sum(<logical>)` is the pseudo check `LOGSUM_ANY`, off under `mathworks`. LOGSUM leaves the experimental list.
+
+Defects found only through `--preset all` (no MATLAB comparison; unit tests):
+
+- **MCCPE** (10 reports in otel and logger): a name the function takes as an input or assigns is a variable (`Time(idx, 1) = v`; a test-method parameter that has the name of a `TestParameter` property).
+- **FDTAG** (13 reports): fired on every `findall`; now only with one of the six `Exploration.*` tags the message names (`args_any`).
+- **GTARG and LTARG** (9 reports): a `...` continuation was counted as an argument; a comma-separated list argument (`varargin{:}`, `s.f`) is an unknown count (only too many can still be told); a function with an `arguments` block (optional inputs, name-value) is not compared; the table of builtin arities is switched off (`USE_BUILTIN_TABLE = false`: `var(X, 0, 1, 'omitnan')` and `ones(n, m, 3, "uint8")` were reported, and the table is unverified).
+
+### Noise under `--preset all`: legitimate or not
+
+| Rule | Reports (no octave) | Verdict |
+| --- | --- | --- |
+| FCDQS, FCNVA, FCFAV, FCCPV (forward-compatibility gates) | 3,940 + 204 + 193 + 65 = 4,402 of 5,088 | Legitimate only with a target release; malt has none, so they fire on every double-quoted string, `Name=Value`, arguments block and property validation. The checks are right, the gating is missing. **Demotion candidate** (or: report only when a minimum release is configured). They are already experimental. |
+| LLMNC (166), CYCCOM and MCYCCOM (27 + 25), FCNIL, FCNLL | custom checks | Legitimate thresholds from MATLAB's list (120 characters, 15, 7 inputs, 200 lines); not compared with a live configuration. Stay experimental. |
+| CTCH (46), ERTAG, WNTAG, SIMPT | good practices | Legitimate (the message text agrees with the catalogue); MATLAB never reports them by default. Stay experimental. |
+| LOGSUM (26) | | Now split (D18); the rest is LOGSUM_ANY: reports shapes MATLAB is silent on (G2). **Demotion candidate** for the general form. |
+| MCCPE, FDTAG, GTARG, LTARG | | Defects, fixed above. GTARG/LTARG on builtins: **demotion candidate** (unverified table, off now). |
+
+### Known gaps found here (not fixed)
+
+- `%#ok<INUSL>`: suppression alias and MSNE (see above; `malt_core`).
+- A non-UTF-8 file gives RDERR; MATLAB reads it (`malt_cli`).
+- `[obj.Value(end)]` (NBRAK2) and the other bracket forms were probed on indexed fields only; `[s.a(1).b]` is untested and silent.
+- MCSUP: a value-class setter of a Dependent property without an output that reads a private property is reported by MATLAB (b3, b4) and silent in malt.
+- A file with `end;` after its main function (`function p1(a) ... end;`, one probe) gets DEFNU and SEMFU in MATLAB and NOSEMI only in malt; SEMFU is not emitted.
+- GTARG/LTARG are compared only for functions of the same file without an `arguments` block; a function with one is never compared.
+- The MCDIR message names the file by `std::path::absolute` of the path malt was given; MATLAB's path may differ when symbolic links are involved.
+
+### Gates
+
+`cargo fmt --all --check`, `cargo clippy --all-targets --locked -- -D warnings`, `MALT_MATLAB_REQUIRE=1 cargo test --workspace --exclude malt-py --locked --no-fail-fast` (conformance 899 fixtures, live check: recorded findings and message text agree with MATLAB 2026b), `bun docs/scripts/gen_rules_docs.ts --check` and `bun run docs:build` pass.

@@ -21,6 +21,33 @@ fn is_logical_expression(n: tree_sitter::Node, source: &str) -> bool {
     }
 }
 
+/// `x(:) > 3`, `3 < x(:)`, `x(:, k) >= 3.5`, `x(1, :) ~= 0`: a comparison of a
+/// slice of a variable (an index with exactly one `:`) with a number literal.
+/// MATLAB reports `sum` of exactly these (16 probes): not for `x(:) > w`, a
+/// negative literal, a char, `x(:, :)`, `&`, or a comparison without an index.
+fn is_reported_sum_shape(n: tree_sitter::Node, source: &str) -> bool {
+    if n.kind() != "comparison_operator" {
+        return false;
+    }
+    let mut cursor = n.walk();
+    let operands: Vec<_> = n.named_children(&mut cursor).collect();
+    let [left, right] = operands.as_slice() else {
+        return false;
+    };
+    let is_slice = |m: &tree_sitter::Node| {
+        m.kind() == "function_call"
+            && m.child_by_field_name("name")
+                .is_some_and(|name| name.kind() == "identifier")
+            && call_args(*m)
+                .iter()
+                .filter(|a| a.kind() == "spread_operator")
+                .count()
+                == 1
+    };
+    let _ = source;
+    (is_slice(left) && right.kind() == "number") || (left.kind() == "number" && is_slice(right))
+}
+
 impl ReadabilityEngine {
     /// LOGL: `logical(1)` / `logical(0)` -> `true` / `false`.
     pub(crate) fn check_logical_literal(
@@ -90,7 +117,11 @@ impl ReadabilityEngine {
         if args.len() != 1 {
             return;
         }
-        if is_logical_expression(args[0], source) {
+        // The shape MATLAB reports by default (probed, plan 6.2); any other logical
+        // argument is LOGSUM_ANY, which is on under `all` only.
+        if is_reported_sum_shape(args[0], source)
+            || (self.is_check_enabled("LOGSUM_ANY") && is_logical_expression(args[0], source))
+        {
             results.push(self.diag(
                 "LOGSUM",
                 "Consider using 'nnz' instead of 'sum' for logical vectors to improve readability.",
@@ -152,6 +183,29 @@ mod tests {
             &lint_nodes(&*engine(), "n = sum(x > 3);\n"),
             "LOGSUM"
         ));
+    }
+
+    #[test]
+    fn logsum_reported_shapes_fire_by_default() {
+        // Probed (plan 6.2).
+        for src in [
+            "n = sum(v(:) > 3);\n",
+            "n = sum(3 < v(:));\n",
+            "n = sum(v(:, k) >= 3.5);\n",
+            "n = sum(v(1, :) ~= 0);\n",
+        ] {
+            assert!(has_id(&lint_nodes(&*engine(), src), "LOGSUM"), "{src}");
+        }
+        for src in [
+            "n = sum(v(:) > w);\n",
+            "n = sum(v(:) > -1);\n",
+            "n = sum(v(:, :) > 3);\n",
+            "n = sum(v(:) > 3 & v(:) < 5);\n",
+            "n = sum(v > 3);\n",
+            "n = sum(v(2) > 3);\n",
+        ] {
+            assert!(!has_id(&lint_nodes(&*engine(), src), "LOGSUM"), "{src}");
+        }
     }
 
     #[test]

@@ -53,29 +53,32 @@ impl ReadabilityEngine {
                 // Comma-separated lists (`[s.f]`, `[c{:}]`) can yield several
                 // values, so the brackets are not redundant.
                 // A cell literal `[{1}]` is one element; `c{:}` is a list.
-                let list_like = inner.kind() == "field_expression"
+                // `[obj.Value(end)]` is an indexed field, a single value (probed, plan 6.2).
+                let list_like = (inner.kind() == "field_expression"
+                    && !crate::good_practices::is_indexed_field(inner))
                     || (inner_text.contains('{') && inner.kind() != "cell");
                 // Probed against MATLAB R2026b: single identifiers, literals,
                 // operator expressions, calls, ranges, cells, handles, negations
                 // and parenthesised expressions are all reported.
-                let scalar = matches!(
-                    inner.kind(),
-                    "identifier"
-                        | "number"
-                        | "string"
-                        | "binary_operator"
-                        | "unary_operator"
-                        | "comparison_operator"
-                        | "boolean_operator"
-                        | "postfix_operator"
-                        | "function_call"
-                        | "range"
-                        | "cell"
-                        | "function_handle"
-                        | "handle_operator"
-                        | "not_operator"
-                        | "parenthesis"
-                );
+                let scalar = crate::good_practices::is_indexed_field(inner)
+                    || matches!(
+                        inner.kind(),
+                        "identifier"
+                            | "number"
+                            | "string"
+                            | "binary_operator"
+                            | "unary_operator"
+                            | "comparison_operator"
+                            | "boolean_operator"
+                            | "postfix_operator"
+                            | "function_call"
+                            | "range"
+                            | "cell"
+                            | "function_handle"
+                            | "handle_operator"
+                            | "not_operator"
+                            | "parenthesis"
+                    );
                 if scalar && !list_like {
                     // MATLAB's own fix strips the two bracket tokens and keeps
                     // everything between them verbatim (probed on the fixtures:
@@ -114,6 +117,16 @@ mod tests {
     fn nbrak2_brackets_around_scalar_fires() {
         let diags = lint_nodes(&*engine(), "x = [5];\n");
         assert!(has_id(&diags, "NBRAK2"), "got: {diags:?}");
+    }
+
+    #[test]
+    fn nbrak2_brackets_around_indexed_field_fires() {
+        // Probed (plan 6.2): `[obj.Value(end)]` is NBRAK2, `[obj.a]` is not.
+        assert!(has_id(
+            &lint_nodes(&*engine(), "x = [obj.Value(end)];\n"),
+            "NBRAK2"
+        ));
+        assert!(!has_id(&lint_nodes(&*engine(), "x = [obj.a];\n"), "NBRAK2"));
     }
 
     #[test]

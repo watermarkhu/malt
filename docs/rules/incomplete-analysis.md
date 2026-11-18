@@ -9,6 +9,7 @@ icon: lucide/wrench
 **Category:** Incomplete Analysis
 **Can be disabled:** Yes
 **Enabled by default:** Yes
+**Maturity:** Stable
 
 ## What this rule does
 
@@ -43,61 +44,61 @@ is analysed (see `Linter::lint`).
 
 ### TMMSG
 
-Severity: **error** · Auto-fix: **no**
+Severity: **error** · Auto-fix: **no** · Maturity: **stable**
 
 More than 10,000 Code Analyzer messages were generated, leading to some being deleted.
 
 ### TMSMS
 
-Severity: **error** · Auto-fix: **no**
+Severity: **error** · Auto-fix: **no** · Maturity: **stable**
 
 More than 1,000 parse error messages were generated, leading to some being deleted.
 
 ### MXASET
 
-Severity: **error** · Auto-fix: **no**
+Severity: **error** · Auto-fix: **no** · Maturity: **stable**
 
 The file is too complex to analyze. Simplify the code to improve code maintainability. For example, reduce the number of operations in expressions.
 
 ### NOSPC
 
-Severity: **error** · Auto-fix: **no**
+Severity: **error** · Auto-fix: **no** · Maturity: **stable**
 
 The file is too complex to analyze. Refactor the code to improve code maintainability. For example, reduce the nesting level of conditions or functions.
 
 ### MDOTM
 
-Severity: **error** · Auto-fix: **no**
+Severity: **error** · Auto-fix: **no** · Maturity: **stable**
 
 Unable to run code analysis. VAR_FILE has an invalid file extension.
 
 ### MDMCR
 
-Severity: **error** · Auto-fix: **no**
+Severity: **error** · Auto-fix: **no** · Maturity: **stable**
 
 Unable to run code analysis. VAR_FILE is a deployed MATLAB file.
 
 ### MDEEP
 
-Severity: **error** · Auto-fix: **no**
+Severity: **error** · Auto-fix: **no** · Maturity: **stable**
 
 Parentheses, brackets, and braces are nested too deeply.
 
 ### DEEPC
 
-Severity: **error** · Auto-fix: **no**
+Severity: **error** · Auto-fix: **no** · Maturity: **stable**
 
 Block comments are nested too deeply.
 
 ### DEEPN
 
-Severity: **error** · Auto-fix: **no**
+Severity: **error** · Auto-fix: **no** · Maturity: **stable**
 
 Functions are nested too deeply.
 
 ### EOFER
 
-Severity: **error** · Auto-fix: **no**
+Severity: **error** · Auto-fix: **no** · Maturity: **stable**
 
 Code analysis did not complete. File contains too many syntax errors.
 

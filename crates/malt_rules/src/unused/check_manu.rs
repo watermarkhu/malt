@@ -2,6 +2,7 @@
 
 use super::check_unused_inputs::collect_arguments_blocks;
 use super::*;
+use crate::analysis::liveness::shared_dead_stores;
 use crate::analysis::symbols::Scope;
 use tree_sitter::Node;
 
@@ -100,19 +101,24 @@ impl UnusedEngine {
     pub(crate) fn check_manu(
         &self,
         table: &SymbolTable,
-        root: Node,
+        tree: &tree_sitter::Tree,
         source: &str,
         diagnostics: &mut Vec<Diagnostic>,
     ) {
+        let root = tree.root_node();
         if self.is_check_disabled("MANU") {
             return;
         }
         let blocks = collect_arguments_blocks(root, source);
 
-        for scope in &table.scopes {
+        for (index, scope) in table.scopes.iter().enumerate() {
             if scope.kind != ScopeKind::Method || !manu_method(scope, root, source) {
                 continue;
             }
+            // For an input that is also an output: the entry value must not reach
+            // the exit (probed, plan 6.2: `function obj = f(obj)` whose body only
+            // calls `error(...)` is MANU).
+            let entry_reads = shared_dead_stores(table, index, tree, source).map(|d| d.entry);
 
             for def in &scope.defs {
                 if def.kind != DefKind::InputArg {
@@ -133,7 +139,14 @@ impl UnusedEngine {
                     continue;
                 }
 
-                if !scope.is_used(name) && !returned_input(scope, name) {
+                let unread = if returned_input(scope, name) {
+                    entry_reads
+                        .as_ref()
+                        .is_some_and(|reads| !reads.contains(name))
+                } else {
+                    !scope.is_used(name)
+                };
+                if unread {
                     diagnostics.push(Diagnostic {
                         rule_id: "MANU",
                         message: "Input argument might be unused. Consider replacing the argument with ~, or make this method Static instead.".to_string(),
@@ -160,6 +173,16 @@ mod tests {
     }
 
     // -- MANU: unused method input argument ----------------------------------
+
+    #[test]
+    fn manu_on_returned_input_when_the_method_only_errors() {
+        // Probed (plan 6.2): the value never reaches the exit, so `obj` is unused.
+        let errors = "classdef M\n    methods\n        function obj = f(obj)\n            error('X:y', 'no');\n        end\n    end\nend\n";
+        assert!(has_id(&lint_file(&*engine(), errors), "MANU"));
+        let returns =
+            "classdef M\n    methods\n        function obj = f(obj)\n        end\n    end\nend\n";
+        assert!(!has_id(&lint_file(&*engine(), returns), "MANU"));
+    }
 
     #[test]
     fn manu_fires_on_unused_sole_method_input() {

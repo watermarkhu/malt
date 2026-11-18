@@ -64,6 +64,7 @@
 //! | RESWD | error | no | Invalid use of a reserved word. |
 //! | SYNEND | error | no | Invalid use for END operator. |
 //! | MCPLD | error | no | Invalid property syntax at VAR_RESERVED_WORD. |
+//! | VTPOD | error | no | Specify validation in the following order: size, then class, then functions. |
 //! | BADNOT | error | no | Using ~ to ignore a value is not permitted in this context. |
 //! | BADNOTLHS | error | no | Invalid use of logical not operator (~) on left side of an assignment. To use ~ to ignore function outputs, separate output variables with commas. |
 //! | STRIN | error | no | A quoted character vector is unterminated. |

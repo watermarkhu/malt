@@ -9,6 +9,7 @@ icon: lucide/code
 **Category:** Formatting
 **Can be disabled:** Yes
 **Enabled by default:** Yes
+**Maturity:** Stable
 
 ## What this rule does
 

@@ -27,6 +27,8 @@ struct ClassCtx {
     declared: std::collections::HashSet<String>,
     /// Names of `Constant` properties.
     constant_props: std::collections::HashSet<String>,
+    /// Names of `Dependent` properties (their setters are exempt from MCSUP).
+    dependent_props: std::collections::HashSet<String>,
     /// Whether the class is a handle class.
     is_handle: bool,
     /// Whether the class has no superclass at all (MCVM, MCSNOV).
@@ -92,6 +94,7 @@ impl GoodPracticesEngine {
                 )
                 .collect(),
             constant_props: collect_constant_properties(class_node, source),
+            dependent_props: collect_attributed_properties(class_node, source, "Dependent"),
             is_handle: class.is_handle(),
             no_superclass: class.superclasses.is_empty(),
             members_known: class.superclasses.is_empty()
@@ -259,6 +262,15 @@ fn collect_constant_properties(
     class_node: Node,
     source: &str,
 ) -> std::collections::HashSet<String> {
+    collect_attributed_properties(class_node, source, "Constant")
+}
+
+/// Names of the properties declared in a `properties` block carrying `attribute`.
+fn collect_attributed_properties(
+    class_node: Node,
+    source: &str,
+    attribute: &str,
+) -> std::collections::HashSet<String> {
     let mut result = std::collections::HashSet::new();
     let mut cursor = class_node.walk();
     for child in class_node.children(&mut cursor) {
@@ -267,7 +279,7 @@ fn collect_constant_properties(
         }
         let is_constant = attributes_of(child, source, AttrForms::Named)
             .iter()
-            .any(|attr| attr.name == "Constant" && !attr.negated);
+            .any(|attr| attr.name == attribute && !attr.negated);
         if !is_constant {
             continue;
         }
@@ -615,6 +627,7 @@ fn check_method_body(
     // access is reported (reads too); constant properties are not (probed).
     if eng.is_check_enabled("MCSUP")
         && info.is_setter
+        && !ctx.dependent_props.contains(info.base_name.as_str())
         && node.kind() == "field_expression"
         && is_object_field_access(node, source, info)
     {
@@ -884,6 +897,14 @@ mod tests {
     fn test_mcsup_silent_on_constant_property() {
         // Probe K5: reading a Constant property from a setter is not reported.
         let source = "classdef Foo < handle\n    properties (Constant)\n        Version = '1'\n    end\n    properties\n        X\n    end\n    methods\n        function set.X(obj, v)\n            t = obj.Version;\n            obj.X = v;\n        end\n    end\nend\n";
+        assert!(oop_ids_for(source, "MCSUP").is_empty());
+    }
+
+    #[test]
+    fn test_mcsup_silent_in_setter_of_dependent_property() {
+        // Dogfooding (plan 6.2): MATLAB is silent when the set method belongs to a
+        // Dependent property (with or without a get method, with or without an output).
+        let source = "classdef Foo\n    properties (Dependent)\n        V\n    end\n    properties (Access = private)\n        P\n    end\n    methods\n        function obj = set.V(obj, v)\n            obj.P = v;\n        end\n        function v = get.V(obj)\n            v = obj.P;\n        end\n    end\nend\n";
         assert!(oop_ids_for(source, "MCSUP").is_empty());
     }
 

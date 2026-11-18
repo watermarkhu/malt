@@ -401,12 +401,19 @@ impl GoodPracticesEngine {
             .extend(crate::off_under_mathworks(
                 config,
                 &[
-                    "ERTAG", "WNTAG", "CTCH", "CTOINW", "GTARG", "LTARG", "SIMPT",
+                    "ERTAG",
+                    "WNTAG",
+                    "CTCH",
+                    "CTOINW_CALL",
+                    "GTARG",
+                    "LTARG",
+                    "SIMPT",
                     // Never reported by MATLAB in the probes or the fixtures.
                     "ITERS",
                     // ADAPPREF: silent in three probes, with and without an app argument.
                     // MIPC1: silent for computer('arch') in four probes.
-                    "ADAPPREF", "MIPC1",
+                    "ADAPPREF",
+                    "MIPC1",
                     // MCCPE: never reported by MATLAB in 8 probes (a call of a property is CPROP there,
                     // and `%#ok<MCCPE>` gives MSNU, so it is not generated).
                     "MCCPE",
@@ -1355,6 +1362,15 @@ pub(crate) fn walk_body_for_function_calls<'a>(node: Node<'a>, out: &mut Vec<Nod
     }
 }
 
+/// Whether a `field_expression` ends in a parenthesised index (`obj.Value(end)`):
+/// the field parses as a call on the name.
+pub(crate) fn is_indexed_field(node: Node) -> bool {
+    node.kind() == "field_expression"
+        && node
+            .child_by_field_name("field")
+            .is_some_and(|f| f.kind() == "function_call")
+}
+
 /// Collect all descendants of a node with the given kind.
 pub(crate) fn collect_nodes_of_kind<'a>(node: Node<'a>, kind: &str, out: &mut Vec<Node<'a>>) {
     let mut cursor = node.walk();
@@ -2219,15 +2235,18 @@ pub(crate) fn collect_loop_assignments(
 
 /// Whether an assignment target writes the loop variable: `k = ...`, the
 /// indexed `k(2) = ...` and an element of `[k, j] = ...` (probed). A field
-/// `s.k = ...` writes a different variable.
+/// `s.k = ...` writes a different variable, and `[a(k), b] = ...` only reads `k`.
 fn assigns_loop_variable(left: Node, var_name: &str, source: &str) -> bool {
     match left.kind() {
         "identifier" => node_text(left, source) == var_name,
         "function_call" => get_function_call_name(left, source) == Some(var_name),
+        // Each element is a target on its own: `[a(k), b] = f()` reads `k` as an index.
         "matrix" | "multioutput_variable" => {
-            let mut ids = Vec::new();
-            collect_nodes_of_kind(left, "identifier", &mut ids);
-            ids.iter().any(|id| node_text(*id, source) == var_name)
+            let mut cursor = left.walk();
+            let found = left
+                .named_children(&mut cursor)
+                .any(|el| assigns_loop_variable(el, var_name, source));
+            found
         }
         _ => false,
     }
@@ -2274,16 +2293,35 @@ pub(crate) fn find_nth_properties_block<'a>(
 }
 
 /// Walk a class definition and emit MCCPE diagnostics for `function_call`
-/// nodes whose name matches a property or event name.
+/// nodes whose name matches a property or event name. A name the function
+/// takes as an input or assigns is a local variable there, not the property
+/// (plan 6.2: `Time(idx, 1) = v` and a test-method parameter).
 pub(crate) fn collect_property_event_calls(
     node: Node,
     source: &str,
     names: &std::collections::HashSet<String>,
     diagnostics: &mut Vec<Diagnostic>,
 ) {
+    collect_property_event_calls_in(node, source, names, &Default::default(), diagnostics);
+}
+
+fn collect_property_event_calls_in(
+    node: Node,
+    source: &str,
+    names: &std::collections::HashSet<String>,
+    locals: &std::collections::HashSet<String>,
+    diagnostics: &mut Vec<Diagnostic>,
+) {
+    let scoped;
+    let locals = if node.kind() == "function_definition" {
+        scoped = function_local_names(node, source);
+        &scoped
+    } else {
+        locals
+    };
     if node.kind() == "function_call" {
         if let Some(name) = get_function_call_name(node, source) {
-            if names.contains(name) {
+            if names.contains(name) && !locals.contains(name) {
                 let pos = node.start_position();
                 diagnostics.push(Diagnostic {
                     rule_id: "MCCPE",
@@ -2301,8 +2339,57 @@ pub(crate) fn collect_property_event_calls(
     }
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
-        collect_property_event_calls(child, source, names, diagnostics);
+        collect_property_event_calls_in(child, source, names, locals, diagnostics);
     }
+}
+
+/// The names a function takes as inputs or outputs, or assigns (including the
+/// base of `x(i) = v` and the elements of `[a, b] = f()`).
+fn function_local_names(function: Node, source: &str) -> std::collections::HashSet<String> {
+    let mut names = std::collections::HashSet::new();
+    let mut cursor = function.walk();
+    for child in function.children(&mut cursor) {
+        if matches!(child.kind(), "function_arguments" | "function_output") {
+            let mut ids = Vec::new();
+            collect_nodes_of_kind(child, "identifier", &mut ids);
+            names.extend(ids.iter().map(|id| node_text(*id, source).to_string()));
+        }
+    }
+    let mut assignments = Vec::new();
+    collect_nodes_of_kind(function, "assignment", &mut assignments);
+    for assignment in assignments {
+        let Some(left) = assignment.child_by_field_name("left") else {
+            continue;
+        };
+        match left.kind() {
+            "identifier" => {
+                names.insert(node_text(left, source).to_string());
+            }
+            "function_call" => {
+                if let Some(name) = get_function_call_name(left, source) {
+                    names.insert(name.to_string());
+                }
+            }
+            "matrix" | "multioutput_variable" => {
+                let mut c = left.walk();
+                for el in left.named_children(&mut c) {
+                    match el.kind() {
+                        "identifier" => {
+                            names.insert(node_text(el, source).to_string());
+                        }
+                        "function_call" => {
+                            if let Some(name) = get_function_call_name(el, source) {
+                                names.insert(name.to_string());
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    names
 }
 
 #[cfg(test)]

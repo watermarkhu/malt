@@ -72,8 +72,13 @@ impl SyntaxErrorsEngine {
                 let Some(name_node) = method.child_by_field_name("name") else {
                     continue;
                 };
-                let name = source[name_node.start_byte()..name_node.end_byte()].to_string();
+                let mut name = source[name_node.start_byte()..name_node.end_byte()].to_string();
                 let pos = name_node.start_position();
+                // `get.X` and `set.X` are two methods that share the property's name.
+                let before = &source[..name_node.start_byte()];
+                if before.ends_with("get.") || before.ends_with("set.") {
+                    name = format!("{}{name}", &before[before.len() - 4..]);
+                }
                 match first_lines.get(&name) {
                     Some(&first_line) => {
                         if self.is_check_enabled("REDEF") {
@@ -495,6 +500,13 @@ mod redef_scope_tests {
         // Probed (DupMeth.m): the second `f`, line 6.
         let src = "classdef DupMeth\nmethods\nfunction r = f(obj)\nr = 1;\nend\nfunction r = f(obj)\nr = 2;\nend\nend\nend\n";
         assert_eq!(redef_lines(src), vec![6]);
+    }
+
+    #[test]
+    fn redef_ok_for_get_and_set_of_one_property() {
+        // Dogfooding (plan 6.2): MATLAB is silent on `get.V` next to `set.V`.
+        let src = "classdef GS\nproperties (Dependent)\nV\nend\nmethods\nfunction v = get.V(obj)\nv = 1;\nend\nfunction obj = set.V(obj, v)\nend\nend\nend\n";
+        assert!(redef_lines(src).is_empty(), "{:?}", redef_lines(src));
     }
 
     #[test]

@@ -281,7 +281,17 @@ pub fn dead_stores(table: &SymbolTable, index: usize, tree: &Tree, source: &str)
         return None;
     }
     let Some(body) = scope_body(scope, tree.root_node()) else {
-        return Some(Dead::default());
+        // Nothing runs: the outputs are live on entry (an input that is also an
+        // output is returned as it came in).
+        return Some(Dead {
+            entry: scope
+                .defs
+                .iter()
+                .filter(|d| d.kind == DefKind::OutputArg)
+                .map(|d| d.name.clone())
+                .collect(),
+            ..Dead::default()
+        });
     };
     if calls_dynamic(body, source) {
         return None;

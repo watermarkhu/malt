@@ -20,6 +20,7 @@
  *     bun docs/scripts/gen_rules_docs.ts --write          # write rule pages + rules.md (default)
  *     bun docs/scripts/gen_rules_docs.ts --check          # exit 1 if any generated file is stale
  *     bun docs/scripts/gen_rules_docs.ts --check-module <slug>  # check a single rule page only
+ *     bun docs/scripts/gen_rules_docs.ts --maturity-report # per-engine maturity counts
  */
 import { existsSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
@@ -32,6 +33,9 @@ const SRCS = join(REPO, 'crates', 'malt_rules', 'src')
 const DATA_DIR = join(SRCS, 'data')
 const COMPAT_TOML = join(DATA_DIR, 'compatibility.toml')
 const SI_TOML = join(DATA_DIR, 'suggested_improvements.toml')
+const MATURITY_TOML = join(DATA_DIR, 'maturity.toml')
+const EXPECTED_TSV = join(REPO, 'crates', 'malt_cli', 'tests', 'fixtures', 'matlab_expected.tsv')
+const CONFIG_EXPECTED_TSV = join(REPO, 'crates', 'malt_cli', 'tests', 'matlab_config', 'expected.tsv')
 const PRESET_RS = join(REPO, 'crates', 'malt_core', 'src', 'preset.rs')
 
 // ---------------------------------------------------------------------------
@@ -240,13 +244,14 @@ interface CheckEntry {
   message?: string
   category?: string
   pattern?: string
+  low_reliability?: string
 }
 
 function parseChecks(tomlPath: string): CheckEntry[] {
   const text = readFileSync(tomlPath, 'utf8')
   const entries: CheckEntry[] = []
   let current: CheckEntry | null = null
-  const keyval = /^(id|function_name|severity|message|category|pattern)\s*=\s*(".*?"|\S+)/
+  const keyval = /^(id|function_name|severity|message|category|pattern|low_reliability)\s*=\s*(".*?"|\S+)/
   for (const raw of text.split('\n')) {
     const line = raw.trim()
     if (line.startsWith('[[checks]]')) {
@@ -405,6 +410,174 @@ export function anchor(id: string): string {
 }
 
 // ---------------------------------------------------------------------------
+// Maturity (plan 6.3): `crates/malt_rules/src/data/maturity.toml`
+// ---------------------------------------------------------------------------
+
+interface MaturityEntry {
+  engine?: string
+  ids: string[]
+  prefix?: string
+  except: string[]
+  compat?: string
+  reason: string
+}
+
+/** Parse the `[[experimental]]` entries of maturity.toml (strings and string arrays only). */
+function parseMaturity(): MaturityEntry[] {
+  const text = readFileSync(MATURITY_TOML, 'utf8')
+  const entries: MaturityEntry[] = []
+  for (const block of text.split(/^\[\[experimental\]\]\s*$/m).slice(1)) {
+    const entry: MaturityEntry = { ids: [], except: [], reason: '' }
+    const re = /^(\w+)\s*=\s*(\[[^\]]*\]|"(?:[^"\\]|\\.)*")/gm
+    for (const m of block.matchAll(re)) {
+      const list = m[2].startsWith('[') ? [...m[2].matchAll(/"([^"]*)"/g)].map((x) => x[1]) : []
+      const str = m[2].startsWith('"') ? m[2].slice(1, -1) : ''
+      if (m[1] === 'ids') entry.ids = list
+      else if (m[1] === 'except') entry.except = list
+      else if (m[1] === 'engine') entry.engine = str
+      else if (m[1] === 'prefix') entry.prefix = str
+      else if (m[1] === 'compat') entry.compat = str
+      else if (m[1] === 'reason') entry.reason = str
+    }
+    entries.push(entry)
+  }
+  return entries
+}
+
+/**
+ * The reason each compatibility check ID is experimental, per `compat = ...` entries.
+ * An ID is experimental only when every one of its entries is (as in `maturity.rs`).
+ */
+function compatExperimental(entries: MaturityEntry[]): Map<string, string> {
+  const byId = new Map<string, Array<{ low: boolean; pattern?: string }>>()
+  const text = readFileSync(COMPAT_TOML, 'utf8')
+  let cur: { id?: string; low: boolean; pattern?: string } | null = null
+  const flush = () => {
+    if (cur?.id) {
+      if (!byId.has(cur.id)) byId.set(cur.id, [])
+      byId.get(cur.id)!.push({ low: cur.low, pattern: cur.pattern })
+    }
+  }
+  for (const raw of text.split('\n')) {
+    const line = raw.trim()
+    if (line.startsWith('[[checks]]')) {
+      flush()
+      cur = { low: false }
+    } else if (cur) {
+      const id = line.match(/^id\s*=\s*"([^"]*)"/)
+      if (id) cur.id = id[1]
+      const pattern = line.match(/^pattern\s*=\s*"([^"]*)"/)
+      if (pattern) cur.pattern = pattern[1]
+      if (/^low_reliability\s*=\s*true\b/.test(line)) cur.low = true
+    }
+  }
+  flush()
+  const out = new Map<string, string>()
+  for (const [id, list] of byId) {
+    const hit = entries.find(
+      (e) => e.compat && list.every((x) => (e.compat === 'low_reliability' ? x.low : x.pattern === e.compat)),
+    )
+    if (hit) out.set(id, hit.reason)
+  }
+  return out
+}
+
+interface Maturity {
+  entries: MaturityEntry[]
+  compat: Map<string, string>
+}
+
+let maturityCache: Maturity | null = null
+function maturity(): Maturity {
+  if (!maturityCache) {
+    const entries = parseMaturity()
+    maturityCache = { entries, compat: compatExperimental(entries) }
+  }
+  return maturityCache
+}
+
+/** Why `id` (emitted by `engine`) is experimental, or null when it is stable. */
+function experimentalReason(engine: string, id: string): string | null {
+  const m = maturity()
+  const engineWide = m.entries.find((e) => e.engine === engine)
+  if (engineWide) return engineWide.reason
+  const compat = m.compat.get(id)
+  if (compat) return compat
+  for (const e of m.entries) {
+    if (e.ids.includes(id)) return e.reason
+    if (e.prefix && id.startsWith(e.prefix) && !e.except.includes(id)) return e.reason
+  }
+  return null
+}
+
+/** The experimental share of a module: `Stable`, `Experimental`, or `Mixed (n of m)`. */
+function moduleMaturity(mod: RuleModule): { label: string; experimental: number; total: number } {
+  const ids = mod.checks.length ? mod.checks.map((c) => c.id) : [mod.frontmatter.id]
+  const experimental = ids.filter((id) => experimentalReason(mod.frontmatter.id, id)).length
+  const total = ids.length
+  const label =
+    experimental === 0 ? 'Stable' : experimental === total ? 'Experimental' : `Mixed (${experimental} of ${total} experimental)`
+  return { label, experimental, total }
+}
+
+/** Every check ID that MATLAB reported in a recorded run (fixtures and configuration cases). */
+function recordedIds(): Set<string> {
+  const ids = new Set<string>()
+  for (const [file, col] of [
+    [EXPECTED_TSV, 2],
+    [CONFIG_EXPECTED_TSV, 3],
+  ] as const) {
+    for (const line of readFileSync(file, 'utf8').split('\n')) {
+      if (!line || line.startsWith('#')) continue
+      const id = line.split('\t')[col]
+      if (id && /^[A-Za-z][A-Za-z0-9._]*$/.test(id)) ids.add(id)
+    }
+  }
+  return ids
+}
+
+/** Problems in the maturity table: unknown IDs, or an experimental check MATLAB reported. */
+function maturityProblems(modules: RuleModule[]): string[] {
+  const problems: string[] = []
+  const known = new Map<string, string>()
+  for (const mod of modules) {
+    const ids = mod.checks.length ? mod.checks.map((c) => c.id) : [mod.frontmatter.id]
+    for (const id of ids) known.set(id, mod.frontmatter.id)
+  }
+  const engines = new Set(modules.map((m) => m.frontmatter.id))
+  for (const e of maturity().entries) {
+    if (e.engine && !engines.has(e.engine)) problems.push(`maturity.toml: unknown engine ${e.engine}`)
+    for (const id of [...e.ids, ...e.except]) {
+      if (!known.has(id)) problems.push(`maturity.toml: unknown check ID ${id}`)
+    }
+  }
+  for (const id of recordedIds()) {
+    const engine = known.get(id)
+    const reason = engine ? experimentalReason(engine, id) : null
+    if (reason) problems.push(`maturity.toml: ${id} is experimental but MATLAB reported it in a recorded run`)
+  }
+  return problems
+}
+
+/** The markdown report behind the table in docs/VERIFY.md (`--maturity-report`). */
+function maturityReport(modules: RuleModule[]): string {
+  const recorded = recordedIds()
+  const rows = ['| Engine | Checks | Stable | Experimental | Recorded by MATLAB | Stable without a recording |', '| --- | --- | --- | --- | --- | --- |']
+  let totals = [0, 0, 0, 0, 0]
+  for (const mod of modules) {
+    const ids = mod.checks.length ? mod.checks.map((c) => c.id) : [mod.frontmatter.id]
+    const unique = [...new Set(ids)]
+    const exp = unique.filter((id) => experimentalReason(mod.frontmatter.id, id)).length
+    const rec = unique.filter((id) => recorded.has(id)).length
+    const unrecorded = unique.filter((id) => !experimentalReason(mod.frontmatter.id, id) && !recorded.has(id)).length
+    rows.push(`| \`${mod.frontmatter.id}\` | ${unique.length} | ${unique.length - exp} | ${exp} | ${rec} | ${unrecorded} |`)
+    totals = [totals[0] + unique.length, totals[1] + unique.length - exp, totals[2] + exp, totals[3] + rec, totals[4] + unrecorded]
+  }
+  rows.push(`| **Total** | ${totals.join(' | ')} |`)
+  return rows.join('\n') + '\n'
+}
+
+// ---------------------------------------------------------------------------
 // Rule page rendering
 // ---------------------------------------------------------------------------
 
@@ -414,6 +587,38 @@ function enabledByDefaultLabel(mod: RuleModule): string {
     return 'No (off in the default `mathworks` preset)'
   }
   return 'Yes'
+}
+
+function checkMaturityWord(mod: RuleModule, id: string): string {
+  return experimentalReason(mod.frontmatter.id, id) ? 'experimental' : 'stable'
+}
+
+/**
+ * The `## Maturity` section of a rule page: why its experimental checks are
+ * experimental, grouped by reason. Empty for a page without experimental checks.
+ */
+function renderMaturitySection(mod: RuleModule): string {
+  const ids = mod.checks.length ? mod.checks.map((c) => c.id) : [mod.frontmatter.id]
+  const byReason = new Map<string, string[]>()
+  for (const id of [...new Set(ids)]) {
+    const reason = experimentalReason(mod.frontmatter.id, id)
+    if (!reason) continue
+    if (!byReason.has(reason)) byReason.set(reason, [])
+    byReason.get(reason)!.push(id)
+  }
+  if (!byReason.size) return ''
+  const out = [
+    '## Maturity',
+    '',
+    'Experimental checks are off by default and run with `[lint] experimental = true`, the `all` preset, or an explicit rule setting (see [Experimental checks](../configuration.md#experimental-checks)).',
+    '',
+  ]
+  for (const [reason, list] of byReason) {
+    const shown =
+      list.length <= 12 ? list.map((id) => `\`${id}\``).join(', ') : `${list.length} checks (marked in the table above)`
+    out.push(`${shown}: ${reason}`, '')
+  }
+  return out.join('\n')
 }
 
 function renderRulePage(mod: RuleModule): string {
@@ -431,6 +636,7 @@ function renderRulePage(mod: RuleModule): string {
   out.push(`**Category:** ${categoryLabel}`)
   out.push('**Can be disabled:** Yes')
   out.push(`**Enabled by default:** ${enabledByDefaultLabel(mod)}`)
+  out.push(`**Maturity:** ${moduleMaturity(mod).label}`)
   if (fm.note) out.push('', `> *${fm.note}*`)
   out.push('')
 
@@ -449,7 +655,7 @@ function renderRulePage(mod: RuleModule): string {
       for (const c of mod.checks) {
         out.push(`### ${c.id}`, '')
         out.push(
-          `Severity: **${c.severity}** · Auto-fix: **${c.fix ? 'yes' : 'no'}**`,
+          `Severity: **${c.severity}** · Auto-fix: **${c.fix ? 'yes' : 'no'}** · Maturity: **${checkMaturityWord(mod, c.id)}**`,
           '',
           c.description,
           '',
@@ -467,17 +673,22 @@ function renderRulePage(mod: RuleModule): string {
         const label = CATEGORY_HUMAN[cat] ?? cat
         out.push(`### ${label} (${entries.length} checks)`, '')
         out.push(
-          '| Check ID | Severity | Description |',
-          '| -------- | -------- | ----------- |',
+          '| Check ID | Severity | Maturity | Description |',
+          '| -------- | -------- | -------- | ----------- |',
         )
         for (const c of entries) {
           const desc = c.description.replace(/\|/g, '\\|')
-          out.push(`| <a id="${anchor(c.id)}"></a>\`${c.id}\` | ${c.severity} | ${desc} |`)
+          out.push(
+            `| <a id="${anchor(c.id)}"></a>\`${c.id}\` | ${c.severity} | ${checkMaturityWord(mod, c.id)} | ${desc} |`,
+          )
         }
         out.push('')
       }
     }
   }
+
+  const maturitySection = renderMaturitySection(mod)
+  if (maturitySection) out.push(maturitySection)
 
   if (fm.fix) {
     const fix = sectionBody(mod.sections, 'Fix')
@@ -532,8 +743,8 @@ function splitTableRow(line: string): string[] {
 /** Row in the global rule index: one row per rule, linking to its page. */
 function renderRuleTable(modules: RuleModule[]): string {
   const rows: string[] = [
-    '| Rule ID | Category | Description | Default Severity | Auto-fix |',
-    '| ------- | -------- | ----------- | ---------------- | -------- |',
+    '| Rule ID | Category | Description | Default Severity | Auto-fix | Maturity |',
+    '| ------- | -------- | ----------- | ---------------- | -------- | -------- |',
   ]
   const seen = new Set<string>()
   for (const mod of modules) {
@@ -548,7 +759,7 @@ function renderRuleTable(modules: RuleModule[]): string {
       mod.description ||
       `Emits ${n} check ID${n === 1 ? '' : 's'} (see the rule page for details).`
     rows.push(
-      `| [\`${fm.id}\`](${page}) | ${cat} | ${desc.replace(/\|/g, '\\|')} | ${SEVERITY_LABEL[fm.severity] ?? fm.severity} | ${fm.fix ? 'Yes' : 'No'} |`,
+      `| [\`${fm.id}\`](${page}) | ${cat} | ${desc.replace(/\|/g, '\\|')} | ${SEVERITY_LABEL[fm.severity] ?? fm.severity} | ${fm.fix ? 'Yes' : 'No'} | ${moduleMaturity(mod).label} |`,
     )
   }
   return rows.join('\n') + '\n'
@@ -583,6 +794,16 @@ const CORE_EMITTED_IDS: readonly string[] = [
  * same sources the pages are generated from (module tables, `naming` product,
  * the data files, the single-check rules), so the number cannot drift.
  */
+/** The number of unique check IDs the maturity table marks experimental. */
+function experimentalCount(modules: RuleModule[]): number {
+  const ids = new Set<string>()
+  for (const mod of modules) {
+    const own = mod.checks.length ? mod.checks.map((c) => c.id) : [mod.frontmatter.id]
+    for (const id of own) if (experimentalReason(mod.frontmatter.id, id)) ids.add(id)
+  }
+  return ids.size
+}
+
 function renderCheckCounts(modules: RuleModule[]): string {
   const ids = new Set<string>()
   let tableChecks = 0
@@ -635,6 +856,7 @@ function renderCheckCounts(modules: RuleModule[]): string {
     `${si.length} suggested-improvement entries (${siUnique} unique IDs), ` +
     `and ${CORE_EMITTED_IDS.length} emitted outside the rule engines ` +
     `(${CORE_EMITTED_IDS.map((id) => `\`${id}\``).join(', ')}). ` +
+    `${experimentalCount(modules)} of them are experimental (verified against the documentation only, or low-reliability: off by default, see [Experimental checks](configuration.md#experimental-checks)). ` +
     'Which of them are on by default, and which engines are verified against MATLAB, ' +
     'is on the [How malt is verified](verification.md) page.\n'
   )
@@ -770,6 +992,10 @@ function replaceDataDrivenSection(text: string): string {
 
 function checkDrift(modules: RuleModule[], only?: string): boolean {
   let clean = true
+  for (const problem of maturityProblems(modules)) {
+    console.error(problem)
+    clean = false
+  }
 
   for (const mod of modules) {
     if (only && rulePageName(mod).replace(/\.md$/, '') !== only) continue
@@ -816,7 +1042,8 @@ CLI:
     bun docs/scripts/gen_rules_docs.ts --print-data     # print data-driven tables
     bun docs/scripts/gen_rules_docs.ts --write          # write rule pages + rules.md (default)
     bun docs/scripts/gen_rules_docs.ts --check          # exit 1 if any generated file is stale
-    bun docs/scripts/gen_rules_docs.ts --check-module <slug>  # check a single rule page only`
+    bun docs/scripts/gen_rules_docs.ts --check-module <slug>  # check a single rule page only
+    bun docs/scripts/gen_rules_docs.ts --maturity-report # per-engine maturity counts (docs/VERIFY.md)`
 
 function main(): number {
   const args = process.argv.slice(2)
@@ -824,6 +1051,10 @@ function main(): number {
 
   if (has('--print-data')) {
     process.stdout.write(renderDataDrivenBody())
+    return 0
+  }
+  if (has('--maturity-report')) {
+    process.stdout.write(maturityReport(discoverModules()))
     return 0
   }
   if (has('--check-module')) {

@@ -248,7 +248,7 @@ impl Rule for UnusedEngine {
             .and_then(|s| s.to_str())
             .unwrap_or("");
         self.check_defnu(&table, file_stem, &mut diagnostics);
-        self.check_manu(&table, ctx.tree.root_node(), ctx.source, &mut diagnostics);
+        self.check_manu(&table, ctx.tree, ctx.source, &mut diagnostics);
 
         // 3. Run tree-walk checks.
         self.check_unrch(ctx, &mut diagnostics);

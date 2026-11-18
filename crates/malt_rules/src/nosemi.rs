@@ -80,7 +80,7 @@ pub struct Nosemi {
 }
 
 /// Nodes whose children are a sequence of statements and separators.
-const SEQUENCES: &[&str] = &["source_file", "block", "class_definition"];
+const SEQUENCES: &[&str] = &["source_file", "block", "class_definition", "methods"];
 
 /// Nodes with a header line that a `;` may (needlessly) terminate:
 /// `if x;`, `for i = 1:3;`, `function f;`, `else;`, ...
@@ -146,6 +146,7 @@ impl Rule for Nosemi {
             "source_file",
             "block",
             "class_definition",
+            "methods",
             "if_statement",
             "elseif_clause",
             "else_clause",
@@ -286,6 +287,15 @@ mod tests {
 
     fn fixed(source: &str) -> String {
         apply_fixes(source, &nosemi(source))
+    }
+
+    #[test]
+    fn flags_semicolon_after_method_end() {
+        // Probed (plan 6.2): `end;` after a method of a `methods` block is NOSEMI.
+        let src = "classdef A\n    methods\n        function f(~)\n        end;\n    end;\nend\n";
+        let mut lines: Vec<usize> = nosemi(src).iter().map(|d| d.line).collect();
+        lines.sort_unstable();
+        assert_eq!(lines, vec![4, 5]);
     }
 
     #[test]

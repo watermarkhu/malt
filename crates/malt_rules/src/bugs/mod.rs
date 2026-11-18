@@ -604,10 +604,9 @@ impl BugsEngine {
     ///
     /// # Limitations (heuristic)
     ///
-    /// "Initialized to a CELL" is recognized only from a literal `cell`
-    /// literal (`varargout = {}`) or a `cell(...)` call. Initialization via a
-    /// variable, a helper, or any other cell-producing expression is treated
-    /// as uninitialized and flagged. Nested function definitions are skipped,
+    /// Only a literal, a function handle or a call to `ones`, `struct` or
+    /// `true` on the right is reported (probed); every other right-hand side
+    /// counts as an initialization. Nested function definitions are skipped,
     /// so `varargout` used only inside a nested function is not attributed to
     /// the enclosing function.
     fn check_vararg_init(&self, root: Node, source: &str) -> Vec<Diagnostic> {
@@ -676,7 +675,24 @@ impl BugsEngine {
                             || (r.kind() == "function_call"
                                 && extract_call_name(r, source) == Some("cell"))
                     });
-                    if is_cell {
+                    // Probed (plan 6.2, 22 right-hand sides): only a literal, a function
+                    // handle and a call that is known not to give a cell (`ones`,
+                    // `struct`, `true`) are reported. A variable, an operator, an
+                    // index, a field and any other call are silent, so they count as
+                    // an initialization here.
+                    let is_non_cell = rhs.is_some_and(|r| match r.kind() {
+                        "number" | "string" | "function_handle" | "handle_operator" => true,
+                        "matrix" => r.named_child_count() == 0,
+                        "identifier" => node_text(r, source) == "true",
+                        "function_call" => {
+                            matches!(
+                                extract_call_name(r, source),
+                                Some("ones" | "struct" | "true")
+                            )
+                        }
+                        _ => false,
+                    });
+                    if is_cell || !is_non_cell {
                         *initialized = true;
                     } else {
                         *used = true;
@@ -1473,6 +1489,32 @@ end
 ";
         let diags = file_diags(src);
         assert!(has_id(&diags, "VARARG"), "got: {diags:?}");
+    }
+
+    #[test]
+    fn vararg_follows_the_right_hand_side() {
+        // Probed (plan 6.2): literals, a handle and `ones`/`struct`/`true` are
+        // reported; a variable, an operator, an index, a field and other calls are not.
+        let fires = |rhs: &str| {
+            let src = format!("function varargout = f(varargin)\n    x = varargin;\n    varargout = {rhs};\nend\n");
+            has_id(&file_diags(&src), "VARARG")
+        };
+        for rhs in ["0", "[]", "'a'", "ones(2)", "struct()", "true", "@sin"] {
+            assert!(fires(rhs), "{rhs}");
+        }
+        for rhs in [
+            "x",
+            "varargin",
+            "x + 1",
+            "varargin(1)",
+            "x.f",
+            "[x, 2]",
+            "num2cell(x)",
+            "{1}",
+            "x'",
+        ] {
+            assert!(!fires(rhs), "{rhs}");
+        }
     }
 
     #[test]

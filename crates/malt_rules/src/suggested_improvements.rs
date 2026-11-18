@@ -836,6 +836,27 @@ impl Rule for SuggestedImprovementsEngine {
             return Vec::new();
         }
 
+        // Probed (plan 6.2): MATLAB reports `hgsetget` as a superclass (and nowhere
+        // else: 49 probes of calls and bare names gave nothing), at the name.
+        if node.kind() == "identifier"
+            && node
+                .parent()
+                .and_then(|p| p.parent())
+                .is_some_and(|p| p.kind() == "superclasses")
+            && &ctx.source[node.start_byte()..node.end_byte()] == "hgsetget"
+        {
+            let pos = node.start_position();
+            return vec![Diagnostic {
+                rule_id: "HGSTGT",
+                message: "hgsetget is not recommended. Use matlab.mixin.SetGet or matlab.mixin.SetGetExactNames instead.".to_string(),
+                severity: Severity::Info,
+                byte_range: node.start_byte()..node.end_byte(),
+                line: pos.row + 1,
+                column: pos.column + 1,
+                fix: None,
+            }];
+        }
+
         let func_name = match checked_name(node, ctx.source) {
             Some(name) => name,
             None => return Vec::new(),
@@ -1759,6 +1780,19 @@ mod tests {
     fn command_syntax_is_a_call_despite_a_variable() {
         assert_eq!(rule_ids("corner = 3;\ncorner abc;\n"), vec!["CRNR"]);
         assert!(rule_ids("corner = 3;\ncorner;\n").is_empty());
+    }
+
+    #[test]
+    fn hgsetget_is_reported_as_a_superclass_only() {
+        // Probed (plan 6.2): `classdef C < hgsetget` and `< handle & hgsetget`.
+        let src = "classdef C < hgsetget\nend\n";
+        assert_eq!(rule_ids(src), vec!["HGSTGT"]);
+        assert_eq!(
+            rule_ids("classdef C < handle & hgsetget\nend\n"),
+            vec!["HGSTGT"]
+        );
+        assert!(rule_ids("classdef C < handle\nend\n").is_empty());
+        assert!(rule_ids("x = hgsetget;\n").is_empty());
     }
 
     #[test]

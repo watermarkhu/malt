@@ -1181,6 +1181,22 @@ mod tests {
     }
 
     #[test]
+    fn fdtag_needs_one_of_the_exploration_tags() {
+        // Plan 6.2 (dogfooding): `findall` alone is not the behavior change.
+        let all = CompatibilityEngine::from_config(
+            &Config::from_toml("[lint]\npreset = \"all\"\n").unwrap(),
+        );
+        let ids = |source: &str| {
+            crate::test_util::lint_nodes(all.as_ref(), source)
+                .iter()
+                .filter(|d| d.rule_id == "FDTAG")
+                .count()
+        };
+        assert_eq!(ids("h = findall(groot, 'Type', 'figure');\n"), 0);
+        assert_eq!(ids("h = findall(gcf, 'Tag', 'Exploration.Pan');\n"), 1);
+    }
+
+    #[test]
     fn args_any_matches_literals_without_case() {
         assert!(fires("t = textscan(s, '%d', 'bufsize', 5);\n", "BUFSIZE"));
         assert!(!fires("t = textscan(s, '%d');\n", "BUFSIZE"));

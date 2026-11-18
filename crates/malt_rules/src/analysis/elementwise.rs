@@ -52,16 +52,6 @@ pub(crate) struct Operand<'a> {
     pub(crate) leaves: Vec<Node<'a>>,
 }
 
-impl Operand<'_> {
-    /// The source text from the first leaf to the last one.
-    pub(crate) fn text<'s>(&self, source: &'s str) -> &'s str {
-        match (self.leaves.first(), self.leaves.last()) {
-            (Some(first), Some(last)) => &source[first.start_byte()..last.end_byte()],
-            _ => "",
-        }
-    }
-}
-
 /// A token of a flattened chain: an expression that is not part of the chain,
 /// or an operator with its precedence.
 #[derive(Clone, Copy)]

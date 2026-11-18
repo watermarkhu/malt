@@ -9,6 +9,7 @@ icon: lucide/sliders-horizontal
 **Category:** Custom Checks
 **Can be disabled:** Yes
 **Enabled by default:** No (off in the default `mathworks` preset)
+**Maturity:** Mixed (20 of 25 experimental)
 
 ## What this rule does
 
@@ -30,153 +31,159 @@ Configurable code-complexity and style checks from MATLAB's Code Analyzer
 
 ### SYSBANG
 
-Severity: **warning** · Auto-fix: **no**
+Severity: **warning** · Auto-fix: **no** · Maturity: **experimental**
 
 Use of bang operator is disallowed by custom code analyzer configuration.
 
 ### FCNIL
 
-Severity: **warning** · Auto-fix: **no**
+Severity: **warning** · Auto-fix: **no** · Maturity: **experimental**
 
 Function has more than VAR_NUMBER input arguments. This makes the function difficult to understand and maintain.
 
 ### FCNOL
 
-Severity: **warning** · Auto-fix: **no**
+Severity: **warning** · Auto-fix: **no** · Maturity: **experimental**
 
 Function has more than VAR_NUMBER output arguments. This makes the function difficult to understand and maintain.
 
 ### FCNLL
 
-Severity: **warning** · Auto-fix: **no**
+Severity: **warning** · Auto-fix: **no** · Maturity: **stable**
 
 Function has more than VAR_NUMBER lines. This makes the function difficult to understand and maintain.
 
 ### LLMNC
 
-Severity: **warning** · Auto-fix: **no**
+Severity: **warning** · Auto-fix: **no** · Maturity: **experimental**
 
 Line has more than VAR_NUMBER characters (including whitespaces). This makes the line difficult to understand and maintain.
 
 ### MNCSN
 
-Severity: **warning** · Auto-fix: **no**
+Severity: **warning** · Auto-fix: **no** · Maturity: **stable**
 
 This control statement is deeply nested (nesting level = VAR_NUMBER) and might have more deeply nested control statements. This makes the code difficult to understand and maintain.
 
 ### DAFTC
 
-Severity: **warning** · Auto-fix: **no**
+Severity: **warning** · Auto-fix: **no** · Maturity: **experimental**
 
 Use of try/catch statement is disallowed by custom code analyzer configuration.
 
 ### DAFPV
 
-Severity: **warning** · Auto-fix: **no**
+Severity: **warning** · Auto-fix: **no** · Maturity: **experimental**
 
 Use of persistent variable is disallowed by custom code analyzer configuration.
 
 ### DAFCO
 
-Severity: **warning** · Auto-fix: **no**
+Severity: **warning** · Auto-fix: **no** · Maturity: **experimental**
 
 Use of continue statement is disallowed by custom code analyzer configuration.
 
 ### DAFBR
 
-Severity: **warning** · Auto-fix: **no**
+Severity: **warning** · Auto-fix: **no** · Maturity: **experimental**
 
 Use of break statement is disallowed by custom code analyzer configuration.
 
 ### DAFRT
 
-Severity: **warning** · Auto-fix: **no**
+Severity: **warning** · Auto-fix: **no** · Maturity: **experimental**
 
 Use of return statement is disallowed by custom code analyzer configuration.
 
 ### DAFSC
 
-Severity: **warning** · Auto-fix: **no**
+Severity: **warning** · Auto-fix: **no** · Maturity: **stable**
 
 Use of a script is disallowed by custom code analyzer configuration.
 
 ### DAFNF
 
-Severity: **warning** · Auto-fix: **no**
+Severity: **warning** · Auto-fix: **no** · Maturity: **experimental**
 
 Use of a nested function is disallowed by custom code analyzer configuration.
 
 ### DAFCF
 
-Severity: **warning** · Auto-fix: **no**
+Severity: **warning** · Auto-fix: **no** · Maturity: **experimental**
 
 Use of command syntax to call a function is disallowed by custom code analyzer configuration.
 
 ### DAFAF
 
-Severity: **warning** · Auto-fix: **no**
+Severity: **warning** · Auto-fix: **no** · Maturity: **stable**
 
 Use of an anonymous function is disallowed by custom code analyzer configuration.
 
 ### DAFCV
 
-Severity: **warning** · Auto-fix: **no**
+Severity: **warning** · Auto-fix: **no** · Maturity: **experimental**
 
 Use of character vector is disallowed by custom code analyzer configuration.
 
 ### DAFCVC
 
-Severity: **warning** · Auto-fix: **no**
+Severity: **warning** · Auto-fix: **no** · Maturity: **experimental**
 
 Use of cell array of character vectors is disallowed by custom code analyzer configuration.
 
 ### DAFVI
 
-Severity: **warning** · Auto-fix: **no**
+Severity: **warning** · Auto-fix: **no** · Maturity: **experimental**
 
 Use of varargin is disallowed by custom code analyzer configuration.
 
 ### DAFVO
 
-Severity: **warning** · Auto-fix: **no**
+Severity: **warning** · Auto-fix: **no** · Maturity: **experimental**
 
 Use of varargout is disallowed by custom code analyzer configuration.
 
 ### CYCCOM
 
-Severity: **warning** · Auto-fix: **no**
+Severity: **warning** · Auto-fix: **no** · Maturity: **stable**
 
 Function has a McCabe cyclomatic complexity of more than VAR_NUMBER. This makes the function difficult to understand and maintain.
 
 ### SCYCCOM
 
-Severity: **warning** · Auto-fix: **no**
+Severity: **warning** · Auto-fix: **no** · Maturity: **experimental**
 
 Script has a McCabe cyclomatic complexity of more than VAR_NUMBER. This makes the script difficult to understand and maintain.
 
 ### ACYCCOM
 
-Severity: **warning** · Auto-fix: **no**
+Severity: **warning** · Auto-fix: **no** · Maturity: **experimental**
 
 Anonymous function has a McCabe cyclomatic complexity of more than VAR_NUMBER. This makes the anonymous function difficult to understand and maintain.
 
 ### MCYCCOM
 
-Severity: **warning** · Auto-fix: **no**
+Severity: **warning** · Auto-fix: **no** · Maturity: **experimental**
 
 Function has a modified cyclomatic complexity of more than VAR_NUMBER. This makes the function difficult to understand and maintain.
 
 ### MSCYCCOM
 
-Severity: **warning** · Auto-fix: **no**
+Severity: **warning** · Auto-fix: **no** · Maturity: **experimental**
 
 Script has a modified cyclomatic complexity of more than VAR_NUMBER. This makes the script difficult to understand and maintain.
 
 ### MACYCCOM
 
-Severity: **warning** · Auto-fix: **no**
+Severity: **warning** · Auto-fix: **no** · Maturity: **experimental**
 
 Anonymous function has a modified cyclomatic complexity of more than VAR_NUMBER. This makes the anonymous function difficult to understand and maintain.
+
+## Maturity
+
+Experimental checks are off by default and run with `[lint] experimental = true`, the `all` preset, or an explicit rule setting (see [Experimental checks](../configuration.md#experimental-checks)).
+
+20 checks (marked in the table above): Custom checks mapped from MATLAB's message text and not compared with a live configuration (FCNLL, CYCCOM, MNCSN, DAFSC and DAFAF have recorded configuration cases). The category is off under the mathworks preset.
 
 ## Examples
 

@@ -50,6 +50,27 @@ impl SyntaxErrorsEngine {
         if in_properties {
             self.check_property_index(property, source, diagnostics);
         }
+        // VTPOD: the class written before the size (`x double (1,1)`), in an
+        // `arguments` block and in a `properties` block alike (probed, plan 6.2:
+        // reported at the class name, with or without validators and a default).
+        if let Some(class) = Self::class_before_size(property) {
+            if self.is_check_enabled("VTPOD") {
+                let start = class.start_byte();
+                let before = &source[..start];
+                diagnostics.push(Diagnostic {
+                    rule_id: "VTPOD",
+                    message:
+                        "Specify validation in the following order: size, then class, then functions."
+                            .to_string(),
+                    severity: Severity::Error,
+                    byte_range: start..class.end_byte(),
+                    line: before.matches('\n').count() + 1,
+                    column: start - before.rfind('\n').map_or(0, |newline| newline + 1) + 1,
+                    fix: None,
+                });
+            }
+            return;
+        }
         let Some(vf) = Self::find_validation_functions(property) else {
             return;
         };
@@ -123,12 +144,31 @@ impl SyntaxErrorsEngine {
         Some(property.start_byte() + equals + index + 1)
     }
 
+    /// The class name of a declaration that has it before the size: the parser
+    /// leaves it as an ERROR node holding one identifier, right before `dimensions`.
+    fn class_before_size(property: Node) -> Option<Node> {
+        let mut cursor = property.walk();
+        let children: Vec<Node> = property.named_children(&mut cursor).collect();
+        children.windows(2).find_map(|pair| {
+            let [error, next] = pair else {
+                return None;
+            };
+            (error.kind() == "ERROR"
+                && next.kind() == "dimensions"
+                && error.named_child_count() == 1)
+                .then(|| error.named_child(0))
+                .flatten()
+                .filter(|id| id.kind() == "identifier")
+        })
+    }
+
     /// True when this check reports the property's out-of-order token or literal
     /// index, so the generic ERROR-node MCPLD must not repeat it.
     pub(crate) fn property_order_reported(property: Node, source: &str) -> bool {
-        Self::find_validation_functions(property)
-            .and_then(|vf| Self::token_after_validators(vf, source))
-            .is_some()
+        Self::class_before_size(property).is_some()
+            || Self::find_validation_functions(property)
+                .and_then(|vf| Self::token_after_validators(vf, source))
+                .is_some()
             || Self::literal_index_paren(property, source).is_some()
     }
 
@@ -322,6 +362,24 @@ mod tests {
         );
         let end_src = "classdef PropIdx\n    properties\n        e = [1 2 3](end)\n    end\nend\n";
         assert_eq!(found(end_src, "MCPLD").len(), 1);
+    }
+
+    #[test]
+    fn vtpod_fires_on_class_before_size() {
+        // Probed (plan 6.2): reported at the class name, in `arguments` and `properties`
+        // blocks, with or without validators and a default; no MCPLD or FVSYN there.
+        for src in [
+            "function f(a)\n    arguments\n        a double (1,1)\n    end\n    disp(a);\nend\n",
+            "function f(a)\n    arguments\n        a double (1,1) {mustBePositive} = 1\n    end\n    disp(a);\nend\n",
+            "classdef C\n    properties\n        P double (1,1) = 1\n    end\nend\n",
+        ] {
+            let diags = lint_file(&*engine(), src);
+            assert_eq!(found(src, "VTPOD").len(), 1, "{src}: {diags:?}");
+            assert_eq!(found(src, "VTPOD")[0].0, 3, "{src}");
+            assert!(!has_id(&diags, "MCPLD") && !has_id(&diags, "FVSYN"), "{src}: {diags:?}");
+        }
+        let ok = "function f(a)\n    arguments\n        a (1,1) double {mustBePositive} = 1\n    end\n    disp(a);\nend\n";
+        assert!(found(ok, "VTPOD").is_empty());
     }
 
     #[test]

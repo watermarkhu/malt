@@ -128,6 +128,43 @@ impl std::fmt::Display for Category {
 }
 
 // ---------------------------------------------------------------------------
+// Maturity
+// ---------------------------------------------------------------------------
+
+/// How far a check has been verified against MATLAB's Code Analyzer.
+///
+/// Metadata only: it does not change what a check reports. Experimental
+/// checks are off by default and run with `[lint] experimental = true`, the
+/// `all` preset, or an explicit rule setting. The classification lives in
+/// `malt_rules::maturity`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub enum Maturity {
+    /// Verified against MATLAB (recorded findings), or part of the default
+    /// analysis that the conformance suite covers.
+    #[default]
+    Stable,
+    /// Verified against the documentation only, never reported by MATLAB in
+    /// the recorded fixtures, or of low reliability.
+    Experimental,
+}
+
+impl Maturity {
+    /// The word used in the docs and in the data file.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Stable => "stable",
+            Self::Experimental => "experimental",
+        }
+    }
+}
+
+impl std::fmt::Display for Maturity {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Context types
 // ---------------------------------------------------------------------------
 

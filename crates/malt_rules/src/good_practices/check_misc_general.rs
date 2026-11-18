@@ -20,7 +20,13 @@ impl GoodPracticesEngine {
             collect_subsindex(tree, source, &mut diagnostics);
         }
         if self.is_check_enabled("CTOINW") {
-            collect_ctoinw(tree, source, &mut diagnostics);
+            // Probed (plan 6.2): MATLAB reports a constructor that takes its own
+            // output as an input; the `Class(Class(x))` call form it never
+            // reported, so that one is off under `mathworks` (CTOINW_CALL).
+            collect_ctoinw_inputs(tree, source, &mut diagnostics);
+            if self.is_check_enabled("CTOINW_CALL") {
+                collect_ctoinw(tree, source, &mut diagnostics);
+            }
         }
         if self.is_check_enabled("FXUP") {
             collect_fxup(tree, source, &mut diagnostics);
@@ -98,6 +104,69 @@ fn collect_ctoinw(tree: &tree_sitter::Tree, source: &str, diagnostics: &mut Vec<
             column: pos.column + 1,
             fix: None,
         });
+    }
+}
+
+/// CTOINW: a constructor (a method named like its class) with an input argument that
+/// has the name of its output variable, reported at that input. Probed: every
+/// position, `~` before it, any output name; a method that is not the constructor
+/// is silent.
+fn collect_ctoinw_inputs(
+    tree: &tree_sitter::Tree,
+    source: &str,
+    diagnostics: &mut Vec<Diagnostic>,
+) {
+    let mut classes = Vec::new();
+    collect_nodes_of_kind(tree.root_node(), "class_definition", &mut classes);
+    for class in classes {
+        let Some(class_name) = class
+            .child_by_field_name("name")
+            .map(|n| node_text(n, source))
+        else {
+            continue;
+        };
+        let mut functions = Vec::new();
+        collect_nodes_of_kind(class, "function_definition", &mut functions);
+        for function in functions {
+            let named = function
+                .child_by_field_name("name")
+                .map(|n| node_text(n, source));
+            if named != Some(class_name) {
+                continue;
+            }
+            let mut cursor = function.walk();
+            let children: Vec<Node> = function.children(&mut cursor).collect();
+            let (Some(output), Some(inputs)) = (
+                children.iter().find(|c| c.kind() == "function_output"),
+                children.iter().find(|c| c.kind() == "function_arguments"),
+            ) else {
+                continue;
+            };
+            let mut outputs = Vec::new();
+            collect_nodes_of_kind(*output, "identifier", &mut outputs);
+            let [out] = outputs.as_slice() else {
+                continue;
+            };
+            let out_name = node_text(*out, source);
+            let mut args = Vec::new();
+            collect_nodes_of_kind(*inputs, "identifier", &mut args);
+            for arg in args {
+                if node_text(arg, source) != out_name {
+                    continue;
+                }
+                let pos = arg.start_position();
+                diagnostics.push(Diagnostic {
+                    rule_id: "CTOINW",
+                    message: "Use of constructed object as input to constructor is not necessary."
+                        .to_string(),
+                    severity: Severity::Warning,
+                    byte_range: arg.start_byte()..arg.end_byte(),
+                    line: pos.row + 1,
+                    column: pos.column + 1,
+                    fix: None,
+                });
+            }
+        }
     }
 }
 
@@ -284,6 +353,26 @@ mod tests {
         let source = "classdef Foo\n    methods\n        function y = ctor(x)\n            y = Foo(Foo(x));\n        end\n    end\nend\n";
         let ids = misc_ids_for(source, "CTOINW");
         assert_eq!(ids.len(), 1, "got: {:?}", misc_ids(source));
+    }
+
+    #[test]
+    fn test_ctoinw_fires_on_constructor_taking_its_output() {
+        // Probed (plan 6.2): reported at the input, whatever its position.
+        for header in [
+            "function obj = Foo(obj, args)",
+            "function obj = Foo(a, obj, b)",
+            "function obj = Foo(~, obj)",
+            "function out = Foo(out)",
+        ] {
+            let source =
+                format!("classdef Foo\n    methods\n        {header}\n        end\n    end\nend\n");
+            let ids = misc_ids_for(&source, "CTOINW");
+            assert_eq!(ids.len(), 1, "{header}: {:?}", misc_ids(&source));
+        }
+        let method = "classdef Foo\n    methods\n        function obj = f(obj, args)\n        end\n    end\nend\n";
+        assert!(misc_ids_for(method, "CTOINW").is_empty());
+        let plain = "classdef Foo\n    methods\n        function obj = Foo(args)\n        end\n    end\nend\n";
+        assert!(misc_ids_for(plain, "CTOINW").is_empty());
     }
 
     #[test]

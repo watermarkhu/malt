@@ -32,6 +32,7 @@ pub mod formatting;
 pub mod good_practices;
 pub mod incomplete_analysis;
 pub mod language_spec;
+pub mod maturity;
 pub mod naming;
 pub mod nosemi;
 pub mod performance;

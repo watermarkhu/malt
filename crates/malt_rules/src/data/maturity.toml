@@ -1,0 +1,83 @@
+# Rule maturity (plan step 6.3): which checks are experimental.
+#
+# Everything that is not listed here is stable. This file is the single source:
+# `malt_rules::maturity` reads it, and `docs/scripts/gen_rules_docs.ts` renders
+# the Maturity columns of the rule pages and `docs/rules.md` from it. The
+# classification and its evidence are described in the section "Rule maturity
+# (plan 6.3)" of `docs/VERIFY.md`.
+#
+# Principle. A check is STABLE when MATLAB's Code Analyzer reported it on a
+# recorded fixture (`matlab_expected.tsv`, or a recorded configuration case in
+# `tests/matlab_config`), or when it belongs to the default analysis of the
+# `mathworks` preset (the conformance suite and the live checkcode parity cover
+# that analysis as a whole). A check is EXPERIMENTAL when MATLAB reported it
+# nowhere that was recorded, and it is off under the `mathworks` preset: it was
+# verified against the documentation index, or against probes where MATLAB
+# stayed silent, or its data is marked low-reliability. Experimental checks run
+# with `[lint] experimental = true`, `--preset all`, or an explicit rule setting.
+#
+# A check can never be both: `bun docs/scripts/gen_rules_docs.ts --check` fails
+# when an experimental check has a recorded MATLAB finding, and a Rust test fails
+# when a finding of the default analysis has an experimental ID.
+#
+# Entry keys (each entry has a `reason`, and exactly one selector):
+#   engine  = "<ENGINE_ID>"          every check of that engine
+#   ids     = ["ID", ...]            these check IDs
+#   prefix  = "naming."              every check ID starting with it,
+#   except  = ["ID", ...]            minus these (optional, with `prefix`)
+#   compat  = "low_reliability"      the compatibility entries with that flag,
+#   compat  = "object" | "unverified"  or that `pattern` (data/compatibility.toml)
+
+[[experimental]]
+engine = "CODEGEN_ENGINE"
+reason = "MATLAB Coder checks: checkcode never emitted one in the probes (they need MATLAB Coder and %#codegen); verified against the documentation index only. The engine is off by default."
+
+[[experimental]]
+engine = "DEPLOYMENT_ENGINE"
+reason = "MATLAB Compiler checks: never emitted by checkcode in the probes; verified against the documentation index only. The engine is off by default."
+
+[[experimental]]
+engine = "SYSTEM_OBJECTS_ENGINE"
+reason = "System object checks: silent in 13 probe shapes; verified against the documentation index only. The engine is off by default."
+
+[[experimental]]
+engine = "UNSUPPORTED_ENGINE"
+reason = "Unsupported-feature checks (including fixed-point): never emitted by checkcode in the probes; verified against the documentation index only. The engine is off by default."
+
+[[experimental]]
+prefix = "naming."
+except = [
+  "naming.variable.casing",
+  "naming.variable.maxLength",
+  "naming.variable.requiredPrefix",
+  "naming.variable.disallowedSuffix",
+]
+reason = "MATLAB reports naming checks only through a configuration file. These four have recorded configuration cases (tests/matlab_config c07 to c09); the other naming checks were probed by hand, with some semantics unprobed (parent-scope variables, script-level local functions)."
+
+[[experimental]]
+ids = ["FCNIL", "FCNOL", "LLMNC", "SCYCCOM", "ACYCCOM", "MCYCCOM", "MSCYCCOM", "MACYCCOM", "SYSBANG", "DAFTC", "DAFPV", "DAFCO", "DAFBR", "DAFRT", "DAFNF", "DAFCF", "DAFCV", "DAFCVC", "DAFVI", "DAFVO"]
+reason = "Custom checks mapped from MATLAB's message text and not compared with a live configuration (FCNLL, CYCCOM, MNCSN, DAFSC and DAFAF have recorded configuration cases). The category is off under the mathworks preset."
+
+[[experimental]]
+ids = ["SHOCIRF", "MOCUP", "ERTAG", "WNTAG", "CTCH", "GTARG", "LTARG", "SIMPT", "ITERS", "ADAPPREF", "MIPC1", "MCCPE", "FVORDO", "USESWNS", "PFUTVR", "GPNES", "MFAMB", "ISROW", "ISCOL", "GRIDD", "VANUS", "NOEFF", "SUSENS", "USENS"]
+reason = "On the mathworks off-list: MATLAB's default analysis reported none of them in 4 or more probe shapes each, so their on-side (the --preset all behaviour) is not compared with MATLAB."
+
+[[experimental]]
+ids = ["IDISVARHIGH", "FCLEN", "FCCPV", "FCDQS", "FCFAV", "FCHBL", "FCLFS", "FCNVA"]
+reason = "Forward-compatibility gates and IDISVARHIGH: MATLAB's default analysis never reports them; off under the mathworks preset."
+
+[[experimental]]
+ids = ["SHVAI", "SHVAU", "LNGNM", "FVATF", "CTOINE", "MWKCL"]
+reason = "MATLAB never reported them in 11 to 35 probes each; the check is gated off in the engine (not reproduced), the code is kept."
+
+[[experimental]]
+compat = "low_reliability"
+reason = "Entries MATLAB lists with low reliability (behavior-change messages); 60 were probed in 3 shapes each without a report. Off under the mathworks preset, on with the behavior-changes category."
+
+[[experimental]]
+compat = "object"
+reason = "MATLAB reports these only on a variable of the class, which needs class tracking that malt does not have; never emitted."
+
+[[experimental]]
+compat = "unverified"
+reason = "Silent in every probe form; never emitted."

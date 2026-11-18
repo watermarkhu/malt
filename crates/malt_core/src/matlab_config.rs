@@ -186,6 +186,7 @@ pub fn layer(json: Config, toml: Config) -> Config {
         rules,
         categories,
         preset: toml.preset,
+        experimental: toml.experimental,
         inline_suppression: toml.inline_suppression,
         check_settings: json.check_settings,
         matlab_config: toml.matlab_config,
@@ -709,5 +710,18 @@ mod tests {
         let merged = layer(json, toml);
         assert_eq!(merged.check_settings["NOPRT"].enabled, Some(false));
         assert_eq!(merged.rules["NOPRT"].severity, Some(Severity::Warning));
+    }
+
+    #[test]
+    fn the_toml_experimental_flag_applies_over_a_json_file() {
+        // The JSON file has no experimental key; the TOML's flag (and the preset
+        // variant it selects) carries over, and a JSON-only config stays default.
+        let json = ok(r#"{"checks":{"NOPRT":{"enabled":false}}}"#).config;
+        assert!(!json.experimental);
+        let toml = Config::from_toml("[lint]\nexperimental = true\n").unwrap();
+        let merged = layer(json, toml);
+        assert!(merged.experimental);
+        assert!(merged.preset.enables_default_off);
+        assert_eq!(merged.check_settings["NOPRT"].enabled, Some(false));
     }
 }

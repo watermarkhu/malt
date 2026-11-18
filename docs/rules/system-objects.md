@@ -9,6 +9,7 @@ icon: lucide/boxes
 **Category:** System Objects
 **Can be disabled:** Yes
 **Enabled by default:** No (opt in per rule or per category)
+**Maturity:** Experimental
 
 ## What this rule does
 
@@ -26,57 +27,63 @@ diagnostic carries the specific check ID (e.g. `SONUMIN`, `SOTUNPROP3`).
 
 ### SONUMIN
 
-Severity: **error** · Auto-fix: **no**
+Severity: **error** · Auto-fix: **no** · Maturity: **experimental**
 
 If 'stepImpl' accepts variable number of inputs, then you must define a 'getNumInputsImpl' method.
 
 ### SONUMOUT
 
-Severity: **error** · Auto-fix: **no**
+Severity: **error** · Auto-fix: **no** · Maturity: **experimental**
 
 If 'stepImpl' returns variable number of outputs, then you must define a 'getNumOutputsImpl' method.
 
 ### SODEPPROP
 
-Severity: **warning** · Auto-fix: **no**
+Severity: **warning** · Auto-fix: **no** · Maturity: **experimental**
 
 Dependent properties are not supported for MATLAB System blocks. VAR_NAME property is not included on System block.
 
 ### SOINITPROP
 
-Severity: **warning** · Auto-fix: **no**
+Severity: **warning** · Auto-fix: **no** · Maturity: **experimental**
 
 Initialize DiscreteState property VAR_NAME within a 'resetImpl' method.
 
 ### SODFLTVAL
 
-Severity: **error** · Auto-fix: **no**
+Severity: **error** · Auto-fix: **no** · Maturity: **experimental**
 
 Invalid initialization of DiscreteState property VAR_NAME. Initialize property within a 'resetImpl' method.
 
 ### SORSRVDNM
 
-Severity: **warning** · Auto-fix: **no**
+Severity: **warning** · Auto-fix: **no** · Maturity: **experimental**
 
 VAR_NAME property is a reserved name.
 
 ### SOTUNPROP1
 
-Severity: **warning** · Auto-fix: **no**
+Severity: **warning** · Auto-fix: **no** · Maturity: **experimental**
 
 Logical attribute not supported for tunable properties on MATLAB System blocks. VAR_NAME property is made Nontunable on System block.
 
 ### SOTUNPROP3
 
-Severity: **warning** · Auto-fix: **no**
+Severity: **warning** · Auto-fix: **no** · Maturity: **experimental**
 
 Tunable properties on MATLAB System blocks must be numeric. VAR_NAME property is made Nontunable on System block because it is a char.
 
 ### SOTUNPROP4
 
-Severity: **warning** · Auto-fix: **no**
+Severity: **warning** · Auto-fix: **no** · Maturity: **experimental**
 
 Tunable properties on MATLAB System blocks must be numeric. VAR_NAME property is made Nontunable on System block because it is a string.
+
+## Maturity
+
+Experimental checks are off by default and run with `[lint] experimental = true`, the `all` preset, or an explicit rule setting (see [Experimental checks](../configuration.md#experimental-checks)).
+
+`SONUMIN`, `SONUMOUT`, `SODEPPROP`, `SOINITPROP`, `SODFLTVAL`, `SORSRVDNM`, `SOTUNPROP1`, `SOTUNPROP3`, `SOTUNPROP4`: System object checks: silent in 13 probe shapes; verified against the documentation index only. The engine is off by default.
 
 ## Examples
 

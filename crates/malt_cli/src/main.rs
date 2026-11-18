@@ -174,7 +174,7 @@ fn run(mut cli: Cli, colours: Colours) -> Result<()> {
 
     // A --preset override takes priority over the config file's `[lint] preset`.
     if let Some(name) = &cli.preset {
-        config.preset = malt_core::preset::resolve(name).ok_or_else(|| {
+        let preset = malt_core::preset::resolve(name).ok_or_else(|| {
             let names = malt_core::preset::PRESETS
                 .iter()
                 .map(|p| p.name)
@@ -182,6 +182,7 @@ fn run(mut cli: Cli, colours: Colours) -> Result<()> {
                 .join(", ");
             anyhow::anyhow!("unknown preset '{name}' (expected one of: {names})")
         })?;
+        config.set_preset(preset);
     }
 
     // Build rule registry from configuration (only enabled rules).

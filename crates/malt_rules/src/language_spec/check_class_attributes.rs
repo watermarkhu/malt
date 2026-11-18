@@ -132,6 +132,7 @@ impl LanguageSpecEngine {
     ) {
         let range = class.byte_range.clone();
         let line = class.line;
+        let first_new = diagnostics.len();
         // matlab.unittest test classes take `TestParameterDefinition` on a methods
         // block (MCMTP checks it); other classes report it as unknown.
         let mut method_attrs: Vec<&str> = METHOD_ATTRS.to_vec();
@@ -203,6 +204,25 @@ impl LanguageSpecEngine {
                     AttrLevel::Event,
                     diagnostics,
                 );
+            }
+        }
+        // Probed (plan 6.2): a superclass can define attributes of its own
+        // (`matlab.System`, `ComponentContainer`), and MATLAB reports an unknown
+        // attribute only in a class without a superclass, with `handle` or with a
+        // `matlab.mixin` class; with any other superclass it is silent, resolvable
+        // or not.
+        let attributes_known = class
+            .superclasses
+            .iter()
+            .all(|s| s == "handle" || s.starts_with("matlab.mixin."));
+        if !attributes_known {
+            let mut i = first_new;
+            while i < diagnostics.len() {
+                if diagnostics[i].rule_id == "ATUNK" {
+                    diagnostics.remove(i);
+                } else {
+                    i += 1;
+                }
             }
         }
     }
@@ -457,6 +477,24 @@ end
             !filter_by_id(&diags, "ATUNK").is_empty(),
             "ATUNK should fire for an unknown class attribute"
         );
+    }
+
+    #[test]
+    fn test_atunk_follows_the_superclass() {
+        // Probed (plan 6.2): reported without a superclass, with `handle` and with a
+        // `matlab.mixin` class; silent with any other superclass, resolvable or not.
+        let fires = |sup: &str| {
+            let source = format!(
+                "classdef Foo{sup}\n    properties (Mystery)\n        P\n    end\n    methods (Mystery)\n        function f(~)\n        end\n    end\nend\n"
+            );
+            !filter_by_id(&check_source(&source, "Foo.m"), "ATUNK").is_empty()
+        };
+        assert!(fires(""));
+        assert!(fires(" < handle"));
+        assert!(fires(" < matlab.mixin.Copyable"));
+        assert!(!fires(" < matlab.System"));
+        assert!(!fires(" < SomeUnknownBase"));
+        assert!(!fires(" < SomeBase & handle"));
     }
 
     #[test]

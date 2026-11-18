@@ -220,7 +220,8 @@ impl ReadabilityEngine {
     pub fn from_config(config: &Config) -> Box<dyn Rule> {
         let mut rule_config: ReadabilityConfig = config.rule_params("READABILITY_ENGINE");
         // MATLAB reports LOGSUM for `sum(x(:) <= 1)` but not for `sum(x > 0.5)` or
-        // `sum(x.^2 + x <= 1)`; until the exact condition is known it is off by default.
+        // `sum(x.^2 + x <= 1)`: the shapes it reports are always on, the general
+        // `sum(<logical>)` (LOGSUM_ANY) is off by default.
         // MFAMB: MATLAB never reported it in probes (`f(1)` before `f = 2`, in a
         // script or a function) nor in the fixtures, so it is off by default too.
         // ISROW/ISCOL: MATLAB stayed silent on `size(x, 1) == 1` and `size(x, 2) == 1`
@@ -230,7 +231,7 @@ impl ReadabilityEngine {
             .disabled_checks
             .extend(crate::off_under_mathworks(
                 config,
-                &["LOGSUM", "MFAMB", "ISROW", "ISCOL"],
+                &["LOGSUM_ANY", "MFAMB", "ISROW", "ISCOL"],
             ));
         Box::new(Self {
             config: rule_config,

@@ -109,6 +109,9 @@ mod wasm {
         /// "recommended"). Defaults to "mathworks" when absent.
         #[serde(default)]
         pub preset: Option<String>,
+        /// Run the experimental checks too (`[lint] experimental`). Defaults to false.
+        #[serde(default)]
+        pub experimental: bool,
     }
 
     fn default_true() -> bool {
@@ -129,6 +132,7 @@ mod wasm {
                 exclude: Vec::new(),
                 inline_suppression: default_true(),
                 preset: None,
+                experimental: false,
             }
         }
     }
@@ -139,13 +143,16 @@ mod wasm {
             let mut config = Config {
                 exclude: self.exclude.clone(),
                 inline_suppression: self.inline_suppression,
+                experimental: self.experimental,
                 ..Config::default()
             };
 
-            if let Some(name) = &self.preset {
-                config.preset = malt_core::preset::resolve(name)
-                    .unwrap_or_else(|| malt_core::preset::default_preset());
-            }
+            let preset = match &self.preset {
+                Some(name) => malt_core::preset::resolve(name)
+                    .unwrap_or_else(|| malt_core::preset::default_preset()),
+                None => malt_core::preset::default_preset(),
+            };
+            config.set_preset(preset);
 
             // If `enable` is provided, disable every rule we know about first.
             let all_rule_ids = malt_rules::all_rules(&Config::default())
@@ -651,6 +658,28 @@ mod preset_tests {
     fn from_toml_mathworks_keeps_formatting() {
         let mut l = Linter::from_toml("").unwrap();
         assert!(rule_ids(&mut l, "x = 1\n").contains(&"NOPTS".to_string()));
+    }
+
+    #[test]
+    fn from_toml_honours_the_experimental_flag() {
+        // CTCH is on the mathworks off-list (experimental): on only with the flag.
+        let mut plain = Linter::from_toml("").unwrap();
+        let mut flagged = Linter::from_toml("[lint]\nexperimental = true\n").unwrap();
+        let code = "try\n  x = 1;\ncatch\nend\n";
+        assert!(!rule_ids(&mut plain, code).contains(&"CTCH".to_string()));
+        assert!(rule_ids(&mut flagged, code).contains(&"CTCH".to_string()));
+        let mut all = Linter::from_toml("[lint]\npreset = \"all\"\n").unwrap();
+        assert!(rule_ids(&mut all, code).contains(&"CTCH".to_string()));
+    }
+
+    #[test]
+    fn linter_config_experimental_field() {
+        let config = LinterConfig {
+            experimental: true,
+            ..Default::default()
+        };
+        let mut l = from_config(config);
+        assert!(rule_ids(&mut l, "try\n  x = 1;\ncatch\nend\n").contains(&"CTCH".to_string()));
     }
 
     #[test]

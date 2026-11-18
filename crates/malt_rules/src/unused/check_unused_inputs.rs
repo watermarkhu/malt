@@ -121,7 +121,19 @@ impl UnusedEngine {
                         || entry_reads
                             .as_ref()
                             .is_some_and(|reads| !reads.contains(name)));
-                if unread && !super::check_manu::returned_input(scope, name) {
+                // An input that is also an output reaches the exit unless every path
+                // overwrites it first (probed, plan 6.2: `function out = f(out, x)` with
+                // `out = x + 1` is INUSD); where the analysis bailed, it stays silent.
+                let returned = super::check_manu::returned_input(scope, name);
+                let unread = if returned {
+                    !read_in_nested
+                        && entry_reads
+                            .as_ref()
+                            .is_some_and(|reads| !reads.contains(name))
+                } else {
+                    unread
+                };
+                if unread {
                     diagnostics.push(Diagnostic {
                         rule_id: "INUSD",
                         message: "Input argument might be unused. Consider replacing the argument with ~ instead.".to_string(),
@@ -398,6 +410,30 @@ mod tests {
             "function r = foo(a)\n    arguments\n        a (1,1) double\n    end\n    r = a;\nend\n",
         );
         assert!(!has_id(&diags, "INUSA"), "got: {diags:?}");
+    }
+
+    // Probed (plan 6.2): an input that is also an output is INUSD when every path
+    // overwrites it before a read; the value that reaches the exit keeps it used.
+    #[test]
+    fn inusd_on_input_that_is_also_an_output_and_overwritten() {
+        let ids = |src: &str| {
+            crate::test_util::lint_file(
+                &*UnusedEngine::from_config(&malt_core::Config::default()),
+                src,
+            )
+            .iter()
+            .filter(|d| d.rule_id == "INUSD")
+            .count()
+        };
+        assert_eq!(ids("function out = m(out, x)\n    out = x + 1;\nend\n"), 1);
+        assert_eq!(
+            ids("function out = m(out, x)\n    out = out + x;\nend\n"),
+            0
+        );
+        assert_eq!(
+            ids("function out = m(out, x)\n    if x\n        out = 1;\n    end\nend\n"),
+            0
+        );
     }
 
     #[test]

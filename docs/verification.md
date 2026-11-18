@@ -98,6 +98,12 @@ The same pattern covers MATLAB's `codeAnalyzerConfiguration.json`:
 | The custom-check mappings of `LLMNC`, `FCNIL`, `FCNOL`, `SCYCCOM`, `ACYCCOM`, `MCYCCOM`, `MSCYCCOM`, `MACYCCOM`, `SYSBANG` and the other `DAF*` limits | Mapped from MATLAB's message text; **not verified** against a live configuration |
 | Check counts on this site | The total in the [Rules Reference](rules.md#overview) is generated from the rule sources; the preset numbers below were counted by hand from the same sources on 2026-11-17 |
 
+Each check also carries a **maturity** (`stable` or `experimental`), listed per check on the
+rule pages and per engine in the [Rules Reference](rules.md). The experimental ones are the
+best-effort rows above: they are off by default and run with
+[`[lint] experimental = true`](configuration.md#experimental-checks) or `--preset all`. The
+classification and its evidence are in [VERIFY.md](VERIFY.md#rule-maturity-plan-63).
+
 Known, tracked gaps (each one with its probe evidence) are listed in
 [VERIFY.md](VERIFY.md): parser recovery shapes, SYNER token text, the OR2/AND2
 bare-call list, and similar. No fixture fails on any of them, and none is

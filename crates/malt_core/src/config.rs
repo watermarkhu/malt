@@ -78,6 +78,12 @@ pub struct LintSection {
     #[serde(default)]
     pub preset: Option<String>,
 
+    /// Run the experimental checks too (default `false`): the checks that are
+    /// off by default because they are verified against the documentation only.
+    /// See `malt_rules::maturity`.
+    #[serde(default)]
+    pub experimental: bool,
+
     /// Per-rule configuration. Keys are rule IDs (e.g., "NOSEMI").
     /// Values are either a severity string or a full config table.
     #[serde(default)]
@@ -104,6 +110,7 @@ impl Default for LintSection {
             exclude: Vec::new(),
             inline_suppression: true,
             preset: None,
+            experimental: false,
             rules: HashMap::new(),
             categories: HashMap::new(),
             matlab_config: None,
@@ -177,8 +184,13 @@ pub struct Config {
     /// Per-category severity overrides, keyed by [`Category`].
     /// A value of `None` means the category is disabled ("off").
     pub categories: HashMap<Category, Option<Severity>>,
-    /// The active configuration preset.
+    /// The active configuration preset. With [`Config::experimental`] it is the
+    /// preset's experimental variant (see [`PresetDef::with_experimental`]); set
+    /// it through [`Config::set_preset`].
     pub preset: &'static PresetDef,
+    /// `[lint] experimental`: whether the experimental checks run (see
+    /// `malt_rules::maturity`). Already applied to [`Config::preset`].
+    pub experimental: bool,
     /// Whether `%#ok<...>` inline suppression directives are honored.
     /// Defaults to `true`, mirroring MATLAB's inline suppression behavior.
     pub inline_suppression: bool,
@@ -228,6 +240,7 @@ impl Default for Config {
             rules: HashMap::new(),
             categories: HashMap::new(),
             preset: preset::default_preset(),
+            experimental: false,
             inline_suppression: true,
             check_settings: HashMap::new(),
             matlab_config: None,
@@ -334,12 +347,20 @@ impl Config {
             exclude: file.lint.exclude,
             rules,
             categories,
-            preset,
+            preset: preset.with_experimental(file.lint.experimental),
+            experimental: file.lint.experimental,
             inline_suppression: file.lint.inline_suppression,
             check_settings: HashMap::new(),
             matlab_config: file.lint.matlab_config,
             limits: LimitsConfig::from_table(&file.lint.limits)?,
         })
+    }
+
+    /// Select `preset`, applying `[lint] experimental` to it. Use this instead
+    /// of assigning [`Config::preset`] (a `--preset` override, for instance), so
+    /// the flag survives the override.
+    pub fn set_preset(&mut self, preset: &'static PresetDef) {
+        self.preset = preset.with_experimental(self.experimental);
     }
 
     /// Load and deserialize rule-specific parameters into a typed struct.
@@ -628,6 +649,55 @@ M003 = "warn"
 #[cfg(test)]
 mod preset_config_tests {
     use super::*;
+
+    #[test]
+    fn experimental_defaults_to_false_and_changes_nothing() {
+        let config = Config::from_toml("").unwrap();
+        assert!(!config.experimental);
+        assert!(!config.preset.enables_default_off);
+    }
+
+    #[test]
+    fn experimental_true_keeps_the_preset_and_enables_default_off_rules() {
+        let config = Config::from_toml("[lint]\nexperimental = true\n").unwrap();
+        assert!(config.experimental);
+        assert_eq!(config.preset.name, "mathworks");
+        assert!(config.preset.enables_default_off);
+        // Categories the preset disables stay disabled.
+        assert!(!config.is_rule_enabled_for_category("NAMING_ENGINE", Category::Naming, true));
+        // A rule that is off for lack of verification is on.
+        assert!(config.is_rule_enabled_for_category(
+            "CODEGEN_ENGINE",
+            Category::CodeGeneration,
+            false
+        ));
+        // `false` is the default value.
+        let off = Config::from_toml("[lint]\nexperimental = false\n").unwrap();
+        assert!(!off.is_rule_enabled_for_category(
+            "CODEGEN_ENGINE",
+            Category::CodeGeneration,
+            false
+        ));
+    }
+
+    #[test]
+    fn experimental_must_be_a_boolean() {
+        for bad in ["\"yes\"", "1", "[true]"] {
+            let err = Config::from_toml(&format!("[lint]\nexperimental = {bad}\n")).unwrap_err();
+            assert!(matches!(err, ConfigError::Parse(_)), "{bad}: {err}");
+        }
+    }
+
+    #[test]
+    fn set_preset_keeps_the_experimental_flag() {
+        let mut config = Config::from_toml("[lint]\nexperimental = true\n").unwrap();
+        config.set_preset(preset::resolve("recommended").unwrap());
+        assert_eq!(config.preset.name, "recommended");
+        assert!(config.preset.enables_default_off);
+        let mut plain = Config::default();
+        plain.set_preset(preset::resolve("recommended").unwrap());
+        assert!(!plain.preset.enables_default_off);
+    }
 
     #[test]
     fn default_config_uses_mathworks_preset() {

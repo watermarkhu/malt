@@ -42,8 +42,12 @@ impl UnusedEngine {
             };
             let scope = &table.scopes[index];
             // `varargout` is only live as an output (probed: `varargout{1} = 1`
-            // in a function without it as output is NASGU).
-            let ignored = |name: &str| name != "varargout" && self.should_ignore_name(name);
+            // in a function without it as output is NASGU). `varargin` is an
+            // ordinary variable once stored: a dead `varargin = {}` is NASGU
+            // (plan 6.2: `varargin = varargin{2:nargin}` and five more shapes).
+            let ignored = |name: &str| {
+                !matches!(name, "varargout" | "varargin") && self.should_ignore_name(name)
+            };
             for def_index in dead.full {
                 let def = &scope.defs[def_index];
                 if ignored(&def.name) {
@@ -120,6 +124,21 @@ mod tests {
 
     fn engine() -> Box<dyn Rule> {
         UnusedEngine::from_config(&Config::default())
+    }
+
+    // Probed (plan 6.2): a dead store to `varargin` is NASGU; a read keeps it live.
+    #[test]
+    fn nasgu_on_dead_store_to_varargin() {
+        for source in [
+            "function k1(varargin)\nvarargin = {};\nend\n",
+            "function k2(a, varargin)\nvarargin = varargin{2:nargin};\nend\n",
+            "function r = k5(varargin)\nr = 1;\nif r\n    varargin = {};\nend\nend\n",
+            "function r = k7(varargin)\nr = numel(varargin);\nvarargin = {};\nend\n",
+        ] {
+            assert!(has_id(&lint_file(&*engine(), source), "NASGU"), "{source}");
+        }
+        let live = "function r = k8(varargin)\nr = 1;\nvarargin = 5;\ndisp(varargin)\nend\n";
+        assert!(!has_id(&lint_file(&*engine(), live), "NASGU"));
     }
 
     // Probed: an unused name in a `syms` declaration in a function is NASGU at

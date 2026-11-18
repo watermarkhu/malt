@@ -9,6 +9,7 @@ icon: lucide/zap
 **Category:** Performance
 **Can be disabled:** Yes
 **Enabled by default:** Yes
+**Maturity:** Mixed (1 of 40 experimental)
 
 ## What this rule does
 
@@ -30,243 +31,249 @@ this module keeps the engine, the dispatch, the file-level growth walk
 
 ### AGROW
 
-Severity: **info** · Auto-fix: **no**
+Severity: **info** · Auto-fix: **no** · Maturity: **stable**
 
 Variable appears to change size on every loop iteration. Consider preallocating for speed.
 
 ### SAGROW
 
-Severity: **info** · Auto-fix: **no**
+Severity: **info** · Auto-fix: **no** · Maturity: **stable**
 
 Variable appears to change size on every loop iteration (within a script). Consider preallocating for speed.
 
 ### AND2
 
-Severity: **info** · Auto-fix: **yes**
+Severity: **info** · Auto-fix: **yes** · Maturity: **stable**
 
 When both arguments are numeric scalars, consider replacing & with && for performance.
 
 ### OR2
 
-Severity: **info** · Auto-fix: **yes**
+Severity: **info** · Auto-fix: **yes** · Maturity: **stable**
 
 When both arguments are numeric scalars, consider replacing \| with \|\| for performance.
 
 ### MINV
 
-Severity: **info** · Auto-fix: **no**
+Severity: **info** · Auto-fix: **no** · Maturity: **stable**
 
 INV(A)*b can be slower and less accurate than A\b. Consider using A\b for INV(A)*b or b/A for b*INV(A).
 
 ### GFLD
 
-Severity: **info** · Auto-fix: **no**
+Severity: **info** · Auto-fix: **no** · Maturity: **stable**
 
 Use dynamic fieldnames with structures instead of GETFIELD.
 
 ### SFLD
 
-Severity: **info** · Auto-fix: **no**
+Severity: **info** · Auto-fix: **no** · Maturity: **stable**
 
 Use dynamic fieldnames with structures instead of SETFIELD.
 
 ### EXIST
 
-Severity: **info** · Auto-fix: **no**
+Severity: **info** · Auto-fix: **no** · Maturity: **stable**
 
 EXIST with two input arguments is generally faster and clearer than with one input argument.
 
 ### PFBNS
 
-Severity: **info** · Auto-fix: **no**
+Severity: **info** · Auto-fix: **no** · Maturity: **stable**
 
 The entire array or structure 'VAR_NAME' is a broadcast variable. This might result in unnecessary communication overhead.
 
 ### CCAT
 
-Severity: **info** · Auto-fix: **no**
+Severity: **info** · Auto-fix: **no** · Maturity: **stable**
 
 For improved performance, concatenate cell arrays using [] instead of extracting cell arrays and reconstructing them.
 
 ### CCAT1
 
-Severity: **info** · Auto-fix: **no**
+Severity: **info** · Auto-fix: **no** · Maturity: **stable**
 
 { A{I} } can usually be replaced by A(I) or A(I)', which can be much faster.
 
 ### ISMT
 
-Severity: **info** · Auto-fix: **yes**
+Severity: **info** · Auto-fix: **yes** · Maturity: **stable**
 
 Using ISEMPTY is usually faster than comparing LENGTH to 0.
 
 ### ISCL
 
-Severity: **info** · Auto-fix: **yes**
+Severity: **info** · Auto-fix: **yes** · Maturity: **stable**
 
 To improve performance, use 'isscalar' instead of length comparison.
 
 ### ST2NM
 
-Severity: **info** · Auto-fix: **yes**
+Severity: **info** · Auto-fix: **yes** · Maturity: **stable**
 
 If you are operating on scalar values, consider using 'str2double' for faster performance.
 
 ### FLPST
 
-Severity: **info** · Auto-fix: **yes**
+Severity: **info** · Auto-fix: **yes** · Maturity: **stable**
 
 For better performance in some cases, use SORT with the 'descend' option.
 
 ### MXFND
 
-Severity: **info** · Auto-fix: **no**
+Severity: **info** · Auto-fix: **no** · Maturity: **stable**
 
 Use FIND with the 'first' or 'last' option.
 
 ### EFIND
 
-Severity: **info** · Auto-fix: **yes**
+Severity: **info** · Auto-fix: **yes** · Maturity: **stable**
 
 To improve performance, replace ISEMPTY(FIND(X)) with ISEMPTY(FIND( X, 1 )).
 
 ### UDIM
 
-Severity: **info** · Auto-fix: **no**
+Severity: **info** · Auto-fix: **no** · Maturity: **stable**
 
 Instead of using transpose (' or .'), consider using a different DIMENSION input argument to VAR_NAME.
 
 ### FREAD
 
-Severity: **info** · Auto-fix: **no**
+Severity: **info** · Auto-fix: **no** · Maturity: **stable**
 
 FREAD(FID,...,'*char') is more efficient than CHAR(FREAD(...)).
 
 ### N2UNI
 
-Severity: **info** · Auto-fix: **no**
+Severity: **info** · Auto-fix: **no** · Maturity: **stable**
 
 Instead of using 'native2unicode' with 'fread', specify the character encoding scheme in the call to 'fopen'.
 
 ### LAXES
 
-Severity: **info** · Auto-fix: **no**
+Severity: **info** · Auto-fix: **no** · Maturity: **stable**
 
 Calling AXES(h) in a loop can be slow. Consider moving the call to AXES outside the loop.
 
 ### MMTC
 
-Severity: **info** · Auto-fix: **no**
+Severity: **info** · Auto-fix: **no** · Maturity: **stable**
 
 This use of MAT2CELL should probably be replaced by a simpler, faster call to NUM2CELL.
 
 ### MRPBW
 
-Severity: **info** · Auto-fix: **yes**
+Severity: **info** · Auto-fix: **yes** · Maturity: **stable**
 
 To use less memory, replace BWLABEL(bw) by LOGICAL(bw) in a call of REGIONPROPS.
 
 ### SPRIX
 
-Severity: **info** · Auto-fix: **no**
+Severity: **info** · Auto-fix: **no** · Maturity: **stable**
 
 This sparse indexing expression is likely to be slow.
 
 ### TRSRT
 
-Severity: **info** · Auto-fix: **no**
+Severity: **info** · Auto-fix: **no** · Maturity: **stable**
 
 Transposing the input to 'sort' is often unnecessary.
 
 ### GRIDD
 
-Severity: **info** · Auto-fix: **no**
+Severity: **info** · Auto-fix: **no** · Maturity: **experimental**
 
 Consider replacing GRIDDATA with SCATTEREDINTERPOLANT for better performance.
 
 ### CLALL
 
-Severity: **info** · Auto-fix: **no**
+Severity: **info** · Auto-fix: **no** · Maturity: **stable**
 
 Using 'clear' with the 'all' option usually decreases code performance and is often unnecessary.
 
 ### CLCLS
 
-Severity: **info** · Auto-fix: **no**
+Severity: **info** · Auto-fix: **no** · Maturity: **stable**
 
 Using 'clear' with the 'classes' option will decrease code performance and is often unnecessary.
 
 ### CLFUNC
 
-Severity: **info** · Auto-fix: **no**
+Severity: **info** · Auto-fix: **no** · Maturity: **stable**
 
 Using 'clear' with the 'functions' option usually decreases code performance and is often unnecessary.
 
 ### CLJAVA
 
-Severity: **info** · Auto-fix: **no**
+Severity: **info** · Auto-fix: **no** · Maturity: **stable**
 
 Using 'clear' with the 'java' option usually decreases code performance and is often unnecessary.
 
 ### CLMEX
 
-Severity: **info** · Auto-fix: **no**
+Severity: **info** · Auto-fix: **no** · Maturity: **stable**
 
 Using 'clear' with the 'mex' option usually decreases code performance and is often unnecessary.
 
 ### CLEAR0ARGS
 
-Severity: **info** · Auto-fix: **no**
+Severity: **info** · Auto-fix: **no** · Maturity: **stable**
 
 Avoid using 'clear' to clear more than necessary, this decreases code performance and is usually unnecessary.
 
 ### RGXP1
 
-Severity: **info** · Auto-fix: **no**
+Severity: **info** · Auto-fix: **no** · Maturity: **stable**
 
 Using REGEXP(str, pattern, 'ONCE') is faster in this case.
 
 ### RGXPI
 
-Severity: **info** · Auto-fix: **no**
+Severity: **info** · Auto-fix: **no** · Maturity: **stable**
 
 Using REGEXPI(str, pattern, 'ONCE') is faster in this case.
 
 ### TRIM1
 
-Severity: **info** · Auto-fix: **yes**
+Severity: **info** · Auto-fix: **yes** · Maturity: **stable**
 
 Use STRTRIM(str) instead of nesting FLIPLR and DEBLANK calls.
 
 ### TRIM2
 
-Severity: **info** · Auto-fix: **yes**
+Severity: **info** · Auto-fix: **yes** · Maturity: **stable**
 
 Use STRTRIM(str) instead of DEBLANK(STRJUST(str,'left')).
 
 ### STTOK
 
-Severity: **info** · Auto-fix: **no**
+Severity: **info** · Auto-fix: **no** · Maturity: **stable**
 
 Use one call to 'split' instead of calling 'strtok' in a loop.
 
 ### STNCI
 
-Severity: **info** · Auto-fix: **yes**
+Severity: **info** · Auto-fix: **yes** · Maturity: **stable**
 
 Use STRNCMPI(str1,str2) instead of using UPPER/LOWER in a call to STRNCMP.
 
 ### STCCS
 
-Severity: **info** · Auto-fix: **no**
+Severity: **info** · Auto-fix: **no** · Maturity: **stable**
 
 It appears that STRCMPI/STRNCMPI can be replaced by a faster, case sensitive compare.
 
 ### FNDSB
 
-Severity: **info** · Auto-fix: **yes**
+Severity: **info** · Auto-fix: **yes** · Maturity: **stable**
 
 For array or cell array, performance can be improved using logical indexing instead of 'find'.
+
+## Maturity
+
+Experimental checks are off by default and run with `[lint] experimental = true`, the `all` preset, or an explicit rule setting (see [Experimental checks](../configuration.md#experimental-checks)).
+
+`GRIDD`: On the mathworks off-list: MATLAB's default analysis reported none of them in 4 or more probe shapes each, so their on-side (the --preset all behaviour) is not compared with MATLAB.
 
 ## Automatic fixes
 

@@ -30,28 +30,41 @@ impl GoodPracticesEngine {
             .filter(|c| c.is_named() && !matches!(c.kind(), "comment" | "line_continuation"))
             .collect();
         // The format is the first argument (for `fprintf`, the second when the
-        // first is a file identifier). Only a single string literal is checked:
-        // probed, MATLAB is silent for a concatenated `['%s' ...]`, a variable
-        // or `strcat(...)` format.
-        let format_index =
+        // first is a file identifier; for `error` and `warning`, the second when
+        // the first is a message identifier). Only a single string literal is
+        // checked: probed, MATLAB is silent for a concatenated `['%s' ...]`, a
+        // variable or `strcat(...)` format.
+        let mut format_index =
             if func_name == "fprintf" && args.first().is_some_and(|a| a.kind() != "string") {
                 1
             } else {
                 0
             };
+        if is_message {
+            // Probed (plan 6.2, 20 shapes): the first argument is the format unless it
+            // is a message identifier (`a:b`, components that start with a letter) or,
+            // for `warning`, a control word (`'off'`, `'on'`, `'query'`, ...).
+            let Some(first) = args.first().filter(|a| a.kind() == "string") else {
+                return Vec::new();
+            };
+            let first_text = node_text(*first, source).trim_matches(|c| c == '\'' || c == '"');
+            if is_message_identifier_text(first_text) {
+                format_index = 1;
+            } else if func_name == "warning"
+                && matches!(
+                    first_text,
+                    "on" | "off" | "query" | "error" | "verbose" | "backtrace" | "debug"
+                )
+            {
+                return Vec::new();
+            }
+        }
         let format = match args.get(format_index) {
             Some(format) if format.kind() == "string" => *format,
             _ => return Vec::new(),
         };
 
-        let fmt_text = node_text(format, source).trim_matches('\'');
-        // `error` and `warning` take an identifier or an action word (`'off'`)
-        // as the first argument, not a format. Only a message with a space is
-        // read as a format (probed: `error('bad id:here', 'x')` is reported,
-        // `warning('off', 'all')` is silent).
-        if is_message && !fmt_text.contains(' ') {
-            return Vec::new();
-        }
+        let fmt_text = node_text(format, source).trim_matches(|c| c == '\'' || c == '"');
         let specifiers = count_format_specifiers(fmt_text);
         let arg_count = args.len() - format_index - 1;
         // Probed MATLAB rule: a format with no specifiers that gets arguments is
@@ -84,9 +97,68 @@ impl GoodPracticesEngine {
     }
 }
 
+/// Whether a message argument reads as a message identifier: two or more
+/// colon-separated components, each a letter followed by letters, digits or
+/// underscores (probed: `a:`, `:b`, `1a:b`, `a.b:c` and `A_1:b-2` are formats).
+fn is_message_identifier_text(text: &str) -> bool {
+    let mut parts = 0;
+    for part in text.split(':') {
+        let mut chars = part.chars();
+        let ok = chars.next().is_some_and(|c| c.is_ascii_alphabetic())
+            && chars.all(|c| c.is_ascii_alphanumeric() || c == '_');
+        if !ok {
+            return false;
+        }
+        parts += 1;
+    }
+    parts >= 2
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // Probed (plan 6.2): `error`/`warning` take the first argument as the format
+    // unless it is an identifier or a `warning` control word.
+    #[test]
+    fn test_ctpct_message_formats() {
+        let n = |src: &str| {
+            let tree = parse(src);
+            let eng = engine();
+            let mut count = 0;
+            let mut stack = vec![tree.root_node()];
+            while let Some(node) = stack.pop() {
+                count += eng.check_ctpct(node, src).len();
+                let mut c = node.walk();
+                stack.extend(node.children(&mut c));
+            }
+            count
+        };
+        for src in [
+            "error('msg', x);\n",
+            "error('msg', 'text');\n",
+            "warning('msg', x);\n",
+            "error('ErrorID', x, y);\n",
+            "error(\"msg\", x);\n",
+            "error('A:b', 'fmt', 1);\n",
+            "error('A:b', 'fmt %d %d', 1, 2, 3);\n",
+            "error('a:', x);\n",
+            "error('a.b:c', x);\n",
+        ] {
+            assert_eq!(n(src), 1, "{src}");
+        }
+        for src in [
+            "warning('off', 'all');\n",
+            "warning('on', 'MATLAB:foo');\n",
+            "warning('query', 'MATLAB:foo');\n",
+            "warning('error', x);\n",
+            "error('msg %d', 1);\n",
+            "error('msg');\n",
+            "error('Mod:sub', x);\n",
+        ] {
+            assert_eq!(n(src), 0, "{src}");
+        }
+    }
 
     // Probe c4_B ct/c1, c2, c4, c7, c8 (k_continuations.m:49): MATLAB is silent
     // when the format is not one plain string literal.

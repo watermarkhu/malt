@@ -2205,6 +2205,8 @@ low_reliability = true
 [[checks]]
 id = "FDTAG"
 function_name = "findall"
+# Only a call that names one of the tags (plan 6.2: `findall(groot, 'Type', 'figure')` is not it).
+args_any = ["Exploration.Pan", "Exploration.ZoomIn", "Exploration.ZoomOut", "Exploration.DataCursor", "Exploration.Brushing", "Exploration.Rotate"]
 severity = "warning"
 message = "'findall' with 'Exploration.Pan', 'Exploration.ZoomIn', 'Exploration.ZoomOut', 'Exploration.DataCursor', 'Exploration.Brushing', or 'Exploration.Rotate' might return empty because the data exploration buttons have moved from the figure toolbar to the axes toolbar. To customize the axes interactions, use the 'axtoolbar' and 'axtoolbarbtn' functions."
 category = "behavior-changes"

@@ -29,4 +29,4 @@ pub use limits::{Limits, LimitsConfig};
 pub use linter::{note_parse, parse_epoch, LintError, Linter, DEFAULT_MAX_TREE_DEPTH};
 pub use preset::{PresetDef, DEFAULT_PRESET, PRESETS};
 pub use registry::RuleRegistry;
-pub use rule::{Category, FileContext, NodeContext, ProjectIndex, Rule};
+pub use rule::{Category, FileContext, Maturity, NodeContext, ProjectIndex, Rule};

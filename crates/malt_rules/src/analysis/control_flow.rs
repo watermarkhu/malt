@@ -412,6 +412,7 @@ fn first_terminator(block: Node, source: &str) -> Option<usize> {
 fn ends_control_flow(statement: Node, source: &str) -> bool {
     if termination_cause(statement.kind()).is_some()
         || (statement.kind() == "if_statement" && if_terminates(statement, source))
+        || (statement.kind() == "switch_statement" && switch_terminates(statement, source))
         || is_endless_loop(statement, source)
     {
         return true;
@@ -497,7 +498,11 @@ fn check_block_unreachable(block: Node, source: &str, spans: &mut Vec<Unreachabl
             break;
         } else if let Some(cause) = termination_cause(child.kind()) {
             terminator_found = Some(cause);
-        } else if child.kind() == "if_statement" && if_terminates(*child, source) {
+        } else if (child.kind() == "if_statement" && if_terminates(*child, source))
+            || (child.kind() == "switch_statement" && switch_terminates(*child, source))
+        {
+            // Probed (plan 6.2): a `switch` with an `otherwise` whose every branch
+            // returns ends the flow like an `if` with an `else`.
             terminator_found = Some("return");
         }
     }
@@ -1415,6 +1420,18 @@ mod tests {
     // ======================================================================
     // Unreachable code tests
     // ======================================================================
+
+    #[test]
+    fn unreachable_after_switch_whose_branches_all_return() {
+        // Probed (plan 6.2): with an `otherwise` the statement after it is UNRCH;
+        // without one it is reachable.
+        let with_otherwise = "function f(s)\nswitch s\n    case 1\n        return;\n    otherwise\n        return;\nend\ndisp(1);\nend\n";
+        let spans = find_unreachable(&parse(with_otherwise), with_otherwise);
+        assert_eq!(spans.len(), 1);
+        assert_eq!(spans[0].line, 8);
+        let without = "function f(s)\nswitch s\n    case 1\n        return;\n    case 2\n        return;\nend\ndisp(1);\nend\n";
+        assert!(find_unreachable(&parse(without), without).is_empty());
+    }
 
     #[test]
     fn unreachable_after_return() {

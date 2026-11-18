@@ -119,6 +119,37 @@ readability = "info"   # re-enable the readability suggestions
 Presets are defined in `crates/malt_core/src/preset.rs`; adding one is a single
 row in the `PRESETS` table.
 
+## Experimental checks
+
+Every check has a **maturity**: `stable` or `experimental`. It is metadata, shown in the
+Maturity columns of the [Rules Reference](rules.md) and of each rule page. A check is
+**stable** when MATLAB's Code Analyzer reported it on a recorded fixture, or when it belongs
+to the default analysis that the conformance suite covers. A check is **experimental** when
+MATLAB reported it nowhere that was recorded and it is off by default: it was checked
+against MathWorks' documentation only, or MATLAB stayed silent on it in the probes, or its
+data is marked low-reliability. The classification, with the evidence for each group, is in
+[VERIFY.md](VERIFY.md#rule-maturity-plan-63) and [How malt is verified](verification.md).
+
+Experimental checks are off by default (they are already off under the `mathworks` and
+`recommended` presets). They run when any of these applies:
+
+- `[lint] experimental = true` turns all of them on for the preset in use. The preset's
+  disabled categories stay disabled (`naming` and `custom-checks` remain opt-in by category).
+- `--preset all` (or `[lint] preset = "all"`) runs everything, as before.
+- An explicit setting for the engine, the category or the check (for example
+  `[lint.categories] code-generation = "error"` or `[lint.rules] FCDQS = "error"`) turns that
+  one on and always wins; an explicit `"off"` also wins over `experimental = true`. A check
+  of a default-on engine has a per-check switch only where the engine offers one (the `FC*`
+  gates, `IDISVARHIGH`); the other off-list checks need `experimental = true` or `--preset all`.
+
+```toml title=".malt.toml"
+[lint]
+experimental = true    # default: false
+```
+
+The default output of malt does not change: with `experimental = false` (the default) the
+results are the same as before the flag existed.
+
 ## Schema Overview
 
 ```toml title=".malt.toml"
@@ -126,6 +157,7 @@ row in the `PRESETS` table.
 # Global lint settings
 exclude = ["vendor/**", "third_party/**"]
 preset = "recommended"          # Preset: all | mathworks | recommended
+experimental = false            # Also run the experimental checks (see "Experimental checks")
 
 [lint.categories]
 # Per-category severity overrides
@@ -188,6 +220,18 @@ preset = "recommended"
 
 **Type:** string (`"all"`, `"mathworks"`, or `"recommended"`)
 **Default:** `"mathworks"`
+
+### `experimental`
+
+Whether the experimental checks run. See [Experimental checks](#experimental-checks).
+
+```toml
+[lint]
+experimental = true
+```
+
+**Type:** boolean (anything else is an error, exit code `2`)
+**Default:** `false`
 
 ## `[lint.categories]` Section
 
@@ -384,6 +428,9 @@ When no `.malt.toml` is present:
   - `DEPLOYMENT_ENGINE` (`deployment`) — MATLAB Compiler constraints
   - `SYSTEM_OBJECTS_ENGINE` (`system-objects`) — `matlab.System` validation
   - `UNSUPPORTED_ENGINE` (`unsupported`) — platform-specific features
+- The checks marked **experimental** (a superset of the above: also the off-list checks and the
+  low-reliability entries) are off; `[lint] experimental = true` turns them on, see
+  [Experimental checks](#experimental-checks).
 - All other rules are **enabled** at their default severity, including `SUGGESTED_IMPROVEMENTS` (replacement hints,
   which MATLAB reports by default)
 - No files are excluded

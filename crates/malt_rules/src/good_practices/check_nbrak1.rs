@@ -26,7 +26,10 @@ impl GoodPracticesEngine {
             return Vec::new();
         }
         // `[c{:}]` and `[s.f]` are comma-separated lists, not precedence groups.
-        if element.kind() == "field_expression" || source[element.byte_range()].contains('{') {
+        // `[obj.Value(end)]` is an indexed field and a single value (probed, plan 6.2).
+        if (element.kind() == "field_expression" && !is_indexed_field(element))
+            || source[element.byte_range()].contains('{')
+        {
             return Vec::new();
         }
         let operand = node.parent().is_some_and(|p| {
@@ -117,6 +120,24 @@ fn collect_matrix_elements<'a>(node: Node<'a>, out: &mut Vec<Node<'a>>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_nbrak1_fires_on_indexed_field_but_not_on_plain_field() {
+        // Probed (plan 6.2): `[obj.Value( end ) ]* n` is NBRAK1, `[obj.a] * n` is silent.
+        for (source, count) in [
+            ("r = [obj.Value( end ) ]* n;\n", 1),
+            ("r = [obj.Value(1)] * n;\n", 1),
+            ("r = [obj.a] * n;\n", 0),
+        ] {
+            let tree = parse(source);
+            let matrix = find_descendant_of_kind(tree.root_node(), "matrix").unwrap();
+            assert_eq!(
+                engine().check_nbrak1(matrix, source).len(),
+                count,
+                "{source}"
+            );
+        }
+    }
 
     #[test]
     fn test_nbrak1_fires_on_single_expression_in_brackets() {
