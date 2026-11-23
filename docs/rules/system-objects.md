@@ -16,8 +16,8 @@ icon: lucide/boxes
 Validates MATLAB System object usage. System objects (classes inheriting
 from `matlab.System`) have specific lifecycle constraints that static
 analysis can partially verify. Since full type information is not available
-to a static linter, these checks use pattern-based heuristics — detecting
-System object classes by their `matlab.System` superclass and inspecting
+to a static linter, these checks use pattern-based heuristics. They detect
+System object classes by their `matlab.System` superclass and inspect
 their `properties` blocks and `stepImpl` / `resetImpl` methods.
 All 9 checks share a single `SystemObjectsEngine` that performs
 checks over `matlab.System` class definitions (file-level analysis); each

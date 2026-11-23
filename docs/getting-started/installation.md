@@ -48,14 +48,14 @@ The WebAssembly build is published to npm as
 [`malt-wasm`](https://www.npmjs.com/package/malt-wasm). See
 [WebAssembly](../usage/wasm.md).
 
-## Verify Installation
+## Verify the installation
 
 ```bash
 malt --version
 ```
 
-## Next Steps
+## Next steps
 
-- [Quick Start](quickstart.md) — Get up and running with malt
-- [CLI Reference](../usage/cli.md) — Full command reference
-- [Configuration](../configuration.md) — Customize malt for your project
+- [Quick Start](quickstart.md)
+- [CLI Reference](../usage/cli.md)
+- [Configuration](../configuration.md)

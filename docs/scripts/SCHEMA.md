@@ -5,7 +5,7 @@ Every rule module in `crates/malt_rules/src` documents itself through a
 module comment. `docs/scripts/gen_rules_docs.ts` reads these docstrings and
 generates one documentation page per rule.
 
-A *rule* is a module that self-registers with `inventory::submit!` — i.e. one
+A *rule* is a module that self-registers with `inventory::submit!`, which makes it one
 row in the "Rule" trait sense (e.g. `NOSEMI`, or a multi-check engine like
 `BUGS_ENGINE`, `COMPAT`, `NAMING_ENGINE`). Each rule page anchors every check
 ID the rule emits.
@@ -72,13 +72,13 @@ data file. See [Data-driven engines](#data-driven-engines).
 | `icon` | no | string | VitePress icon name (`lucide/bug`). Defaults to a category-derived icon. |
 | `slug` | no | string | Page filename stem (default: `id` lowercased, `_` → `-`). |
 | `data_file` | no | string | TOML data file name for data-driven engines. |
-| `generated` | no | string | `naming` — engine check IDs are a computed product (see below). |
+| `generated` | no | string | `naming`: engine check IDs are a computed product (see below). |
 | `note` | no | string | One-line italic callout rendered under the H1. |
 
 ## `## Rule`
 
 The primary section. Explain what the rule detects, the category it belongs
-to, and — for engines — that one engine dispatches many check IDs. Keep it
+to and, for engines, that one engine dispatches many check IDs. Keep it
 prose; this becomes the page's "What this rule does" content.
 
 ## `## Check IDs`
@@ -120,7 +120,7 @@ documented entity and check-type lists, so the docstring needs no table.
 
 For each rule module the generator writes:
 
-1. `docs/rules/<slug>.md` — the rule page. The `slug` is the front-matter
+1. `docs/rules/<slug>.md`, the rule page. The `slug` is the front-matter
    `slug` key (or derived from `id`). Every check ID appears as an anchor so
    overviews can deep-link (`docs/rules/bugs.md#FNAN`).
 2. A row (or rows, one per check ID) in the rule index table in
@@ -128,7 +128,7 @@ For each rule module the generator writes:
 
 `--check` mode verifies every generated file is byte-identical to what the
 sources produce, so the `hk` pre-commit hook fails on stale docs.
-`--check-module <slug>` verifies a single rule page — useful while migrating
+`--check-module <slug>` verifies a single rule page, which helps while migrating
 modules one at a time.
 
 ## Rules for writers

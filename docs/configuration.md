@@ -14,7 +14,7 @@ malt looks for `.malt.toml` in the current working directory by default. You can
 malt --config path/to/config.toml src/**/*.m
 ```
 
-If no config file is found and `--config` is not specified, malt uses the built-in **`mathworks`** preset (see [Presets](#presets)). malt also reads MATLAB's own `resources/codeAnalyzerConfiguration.json`; see [MATLAB Code Analyzer configuration files](#matlab-code-analyzer-configuration-files).
+If no config file is found and `--config` is not specified, malt uses the built-in `mathworks` preset (see [Presets](#presets)). malt also reads MATLAB's own `resources/codeAnalyzerConfiguration.json`; see [MATLAB Code Analyzer configuration files](#matlab-code-analyzer-configuration-files).
 
 ## MATLAB Code Analyzer configuration files
 
@@ -53,10 +53,10 @@ Not supported, and reported as warnings that name the setting (an error under `-
 
 Where malt differs from MATLAB:
 
-- **Invalid files.** A file MATLAB refuses (bad JSON, a value of the wrong type, an unsupported `schemaVersion`) is an error with exit code `2`. A value MATLAB only warns about (an unknown check or field, a bad severity, a casing style it does not know) is ignored, with a warning, and the rest of the file applies.
-- **Parent folders.** MATLAB looks for the file in the `resources` folder of the file's folder and its parents. malt reads one file per run: the one of the working directory (or the `--config` path). The `baseConfiguration` value is therefore not used to inherit from a parent: malt's base is always the `mathworks` preset.
-- **Naming and the file's folder.** The naming checks follow the file's own configuration, as MATLAB's do.
-- **Thresholds.** `MNCSN` is reported at the function's line rather than at the nested statement (MATLAB reports the statement). This is a known difference in the rule.
+- Invalid files. A file MATLAB refuses (bad JSON, a value of the wrong type, an unsupported `schemaVersion`) is an error with exit code `2`. A value MATLAB only warns about (an unknown check or field, a bad severity, a casing style it does not know) is ignored, with a warning, and the rest of the file applies.
+- Parent folders. MATLAB looks for the file in the `resources` folder of the file's folder and its parents. malt reads one file per run: the one of the working directory (or the `--config` path). The `baseConfiguration` value is therefore not used to inherit from a parent: malt's base is always the `mathworks` preset.
+- Naming and the file's folder. The naming checks follow the file's own configuration, as MATLAB's do.
+- Thresholds. `MNCSN` is reported at the function's line rather than at the nested statement (MATLAB reports the statement). This is a known difference in the rule.
 
 Discovery and precedence, first match wins:
 
@@ -88,7 +88,7 @@ config file.
 | Preset | Disabled categories | Description |
 | ------ | ------------------- | ----------- |
 | `mathworks` *(default)* | `custom-checks`, `naming` | Matches MATLAB Code Analyzer's factory configuration: complexity metrics and naming conventions are opt-in, and the individual checks MATLAB's default analysis never reports are off too (see [Default Behavior](#default-behavior)). |
-| `all` | — | Every rule enabled, including the [default-off engines](#default-behavior). |
+| `all` | none | Every rule enabled, including the [default-off engines](#default-behavior). |
 | `recommended` | `performance`, `readability`, `formatting`, `suggested-improvements`, `naming`, `custom-checks` | Errors and warnings on; Info-level style/suggestion checks off. |
 
 ```toml
@@ -121,10 +121,10 @@ row in the `PRESETS` table.
 
 ## Experimental checks
 
-Every check has a **maturity**: `stable` or `experimental`. It is metadata, shown in the
+Every check has a maturity: `stable` or `experimental`. It is metadata, shown in the
 Maturity columns of the [Rules Reference](rules.md) and of each rule page. A check is
-**stable** when MATLAB's Code Analyzer reported it on a recorded fixture, or when it belongs
-to the default analysis that the conformance suite covers. A check is **experimental** when
+stable when MATLAB's Code Analyzer reported it on a recorded fixture, or when it belongs
+to the default analysis that the conformance suite covers. A check is experimental when
 MATLAB reported it nowhere that was recorded and it is off by default: it was checked
 against MathWorks' documentation only, or MATLAB stayed silent on it in the probes, or its
 data is marked low-reliability. The classification, with the evidence for each group, is in
@@ -155,7 +155,7 @@ results are the same as before the flag existed.
 ```toml title=".malt.toml"
 [lint]
 # Global lint settings
-exclude = ["vendor/**", "third_party/**"]
+exclude = ["vendor/", "third_party/"]
 preset = "recommended"          # Preset: all | mathworks | recommended
 experimental = false            # Also run the experimental checks (see "Experimental checks")
 
@@ -235,7 +235,7 @@ experimental = true
 
 ## `[lint.categories]` Section
 
-Set the severity for **every** rule in a category at once. Keys are category slugs; values are severity strings. This is resolved *below* per-rule config: a rule-level override always wins over its category-level setting.
+Set the severity for every rule in a category at once. Keys are category slugs; values are severity strings. This is resolved *below* per-rule config: a rule-level override always wins over its category-level setting.
 
 ```toml
 [lint.categories]
@@ -272,9 +272,9 @@ formatting = "info"            # All formatting rules are informational
 
 ## `[lint.rules]` Section
 
-Configure individual rules. Each key is a **rule ID**. Values can be either a **severity shorthand** (string) or a **full configuration table**.
+Configure individual rules. Each key is a rule ID. Values can be either a severity shorthand (string) or a full configuration table.
 
-Most rule *engines* are registered under their engine ID (e.g. `GOOD_PRACTICES_ENGINE`, `LANGUAGE_SPEC_ENGINE`, `COMPAT`), and each engine exposes its individual check IDs through its parameters. See **Per-Engine Parameters** below.
+Most rule *engines* are registered under their engine ID (e.g. `GOOD_PRACTICES_ENGINE`, `LANGUAGE_SPEC_ENGINE`, `COMPAT`), and each engine exposes its individual check IDs through its parameters. See Per-Engine Parameters below.
 
 ### Severity Shorthand
 
@@ -316,7 +316,7 @@ GOOD_PRACTICES_ENGINE = { severity = "warn", max_variable_name_length = 32 }
 
 The `severity` key is always optional in a full table. If omitted, the rule uses its default severity.
 
-All other keys in the table are rule-specific parameters (see **Per-Engine Parameters**).
+All other keys in the table are rule-specific parameters (see Per-Engine Parameters).
 
 ### Validation
 
@@ -327,10 +327,10 @@ warning: .malt.toml: unknown rule ID 'NOSMI' in [lint.rules] (did you mean 'NOSE
 warning: .malt.toml: unknown parameter 'max_variable_nam_length' for rule 'GOOD_PRACTICES_ENGINE' (did you mean 'max_variable_name_length'?)
 ```
 
-- **Rule keys** must be a rule ID malt knows, spelled exactly: an engine ID (`GOOD_PRACTICES_ENGINE`), a check ID (`NOSEMI`, `FVINR`), or a `naming.<entity>.<check>` ID. Rule keys are case-sensitive, so `nosemi` is a problem. A rule that the preset leaves off is still a valid key.
-- **Parameter names** are checked for the engines that take parameters (see **Per-Engine Parameters**), including the parameters of an engine that is turned off. `severity` is always allowed in a table. An engine without parameters, such as `NOSEMI`, reports every key other than `severity`. Keys of check IDs that are not engines are not checked.
-- **Dotted IDs must be quoted.** `[lint.rules.naming.class.casing]` is read as the rule `naming` with nested tables, and malt reports it. Write `[lint.rules."naming.class.casing"]`.
-- **Presets and categories** are not warnings. An unknown `[lint] preset` or `[lint.categories]` key is an error (exit code `2`), as before.
+- Rule keys must be a rule ID malt knows, spelled exactly: an engine ID (`GOOD_PRACTICES_ENGINE`), a check ID (`NOSEMI`, `FVINR`), or a `naming.<entity>.<check>` ID. Rule keys are case-sensitive, so `nosemi` is a problem. A rule that the preset leaves off is still a valid key.
+- Parameter names are checked for the engines that take parameters (see Per-Engine Parameters), including the parameters of an engine that is turned off. `severity` is always allowed in a table. An engine without parameters, such as `NOSEMI`, reports every key other than `severity`. Keys of check IDs that are not engines are not checked.
+- Dotted IDs must be quoted. `[lint.rules.naming.class.casing]` is read as the rule `naming` with nested tables, and malt reports it. Write `[lint.rules."naming.class.casing"]`.
+- Presets and categories are not warnings. An unknown `[lint] preset` or `[lint.categories]` key is an error (exit code `2`), as before.
 
 Add `--strict-config` to turn the warnings into an error: malt then prints the warnings and exits with code `2` without linting. Use it in CI to keep typos out of the configuration. Without it, the exit code does not depend on the warnings.
 
@@ -339,7 +339,7 @@ Add `--strict-config` to turn the warnings into an error: malt then prints the w
 `[lint.limits]` sets the limits that stop malt from using too much memory or time on a pathological input: a generated file of tens of megabytes, a single line of a million numbers, code nested thousands of levels deep. malt measures the input before it reads or parses it, and refuses what is over a limit.
 
 ::: warning Raising a limit can crash the machine
-Memory and time grow with the **size** of a file, not with what the code does: malt used about 180 bytes of memory per byte of ordinary statements (a 16 MB file took 2.5 GB and 51 s) and about 500 bytes per byte of one huge matrix (a 2 MB line took 1 GB and 13 s, an 8 MB line did not finish in 60 s at 3.6 GB). A raised limit applies to every file malt reads, including hostile or machine-generated ones, and the process may then take all the memory of a CI runner, make a shared machine swap until it hangs, or crash an editor or a browser tab.
+Memory and time grow with the size of a file, not with what the code does: malt used about 180 bytes of memory per byte of ordinary statements (a 16 MB file took 2.5 GB and 51 s) and about 500 bytes per byte of one huge matrix (a 2 MB line took 1 GB and 13 s, an 8 MB line did not finish in 60 s at 3.6 GB). A raised limit applies to every file malt reads, including hostile or machine-generated ones, and the process may then take all the memory of a CI runner, make a shared machine swap until it hangs, or crash an editor or a browser tab.
 
 The defaults are deliberately conservative. They protect shared CI runners and editors, where one file must not take the machine down. Raise a limit only for a project you trust, only as far as you need, and prefer `exclude` for generated files. The limits can be raised but not switched off: `0` is an error, there is no "unlimited".
 :::
@@ -361,9 +361,9 @@ big.m:1:1 [E] MALT_TOO_BIG: malt did not analyze this file: it is 6 MiB (6291456
 
 `MALT_TOO_BIG` and `MALT_TOO_DEEP` are malt's own IDs; MATLAB has no such messages (it analyzes files of 16 MB and more). With `--fix` a refused file is left unchanged.
 
-- **`max_file_size`** is checked from the file's metadata before the file is read, so a huge file never enters memory. In the browser (`malt-wasm`), `check` compares the length of the content.
-- **`max_nesting`** is a scan of the text, in one pass and constant memory, that counts `(`, `[` and `{` and skips comments (`%`, `...`, `%{ … %}`) and strings. It does not count block keywords (`if`, `for`, …): `end` also closes an index, so they cannot be told apart reliably before the parse. Deeply nested blocks are bounded by `max_tree_depth` after the parse, which is cheap (30,000 nested `while` loops parse in 0.16 s and 47 MB), and MATLAB's own limits (NOSPC, MDEEP, MXASET) report most nesting bombs first.
-- **`max_threads`** is the total for the process: the workers that lint files side by side and the threads that check one large file share it, so the process never starts more. With `max_threads = 1` malt runs on one thread; the output is the same.
+- `max_file_size` is checked from the file's metadata before the file is read, so a huge file never enters memory. In the browser (`malt-wasm`), `check` compares the length of the content.
+- `max_nesting` is a scan of the text, in one pass and constant memory, that counts `(`, `[` and `{` and skips comments (`%`, `...`, `%{ … %}`) and strings. It does not count block keywords (`if`, `for`, …): `end` also closes an index, so they cannot be told apart reliably before the parse. Deeply nested blocks are bounded by `max_tree_depth` after the parse, which is cheap (30,000 nested `while` loops parse in 0.16 s and 47 MB), and MATLAB's own limits (NOSPC, MDEEP, MXASET) report most nesting bombs first.
+- `max_threads` is the total for the process: the workers that lint files side by side and the threads that check one large file share it, so the process never starts more. With `max_threads = 1` malt runs on one thread; the output is the same.
 - In `malt-wasm`, `Linter.from_toml` reads the same table. A key you leave out keeps the lower wasm default; raising `max_tree_depth` there can make the module trap.
 
 Raise a limit for one project, for example a repository with a generated data file of 8 MiB that you trust:
@@ -397,7 +397,7 @@ paths = [".", "lib/**", "src/*", "tools/helper"]
 - Without `paths`, the search path is the working directory. With `paths`, the listed folders replace it; add `"."` to keep it.
 - Relative patterns resolve against the working directory. The folder of the linted file and any extra folders always come first.
 - `lib/**` adds `lib` and its plain subfolders, recursively, as MATLAB's `genpath` does. `+pkg`, `@cls`, `private` and hidden folders are never added, nor anything below them.
-- Any other pattern adds only the folders it matches, not recursively. `*`, `?` and `[...]` match within one folder name; `**` in the middle matches any number of levels (`lib/**/deeper`).
+- Any other pattern adds only the folders it matches, not recursively. `*`, `?` and `[...]` match within one folder name; `` in the middle matches any number of levels (`lib//deeper`).
 - The result is deduplicated and sorted by path. A folder that does not exist, or a pattern that matches nothing, is a warning, and the rest of the path is used.
 - An invalid `[index]` table (an unknown key, or `paths` not a list of strings) or a `.malt.toml` that is not TOML is an error.
 
@@ -405,7 +405,7 @@ paths = [".", "lib/**", "src/*", "tools/helper"]
 
 With the index on, malt reads the classes that a class file's superclasses name on the search path (its own folder first, then `paths`), and one check reports more than MATLAB's Code Analyzer does:
 
-- **MCEB** (events in a class that is not a handle class) is also reported for a class whose superclasses are all value classes on the path. MATLAB refuses to load such a class.
+- MCEB (events in a class that is not a handle class) is also reported for a class whose superclasses are all value classes on the path. MATLAB refuses to load such a class.
 
 A superclass that is not on the path, or whose own bases are not, is unknown, and nothing is reported for it. Nothing else changes: with the index off, the diagnostics are the Code Analyzer's, whatever folders surround the file. These extra findings are malt's, not MATLAB's; the evidence is in `docs/VERIFY.md`, section 'Path index, stage 3.4'.
 
@@ -413,25 +413,25 @@ A superclass that is not on the path, or whose own bases are not, is unknown, an
 
 When no `.malt.toml` is present:
 
-- The **`mathworks`** preset is active, so `custom-checks` and `naming` are off, as are the individual checks that
+- The `mathworks` preset is active, so `custom-checks` and `naming` are off, as are the individual checks that
   MATLAB's default Code Analyzer never reports (for example `ERTAG`, `WNTAG`, `CTCH`, `BDLOG2`, `LOGSUM`, the
   forward-compatibility gates `FC*`, and the behavior-change entries MATLAB lists as low reliability). The `all`
-  preset turns them back on. Per-check and per-category entries re-enable **some** of them — `[lint.rules]
+  preset turns them back on. Per-check and per-category entries re-enable some of them. `[lint.rules]
   FCDQS = "error"` (or the `forward-compatibility` category) turns an `FC*` gate back on, and the
-  `behavior-changes` category turns the low-reliability entries back on — but the engine off-list
+  `behavior-changes` category turns the low-reliability entries back on. The engine off-list
   (`ERTAG`, `WNTAG`, `CTCH`, `BDLOG2`, `LOGSUM`, …) has no per-check switch: only `preset = "all"` turns
   those back on. The full list with the probe evidence is in
   [docs/VERIFY.md](https://github.com/watermarkhu/malt/blob/main/docs/VERIFY.md#policy).
-- These specialized engines are **off by default** under every preset except
+- These specialized engines are off by default under every preset except
   `all` (opt in per rule or per category):
-  - `CODEGEN_ENGINE` (`code-generation`) — MATLAB Coder constraints
-  - `DEPLOYMENT_ENGINE` (`deployment`) — MATLAB Compiler constraints
-  - `SYSTEM_OBJECTS_ENGINE` (`system-objects`) — `matlab.System` validation
-  - `UNSUPPORTED_ENGINE` (`unsupported`) — platform-specific features
-- The checks marked **experimental** (a superset of the above: also the off-list checks and the
+  - `CODEGEN_ENGINE` (`code-generation`): MATLAB Coder constraints
+  - `DEPLOYMENT_ENGINE` (`deployment`): MATLAB Compiler constraints
+  - `SYSTEM_OBJECTS_ENGINE` (`system-objects`): `matlab.System` validation
+  - `UNSUPPORTED_ENGINE` (`unsupported`): platform-specific features
+- The checks marked experimental (a superset of the above: also the off-list checks and the
   low-reliability entries) are off; `[lint] experimental = true` turns them on, see
   [Experimental checks](#experimental-checks).
-- All other rules are **enabled** at their default severity, including `SUGGESTED_IMPROVEMENTS` (replacement hints,
+- All other rules are enabled at their default severity, including `SUGGESTED_IMPROVEMENTS` (replacement hints,
   which MATLAB reports by default)
 - No files are excluded
 - No rule-specific parameters are set
@@ -450,15 +450,15 @@ NAMING_ENGINE = "info"      # or enable a single rule
 
 The effective severity for each rule is resolved as:
 
-1. **Per-rule override** (if `[lint.rules.XXXX]` specifies `severity` or uses the shorthand)
-2. **Per-category override** (if `[lint.categories.XXXX]` is set for the rule's category)
-3. **Rule's built-in default** (if neither override is present)
+1. Per-rule override (if `[lint.rules.XXXX]` specifies `severity` or uses the shorthand)
+2. Per-category override (if `[lint.categories.XXXX]` is set for the rule's category)
+3. Rule's built-in default (if neither override is present)
 
-The config override applies to all diagnostics produced by that rule — rules themselves always emit their default severity, and the engine stamps the override afterward.
+The config override applies to all diagnostics produced by that rule. Rules always emit their default severity, and the engine stamps the override afterward.
 
 ## Per-Engine Parameters
 
-Multi-check engines take their parameters through their **engine ID**. Every engine also accepts `disabled_checks` (or `skip_checks`) to turn off specific check IDs.
+Multi-check engines take their parameters through their engine ID. Every engine also accepts `disabled_checks` (or `skip_checks`) to turn off specific check IDs.
 
 ```toml
 [lint.rules.LANGUAGE_SPEC_ENGINE]
@@ -472,7 +472,7 @@ disabled_checks = ["PFEVC", "PFANSLP"]   # Turn off specific checks
 | `LANGUAGE_SPEC_ENGINE` | language-specification | `disabled_checks` |
 | `BUGS_ENGINE` | bugs | `debug_functions`, `higher_order_functions` (extra function names to treat as debug/higher-order) |
 | `CUSTOM_CHECKS` | custom-checks | `max_function_inputs`, `max_function_outputs`, `max_function_lines`, `max_line_length`, `max_nesting_depth`, `max_cyclomatic_complexity`, `max_script_cyclomatic_complexity`, `max_anonymous_cyclomatic_complexity`, `disallow_bang`, `disallow_try_catch`, `disallow_persistent`, `disallow_continue`, `disallow_break`, `disallow_return`, `disallow_script`, `disallow_nested_functions`, `disallow_command_syntax`, `disallow_anonymous_functions`, `disallow_char_vectors`, `disallow_cellstr`, `disallow_varargin`, `disallow_varargout` |
-| `NAMING_ENGINE` | naming | `max`, `min`, `pattern`, `prefix`, `phrase`, `suffix`, `style` — per-entity check config via `[lint.rules."naming.<entity>.<check>"]` (quoted, see **Validation**) |
+| `NAMING_ENGINE` | naming | `max`, `min`, `pattern`, `prefix`, `phrase`, `suffix`, `style`. Per-entity check config goes through `[lint.rules."naming.<entity>.<check>"]` (quoted, see Validation) |
 | `COMPAT` | compatibility | *(data-driven lookup; no params)* |
 | `GOOD_PRACTICES_ENGINE` | good-practices | `disabled_checks`, `max_variable_name_length` |
 | `UNSET_VARIABLES_ENGINE` | unset-variables | `ignore` (variable names to ignore) |
@@ -519,8 +519,8 @@ disabled_checks = ["PFANSLP"]
 max_cyclomatic_complexity = 12
 ```
 
-## Next Steps
+## Next steps
 
-- [Rules Reference](rules.md) — Browse all available rules
-- [CLI Reference](usage/cli.md) — Command-line options
-- [Quick Start](getting-started/quickstart.md) — Get up and running
+- [Rules Reference](rules.md)
+- [CLI Reference](usage/cli.md)
+- [Quick Start](getting-started/quickstart.md)

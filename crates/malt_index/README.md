@@ -5,7 +5,7 @@ A native index of the MATLAB path: the functions, classes, scripts, live scripts
 names against. It is the Rust core of the replacement for the Python library maxx. The Python
 module is `crates/malt_py` (distribution `malt-index`). The linter uses the index only when `[index] enabled = true` or `--index` is given (off by default): see `docs/VERIFY.md`, 'Path index, stage 3.4', and `docs/configuration.md`.
 
-The crate does not depend on the linter crates. It is `publish = false` for now.
+The crate does not depend on the linter crates. It is published to crates.io as `malt-index`.
 
 Licence: maxx is GPL-3.0 and malt is MIT. The behaviour was read from maxx's sources; the
 code here is written from scratch. No maxx code, tests, files or submodules are in this
@@ -257,33 +257,33 @@ logger `malt_index` (see its README).
 Each difference is listed in `oracle_allowlist.json` with its reason, and the oracle
 reports it as accepted. The main groups:
 
-1. **Bugs in maxx, not replicated**: the function query reads the first match only, so
+1. Bugs in maxx, not replicated: the function query reads the first match only, so
    inputs and outputs of a function with several outputs or a nested function are dropped
    or taken from the nested function; `~` is dropped; the docstring of a function with nested
    functions is lost; the `Dependant` misspelling drops `Dependent`; class attributes are not
    in `attributes`; the constructor of a class folder is popped from its members; a class
    folder's script members are joined without a dot (`class2classbody`); a classdef with a
    parse error (`[1 2 3](end)`) is read as a script.
-2. **Records maxx does not**: local and nested functions; line spans of properties and
+2. Records maxx does not: local and nested functions; line spans of properties and
    enumeration members (maxx gives null); the varargin kind; the `~` arguments; line spans
    of live script sections (for a plain-text live script).
-3. **Bare names**: maxx lists the methods of a class folder without a class file under the
+3. Bare names: maxx lists the methods of a class folder without a class file under the
    bare name (`inv`, for `@double/inv.m`). The index lists them as `double.inv`. The dotted
    key is a listing name only: MATLAB does not resolve `double.inv` (`which('double.inv')` is
    empty; the file is `@double/inv`), so it is not a name to call, though the index lists the
    method under it (as maxx does). The same holds for a method of a class folder inside a package
    (`mlog.Logger.addMessage`). The namespace test accepts both (the `dotted_resolves` entries of
    `tests/matlab/namespace_allowlist.json`), and keeps them.
-4. **Enumeration kind**: maxx's `Kind.ENUMERATION` equals `CLASS` (`"class"`); the index
+4. Enumeration kind: maxx's `Kind.ENUMERATION` equals `CLASS` (`"class"`); the index
    says `enumeration`.
-5. **Encoding**: maxx detects the encoding with charset-normalizer; the index uses UTF-8
+5. Encoding: maxx detects the encoding with charset-normalizer; the index uses UTF-8
    and falls back to Latin-1 (correct for the Western files in the corpus).
-6. **Live scripts**: maxx classifies a whole `%%` cell as text when all its lines are
+6. Live scripts: maxx classifies a whole `%%` cell as text when all its lines are
    comments, so a cell of `%[text]` paragraphs with code in it is one text section, and it
    keeps the `%[text]` markers. The index splits a cell into runs, strips the markers, and
    leaves outputs and the appendix out (`live-text` in the allowlist: 9 accepted differences,
    all of this kind). The `.mlx` sections agree with maxx exactly.
-7. **Folder members**: maxx's folder lists only the subfolders it registered on the path; a
+7. Folder members: maxx's folder lists only the subfolders it registered on the path; a
    folder entity here lists every plain subfolder below it.
 
 ## Oracle workflow

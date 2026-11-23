@@ -2,15 +2,15 @@
 icon: lucide/git-branch
 ---
 
-# CI/CD Integration
+# CI/CD integration
 
 ::: info Coming Soon
 
-CI/CD integration guides are planned for a future release. This page outlines the intended workflow.
+CI/CD integration guides are planned for a future release. This page sketches the intended workflow.
 
 :::
 
-## GitHub Actions (Planned)
+## GitHub Actions (planned)
 
 Once malt is published to crates.io, a GitHub Action will be available:
 
@@ -26,9 +26,9 @@ jobs:
       - uses: watermarkhu/malt-action@main  # planned
 ```
 
-## Manual CI Setup
+## Manual CI setup
 
-Until a dedicated action is available, you can install and run malt manually:
+Until a dedicated action exists, install and run malt yourself:
 
 ```yaml title=".github/workflows/lint.yml"
 name: Lint MATLAB
@@ -52,17 +52,17 @@ jobs:
 
 malt skips a file over `max_file_size` (5 MiB by default) with a `MALT_TOO_BIG` error, which fails the build like any other error-level diagnostic (exit code `1`): exclude the file with `[lint] exclude`, or raise the limit for the project. On a small shared runner you can also lower `max_threads` and `max_file_size`. Raising a limit lets one file take gigabytes of memory; read [Resource limits](../configuration.md#resource-limits) first.
 
-## Exit Codes for CI
+## Exit codes in CI
 
-malt's exit codes are designed for CI use:
+malt's exit codes map directly onto a pass or fail build:
 
-| Code | Meaning | CI Behavior |
+| Code | Meaning | CI behavior |
 | ---- | ------- | ----------- |
 | `0`  | No issues | Build passes |
 | `1`  | Diagnostics found | Build fails |
 | `2`  | Runtime error | Build fails |
 
-## Pre-commit Hook (Planned)
+## Pre-commit hook (planned)
 
 A pre-commit hook configuration is planned:
 
@@ -78,4 +78,4 @@ repos:
 
 ## Contributing
 
-If you'd like to help build CI/CD integrations, see the [repository](https://github.com/watermarkhu/malt) for contribution guidelines.
+To help build CI/CD integrations, see the contribution guidelines in the [repository](https://github.com/watermarkhu/malt).
