@@ -298,7 +298,7 @@ For systematic patterns (Naming: 81 checks = 9 entities x 9 check types), implem
 
 ### Tree-sitter Node Types
 
-The MATLAB grammar (tree-sitter-matlab 1.3.3 plus the `malt-parser-fixes` fork branch) defines these important node types:
+The MATLAB grammar (tree-sitter-matlab 1.3.4, from crates.io) defines these important node types:
 
 - **Statements**: `assignment`, `function_call`, `command`, `for_statement`, `if_statement`, `while_statement`, `switch_statement`, `try_statement`, `return_statement`, `break_statement`, `continue_statement`
 - **Expressions**: `binary_operator`, `boolean_operator`, `comparison_operator`, `unary_operator`, `postfix_operator`, `number`, `string`, `identifier`, `function_call`, `field_expression`, `cell`, `matrix`, `range`, `lambda`

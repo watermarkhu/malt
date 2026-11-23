@@ -200,9 +200,9 @@ Open after the cleanup pass (re-probe before changing):
 
 Closed in the cleanup pass: MCMTP (the attribute only, in a test class, non-static), MCCBD, MCSCF, ATUNK on enumeration blocks, MCCSPS (reported, off the off-list), MCNPR and MCNPN in constructors, `Static = TRUE` is not static, IDXCOLND inside `[ ]`/`{ }` is RESWD.
 
-## Parser fork
+## Parser
 
-malt depends on `tree-sitter-matlab` 1.3.3 plus the fork branch `malt-parser-fixes` (watermarkhu/tree-sitter-matlab): `arguments` attribute values, `opts.?pkg.Class = 1`, `end` as an expression outside an index and four-element ranges now parse. The fork also accepts `if end > 1`, which MATLAB rejects; malt reports it as SYNER. Fork changes follow the upstream CONTRIBUTING rules (minimal, no new node types, no generated files in source commits) so they can be sent upstream. Open in the grammar (not fixed here; the fork is pinned in `Cargo.toml`): a three-part dotted command with an argument (`comm.gpu.AWGNChannel arg1`) gives SYNER and swallows the next line, so a handle on that line (`h = @comm.gpu.AWGNChannel;`) is missed; MATLAB gives one SYNER for the statement.
+malt depends on `tree-sitter-matlab` 1.3.4 from crates.io (upstream acristoffers/tree-sitter-matlab). The fixes that were on the fork branch `malt-parser-fixes` are upstream now: `arguments` attribute values, class property dimensions, validation and defaults, `end` as an expression outside an index, ranges with more than two colons, and a dotted name followed by a word at statement start parsed as a command. Checked before the switch: the grammar file is identical, and the parse trees of all 1,133 fixture files are identical between the fork commit and 1.3.4 (the generated `parser.c` differs only in regeneration). `if end > 1` still parses, which MATLAB rejects; malt reports it as SYNER.
 
 ## Phase 2.3 audit gaps (syntax_errors)
 
