@@ -1,0 +1,40 @@
+[build-system]
+requires = ["maturin>=1.9,<2"]
+build-backend = "maturin"
+
+[project]
+# A separate distribution from `malt` (the CLI wheel): maturin builds one kind of artifact
+# per project, so the PyO3 module cannot share a wheel with the `malt` binary.
+name = "malt-index"
+description = "The MATLAB search path (functions, classes, packages, class folders) as a Python module, backed by malt's native index"
+authors = [{ name = "Mark Shui Hu", email = "watermarkhu@gmail.com" }]
+license = "MIT"
+readme = "README.md"
+requires-python = ">=3.10"
+# The version comes from the Cargo workspace (stamped by the release workflow).
+dynamic = ["version"]
+keywords = ["matlab", "path", "index", "maxx", "documentation"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Rust",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
+
+[project.urls]
+Homepage = "https://watermarkhu.nl/malt"
+Repository = "https://github.com/watermarkhu/malt"
+
+[tool.maturin]
+# The module is `malt_index`; the Rust library is `malt_index_py` (see Cargo.toml).
+module-name = "malt_index"
+# The package with the type stubs (`malt_index.pyi`) and the `py.typed` marker.
+python-source = "python"
+features = ["extension-module"]
+strip = true
+
+[tool.pytest.ini_options]
+testpaths = ["python/tests"]

@@ -21,9 +21,9 @@ impl BugsEngine {
             None => return Vec::new(),
         };
 
-        // A condition must evaluate to a logical scalar. String and numeric
-        // literals are not conditions.
-        let is_non_condition = matches!(first_arg.kind(), "string" | "number");
+        // Probed: MATLAB reports only a character-vector first argument
+        // (`assert('msg')`). `assert(0)`, `assert(false)` and `assert(a)` are silent.
+        let is_non_condition = first_arg.kind() == "string";
 
         if is_non_condition {
             let pos = node.start_position();
@@ -57,10 +57,12 @@ mod tests {
     }
 
     #[test]
-    fn assrt_fires_on_numeric_argument() {
-        let src = "assert(5);\n";
-        let diags = node_diags(src);
-        assert!(has_id(&diags, "ASSRT"), "got: {diags:?}");
+    fn assrt_no_fire_on_numeric_argument() {
+        // Probed: MATLAB is silent on `assert(0)` and `assert(5)` (bugs__t4:10).
+        for src in ["assert(5);\n", "assert(0);\n"] {
+            let diags = node_diags(src);
+            assert!(!has_id(&diags, "ASSRT"), "{src}: got: {diags:?}");
+        }
     }
 
     #[test]

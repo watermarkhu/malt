@@ -3,65 +3,62 @@
 use super::*;
 
 impl UnusedEngine {
-    /// Run SETNU check: a variable that is assigned (set) but whose assigned
-    /// value is never subsequently used. Unlike NASGU (which fires when a
-    /// variable is never used at all), SETNU fires per-assignment when the
-    /// value written at that point is never read before the next assignment.
+    /// Run SETNU check: a variable that a function assigns and that a nested
+    /// function also refers to, but that is never read anywhere in either.
     ///
-    /// # Limitations
-    ///
-    /// The boundary between SETNU and NASGU is not documented precisely by
-    /// MathWorks. This implementation fires SETNU on any assignment whose value
-    /// is never read before the next assignment (a dead store), which overlaps
-    /// with NASGU for variables that are assigned once and never read: such a
-    /// variable may be reported by both checks. This follows the message text
-    /// literally but is intentionally permissive.
+    /// Probes against MATLAB R2026b: SETNU fires only for such shared
+    /// variables, once per variable, at the first assignment in the enclosing
+    /// function. It did not fire for partial assignments (`A(2) = 5`,
+    /// `s.f = 1`) or loop variables in functions without nested functions;
+    /// those are STRNU, ASGLU or NASGU. A variable only the nested function
+    /// assigns is NASGU's.
     pub(crate) fn check_setnu(&self, table: &SymbolTable, diagnostics: &mut Vec<Diagnostic>) {
         if self.is_check_disabled("SETNU") {
             return;
         }
 
-        for scope in &table.scopes {
-            // Output arguments are "used" externally, so skip them.
-            let output_args: HashSet<&str> = scope
+        for (index, scope) in table.scopes.iter().enumerate() {
+            let is_assignment = |d: &crate::analysis::symbols::VarDef| {
+                matches!(d.kind, DefKind::Assignment | DefKind::ForIterator)
+            };
+            // Names with an input, output, global or persistent definition: they are used outside.
+            let used_outside: std::collections::HashSet<&str> = scope
                 .defs
                 .iter()
-                .filter(|d| d.kind == DefKind::OutputArg)
+                .filter(|d| !is_assignment(d))
                 .map(|d| d.name.as_str())
                 .collect();
-
+            // The first assignment of each name (the first of equal start bytes).
+            let mut first: std::collections::HashMap<&str, &crate::analysis::symbols::VarDef> =
+                std::collections::HashMap::new();
+            for d in scope.defs.iter().filter(|d| is_assignment(d)) {
+                let entry = first.entry(d.name.as_str()).or_insert(d);
+                if d.byte_range.start < entry.byte_range.start {
+                    *entry = d;
+                }
+            }
             for def in &scope.defs {
-                if def.kind != DefKind::Assignment {
+                // A for-loop variable counts too: a nested function may set it.
+                if !is_assignment(def) || def.partial {
                     continue;
                 }
                 let name = &def.name;
-
-                if output_args.contains(name.as_str()) {
+                if self.should_ignore_name(name) || used_outside.contains(name.as_str()) {
                     continue;
                 }
-                if self.should_ignore_name(name) {
+                // Report once per variable, at its first assignment in this scope.
+                if first
+                    .get(name.as_str())
+                    .is_none_or(|d| d.byte_range != def.byte_range)
+                {
                     continue;
                 }
 
-                // Find the next assignment of this name after the current one.
-                let next_assignment = scope.defs.iter().find(|d| {
-                    d.kind == DefKind::Assignment
-                        && d.name == *name
-                        && d.byte_range.start > def.byte_range.start
-                });
-
-                // The value is "subsequently used" only if there is a use of
-                // this name after the current assignment and (if the variable
-                // is reassigned) before the next assignment.
-                let subsequently_used = scope.uses.iter().any(|u| {
-                    u.name == *name
-                        && u.byte_range.start > def.byte_range.start
-                        && next_assignment
-                            .map(|na| u.byte_range.start < na.byte_range.start)
-                            .unwrap_or(true)
-                });
-
-                if !subsequently_used {
+                let shared = scope
+                    .children
+                    .iter()
+                    .any(|&c| nested_refers_to(table, c, name));
+                if shared && !is_read_below(table, index, name) {
                     diagnostics.push(Diagnostic {
                         rule_id: "SETNU",
                         message: "Variable is set, but might be unused.".to_string(),
@@ -77,6 +74,31 @@ impl UnusedEngine {
     }
 }
 
+/// `true` if the nested function at `index`, or a function nested in it,
+/// refers to `name` (assigns or reads it).
+fn nested_refers_to(table: &SymbolTable, index: usize, name: &str) -> bool {
+    let scope = &table.scopes[index];
+    if scope.kind != ScopeKind::NestedFunction {
+        return false;
+    }
+    scope.defs.iter().any(|d| d.name == name)
+        || scope.uses.iter().any(|u| u.name == name)
+        || scope
+            .children
+            .iter()
+            .any(|&c| nested_refers_to(table, c, name))
+}
+
+/// `true` if `name` is read in the scope at `index` or in any scope below it.
+fn is_read_below(table: &SymbolTable, index: usize, name: &str) -> bool {
+    let scope = &table.scopes[index];
+    scope.uses.iter().any(|u| u.name == name)
+        || scope
+            .children
+            .iter()
+            .any(|&c| is_read_below(table, c, name))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -87,21 +109,92 @@ mod tests {
         UnusedEngine::from_config(&Config::default())
     }
 
-    // -- SETNU: assignment whose value is never subsequently used ------------
+    // -- SETNU: shared variable set but never read --------------------------
 
     #[test]
-    fn setnu_fires_on_unused_assignment() {
-        let diags = lint_file(&*engine(), "function foo()\n    x = 5;\nend\n");
-        assert!(has_id(&diags, "SETNU"), "got: {diags:?}");
+    fn setnu_fires_on_for_variable_set_by_nested_function() {
+        // Probe (c4__m1, sn_a): `k` is the loop variable and `inner` sets it; never read.
+        let diags = lint_file(
+            &*engine(),
+            "function r = outer()\nfor k = 1:3\n  inner();\nend\n  function inner()\n    k = 5;\n  end\nr = 1;\nend\n",
+        );
+        let lines: Vec<usize> = diags
+            .iter()
+            .filter(|d| d.rule_id == "SETNU")
+            .map(|d| d.line)
+            .collect();
+        assert_eq!(lines, vec![2], "got: {diags:?}");
     }
 
     #[test]
-    fn setnu_fires_when_overwritten_before_use() {
+    fn setnu_silent_for_loop_variable_not_set_by_nested_function() {
+        // Probe (sn_e): a loop variable nobody else sets is not SETNU.
         let diags = lint_file(
             &*engine(),
-            "function foo()\n    x = 1;\n    x = 2;\n    disp(x);\nend\n",
+            "function r = outer()\nfor k = 1:3\n  disp(1);\nend\nr = 1;\nend\n",
         );
-        assert!(has_id(&diags, "SETNU"), "got: {diags:?}");
+        assert!(!has_id(&diags, "SETNU"), "got: {diags:?}");
+    }
+
+    #[test]
+    fn setnu_fires_on_shared_variable_never_read() {
+        // Probe: `n` is set here and in the nested function, never read.
+        let diags = lint_file(
+            &*engine(),
+            "function foo()\n    n = 0;\n    inner();\n    function inner()\n        n = 1;\n    end\nend\n",
+        );
+        let lines: Vec<usize> = diags
+            .iter()
+            .filter(|d| d.rule_id == "SETNU")
+            .map(|d| d.line)
+            .collect();
+        assert_eq!(lines, vec![2], "got: {diags:?}");
+    }
+
+    #[test]
+    fn setnu_reports_first_assignment_once() {
+        // Probe: one report per variable, at the first assignment.
+        let diags = lint_file(
+            &*engine(),
+            "function foo()\n    n = 0;\n    n = 2;\n    inner();\n    function inner()\n        n = 1;\n    end\nend\n",
+        );
+        let n = diags.iter().filter(|d| d.rule_id == "SETNU").count();
+        assert_eq!(n, 1, "got: {diags:?}");
+    }
+
+    #[test]
+    fn setnu_ok_when_nested_function_reads() {
+        let diags = lint_file(
+            &*engine(),
+            "function foo()\n    n = 0;\n    inner();\n    function inner()\n        disp(n);\n    end\nend\n",
+        );
+        assert!(!has_id(&diags, "SETNU"), "got: {diags:?}");
+    }
+
+    #[test]
+    fn setnu_ok_when_parent_reads() {
+        let diags = lint_file(
+            &*engine(),
+            "function foo()\n    n = 0;\n    inner();\n    disp(n);\n    function inner()\n        n = 1;\n    end\nend\n",
+        );
+        assert!(!has_id(&diags, "SETNU"), "got: {diags:?}");
+    }
+
+    #[test]
+    fn setnu_ignores_partial_assignment() {
+        // Probe: MATLAB does not report partial assignments as SETNU.
+        let diags = lint_file(
+            &*engine(),
+            "function foo()\n    A(2) = 5;\n    A(3) = 6;\nend\n",
+        );
+        assert!(!has_id(&diags, "SETNU"), "got: {diags:?}");
+    }
+
+    #[test]
+    fn setnu_ok_without_nested_function() {
+        // Probe: an unread variable in a plain function is NASGU's.
+        let diags = lint_file(&*engine(), "function foo()\n    x = 5;\nend\n");
+        assert!(!has_id(&diags, "SETNU"), "got: {diags:?}");
     }
 
     #[test]

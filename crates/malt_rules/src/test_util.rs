@@ -6,8 +6,26 @@
 //!
 //! This module is only compiled under `#[cfg(test)]`.
 
-use malt_core::{Diagnostic, FileContext, NodeContext, Rule};
+use std::path::Path;
+
+use malt_core::{Diagnostic, FileContext, NodeContext, ProjectIndex, Rule};
 use tree_sitter::{Node, Parser};
+
+/// A search path that knows only the classes it lists: each name with whether it
+/// is a handle class. `handle` is always a handle class. Any other name is unknown.
+pub struct StubProject(pub Vec<(&'static str, bool)>);
+
+impl ProjectIndex for StubProject {
+    fn is_handle_class(&self, name: &str, _from: &Path) -> Option<bool> {
+        if name == "handle" {
+            return Some(true);
+        }
+        self.0
+            .iter()
+            .find(|(known, _)| *known == name)
+            .map(|(_, handle)| *handle)
+    }
+}
 
 /// Parse MATLAB source and return the tree.
 pub fn parse(source: &str) -> tree_sitter::Tree {
@@ -15,6 +33,8 @@ pub fn parse(source: &str) -> tree_sitter::Tree {
     parser
         .set_language(&tree_sitter_matlab::LANGUAGE.into())
         .expect("failed to load tree-sitter-matlab");
+    malt_core::note_parse();
+    malt_core::note_parse();
     parser.parse(source, None).expect("parse failed")
 }
 
@@ -24,6 +44,7 @@ pub fn file_ctx<'a>(tree: &'a tree_sitter::Tree, source: &'a str) -> FileContext
         tree,
         source,
         file_path: std::path::Path::new("test.m"),
+        project: None,
     }
 }
 
@@ -48,6 +69,7 @@ pub fn lint_nodes(rule: &dyn Rule, source: &str) -> Vec<Diagnostic> {
                 node,
                 source,
                 file_path: path,
+                ancestors: None,
             };
             diagnostics.extend(rule.check(&ctx));
         }

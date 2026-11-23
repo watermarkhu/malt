@@ -4,7 +4,7 @@ layout: home
 hero:
   name: malt
   text: An ultra-fast, extensible linter for MATLAB, written in Rust
-  tagline: Single-pass AST traversal powered by tree-sitter, with 2,680+ MATLAB Code Analyzer checks. Lint thousands of files in milliseconds.
+  tagline: Single-pass AST traversal powered by tree-sitter. Under its default configuration it reports exactly what MATLAB R2026b's Code Analyzer reports — 2692 checks, verified fixture by fixture. Lint thousands of files in milliseconds.
   actions:
     - theme: brand
       text: Quick Start
@@ -13,6 +13,9 @@ hero:
       text: Rules Reference
       link: /rules
     - theme: alt
+      text: How it's verified
+      link: /verification
+    - theme: alt
       text: Playground
       link: /playground
 
@@ -20,14 +23,15 @@ features:
   - title: Built for speed
     details: Single-pass AST traversal using tree-sitter. Lint thousands of files in milliseconds.
     icon: ⚡
-  - title: Extensible rule system
-    details: Clean Rule trait architecture inspired by ruff and rumdl. Add new rules with minimal boilerplate.
-    icon: 🧩
+  - title: Verified against MATLAB
+    details: Nearly 800 fixtures with recorded R2026b expectations, live checkcode parity in CI, message text compared. What is verified and what is best-effort is documented.
+    icon: ✅
+    link: /verification
   - title: Auto-fix support
-    details: Rules can provide automatic fixes. Run malt --fix to apply them in one shot.
+    details: Rules can provide automatic fixes. Run malt --fix for safe fixes; --fix --unsafe-fixes opts into rewrites that may change behaviour.
     icon: 🔧
   - title: Configurable
-    details: TOML-based configuration. Enable, disable, or override severity per rule. Per-rule parameters.
+    details: TOML-based configuration, per-rule parameters, presets, and MATLAB's own codeAnalyzerConfiguration.json.
     icon: ⚙️
 ---
 
@@ -47,8 +51,8 @@ malt --fix path/to/file.m
 ## Example Output
 
 ```text
-src/compute.m:2:5 [W] M001: Statement without trailing semicolon may produce unintended console output
-src/compute.m:4:5 [W] M001: Statement without trailing semicolon may produce unintended console output
+src/compute.m:2:5 [I] NOPTS: Add a semicolon after the statement to hide the output (in a script).
+src/compute.m:4:5 [I] NOPTS: Add a semicolon after the statement to hide the output (in a script).
 
 Found 2 issues in 1 file.
 ```
@@ -66,3 +70,5 @@ Found 2 issues in 1 file.
 - [Quick Start](getting-started/quickstart.md) — Get up and running in minutes
 - [Rules Reference](rules.md) — Explore all available linting rules
 - [Configuration](configuration.md) — Customize malt for your project with `.malt.toml`
+- [How malt is verified](verification.md) — The conformance suite, and what is verified versus best-effort
+- [Migration note](migration.md) — Breaking changes if you used an earlier malt

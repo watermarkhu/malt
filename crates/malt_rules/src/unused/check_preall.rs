@@ -1,41 +1,101 @@
 //! PREALL check: loop variable preallocated but unused.
 
 use super::*;
+use crate::analysis::symbols::{Scope, VarDef};
 
 impl UnusedEngine {
-    /// Run PREALL check: variable preallocated but unused.
-    /// Similar to NASGU but targets for-iterator variables specifically.
-    pub(crate) fn check_preall(&self, table: &SymbolTable, diagnostics: &mut Vec<Diagnostic>) {
+    /// Run PREALL check: an array preallocated (`x = zeros(1, n)`) whose value
+    /// is replaced by a later full assignment in the same block before anything
+    /// reads it, so the preallocation does nothing.
+    pub(crate) fn check_preall(
+        &self,
+        table: &SymbolTable,
+        unreachable: &[std::ops::Range<usize>],
+        diagnostics: &mut Vec<Diagnostic>,
+    ) {
         if self.is_check_disabled("PREALL") {
             return;
         }
 
         for scope in &table.scopes {
             for def in &scope.defs {
-                if def.kind != DefKind::ForIterator {
+                if !def.prealloc || def.kind != DefKind::Assignment || def.partial {
+                    continue;
+                }
+                // Probe gp-b__t1: MATLAB reports nothing after an `error` call.
+                if unreachable
+                    .iter()
+                    .any(|r| r.contains(&def.byte_range.start))
+                {
                     continue;
                 }
                 let name = &def.name;
-
                 if self.should_ignore_name(name) {
                     continue;
                 }
-
-                if !scope.is_used(name) {
-                    diagnostics.push(Diagnostic {
-                        rule_id: "PREALL",
-                        message: "The preallocated value assigned to variable might be unused."
-                            .to_string(),
-                        severity: Severity::Warning,
-                        byte_range: def.byte_range.clone(),
-                        line: def.line,
-                        column: def.column,
-                        fix: None,
-                    });
+                if !is_overwritten_preallocation(scope, def) {
+                    continue;
                 }
+                diagnostics.push(preallocation_diagnostic(def));
             }
         }
     }
+}
+
+/// The PREALL diagnostic for a preallocation `def` whose value is unused.
+pub(crate) fn preallocation_diagnostic(def: &VarDef) -> Diagnostic {
+    Diagnostic {
+        rule_id: "PREALL",
+        message: "The preallocated value assigned to variable might be unused.".to_string(),
+        severity: Severity::Warning,
+        byte_range: def.byte_range.clone(),
+        line: def.line,
+        column: def.column,
+        fix: None,
+    }
+}
+
+/// Whether a preallocation `def` (a full assignment that is dead, see
+/// [`crate::analysis::liveness`]) is overwritten by a later full assignment of the
+/// same name, in any block. MATLAB reports such a dead preallocation as PREALL, not
+/// NASGU (probed: `x = zeros(n); if c, x = v; end`, and every branch of a `switch`
+/// or `try` overwriting it). The check is the caller's, since it needs the liveness.
+pub(crate) fn is_later_overwritten_preallocation(scope: &Scope, def: &VarDef) -> bool {
+    if !def.prealloc || def.kind != DefKind::Assignment || def.partial {
+        return false;
+    }
+    scope.defs_of(&def.name).into_iter().any(|d| {
+        d.byte_range.start > def.byte_range.start && d.kind == DefKind::Assignment && !d.partial
+    })
+}
+
+/// Whether the preallocation `def` is overwritten by a later full assignment in
+/// the same block before anything reads it: the case PREALL reports. MATLAB
+/// reports that case as PREALL alone, so NASGU leaves it out.
+pub(crate) fn is_overwritten_preallocation(scope: &Scope, def: &VarDef) -> bool {
+    if !def.prealloc || def.kind != DefKind::Assignment || def.partial {
+        return false;
+    }
+    // The next definition of the variable, in source order.
+    let next = scope
+        .defs_of(&def.name)
+        .into_iter()
+        .filter(|d| d.byte_range.start > def.byte_range.start)
+        .min_by_key(|d| d.byte_range.start);
+    let Some(next) = next else {
+        return false;
+    };
+    // Overwritten unconditionally: a full assignment in the same block.
+    if next.kind != DefKind::Assignment || next.partial || next.block_start != def.block_start {
+        return false;
+    }
+    // Read in between (including by the next assignment's own right-hand side)?
+    let read = scope.uses.iter().any(|u| {
+        u.name == def.name
+            && u.byte_range.start >= def.effect_start
+            && u.byte_range.start < next.effect_start
+    });
+    !read
 }
 
 #[cfg(test)]
@@ -48,23 +108,54 @@ mod tests {
         UnusedEngine::from_config(&Config::default())
     }
 
-    // -- PREALL: loop variable preallocated but unused ----------------------
-
-    #[test]
-    fn preall_fires_on_unused_loop_var() {
-        let diags = lint_file(
-            &*engine(),
-            "function foo()\n    for i = 1:10\n        disp('hi');\n    end\nend\n",
-        );
-        assert!(has_id(&diags, "PREALL"), "got: {diags:?}");
+    fn preall(src: &str) -> bool {
+        has_id(&lint_file(&*engine(), src), "PREALL")
     }
 
     #[test]
-    fn preall_ok_when_loop_var_used() {
-        let diags = lint_file(
-            &*engine(),
-            "function foo()\n    for i = 1:10\n        disp(i);\n    end\nend\n",
-        );
-        assert!(!has_id(&diags, "PREALL"), "got: {diags:?}");
+    fn preall_fires_when_preallocation_is_overwritten() {
+        assert!(preall(
+            "function foo(n)\n    x = zeros(1, n);\n    x = compute(n);\n    disp(x);\nend\n"
+        ));
+    }
+
+    #[test]
+    fn preall_ok_when_filled_by_indexing() {
+        assert!(!preall("function foo(n)\n    x = zeros(1, n);\n    for i = 1:n\n        x(i) = i;\n    end\n    disp(x);\nend\n"));
+    }
+
+    #[test]
+    fn preall_ok_when_read_before_overwrite() {
+        assert!(!preall(
+            "function foo(n)\n    x = zeros(1, n);\n    x = x + 1;\n    disp(x);\nend\n"
+        ));
+    }
+
+    #[test]
+    fn preall_ok_when_overwrite_is_conditional() {
+        assert!(!preall("function foo(n, c)\n    x = zeros(1, n);\n    if c\n        x = 5;\n    end\n    disp(x);\nend\n"));
+    }
+
+    #[test]
+    fn preall_silent_after_error_call() {
+        // Probe gp-b__t1: statements after an `error` call are not analysed.
+        assert!(!preall(
+            "function foo(n)\n    error('stop');\n    x = zeros(1, n);\n    x = compute(n);\n    disp(x);\nend\n"
+        ));
+    }
+
+    #[test]
+    fn preall_ok_for_rand_seed_call() {
+        // Probed: `rand('seed', n)` is not a preallocation.
+        assert!(!preall(
+            "function foo()\n    r = rand('twister', 5);\n    r = randn('state', 1);\n    disp(r);\nend\n"
+        ));
+    }
+
+    #[test]
+    fn preall_ignores_unused_loop_variables() {
+        assert!(!preall(
+            "function foo()\n    for i = 1:10\n        disp('hi');\n    end\nend\n"
+        ));
     }
 }

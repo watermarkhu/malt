@@ -36,8 +36,49 @@
 //! assert!(table.root_scope().is_defined("y"));
 //! ```
 
-use std::collections::HashSet;
+use std::cell::RefCell;
+use std::collections::{HashMap, HashSet};
+use std::rc::Rc;
 use tree_sitter::Tree;
+
+/// Whether a `function_call` is the trailing call of a dotted expression:
+/// `inline(x)` in `coder.inline(x)` or `obj.method(x)`. Its name is then a
+/// member of the object or package in front of it, not a function in scope.
+/// The children of `node`, collected with a cursor. `Node::child(i)` walks from
+/// the first child, so a loop over it is quadratic in the number of children
+/// (a file of 50,000 statements, or 2,000 functions, pays for it).
+pub(crate) fn children_of<'t>(
+    node: impl std::borrow::Borrow<tree_sitter::Node<'t>>,
+) -> Vec<tree_sitter::Node<'t>> {
+    let node = *node.borrow();
+    let mut cursor = node.walk();
+    node.children(&mut cursor).collect()
+}
+
+pub(crate) fn is_qualified_call(call: tree_sitter::Node) -> bool {
+    call.parent().is_some_and(|p| {
+        p.kind() == "field_expression" && p.named_child(0).is_some_and(|o| o.id() != call.id())
+    })
+}
+
+/// Whether `node` is the name of a field in `a.b.c` (anything but the leading
+/// object), as opposed to a variable. The expression in a dynamic field
+/// `s.(name)` sits inside an `indirect_access` node and is a variable.
+pub(crate) fn is_field_name(node: tree_sitter::Node) -> bool {
+    node.parent().is_some_and(|p| {
+        p.kind() == "field_expression"
+            && p.named_child(0)
+                .is_some_and(|object| object.id() != node.id())
+    })
+}
+
+/// Whether `word` is a variable name: a letter, then letters, digits or `_`.
+/// Options such as `-mat` are not.
+fn is_plain_name(word: &str) -> bool {
+    let mut chars = word.chars();
+    chars.next().is_some_and(|c| c.is_ascii_alphabetic())
+        && chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
+}
 
 // ---------------------------------------------------------------------------
 // Definition kinds
@@ -81,6 +122,21 @@ pub struct VarDef {
     pub line: usize,
     /// 1-indexed column number.
     pub column: usize,
+    /// Offset from which the definition is in effect. For an assignment this is
+    /// the end of the statement: the right-hand side is evaluated first, so a
+    /// use inside `x = x + 1` comes before the definition it belongs to. For
+    /// every other kind it is the start of `byte_range`.
+    pub effect_start: usize,
+    /// A partial assignment (`A(i) = v`, `s.f = v`, `C{i} = v`) rather than a
+    /// full one.
+    pub partial: bool,
+    /// One element of a `[a, b] = f()` output list.
+    pub multi_output: bool,
+    /// The right-hand side is a preallocation call (`zeros(...)`, `cell(...)`, ...).
+    pub prealloc: bool,
+    /// Start of the statement block the assignment sits in; two assignments with
+    /// the same value run one after the other, unconditionally.
+    pub block_start: usize,
 }
 
 /// A single variable usage (read) occurrence.
@@ -94,6 +150,10 @@ pub struct VarUse {
     pub line: usize,
     /// 1-indexed column number.
     pub column: usize,
+    /// The name is the callee of `name(...)`. MATLAB resolves it as an indexed
+    /// variable only if a variable of that name exists; with no definition in
+    /// sight it is a function call, not an undefined variable.
+    pub is_call_target: bool,
 }
 
 // ---------------------------------------------------------------------------
@@ -136,17 +196,38 @@ pub struct Scope {
     pub children: Vec<usize>,
     /// Parent scope index (`None` for top-level).
     pub parent: Option<usize>,
+    /// Positions in `defs`, by name, for [`Scope::defs_of`]. Built once the
+    /// table is complete.
+    def_index: HashMap<String, Vec<usize>>,
+    /// Positions in `uses`, by name, for [`Scope::uses_of`].
+    use_index: HashMap<String, Vec<usize>>,
 }
 
 impl Scope {
+    /// Index `defs` and `uses` by name.
+    fn index_names(&mut self) {
+        self.def_index.clear();
+        for (i, d) in self.defs.iter().enumerate() {
+            self.def_index.entry(d.name.clone()).or_default().push(i);
+        }
+        self.use_index.clear();
+        for (i, u) in self.uses.iter().enumerate() {
+            self.use_index.entry(u.name.clone()).or_default().push(i);
+        }
+    }
+
     /// Get all definitions of a variable by name.
     pub fn defs_of(&self, name: &str) -> Vec<&VarDef> {
-        self.defs.iter().filter(|d| d.name == name).collect()
+        self.def_index
+            .get(name)
+            .map_or_else(Vec::new, |ix| ix.iter().map(|&i| &self.defs[i]).collect())
     }
 
     /// Get all usages of a variable by name.
     pub fn uses_of(&self, name: &str) -> Vec<&VarUse> {
-        self.uses.iter().filter(|u| u.name == name).collect()
+        self.use_index
+            .get(name)
+            .map_or_else(Vec::new, |ix| ix.iter().map(|&i| &self.uses[i]).collect())
     }
 
     /// Get all unique defined variable names.
@@ -181,12 +262,12 @@ impl Scope {
 
     /// Check if a variable is defined in this scope.
     pub fn is_defined(&self, name: &str) -> bool {
-        self.defs.iter().any(|d| d.name == name)
+        self.def_index.contains_key(name)
     }
 
     /// Check if a variable is used in this scope.
     pub fn is_used(&self, name: &str) -> bool {
-        self.uses.iter().any(|u| u.name == name)
+        self.use_index.contains_key(name)
     }
 }
 
@@ -203,6 +284,10 @@ impl Scope {
 pub struct SymbolTable {
     /// All scopes in the file, indexed by position in this vec.
     pub scopes: Vec<Scope>,
+    /// Whether the primary function's `arguments` block is left open (a
+    /// `function` line inside it, see `Builder::has_unclosed_arguments_block`).
+    /// MATLAB then checks the primary function like a local function.
+    pub arguments_unclosed: bool,
 }
 
 impl SymbolTable {
@@ -243,17 +328,87 @@ impl SymbolTable {
     /// Performs a single DFS traversal of the tree-sitter parse tree, tracking
     /// scopes and collecting variable definitions and usages.
     pub fn build(tree: &Tree, source: &str) -> Self {
+        Self::build_from_root(tree.root_node(), source)
+    }
+
+    /// The table of the file being linted, built once and shared by every
+    /// check of that file.
+    ///
+    /// Valid for one parse epoch and one source text (see [`FileKey`]). `root` is
+    /// only called on a miss, because finding a root climbs from a node.
+    pub(crate) fn shared<'a>(
+        root: impl FnOnce() -> tree_sitter::Node<'a>,
+        source: &'a str,
+    ) -> Rc<SymbolTable> {
+        let key = FileKey::of(source);
+        SHARED.with(|slot| {
+            let mut slot = slot.borrow_mut();
+            if let Some(entry) = slot.as_ref().filter(|entry| entry.key == key) {
+                return entry.table.clone();
+            }
+            let table = Rc::new(Self::build_from_root(root(), source));
+            *slot = Some(SharedTable {
+                key,
+                table: table.clone(),
+            });
+            table
+        })
+    }
+
+    /// Build a symbol table from the root node of a parse tree.
+    ///
+    /// For callers that hold a node rather than the whole tree.
+    pub(crate) fn build_from_root<'a>(root: tree_sitter::Node<'a>, source: &'a str) -> Self {
         let mut builder = Builder {
             source,
             scopes: Vec::new(),
             scope_stack: Vec::new(),
             first_file_function_seen: false,
+            arguments_unclosed: false,
+            ancestors: vec![root],
+            def_names: HashSet::new(),
         };
-        builder.run(tree);
+        builder.run(root);
+        for scope in &mut builder.scopes {
+            scope.index_names();
+        }
         SymbolTable {
             scopes: builder.scopes,
+            arguments_unclosed: builder.arguments_unclosed,
         }
     }
+}
+
+/// Identity of the file being checked: the parse epoch and the address and
+/// length of its source text. Within one epoch the source is one string, so this
+/// names the file. Memos keyed by it are only read inside `Linter::lint`, which
+/// starts a new epoch.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) struct FileKey {
+    epoch: u64,
+    address: usize,
+    len: usize,
+}
+
+impl FileKey {
+    /// The key of `source` in the current parse epoch.
+    pub(crate) fn of(source: &str) -> Self {
+        Self {
+            epoch: malt_core::parse_epoch(),
+            address: source.as_ptr() as usize,
+            len: source.len(),
+        }
+    }
+}
+
+/// The table of the current file, see [`SymbolTable::shared`].
+struct SharedTable {
+    key: FileKey,
+    table: Rc<SymbolTable>,
+}
+
+thread_local! {
+    static SHARED: RefCell<Option<SharedTable>> = const { RefCell::new(None) };
 }
 
 // ---------------------------------------------------------------------------
@@ -268,6 +423,16 @@ struct Builder<'a> {
     scope_stack: Vec<usize>,
     /// Whether we have seen the first file-level `function_definition`.
     first_file_function_seen: bool,
+    /// Set when the primary function's `arguments` block is left open (see `SymbolTable`).
+    arguments_unclosed: bool,
+    /// The nodes being visited, outermost first: the last one is the node whose
+    /// handler runs, so the one below it is its parent. Tree-sitter's
+    /// `Node::parent` costs as much as the children of every ancestor, which is
+    /// quadratic on a file with many top-level statements.
+    ancestors: Vec<tree_sitter::Node<'a>>,
+    /// The (scope index, name) of every definition so far, for `defined_before`
+    /// checks that would otherwise scan a scope's definitions.
+    def_names: HashSet<(usize, String)>,
 }
 
 impl<'a> Builder<'a> {
@@ -301,6 +466,7 @@ impl<'a> Builder<'a> {
     /// Add a definition to the current scope.
     fn add_def(&mut self, def: VarDef) {
         if let Some(idx) = self.current_scope() {
+            self.def_names.insert((idx, def.name.clone()));
             self.scopes[idx].defs.push(def);
         }
     }
@@ -320,18 +486,26 @@ impl<'a> Builder<'a> {
     // -- main entry ---------------------------------------------------------
 
     /// Run the full build.
-    fn run(&mut self, tree: &'a Tree) {
-        let root = tree.root_node();
-
+    fn run(&mut self, root: tree_sitter::Node<'a>) {
         // Determine if this is a script or function file.
         // A function file starts with a `function_definition` as the first
         // meaningful child of `source_file`. Otherwise it's a script.
         let is_function_file = Self::first_meaningful_child_is_function(&root);
+        if is_function_file && Self::has_unclosed_arguments_block(root) {
+            self.arguments_unclosed = true;
+        }
+
+        if !is_function_file && self.is_broken_function_root(root) {
+            self.visit_broken_function(root);
+            return;
+        }
 
         if !is_function_file {
             // Script file: the entire file is one Script scope.
             let pos = root.start_position();
             self.push_scope(Scope {
+                def_index: HashMap::new(),
+                use_index: HashMap::new(),
                 name: String::new(),
                 kind: ScopeKind::Script,
                 byte_range: root.start_byte()..root.end_byte(),
@@ -351,6 +525,8 @@ impl<'a> Builder<'a> {
         if self.scopes.is_empty() {
             let pos = root.start_position();
             self.push_scope(Scope {
+                def_index: HashMap::new(),
+                use_index: HashMap::new(),
                 name: String::new(),
                 kind: ScopeKind::Script,
                 byte_range: root.start_byte()..root.end_byte(),
@@ -364,34 +540,121 @@ impl<'a> Builder<'a> {
     }
 
     /// Check if the first non-comment child of `source_file` is a function.
+    /// Line breaks (anonymous `"\n"` nodes) are skipped too: a help comment or
+    /// blank line before the `function` line keeps it the file's function.
     fn first_meaningful_child_is_function(root: &tree_sitter::Node) -> bool {
-        let count = root.child_count();
-        for i in 0..count {
-            if let Some(child) = root.child(i) {
-                match child.kind() {
-                    "comment" | "line_continuation" => continue,
-                    "function_definition" => return true,
-                    _ => return false,
-                }
+        for child in crate::analysis::symbols::children_of(root) {
+            match child.kind() {
+                "comment" | "line_continuation" => continue,
+                _ if !child.is_named() => continue,
+                // A class file is not a script: its properties, attributes
+                // and method names are declarations, not variable uses.
+                "function_definition" | "class_definition" => return true,
+                _ => return false,
             }
         }
         false
+    }
+
+    /// Whether a function file's first function has an `arguments` block with no
+    /// `end`, and the file has a top-level `ERROR` (a statement MATLAB cannot
+    /// parse). A `function` line inside the block (probed: `function q = inner()`)
+    /// leaves it open; MATLAB then checks the primary function like a local
+    /// function. Without the `ERROR` (probe a4) the primary stays the file's function.
+    fn has_unclosed_arguments_block(root: tree_sitter::Node) -> bool {
+        let children = children_of(root);
+        let has_error = children.iter().any(|c| c.kind() == "ERROR");
+        let first_function = children.iter().find(|c| c.kind() == "function_definition");
+        has_error
+            && first_function.is_some_and(|f| {
+                crate::analysis::symbols::children_of(f)
+                    .into_iter()
+                    .any(|c| {
+                        c.kind() == "arguments_statement"
+                            && children_of(c).into_iter().any(|m| m.is_missing())
+                    })
+            })
+    }
+
+    /// Whether the tree root is an `ERROR` node that starts with the `function`
+    /// keyword and has no outputs: a function whose header tree-sitter could not
+    /// parse. A later statement can make the whole file an error (probed:
+    /// `fprintf'hi %d', 3;` in the body). MATLAB still analyses it as a function.
+    fn is_broken_function_root(&self, root: tree_sitter::Node<'a>) -> bool {
+        if root.kind() != "ERROR" || root.child(0).map(|c| c.kind()) != Some("function") {
+            return false;
+        }
+        let kinds: Vec<&str> = children_of(root).iter().map(|c| c.kind()).collect();
+        !kinds.contains(&"function_output") && kinds.contains(&"block")
+    }
+
+    /// Analyse a function whose header is an `ERROR` root: the inputs come from
+    /// its `function_arguments` child, the name and the keyword are not reads.
+    /// The statements are visited as in any function body.
+    fn visit_broken_function(&mut self, root: tree_sitter::Node<'a>) {
+        let pos = root.start_position();
+        let name = children_of(root)
+            .into_iter()
+            .skip(1)
+            .find(|c| c.kind() == "identifier")
+            .map(|c| self.node_text(c).to_string())
+            .unwrap_or_default();
+        self.push_scope(Scope {
+            def_index: HashMap::new(),
+            use_index: HashMap::new(),
+            name,
+            kind: ScopeKind::Function,
+            byte_range: root.start_byte()..root.end_byte(),
+            line: pos.row + 1,
+            defs: Vec::new(),
+            uses: Vec::new(),
+            children: Vec::new(),
+            parent: None,
+        });
+        self.first_file_function_seen = true;
+        let mut name_seen = false;
+        for child in crate::analysis::symbols::children_of(root) {
+            match child.kind() {
+                "function" => {}
+                "function_arguments" => self.extract_input_identifiers(child),
+                "identifier" if !name_seen => name_seen = true,
+                _ => self.visit_node(child),
+            }
+        }
+        self.pop_scope();
     }
 
     // -- recursive visitor --------------------------------------------------
 
     /// Visit all children of a node, dispatching each to the appropriate handler.
     fn visit_children(&mut self, node: tree_sitter::Node<'a>) {
-        let count = node.child_count();
-        for i in 0..count {
-            if let Some(child) = node.child(i) {
-                self.visit_node(child);
-            }
+        for child in crate::analysis::symbols::children_of(node) {
+            self.visit_node(child);
         }
     }
 
-    /// Dispatch a single node.
+    /// Dispatch a single node, with the node pushed on `ancestors` while its
+    /// handler runs.
     fn visit_node(&mut self, node: tree_sitter::Node<'a>) {
+        self.ancestors.push(node);
+        self.dispatch(node);
+        self.ancestors.pop();
+    }
+
+    /// The parent of the node being visited.
+    fn parent_of_current(&self) -> Option<tree_sitter::Node<'a>> {
+        let len = self.ancestors.len();
+        len.checked_sub(2).map(|i| self.ancestors[i])
+    }
+
+    /// The grandparent of the node being visited.
+    fn grandparent_of_current(&self) -> Option<tree_sitter::Node<'a>> {
+        let len = self.ancestors.len();
+        len.checked_sub(3).map(|i| self.ancestors[i])
+    }
+
+    /// Run the handler of `node`, the node on top of `ancestors`.
+    fn dispatch(&mut self, node: tree_sitter::Node<'a>) {
         match node.kind() {
             "function_definition" => self.visit_function_definition(node),
             "lambda" => self.visit_lambda(node),
@@ -400,6 +663,98 @@ impl<'a> Builder<'a> {
             "global_operator" => self.visit_global_persistent(node, DefKind::Global),
             "persistent_operator" => self.visit_global_persistent(node, DefKind::Persistent),
             "identifier" => self.visit_identifier(node),
+            // `load('a.mat', 'x')` as a statement stores each variable it names.
+            "function_call" | "command"
+                if Self::is_load_statement(node, self.parent_of_current(), self.source) =>
+            {
+                self.record_load_stores(node);
+                self.visit_children(node);
+            }
+            // `save(file, 'x')` reads each variable it names (probed: MATLAB reports
+            // no store of `x` before it); `save(file)` names none.
+            "function_call"
+                if node
+                    .child_by_field_name("name")
+                    .is_some_and(|n| self.node_text(n) == "save") =>
+            {
+                self.record_save_reads(node);
+                self.visit_children(node);
+            }
+            // `syms a b real` declares each plain name as a variable: a store, so an
+            // unused one is dead in a function (probed: NASGU on `w0` and `b`).
+            "command"
+                if node
+                    .named_child(0)
+                    .is_some_and(|c| c.kind() == "command_name" && self.node_text(c) == "syms") =>
+            {
+                self.record_syms_stores(node);
+            }
+            // `save f x y` (command syntax) reads the names after the file name, as
+            // `save('f', 'x', 'y')` does (probed: MATLAB reports no store before it).
+            "command"
+                if node
+                    .named_child(0)
+                    .is_some_and(|c| c.kind() == "command_name" && self.node_text(c) == "save") =>
+            {
+                self.record_save_command_reads(node);
+            }
+            // `a;` is a command with one `command_name` in this grammar: a read of `a`.
+            "command" if node.named_child_count() == 1 => {
+                if let Some(name) = node
+                    .named_child(0)
+                    .filter(|child| child.kind() == "command_name")
+                {
+                    self.record_use(name);
+                }
+            }
+            // Class declarations: names, attributes and superclasses are not
+            // reads; only property default values and method bodies are code.
+            "attributes" | "superclasses" | "enum" | "events" => {}
+            // `catch err` defines the exception variable.
+            "catch_clause" => {
+                let mut cursor = node.walk();
+                let mut after_catch = false;
+                for child in node.children(&mut cursor) {
+                    let prev_is_catch =
+                        std::mem::replace(&mut after_catch, child.kind() == "catch");
+                    if child.kind() == "identifier" && prev_is_catch {
+                        let pos = child.start_position();
+                        let def = VarDef {
+                            name: self.node_text(child).to_string(),
+                            kind: DefKind::Assignment,
+                            byte_range: child.byte_range(),
+                            effect_start: child.end_byte(),
+                            partial: false,
+                            multi_output: false,
+                            prealloc: false,
+                            block_start: 0,
+                            line: pos.row + 1,
+                            column: pos.column + 1,
+                        };
+                        self.add_def(def);
+                    } else {
+                        self.visit_node(child);
+                    }
+                }
+            }
+            "property" => {
+                let mut cursor = node.walk();
+                for child in node.children(&mut cursor) {
+                    if child.kind() == "default_value" {
+                        self.visit_node(child);
+                    } else if child.kind() == "validation_functions" {
+                        self.record_validator_callees(child);
+                    }
+                }
+            }
+            "class_definition" => {
+                let mut cursor = node.walk();
+                for child in node.children(&mut cursor) {
+                    if child.kind() != "identifier" {
+                        self.visit_node(child);
+                    }
+                }
+            }
             // For all other nodes, just recurse into children.
             _ => self.visit_children(node),
         }
@@ -433,6 +788,11 @@ impl<'a> Builder<'a> {
                     name: func_name.clone(),
                     kind: DefKind::NestedFunction,
                     byte_range: name_node.start_byte()..name_node.end_byte(),
+                    effect_start: name_node.start_byte(),
+                    partial: false,
+                    multi_output: false,
+                    prealloc: false,
+                    block_start: 0,
                     line: name_pos.row + 1,
                     column: name_pos.column + 1,
                 });
@@ -441,6 +801,8 @@ impl<'a> Builder<'a> {
 
         // Push new scope.
         self.push_scope(Scope {
+            def_index: HashMap::new(),
+            use_index: HashMap::new(),
             name: func_name,
             kind: scope_kind,
             byte_range: node.start_byte()..node.end_byte(),
@@ -459,26 +821,23 @@ impl<'a> Builder<'a> {
 
         // Recurse into the function body (all children except the ones we
         // already handled).
-        let count = node.child_count();
-        for i in 0..count {
-            if let Some(child) = node.child(i) {
-                let kind = child.kind();
-                if kind == "function_arguments" || kind == "function_output" {
-                    // Already handled above.
+        for child in crate::analysis::symbols::children_of(node) {
+            let kind = child.kind();
+            if kind == "function_arguments" || kind == "function_output" {
+                // Already handled above.
+                continue;
+            }
+            if kind == "identifier" {
+                // Skip the function name identifier (it's the `name` field).
+                if node
+                    .child_by_field_name("name")
+                    .map(|n| n.id() == child.id())
+                    .unwrap_or(false)
+                {
                     continue;
                 }
-                if kind == "identifier" {
-                    // Skip the function name identifier (it's the `name` field).
-                    if node
-                        .child_by_field_name("name")
-                        .map(|n| n.id() == child.id())
-                        .unwrap_or(false)
-                    {
-                        continue;
-                    }
-                }
-                self.visit_node(child);
             }
+            self.visit_node(child);
         }
 
         self.pop_scope();
@@ -487,7 +846,7 @@ impl<'a> Builder<'a> {
     /// Classify a `function_definition` based on its position in the tree.
     fn classify_function_scope(&mut self, node: tree_sitter::Node) -> ScopeKind {
         // Check if we're inside a `methods` block.
-        if Self::is_inside_methods_block(node) {
+        if self.is_inside_methods_block() {
             return ScopeKind::Method;
         }
 
@@ -508,9 +867,21 @@ impl<'a> Builder<'a> {
             return ScopeKind::NestedFunction;
         }
 
-        // File-level function.
-        if !self.first_file_function_seen {
-            self.first_file_function_seen = true;
+        // File-level function. A classdef file's main entity is the class, so a
+        // function after the classdef `end` is local (probed: `function helper()`
+        // after a classdef is DEFNU when unused).
+        // Only the first file-level function needs the answer.
+        let after_class = || {
+            self.parent_of_current().is_some_and(|parent| {
+                parent
+                    .children(&mut parent.walk())
+                    .take_while(|sibling| sibling.id() != node.id())
+                    .any(|sibling| sibling.kind() == "class_definition")
+            })
+        };
+        let first = !self.first_file_function_seen && !after_class();
+        self.first_file_function_seen = true;
+        if first {
             ScopeKind::Function
         } else {
             ScopeKind::LocalFunction
@@ -518,9 +889,9 @@ impl<'a> Builder<'a> {
     }
 
     /// Check if a node is inside a `methods` block (by walking parents).
-    fn is_inside_methods_block(node: tree_sitter::Node) -> bool {
-        let mut current = node.parent();
-        while let Some(p) = current {
+    fn is_inside_methods_block(&self) -> bool {
+        // The ancestors of the function being visited, nearest first.
+        for p in self.ancestors.iter().rev().skip(1) {
             if p.kind() == "methods" {
                 return true;
             }
@@ -528,7 +899,6 @@ impl<'a> Builder<'a> {
             if p.kind() == "class_definition" || p.kind() == "source_file" {
                 break;
             }
-            current = p.parent();
         }
         false
     }
@@ -537,13 +907,10 @@ impl<'a> Builder<'a> {
     fn extract_function_outputs(&mut self, func_node: tree_sitter::Node<'a>) {
         let Some(output_node) = func_node.child_by_field_name("output") else {
             // Also try iterating children for "function_output".
-            let count = func_node.child_count();
-            for i in 0..count {
-                if let Some(child) = func_node.child(i) {
-                    if child.kind() == "function_output" {
-                        self.extract_output_identifiers(child);
-                        return;
-                    }
+            for child in crate::analysis::symbols::children_of(func_node) {
+                if child.kind() == "function_output" {
+                    self.extract_output_identifiers(child);
+                    return;
                 }
             }
             return;
@@ -560,28 +927,35 @@ impl<'a> Builder<'a> {
                     name: self.node_text(node).to_string(),
                     kind: DefKind::OutputArg,
                     byte_range: node.start_byte()..node.end_byte(),
+                    effect_start: node.start_byte(),
+                    partial: false,
+                    multi_output: false,
+                    prealloc: false,
+                    block_start: 0,
                     line: pos.row + 1,
                     column: pos.column + 1,
                 });
             }
             "multioutput_variable" | "function_output" => {
-                let count = node.child_count();
-                for i in 0..count {
-                    if let Some(child) = node.child(i) {
-                        if child.kind() == "identifier" {
-                            let pos = child.start_position();
-                            self.add_def(VarDef {
-                                name: self.node_text(child).to_string(),
-                                kind: DefKind::OutputArg,
-                                byte_range: child.start_byte()..child.end_byte(),
-                                line: pos.row + 1,
-                                column: pos.column + 1,
-                            });
-                        } else if child.kind() == "multioutput_variable" {
-                            self.extract_output_identifiers(child);
-                        }
-                        // Skip `ignored_argument` (~).
+                for child in crate::analysis::symbols::children_of(node) {
+                    if child.kind() == "identifier" {
+                        let pos = child.start_position();
+                        self.add_def(VarDef {
+                            name: self.node_text(child).to_string(),
+                            kind: DefKind::OutputArg,
+                            byte_range: child.start_byte()..child.end_byte(),
+                            effect_start: child.start_byte(),
+                            partial: false,
+                            multi_output: false,
+                            prealloc: false,
+                            block_start: 0,
+                            line: pos.row + 1,
+                            column: pos.column + 1,
+                        });
+                    } else if child.kind() == "multioutput_variable" {
+                        self.extract_output_identifiers(child);
                     }
+                    // Skip `ignored_argument` (~).
                 }
             }
             _ => {}
@@ -590,34 +964,33 @@ impl<'a> Builder<'a> {
 
     /// Extract input arguments from `function_arguments`.
     fn extract_function_inputs(&mut self, func_node: tree_sitter::Node<'a>) {
-        let count = func_node.child_count();
-        for i in 0..count {
-            if let Some(child) = func_node.child(i) {
-                if child.kind() == "function_arguments" {
-                    self.extract_input_identifiers(child);
-                    return;
-                }
+        for child in crate::analysis::symbols::children_of(func_node) {
+            if child.kind() == "function_arguments" {
+                self.extract_input_identifiers(child);
+                return;
             }
         }
     }
 
     /// Extract identifiers from a `function_arguments` node.
     fn extract_input_identifiers(&mut self, args_node: tree_sitter::Node<'a>) {
-        let count = args_node.child_count();
-        for i in 0..count {
-            if let Some(child) = args_node.child(i) {
-                if child.kind() == "identifier" {
-                    let pos = child.start_position();
-                    self.add_def(VarDef {
-                        name: self.node_text(child).to_string(),
-                        kind: DefKind::InputArg,
-                        byte_range: child.start_byte()..child.end_byte(),
-                        line: pos.row + 1,
-                        column: pos.column + 1,
-                    });
-                }
-                // Skip `ignored_argument` (~).
+        for child in crate::analysis::symbols::children_of(args_node) {
+            if child.kind() == "identifier" {
+                let pos = child.start_position();
+                self.add_def(VarDef {
+                    name: self.node_text(child).to_string(),
+                    kind: DefKind::InputArg,
+                    byte_range: child.start_byte()..child.end_byte(),
+                    effect_start: child.start_byte(),
+                    partial: false,
+                    multi_output: false,
+                    prealloc: false,
+                    block_start: 0,
+                    line: pos.row + 1,
+                    column: pos.column + 1,
+                });
             }
+            // Skip `ignored_argument` (~).
         }
     }
 
@@ -630,6 +1003,8 @@ impl<'a> Builder<'a> {
         let pos = node.start_position();
 
         self.push_scope(Scope {
+            def_index: HashMap::new(),
+            use_index: HashMap::new(),
             name: String::new(),
             kind: ScopeKind::Lambda,
             byte_range: node.start_byte()..node.end_byte(),
@@ -642,23 +1017,25 @@ impl<'a> Builder<'a> {
 
         // Extract lambda parameters. In tree-sitter-matlab, the lambda's
         // arguments node contains the parameter identifiers.
-        let count = node.child_count();
-        for i in 0..count {
-            if let Some(child) = node.child(i) {
-                if child.kind() == "arguments" || child.kind() == "lambda_arguments" {
-                    let arg_count = child.child_count();
-                    for j in 0..arg_count {
-                        if let Some(arg) = child.child(j) {
-                            if arg.kind() == "identifier" {
-                                let arg_pos = arg.start_position();
-                                self.add_def(VarDef {
-                                    name: self.node_text(arg).to_string(),
-                                    kind: DefKind::LambdaParam,
-                                    byte_range: arg.start_byte()..arg.end_byte(),
-                                    line: arg_pos.row + 1,
-                                    column: arg_pos.column + 1,
-                                });
-                            }
+        for child in crate::analysis::symbols::children_of(node) {
+            if child.kind() == "arguments" || child.kind() == "lambda_arguments" {
+                let arg_count = child.child_count();
+                for j in 0..arg_count {
+                    if let Some(arg) = child.child(j) {
+                        if arg.kind() == "identifier" {
+                            let arg_pos = arg.start_position();
+                            self.add_def(VarDef {
+                                name: self.node_text(arg).to_string(),
+                                kind: DefKind::LambdaParam,
+                                byte_range: arg.start_byte()..arg.end_byte(),
+                                effect_start: arg.start_byte(),
+                                partial: false,
+                                multi_output: false,
+                                prealloc: false,
+                                block_start: 0,
+                                line: arg_pos.row + 1,
+                                column: arg_pos.column + 1,
+                            });
                         }
                     }
                 }
@@ -666,8 +1043,8 @@ impl<'a> Builder<'a> {
         }
 
         // Visit body (all children that are not the arguments).
-        for i in 0..count {
-            if let Some(child) = node.child(i) {
+        for child in children_of(node) {
+            {
                 let kind = child.kind();
                 if kind == "arguments" || kind == "lambda_arguments" {
                     continue;
@@ -680,7 +1057,22 @@ impl<'a> Builder<'a> {
             }
         }
 
-        self.pop_scope();
+        // A variable the lambda reads but does not bind is captured from the
+        // enclosing scope: a use there, or the assignment looks dead.
+        if let Some(lambda) = self.current_scope() {
+            let captured: Vec<VarUse> = self.scopes[lambda]
+                .uses
+                .iter()
+                .filter(|u| !self.scopes[lambda].defs.iter().any(|d| d.name == u.name))
+                .cloned()
+                .collect();
+            self.pop_scope();
+            if let Some(parent) = self.current_scope() {
+                self.scopes[parent].uses.extend(captured);
+            }
+        } else {
+            self.pop_scope();
+        }
     }
 
     // -- assignment ---------------------------------------------------------
@@ -691,7 +1083,20 @@ impl<'a> Builder<'a> {
     fn visit_assignment(&mut self, node: tree_sitter::Node<'a>) {
         // Process LHS: definitions.
         if let Some(lhs) = node.child_by_field_name("left") {
-            self.extract_assignment_lhs(lhs);
+            let before = self
+                .current_scope()
+                .map_or(0, |i| self.scopes[i].defs.len());
+            self.extract_assignment_lhs(lhs, node.end_byte());
+            let prealloc = node
+                .child_by_field_name("right")
+                .is_some_and(|r| self.is_prealloc_call(r));
+            let block_start = self.parent_of_current().map_or(0, |p| p.start_byte());
+            if let Some(idx) = self.current_scope() {
+                for def in self.scopes[idx].defs.iter_mut().skip(before) {
+                    def.block_start = block_start;
+                    def.prealloc = prealloc && lhs.kind() == "identifier";
+                }
+            }
         }
 
         // Process RHS: usages (just recurse normally).
@@ -700,8 +1105,21 @@ impl<'a> Builder<'a> {
         }
     }
 
+    /// Whether `node` is a call that creates a preallocated array.
+    fn is_prealloc_call(&self, node: tree_sitter::Node<'a>) -> bool {
+        const PREALLOC: &[&str] = &[
+            "zeros", "ones", "cell", "nan", "NaN", "inf", "Inf", "false", "true", "eye",
+        ];
+        node.kind() == "function_call"
+            && node
+                .child_by_field_name("name")
+                .is_some_and(|n| PREALLOC.contains(&self.node_text(n)))
+    }
+
     /// Extract definitions from an assignment LHS.
-    fn extract_assignment_lhs(&mut self, lhs: tree_sitter::Node<'a>) {
+    ///
+    /// `effect` is where the assignment takes effect: the end of the statement.
+    fn extract_assignment_lhs(&mut self, lhs: tree_sitter::Node<'a>, effect: usize) {
         match lhs.kind() {
             "identifier" => {
                 let pos = lhs.start_position();
@@ -709,47 +1127,108 @@ impl<'a> Builder<'a> {
                     name: self.node_text(lhs).to_string(),
                     kind: DefKind::Assignment,
                     byte_range: lhs.start_byte()..lhs.end_byte(),
+                    effect_start: effect,
+                    partial: false,
+                    multi_output: false,
+                    prealloc: false,
+                    block_start: 0,
                     line: pos.row + 1,
                     column: pos.column + 1,
                 });
             }
             "multioutput_variable" => {
-                let count = lhs.child_count();
-                for i in 0..count {
-                    if let Some(child) = lhs.child(i) {
-                        if child.kind() == "identifier" {
-                            let pos = child.start_position();
-                            self.add_def(VarDef {
-                                name: self.node_text(child).to_string(),
-                                kind: DefKind::Assignment,
-                                byte_range: child.start_byte()..child.end_byte(),
-                                line: pos.row + 1,
-                                column: pos.column + 1,
-                            });
-                        }
-                        // Skip `ignored_argument` (~) and punctuation.
+                for child in crate::analysis::symbols::children_of(lhs) {
+                    if child.kind() == "identifier" {
+                        let pos = child.start_position();
+                        self.add_def(VarDef {
+                            name: self.node_text(child).to_string(),
+                            kind: DefKind::Assignment,
+                            byte_range: child.start_byte()..child.end_byte(),
+                            effect_start: effect,
+                            partial: false,
+                            multi_output: true,
+                            prealloc: false,
+                            block_start: 0,
+                            line: pos.row + 1,
+                            column: pos.column + 1,
+                        });
+                    } else if matches!(
+                        child.kind(),
+                        "field_expression" | "function_call" | "cell_index"
+                    ) {
+                        // `[s.a, b] = f()`: a partial store into `s`.
+                        self.partial_assignment(child, effect);
                     }
+                    // Skip `ignored_argument` (~) and punctuation.
                 }
             }
-            "function_call" => {
-                // Indexed assignment: `A(i) = ...` or `obj.field = ...`.
-                // The name of the function_call is the variable being
-                // assigned into; we treat it as a usage (the variable must
-                // already exist). Arguments are usages too. Recurse normally.
-                self.visit_node(lhs);
-            }
-            "field_expression" => {
-                // `obj.field = ...` — `obj` is a usage.
-                self.visit_node(lhs);
-            }
-            "cell_index" => {
-                // `C{i} = ...` — treat like indexed assignment.
-                self.visit_node(lhs);
+            // `A(i) = v`, `s.f = v`, `C{i} = v`: a partial assignment.
+            "function_call" | "field_expression" | "cell_index" => {
+                self.partial_assignment(lhs, effect);
             }
             _ => {
                 // Unknown LHS shape — recurse for safety.
                 self.visit_node(lhs);
             }
+        }
+    }
+
+    /// A partial assignment (`A(i) = v`, `s.f.g = v`, `C{i} = v`) defines its
+    /// root variable, creating it when it does not exist yet. It also reads the
+    /// previous value, which is recorded as a use only when there is one:
+    /// the first `A(2) = 5` has nothing to read.
+    fn partial_assignment(&mut self, lhs: tree_sitter::Node<'a>, effect: usize) {
+        let Some(root) = Self::root_identifier(lhs) else {
+            self.visit_node(lhs);
+            return;
+        };
+        let name = self.node_text(root).to_string();
+        let defined_before = self
+            .current_scope()
+            .is_some_and(|idx| self.def_names.contains(&(idx, name.clone())));
+
+        // Index expressions and the like are plain uses.
+        let uses_before = self
+            .current_scope()
+            .map_or(0, |idx| self.scopes[idx].uses.len());
+        self.visit_node(lhs);
+        if !defined_before {
+            if let Some(idx) = self.current_scope() {
+                // Only the uses this visit recorded can be the root's own use.
+                let mut recorded = self.scopes[idx].uses.split_off(uses_before);
+                let at = root.start_byte();
+                recorded.retain(|u| !(u.name == name && u.byte_range.start == at));
+                self.scopes[idx].uses.append(&mut recorded);
+            }
+        }
+        let pos = root.start_position();
+        self.add_def(VarDef {
+            name,
+            kind: DefKind::Assignment,
+            byte_range: root.start_byte()..root.end_byte(),
+            line: pos.row + 1,
+            column: pos.column + 1,
+            effect_start: effect,
+            partial: true,
+            multi_output: false,
+            prealloc: false,
+            block_start: 0,
+        });
+    }
+
+    /// The variable an indexed or field expression is rooted at (`x` in
+    /// `x.y(3).z`).
+    fn root_identifier(mut node: tree_sitter::Node<'a>) -> Option<tree_sitter::Node<'a>> {
+        loop {
+            node = match node.kind() {
+                "identifier" => return Some(node),
+                "function_call" => node.child_by_field_name("name")?,
+                "field_expression" => node.child_by_field_name("object")?,
+                "cell_index" => node
+                    .child_by_field_name("name")
+                    .or_else(|| node.named_child(0))?,
+                _ => return None,
+            };
         }
     }
 
@@ -761,14 +1240,11 @@ impl<'a> Builder<'a> {
     fn visit_for_statement(&mut self, node: tree_sitter::Node<'a>) {
         // The for statement has an `iterator` child that contains the loop
         // variable and the range expression.
-        let count = node.child_count();
-        for i in 0..count {
-            if let Some(child) = node.child(i) {
-                if child.kind() == "iterator" {
-                    self.visit_iterator(child);
-                } else {
-                    self.visit_node(child);
-                }
+        for child in crate::analysis::symbols::children_of(node) {
+            if child.kind() == "iterator" {
+                self.visit_iterator(child);
+            } else {
+                self.visit_node(child);
             }
         }
     }
@@ -779,27 +1255,29 @@ impl<'a> Builder<'a> {
     /// Everything else (the range expression) is visited for usages.
     fn visit_iterator(&mut self, node: tree_sitter::Node<'a>) {
         let mut found_var = false;
-        let count = node.child_count();
-        for i in 0..count {
-            if let Some(child) = node.child(i) {
-                if !found_var && child.kind() == "identifier" {
-                    // This is the loop variable.
-                    let pos = child.start_position();
-                    self.add_def(VarDef {
-                        name: self.node_text(child).to_string(),
-                        kind: DefKind::ForIterator,
-                        byte_range: child.start_byte()..child.end_byte(),
-                        line: pos.row + 1,
-                        column: pos.column + 1,
-                    });
-                    found_var = true;
-                } else if child.kind() == "=" {
-                    // Skip the `=` token.
-                    continue;
-                } else {
-                    // Range expression — visit for usages.
-                    self.visit_node(child);
-                }
+        for child in crate::analysis::symbols::children_of(node) {
+            if !found_var && child.kind() == "identifier" {
+                // This is the loop variable.
+                let pos = child.start_position();
+                self.add_def(VarDef {
+                    name: self.node_text(child).to_string(),
+                    kind: DefKind::ForIterator,
+                    byte_range: child.start_byte()..child.end_byte(),
+                    effect_start: child.start_byte(),
+                    partial: false,
+                    multi_output: false,
+                    prealloc: false,
+                    block_start: 0,
+                    line: pos.row + 1,
+                    column: pos.column + 1,
+                });
+                found_var = true;
+            } else if child.kind() == "=" {
+                // Skip the `=` token.
+                continue;
+            } else {
+                // Range expression — visit for usages.
+                self.visit_node(child);
             }
         }
     }
@@ -810,19 +1288,21 @@ impl<'a> Builder<'a> {
     ///
     /// Each child identifier is a declaration.
     fn visit_global_persistent(&mut self, node: tree_sitter::Node<'a>, kind: DefKind) {
-        let count = node.child_count();
-        for i in 0..count {
-            if let Some(child) = node.child(i) {
-                if child.kind() == "identifier" {
-                    let pos = child.start_position();
-                    self.add_def(VarDef {
-                        name: self.node_text(child).to_string(),
-                        kind,
-                        byte_range: child.start_byte()..child.end_byte(),
-                        line: pos.row + 1,
-                        column: pos.column + 1,
-                    });
-                }
+        for child in crate::analysis::symbols::children_of(node) {
+            if child.kind() == "identifier" {
+                let pos = child.start_position();
+                self.add_def(VarDef {
+                    name: self.node_text(child).to_string(),
+                    kind,
+                    byte_range: child.start_byte()..child.end_byte(),
+                    effect_start: child.start_byte(),
+                    partial: false,
+                    multi_output: false,
+                    prealloc: false,
+                    block_start: 0,
+                    line: pos.row + 1,
+                    column: pos.column + 1,
+                });
             }
         }
     }
@@ -835,11 +1315,20 @@ impl<'a> Builder<'a> {
     /// (already captured elsewhere), a function/field name (skip), or a
     /// genuine variable usage.
     fn visit_identifier(&mut self, node: tree_sitter::Node<'a>) {
-        let Some(parent) = node.parent() else {
+        let Some(parent) = self.parent_of_current() else {
             // Orphan identifier — treat as usage to be safe.
             self.record_use(node);
             return;
         };
+        // The name of a `Name = value` call argument is not a read: `struct(Counts = [])`
+        // does not use `Counts` (probed: MATLAB reports no NODEF for it). The value is.
+        if parent.kind() == "arguments"
+            && children_of(parent)
+                .windows(2)
+                .any(|pair| pair[0].id() == node.id() && pair[1].kind() == "=")
+        {
+            return;
+        }
 
         match parent.kind() {
             // Already handled by visit_assignment.
@@ -859,7 +1348,7 @@ impl<'a> Builder<'a> {
             // Already handled by extract_assignment_lhs.
             "multioutput_variable" => {
                 // Check if the multioutput_variable is the LHS of an assignment.
-                if let Some(grandparent) = parent.parent() {
+                if let Some(grandparent) = self.grandparent_of_current() {
                     if grandparent.kind() == "assignment"
                         && grandparent
                             .child_by_field_name("left")
@@ -919,7 +1408,7 @@ impl<'a> Builder<'a> {
             // Lambda arguments — already handled.
             "arguments" | "lambda_arguments" => {
                 // Only skip if the parent's parent is a lambda.
-                if let Some(grandparent) = parent.parent() {
+                if let Some(grandparent) = self.grandparent_of_current() {
                     if grandparent.kind() == "lambda" {
                         return;
                     }
@@ -929,20 +1418,23 @@ impl<'a> Builder<'a> {
 
             // Function call name: count as usage (could be array indexing).
             "function_call" => {
-                // The `name` field of function_call should be counted as a
-                // usage because it could be array indexing (`A(i)`), where
-                // `A` must be defined.
-                self.record_use(node);
+                // `s.f(end+1)`: `f` is a member of `s`, not a name in scope
+                // (probed: a local function `f` is still DEFNU after it).
+                if is_qualified_call(parent) {
+                    return;
+                }
+                // The callee is a use because it could be indexing (`A(i)`),
+                // but one that checks can tell from a plain variable use.
+                let is_callee = parent
+                    .child_by_field_name("name")
+                    .is_some_and(|n| n.id() == node.id());
+                self.record_use_as(node, is_callee);
             }
 
             // Field expression: only the `object` part is a usage, not the
             // `field` part.
             "field_expression" => {
-                if parent
-                    .child_by_field_name("field")
-                    .map(|f| f.id() == node.id())
-                    .unwrap_or(false)
-                {
+                if is_field_name(node) {
                     // This is the field name (e.g., `field` in `obj.field`).
                     // Not a standalone variable usage.
                     return;
@@ -972,25 +1464,237 @@ impl<'a> Builder<'a> {
 
     /// Find the first `identifier` child of a node.
     fn first_identifier_child(node: tree_sitter::Node) -> Option<tree_sitter::Node> {
-        let count = node.child_count();
-        for i in 0..count {
-            if let Some(child) = node.child(i) {
-                if child.kind() == "identifier" {
-                    return Some(child);
-                }
+        crate::analysis::symbols::children_of(node)
+            .into_iter()
+            .find(|child| child.kind() == "identifier")
+    }
+
+    /// Record the callee names of the function calls in a validator. Their
+    /// arguments are not uses: `mustBeX(o, x)` does not use input `x`. A bare
+    /// validator name, `{mustBeX}`, is a call of that function too (probed:
+    /// MATLAB does not report a local validator as unused).
+    fn record_validator_callees(&mut self, node: tree_sitter::Node<'a>) {
+        if node.kind() == "function_call" {
+            if let Some(name) = node.child_by_field_name("name") {
+                self.record_use_as(name, true);
             }
         }
-        None
+        if node.kind() == "identifier"
+            && node
+                .parent()
+                .is_some_and(|p| p.kind() == "validation_functions")
+        {
+            self.record_use_as(node, true);
+        }
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            self.record_validator_callees(child);
+        }
     }
 
     /// Record a variable usage at the given identifier node.
+    /// Whether `node` is a `load` call or command that is a whole statement.
+    /// With an output (`y = load(...)`) it stores nothing by name.
+    fn is_load_statement(
+        node: tree_sitter::Node,
+        parent: Option<tree_sitter::Node>,
+        source: &str,
+    ) -> bool {
+        let statement = parent.is_some_and(|p| matches!(p.kind(), "block" | "source_file"));
+        let callee = match node.kind() {
+            "function_call" => node
+                .child_by_field_name("name")
+                .map(|n| &source[n.byte_range()]),
+            _ => node
+                .named_child(0)
+                .filter(|c| c.kind() == "command_name")
+                .map(|c| &source[c.byte_range()]),
+        };
+        statement && callee == Some("load")
+    }
+
+    /// Records the variables that a `save(file, 'x', ...)` call reads: the quoted
+    /// names after the file name. Each is a read at the position of its string.
+    fn record_save_reads(&mut self, node: tree_sitter::Node<'a>) {
+        let mut cursor = node.walk();
+        let args: Vec<tree_sitter::Node<'a>> = node
+            .children(&mut cursor)
+            .filter(|c| c.kind() == "arguments")
+            .flat_map(|args| {
+                let mut inner = args.walk();
+                args.named_children(&mut inner).collect::<Vec<_>>()
+            })
+            .collect();
+        // The first argument is the file name, whatever its kind.
+        for arg in args.into_iter().skip(1).filter(|a| a.kind() == "string") {
+            let raw = self.node_text(arg);
+            let name = raw.trim_matches(|c| c == '\'' || c == '"');
+            if !is_plain_name(name) {
+                continue;
+            }
+            let pos = arg.start_position();
+            self.add_use(VarUse {
+                name: name.to_string(),
+                byte_range: arg.byte_range(),
+                line: pos.row + 1,
+                column: pos.column + 1,
+                is_call_target: false,
+            });
+        }
+    }
+
+    /// Records the variables that a `save f x y` command reads: the words after the
+    /// file name. Options (`-append`) name nothing; with `-struct s` only the
+    /// structure `s` is read, its fields are not variables.
+    fn record_save_command_reads(&mut self, node: tree_sitter::Node<'a>) {
+        let mut cursor = node.walk();
+        let words: Vec<tree_sitter::Node<'a>> = node.named_children(&mut cursor).skip(2).collect();
+        // Options that only change the file format: every other word is a variable name. Any
+        // other option (`-regexp`, an unknown one such as `-fromstruct`) changes what the
+        // words mean, so nothing is read then.
+        const FORMAT_OPTIONS: &[&str] = &[
+            "-append",
+            "-mat",
+            "-ascii",
+            "-v4",
+            "-v6",
+            "-v7",
+            "-v7.3",
+            "-double",
+            "-tabs",
+            "-nocompression",
+        ];
+        if words.iter().any(|w| {
+            let text = self.node_text(*w);
+            text.starts_with('-') && text != "-struct" && !FORMAT_OPTIONS.contains(&text)
+        }) {
+            return;
+        }
+        let struct_form = words.iter().any(|w| self.node_text(*w) == "-struct");
+        let reads: Vec<tree_sitter::Node<'a>> = if struct_form {
+            words
+                .iter()
+                .skip_while(|w| self.node_text(**w) != "-struct")
+                .skip(1)
+                .take(1)
+                .copied()
+                .collect()
+        } else {
+            words
+        };
+        for word in reads {
+            let name = self.node_text(word);
+            if !is_plain_name(name) {
+                continue;
+            }
+            let pos = word.start_position();
+            self.add_use(VarUse {
+                name: name.to_string(),
+                byte_range: word.byte_range(),
+                line: pos.row + 1,
+                column: pos.column + 1,
+                is_call_target: false,
+            });
+        }
+    }
+
+    /// Adds the variables that a `load` statement stores: the names after the
+    /// file name, quoted or as command words (`load('a.mat', 'x')`, `load a.mat x`).
+    /// Each is a full assignment at the position of its name, so MATLAB reports
+    /// an unread store there (probed: `x = 1; load('a.mat', 'x')` reports both).
+    /// Options (`-mat`) store nothing.
+    /// Declares each plain name of a `syms` command as a variable, defined at the
+    /// end of the statement. `x(t)` declarations and the assumption keywords
+    /// (`real`, `positive`, ...) are not declared here.
+    fn record_syms_stores(&mut self, node: tree_sitter::Node<'a>) {
+        const ASSUMPTIONS: &[&str] = &["real", "positive", "unreal", "rational", "integer"];
+        let mut cursor = node.walk();
+        for arg in node.named_children(&mut cursor) {
+            let name = self.node_text(arg);
+            let plain = name
+                .chars()
+                .next()
+                .is_some_and(|c| c.is_alphabetic() || c == '_')
+                && name.chars().all(|c| c.is_alphanumeric() || c == '_');
+            if arg.kind() == "command_name" || !plain || ASSUMPTIONS.contains(&name) {
+                continue;
+            }
+            let pos = arg.start_position();
+            self.add_def(VarDef {
+                name: name.to_string(),
+                kind: DefKind::Assignment,
+                byte_range: arg.byte_range(),
+                effect_start: node.end_byte(),
+                partial: false,
+                multi_output: false,
+                prealloc: false,
+                block_start: self.parent_of_current().map_or(0, |p| p.start_byte()),
+                line: pos.row + 1,
+                column: pos.column + 1,
+            });
+        }
+    }
+
+    fn record_load_stores(&mut self, node: tree_sitter::Node<'a>) {
+        let mut cursor = node.walk();
+        let args: Vec<tree_sitter::Node<'a>> = match node.kind() {
+            "function_call" => node
+                .children(&mut cursor)
+                .filter(|c| c.kind() == "arguments")
+                .flat_map(|args| {
+                    let mut inner = args.walk();
+                    args.named_children(&mut inner).collect::<Vec<_>>()
+                })
+                .collect(),
+            _ => node
+                .children(&mut cursor)
+                .filter(|c| c.kind() == "command_argument")
+                .collect(),
+        };
+        // The first argument is the file name, whatever its kind (`load(f, 'x')`
+        // stores `x`, probed); the other function-form arguments count only as strings.
+        for arg in args.into_iter().skip(1) {
+            if node.kind() == "function_call" && arg.kind() != "string" {
+                continue;
+            }
+            let raw = self.node_text(arg);
+            let name = if arg.kind() == "string" {
+                raw.trim_matches(|c| c == '\'' || c == '"')
+            } else {
+                raw
+            };
+            if !is_plain_name(name) {
+                continue;
+            }
+            let pos = arg.start_position();
+            self.add_def(VarDef {
+                name: name.to_string(),
+                kind: DefKind::Assignment,
+                byte_range: arg.byte_range(),
+                effect_start: arg.end_byte(),
+                partial: false,
+                multi_output: false,
+                prealloc: false,
+                block_start: 0,
+                line: pos.row + 1,
+                column: pos.column + 1,
+            });
+        }
+    }
+
     fn record_use(&mut self, node: tree_sitter::Node) {
+        self.record_use_as(node, false);
+    }
+
+    /// Record a use; `is_call_target` marks the callee of `name(...)`.
+    fn record_use_as(&mut self, node: tree_sitter::Node, is_call_target: bool) {
         let pos = node.start_position();
         self.add_use(VarUse {
             name: self.node_text(node).to_string(),
             byte_range: node.start_byte()..node.end_byte(),
             line: pos.row + 1,
             column: pos.column + 1,
+            is_call_target,
         });
     }
 }
@@ -1010,6 +1714,7 @@ mod tests {
         parser
             .set_language(&tree_sitter_matlab::LANGUAGE.into())
             .expect("failed to load tree-sitter-matlab");
+        malt_core::note_parse();
         parser.parse(source, None).expect("parse failed")
     }
 

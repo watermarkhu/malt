@@ -2,6 +2,14 @@
 
 use super::*;
 
+/// Whether CTOINE is emitted. MATLAB reported nothing on any of 17 probes of a
+/// constructed object of the class passed to its own constructor (`Foo(Foo(1))`,
+/// with extra arguments, cells, anonymous functions, continuation lines, a
+/// `Static` method, a plain function file, a `handle` class, and as an operand or
+/// a field access). Until MATLAB reports it, the check stays off (see the policy
+/// in docs/VERIFY.md).
+const CTOINE_REPORTED: bool = false;
+
 impl LanguageSpecEngine {
     /// CTOINE: a constructed object of a class used as an input to that class's
     /// constructor (e.g., `obj = Foo(Foo(1))` inside the `Foo` constructor).
@@ -11,6 +19,9 @@ impl LanguageSpecEngine {
         ctx: &FileContext,
         diagnostics: &mut Vec<Diagnostic>,
     ) {
+        if !CTOINE_REPORTED {
+            return;
+        }
         Self::check_ctoine_dfs(ctx.tree.root_node(), &class.name, ctx.source, diagnostics);
     }
 
@@ -59,7 +70,8 @@ mod tests {
     use crate::language_spec::tests::{check_source, filter_by_id};
 
     #[test]
-    fn test_ctoine_fires_constructed_object_as_input() {
+    fn test_ctoine_silent_constructed_object_as_input() {
+        // Probed (c01): MATLAB is silent on `obj = Foo(Foo(1))` in the constructor.
         let source = "\
 classdef Foo
     methods
@@ -70,11 +82,7 @@ classdef Foo
 end
 ";
         let diags = check_source(source, "Foo.m");
-        let ctoine = filter_by_id(&diags, "CTOINE");
-        assert!(
-            !ctoine.is_empty(),
-            "CTOINE should fire for Foo(Foo(1)) in constructor"
-        );
+        assert!(filter_by_id(&diags, "CTOINE").is_empty(), "got: {diags:?}");
     }
 
     #[test]

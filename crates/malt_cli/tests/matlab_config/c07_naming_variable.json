@@ -1,0 +1,9 @@
+{
+  "schemaVersion": "1.1.0",
+  "naming": {
+    "variable": {
+      "maxLength": 6,
+      "casing": "lowerCamelCase"
+    }
+  }
+}

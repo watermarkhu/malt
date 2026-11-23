@@ -1,0 +1,29 @@
+[package]
+name = "malt-py"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+keywords.workspace = true
+categories.workspace = true
+# Shipped on PyPI as `malt-index` (see pyproject.toml), not crates.io.
+publish = false
+description = "Python bindings for malt-index: the MATLAB path collection, as a PyO3 module"
+
+[lib]
+# The Python module is `malt_index` (set in pyproject.toml). This name must differ from the
+# `malt_index` crate it wraps.
+name = "malt_index_py"
+crate-type = ["cdylib", "rlib"]
+
+[features]
+# On for the wheel (maturin reads it from pyproject.toml). Without it, `cargo test` links
+# against libpython as usual.
+extension-module = ["pyo3/extension-module"]
+
+[dependencies]
+malt-index.workspace = true
+pyo3.workspace = true
+log = "0.4"

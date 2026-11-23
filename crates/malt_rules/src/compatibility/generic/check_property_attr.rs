@@ -14,6 +14,7 @@
 //!   `'DirectFeedthrough'`, `'NumReflections'`, `'UseHG2'`).
 
 use super::super::CompatibilityEngine;
+use crate::analysis::metadata::{attribute_entries, AttrForms};
 use malt_core::{Diagnostic, Severity};
 use tree_sitter::Node;
 
@@ -39,7 +40,6 @@ const REMOVED_NAMES: &[(&str, &str, &str)] = &[
     ("CustomFirstFilterCoefficientsDataType", "COEFFC1", "The property 'CustomFirstFilterCoefficientsDataType' has been removed."),
     ("CustomSecondFilterCoefficientsDataType", "COEFFC2", "The property 'CustomSecondFilterCoefficientsDataType' has been removed."),
     ("CustomThirdFilterCoefficientsDataType", "COEFFC3", "The property 'CustomThirdFilterCoefficientsDataType' has been removed."),
-    ("KeyValueLimit", "READSZK", "The property 'KeyValueLimit' has been removed."),
     ("RowsPerRead", "READSZR", "The property 'RowsPerRead' has been removed."),
 ];
 
@@ -51,8 +51,6 @@ const SETERR_MSG: &str =
 const DSPFDF_MSG: &str =
     "'DirectFeedthrough' property of 'dsp.VariableFractionalDelay' class has been removed.";
 
-/// MCGCP message.
-const MCGCP_MSG: &str = "Defining a get method for a constant property is not supported.";
 /// MCPDC message.
 const MCPDC_MSG: &str = "Specifying both the 'Constant' and 'Dependent' attributes on the same property is not supported.";
 /// PSTAT message.
@@ -69,25 +67,20 @@ pub(crate) fn collect_checks(
     diagnostics: &mut Vec<Diagnostic>,
 ) {
     match node.kind() {
-        "class_definition" => engine.check_class_attributes(node, source, diagnostics),
         "properties" => engine.check_properties_block(node, source, diagnostics),
-        "methods" => engine.check_constant_getter(node, source, diagnostics),
         "string" => engine.check_removed_name(node, source, diagnostics),
         _ => {}
     }
 }
 
 impl CompatibilityEngine {
-    /// MCPDC: a classdef's own attributes contain both Constant and Dependent.
-    fn check_class_attributes(&self, node: Node, source: &str, diagnostics: &mut Vec<Diagnostic>) {
-        if !has_attributes_with_both(node, "Constant", "Dependent", source) {
-            return;
-        }
-        push_diag("MCPDC", MCPDC_MSG, node, Severity::Error, diagnostics);
-    }
-
-    /// PSTAT / ATVIZW: a properties block uses Static or Visible attributes.
+    /// MCPDC / PSTAT / ATVIZW: a properties block uses these attributes.
     fn check_properties_block(&self, node: Node, source: &str, diagnostics: &mut Vec<Diagnostic>) {
+        // MCPDC: both `Constant` and `Dependent` on the block (the same on a classdef is
+        // an unknown attribute, ATUNK, in MATLAB).
+        if has_attributes_with_both(node, "Constant", "Dependent", source) {
+            push_diag("MCPDC", MCPDC_MSG, node, Severity::Error, diagnostics);
+        }
         if has_attribute(node, "Static", source) {
             push_diag("PSTAT", PSTAT_MSG, node, Severity::Error, diagnostics);
         }
@@ -96,31 +89,23 @@ impl CompatibilityEngine {
         }
     }
 
-    /// MCGCP: a methods block defines `get.<Prop>` for a Constant property.
-    fn check_constant_getter(&self, node: Node, source: &str, diagnostics: &mut Vec<Diagnostic>) {
-        // Find getters in this methods block.
-        let getter_props: Vec<String> = collect_getter_props(node, source);
-        if getter_props.is_empty() {
-            return;
-        }
-        // Find Constant properties in sibling properties blocks of the parent class.
-        let Some(class) = node.parent() else {
-            return;
-        };
-        let constant_props = collect_constant_props(class, source);
-        for prop in &getter_props {
-            if constant_props.iter().any(|c| c == prop) {
-                push_diag("MCGCP", MCGCP_MSG, node, Severity::Error, diagnostics);
-                break;
-            }
-        }
-    }
-
     /// Removed name-value option/property names passed as string literals.
     fn check_removed_name(&self, node: Node, source: &str, diagnostics: &mut Vec<Diagnostic>) {
         let text = unquoted(node, source);
+        if let Some((id, msg)) = comm_memoryless_match(node, text, source) {
+            push_diag(id, msg, node, Severity::Warning, diagnostics);
+            return;
+        }
         for (name, id, msg) in REMOVED_NAMES {
             if text == *name {
+                let owners = removed_name_callees(id);
+                if !owners.is_empty()
+                    && !owners
+                        .iter()
+                        .any(|class| call_references_class(node, class, source))
+                {
+                    return;
+                }
                 // DSPIDF vs DSPFDF: distinguish by the owning class in the same call.
                 let severity = Severity::Error;
                 if *id == "DSPIDF"
@@ -137,6 +122,20 @@ impl CompatibilityEngine {
                 return;
             }
         }
+    }
+}
+
+/// The calls MATLAB reports a removed name in (probed in R2026b); empty: no
+/// restriction known. The names whose owner MATLAB never showed (LSRET, READSZK,
+/// READSZR, SMPLMODE, GETERR, SETERR, COEFF1 to COEFFC3) are flagged `low_reliability`
+/// in the data file, so they are off by default.
+fn removed_name_callees(id: &str) -> &'static [&'static str] {
+    match id {
+        "TTSMP" => &["timetable"],
+        "COEFFS" => &["dsp.DigitalDownConverter"],
+        "DFEATUREPARAM1" | "DFEATUREPARAM2" => &["feature"],
+        "HESST" | "HESSM" => &["optimoptions"],
+        _ => &[],
     }
 }
 
@@ -157,71 +156,51 @@ fn attribute_names(node: Node, source: &str) -> Vec<String> {
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
         if child.kind() == "attributes" {
-            for name in attribute_names_in(child, source) {
-                out.push(name);
-            }
+            out.extend(
+                attribute_entries(child, source, AttrForms::Named)
+                    .into_iter()
+                    .map(|attr| attr.name),
+            );
         }
     }
     out
 }
 
-/// Extract attribute names from an `attributes` node's `attribute` children.
-fn attribute_names_in(attrs: Node, source: &str) -> Vec<String> {
-    let mut out = Vec::new();
-    let mut cursor = attrs.walk();
-    for child in attrs.children(&mut cursor) {
-        if child.kind() == "attribute" {
-            if let Some(id) = child
-                .children(&mut child.walk())
-                .find(|c| c.kind() == "identifier")
-            {
-                out.push(source[id.start_byte()..id.end_byte()].to_string());
-            }
-        }
-    }
-    out
-}
+/// Removed `comm.MemorylessNonlinearity` property names → (check ID, message).
+/// Matched only as name-value string literals in a call to the class.
+const COMM_MNL_NAMES: &[(&str, &str, &str)] = &[
+    ("AMPMConversion", "CMAMP", "'AMPMConversion' property of 'comm.MemorylessNonlinearity' class will be removed in a future release. There is no simple replacement for this."),
+    ("PowerLowerLimit", "CMPLW", "'PowerLowerLimit' property of 'comm.MemorylessNonlinearity' class will be removed in a future release. There is no simple replacement for this."),
+    ("PowerUpperLimit", "CMPUL", "'PowerUpperLimit' property of 'comm.MemorylessNonlinearity' class will be removed in a future release. There is no simple replacement for this."),
+];
 
-/// Collect property names that have a `get.` getter in a methods block.
-fn collect_getter_props(node: Node, source: &str) -> Vec<String> {
-    let mut out = Vec::new();
-    let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        if child.kind() == "function_definition" {
-            // getter marker `get.` is an unnamed child; the property follows.
-            let mut fc = child.walk();
-            let kids: Vec<_> = child.children(&mut fc).collect();
-            for (i, k) in kids.iter().enumerate() {
-                if k.kind() == "get." && i + 1 < kids.len() && kids[i + 1].kind() == "identifier" {
-                    let p = &source[kids[i + 1].start_byte()..kids[i + 1].end_byte()];
-                    out.push(p.to_string());
-                }
-            }
-        }
-    }
-    out
-}
+/// Removed `Method` values of `comm.MemorylessNonlinearity` → (check ID, message).
+/// Matched only when the value directly follows the `'Method'` name in a call
+/// to the class.
+const COMM_MNL_METHODS: &[(&str, &str, &str)] = &[
+    ("Hyperbolic tangent", "CMMHT", "'Hyperbolic tangent' value for the 'Method' property on 'comm.MemorylessNonlinearity' class will be removed in a future release. There is no simple replacement for this."),
+    ("Ghorbani model", "CMMGM", "'Ghorbani model' value for the 'Method' property on 'comm.MemorylessNonlinearity' class will be removed in a future release. There is no simple replacement for this."),
+];
 
-/// Collect property names from `Constant` properties blocks in a classdef.
-fn collect_constant_props(class: Node, source: &str) -> Vec<String> {
-    let mut out = Vec::new();
-    let mut cursor = class.walk();
-    for child in class.children(&mut cursor) {
-        if child.kind() == "properties" && has_attribute(child, "Constant", source) {
-            let mut pc = child.walk();
-            for p in child.children(&mut pc) {
-                if p.kind() == "property" {
-                    if let Some(id) = p
-                        .child_by_field_name("name")
-                        .or_else(|| p.children(&mut p.walk()).find(|c| c.kind() == "identifier"))
-                    {
-                        out.push(source[id.start_byte()..id.end_byte()].to_string());
-                    }
-                }
-            }
-        }
+/// CMAMP / CMPLW / CMPUL / CMMHT / CMMGM: removed `comm.MemorylessNonlinearity`
+/// properties and `Method` values. Only the name-value form inside a call to the
+/// class is matched; property access on a variable (`m.AMPMConversion`) is not.
+fn comm_memoryless_match(
+    node: Node,
+    text: &str,
+    source: &str,
+) -> Option<(&'static str, &'static str)> {
+    let class = "comm.MemorylessNonlinearity";
+    if let Some((_, id, msg)) = COMM_MNL_NAMES.iter().find(|(name, _, _)| *name == text) {
+        return call_references_class(node, class, source).then_some((*id, *msg));
     }
-    out
+    let (_, id, msg) = COMM_MNL_METHODS
+        .iter()
+        .find(|(value, _, _)| *value == text)?;
+    let after_method = node
+        .prev_named_sibling()
+        .is_some_and(|p| p.kind() == "string" && unquoted(p, source) == "Method");
+    (after_method && call_references_class(node, class, source)).then_some((*id, *msg))
 }
 
 /// Does the enclosing call reference the given dotted class name?
@@ -306,14 +285,26 @@ mod tests {
     use crate::test_util::{has_id, lint_file};
     use malt_core::Config;
 
+    /// The engine with the low-reliability checks on (the `all` preset): the checks MATLAB
+    /// stayed silent on are off by default.
+    fn all_engine() -> Box<dyn malt_core::Rule> {
+        let config = Config::from_toml("[lint]\npreset = \"all\"\n").unwrap();
+        CompatibilityEngine::from_config(&config)
+    }
+
     fn engine() -> Box<dyn malt_core::Rule> {
         CompatibilityEngine::from_config(&Config::default())
     }
 
     #[test]
     fn mcpdc_constant_dependent_fires() {
-        let d = lint_file(&*engine(), "classdef (Constant, Dependent) Foo\nend\n");
+        let d = lint_file(
+            &*engine(),
+            "classdef Foo\nproperties (Constant, Dependent)\n x = 1\nend\nend\n",
+        );
         assert!(has_id(&d, "MCPDC"), "got: {d:?}");
+        let d = lint_file(&*engine(), "classdef (Constant, Dependent) Foo\nend\n");
+        assert!(!has_id(&d, "MCPDC"), "classdef attributes are ATUNK: {d:?}");
     }
 
     #[test]
@@ -353,15 +344,6 @@ mod tests {
     }
 
     #[test]
-    fn mcgcp_getter_for_constant_fires() {
-        let d = lint_file(
-            &*engine(),
-            "classdef Foo\nproperties (Constant)\n x\nend\nmethods\n function v = get.x(o)\n  v = 1;\n end\nend\nend\n",
-        );
-        assert!(has_id(&d, "MCGCP"), "got: {d:?}");
-    }
-
-    #[test]
     fn mcgcp_getter_for_nonconstant_not_fires() {
         let d = lint_file(
             &*engine(),
@@ -372,8 +354,10 @@ mod tests {
 
     #[test]
     fn ttsmp_samplingrate_fires() {
-        let d = lint_file(&*engine(), "set(gcf, 'SamplingRate', 100);\n");
+        let d = lint_file(&*engine(), "timetable(x, 'SamplingRate', 100);\n");
         assert!(has_id(&d, "TTSMP"), "got: {d:?}");
+        let d = lint_file(&*engine(), "set(gcf, 'SamplingRate', 100);\n");
+        assert!(!has_id(&d, "TTSMP"), "only timetable: {d:?}");
     }
 
     #[test]
@@ -393,8 +377,10 @@ mod tests {
 
     #[test]
     fn lsret_laserreturns_fires() {
-        let d = lint_file(&*engine(), "m = raytracing('LaserReturns', true);\n");
+        let d = lint_file(&*all_engine(), "m = raytracing('LaserReturns', true);\n");
         assert!(has_id(&d, "LSRET"), "got: {d:?}");
+        let d = lint_file(&*engine(), "m = raytracing('LaserReturns', true);\n");
+        assert!(!has_id(&d, "LSRET"), "off by default: {d:?}");
     }
 
     #[test]
@@ -405,20 +391,26 @@ mod tests {
 
     #[test]
     fn dfeatureparam_usehg2_fires() {
-        let d = lint_file(&*engine(), "setpref('dummy','UseHG2',true);\n");
+        let d = lint_file(&*engine(), "feature('UseHG2',true);\n");
         assert!(has_id(&d, "DFEATUREPARAM1"), "got: {d:?}");
+        let d = lint_file(&*engine(), "setpref('dummy','UseHG2',true);\n");
+        assert!(!has_id(&d, "DFEATUREPARAM1"), "only feature: {d:?}");
     }
 
+    /// MATLAB is silent on READSZK in every probed form (`readstruct`, `set`, `get`,
+    /// property assignment), so the check is not emitted.
     #[test]
-    fn readszk_keyvaluelimit_fires() {
+    fn readszk_keyvaluelimit_is_silent() {
         let d = lint_file(&*engine(), "readtable('f.txt', 'KeyValueLimit', 10);\n");
-        assert!(has_id(&d, "READSZK"), "got: {d:?}");
+        assert!(!has_id(&d, "READSZK"), "got: {d:?}");
     }
 
     #[test]
     fn readszr_rowsperread_fires() {
-        let d = lint_file(&*engine(), "readtable('f.txt', 'RowsPerRead', 100);\n");
+        let d = lint_file(&*all_engine(), "readtable('f.txt', 'RowsPerRead', 100);\n");
         assert!(has_id(&d, "READSZR"), "got: {d:?}");
+        let d = lint_file(&*engine(), "readtable('f.txt', 'RowsPerRead', 100);\n");
+        assert!(!has_id(&d, "READSZR"), "off by default: {d:?}");
     }
 
     #[test]
@@ -449,16 +441,62 @@ mod tests {
 
     #[test]
     fn coeffs_filterspecification_fires() {
-        let d = lint_file(&*engine(), "s = struct('FilterSpecification', 1);\n");
+        let d = lint_file(
+            &*engine(),
+            "dsp.DigitalDownConverter('FilterSpecification', 'Coefficients');\n",
+        );
         assert!(has_id(&d, "COEFFS"), "got: {d:?}");
+        let d = lint_file(&*engine(), "s = struct('FilterSpecification', 1);\n");
+        assert!(!has_id(&d, "COEFFS"), "only the converter: {d:?}");
     }
 
     #[test]
     fn coeffc3_customthird_fires() {
         let d = lint_file(
-            &*engine(),
+            &*all_engine(),
             "set(obj, 'CustomThirdFilterCoefficientsDataType', x);\n",
         );
         assert!(has_id(&d, "COEFFC3"), "got: {d:?}");
+        let d = lint_file(
+            &*engine(),
+            "set(obj, 'CustomThirdFilterCoefficientsDataType', x);\n",
+        );
+        assert!(!has_id(&d, "COEFFC3"), "off by default: {d:?}");
+    }
+
+    #[test]
+    fn comm_memoryless_properties_fire() {
+        let d = lint_file(
+            &*engine(),
+            "m = comm.MemorylessNonlinearity('AMPMConversion', 1, 'PowerLowerLimit', 1, 'PowerUpperLimit', 2);\n",
+        );
+        assert!(has_id(&d, "CMAMP"), "got: {d:?}");
+        assert!(has_id(&d, "CMPLW"), "got: {d:?}");
+        assert!(has_id(&d, "CMPUL"), "got: {d:?}");
+    }
+
+    #[test]
+    fn comm_memoryless_method_values_fire() {
+        let d = lint_file(
+            &*engine(),
+            "m = comm.MemorylessNonlinearity('Method', 'Hyperbolic tangent');\n",
+        );
+        assert!(has_id(&d, "CMMHT"), "got: {d:?}");
+        let d = lint_file(
+            &*engine(),
+            "m = comm.MemorylessNonlinearity('Method', 'Ghorbani model');\n",
+        );
+        assert!(has_id(&d, "CMMGM"), "got: {d:?}");
+    }
+
+    #[test]
+    fn comm_memoryless_other_uses_not_flagged() {
+        let d = lint_file(
+            &*engine(),
+            "m = comm.MemorylessNonlinearity('Method', 'Saleh model');\nx = 'Hyperbolic tangent';\nset(m, 'AMPMConversion', 1);\n",
+        );
+        for id in ["CMAMP", "CMPLW", "CMPUL", "CMMHT", "CMMGM"] {
+            assert!(!has_id(&d, id), "{id} should not fire: {d:?}");
+        }
     }
 }

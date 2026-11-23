@@ -1,0 +1,32 @@
+function t3(x, s, c, a, b)
+r1 = ~strcmp(s, '');
+r2 = 1 + strcmp(s, '');
+r3 = strcmp(s, '') & c;
+r4 = strcmp(upper(s), 'ABC');
+r5 = strcmpi(upper(s), 'ABC');
+r6 = size(x==1, 1) ~= 1;
+r7 = size(x, 1) == 1 == c;
+r8 = (x*1)*1;
+r9 = x + 0 + 0;
+z1 = 3 + 2*i;
+z2 = sqrt(-1) + 2*j;
+disp(sprintf('hi %d', 3));
+w = disp(sprintf('hi'));
+r10 = sprintf('%f', pi);
+r11 = sprintf('%d', [1 2 3]);
+error(sprintf('bad %d', x));
+warning(sprintf('bad %d', x));
+r12 = error('x');
+r13 = c | true;
+r14 = c & false;
+r15 = true | c;
+r16 = f() || true;
+r17 = a.b(1) * 1;
+r18 = [x, 1] * 1;
+r19 = x * 1';
+x = x;
+if x == 1, y = 2; end
+q = flipud(fliplr(x)); p = fliplr(flipud(s));
+n = prod(size(x(1:2)));
+r20 = prod(size(x)) * 1;
+r21 = isa(x, 'cell') && isa(x, 'char');

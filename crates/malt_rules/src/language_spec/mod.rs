@@ -5,7 +5,7 @@
 //! title = "Language Specification Errors"
 //! category = "language-specification"
 //! severity = "error"
-//! fix = false
+//! fix = true
 //! icon = "lucide/book-marked"
 //! slug = "language-spec"
 //! ```
@@ -17,7 +17,18 @@
 //! performs a full DFS traversal with context stacks for parfor/spmd/loop
 //! detection, then runs class, arguments-block, global/persistent, and
 //! script-level checks over extracted file metadata. Each diagnostic carries
-//! the specific check ID (e.g. `PFPF`, `FVAPN`, `MCFIL`).
+//! the specific check ID (e.g. `PFPF`, `MCFIL`).
+//!
+//! ## Fix
+//!
+//! MCFIL renames the `classdef` and every constructor method to the file
+//! name, in one edit — as MATLAB's own fix does (`classdef Cls` in
+//! `t__Cls.m` becomes `classdef t__Cls`, and the constructor follows). The
+//! rewrite is UNSAFE: a method that was never the constructor (its name did
+//! not match the class the runtime uses, which is the file name) becomes
+//! one, so constructing the object starts running it; it is applied only
+//! with `--fix --unsafe-fixes`. Every other check of this engine reports
+//! without a fix.
 //!
 //! The checks are grouped into families:
 //!
@@ -36,6 +47,11 @@
 //! - **Miscellaneous** — `FCONV`, `FCONF`, `GPFST`, `GPNES`, `NPERS`,
 //!   `ROWLN`, `FCNANS`, `CLANS`, `BRKFOR`, `CONTFOR`, `IDXCOLND`, `ERTXT`,
 //!   `WTXT`, `MHERIT`, `NCHKOS`, `CTOINE`, `CTORO`, `USESWNS`.
+//!
+//! With the opt-in path index (`[index] enabled = true`, or `--index`), MCEB is
+//! also reported for a class whose superclasses are all value classes found on
+//! the search path: MATLAB refuses to load such a class when it declares events.
+//! The Code Analyzer itself stays silent for any superclass.
 //!
 //! ## Check IDs
 //!
@@ -95,8 +111,10 @@
 //! | VTPIN | error | no | Validation function must use the property as an input. |
 //! | SPNST | error | no | PARFOR or SPMD cannot be used inside an SPMD block. |
 //! | SPRET | error | no | VAR_RESERVED_WORD statement cannot be used inside an SPMD block. |
+//! | SPBRK | error | no | The loop containing the BREAK or CONTINUE must be completely contained in the SPMD block. |
+//! | DUPNAMEARG | warning | no | This named argument was already provided. If this function does not allow or ignores repeated named arguments, remove one of the duplicated named arguments. |
 //! | SPGP | error | no | Setting the GLOBAL or PERSISTENT variable VAR_NAME in an SPMD block might fail because the set happens on a worker machine. |
-//! | MCFIL | error | no | Class name VAR_NAME and file name do not agree: VAR_FILE. Update the class name and constructor, if defined, or change the file name to match the class name. |
+//! | MCFIL | error | yes | Class name VAR_NAME and file name do not agree: VAR_FILE. Update the class name and constructor, if defined, or change the file name to match the class name. |
 //! | MCDIR | error | no | Class name VAR_NAME and @directory name do not agree: VAR_FILE. |
 //! | MCRED | error | no | Property, event, or enumeration names must be different from the name of the class VAR_NAME. |
 //! | MCCBD | error | no | Constructor must be fully defined in the class definition file. |
@@ -136,7 +154,6 @@
 //! | MWKCT | error | no | Specifying both WeakHandle and Constant attributes on the same property is not supported. |
 //! | MWKREF | error | no | Specifying both WeakHandle and Dependent attributes is invalid. A dependent property does not store a value. |
 //! | FVNST | error | no | Arguments blocks in nested function declarations are not supported. |
-//! | FVAPN | error | no | Move name-value arguments that use the name=value syntax to the end of the argument list. |
 //! | FVATF | error | no | Attribute values in arguments blocks must be logical constants. |
 //! | FVBTN | error | no | Use of this function is not supported in arguments blocks. |
 //! | FVDAN | error | no | Using the same name as both a name-value argument structure and as a positional argument is not supported. |
@@ -177,6 +194,7 @@
 //! | FCONV | error | no | Unable to define variable VAR_NAME because it has the same name as the script. |
 //! | FCONF | error | no | Unable to define local function VAR_NAME because it has the same name as the file. |
 //! | GPFST | error | no | A GLOBAL or PERSISTENT declaration must precede first use. |
+//! | PSET | warning | no | Persistent variable is used, but might be unset. |
 //! | GPNES | error | no | A GLOBAL or PERSISTENT declaration must be in the outermost function where it is used. |
 //! | NPERS | error | no | A PERSISTENT declaration is not valid in scripts. |
 //! | ROWLN | error | no | All matrix rows must be the same length. |
@@ -251,7 +269,8 @@ use malt_core::{Category, Config, Diagnostic, FileContext, Rule, Severity};
 use serde::Deserialize;
 
 use crate::analysis::metadata::{
-    ArgValidation, AttributeMeta, ClassMeta, FileMeta, FileType, FunctionMeta,
+    attribute_entries, attributes_of, ArgValidation, AttrForms, AttributeMeta, Attributes,
+    ClassMeta, FileMeta, FileType, FunctionMeta,
 };
 use crate::analysis::symbols::{DefKind, SymbolTable};
 
@@ -349,7 +368,7 @@ pub(crate) struct ParforAnalysis {
     /// Variables that appear on both sides of an assignment in the body.
     both_sides: HashSet<String>,
     /// Anonymous functions in the body: (start, referenced variable names).
-    lambdas: Vec<(usize, Vec<String>)>,
+    lambdas: Vec<(usize, Vec<String>, String)>,
     /// File handles opened read-only via `fid = fopen(...)`.
     read_only_handles: HashSet<String>,
     /// All variable names observed in the parfor body.
@@ -373,7 +392,18 @@ pub struct LanguageSpecEngine {
 impl LanguageSpecEngine {
     /// Factory constructor. Reads rule-specific params from config.
     pub fn from_config(config: &Config) -> Box<dyn Rule> {
-        let rule_config: LanguageSpecConfig = config.rule_params("LANGUAGE_SPEC_ENGINE");
+        let mut rule_config: LanguageSpecConfig = config.rule_params("LANGUAGE_SPEC_ENGINE");
+        rule_config
+            .disabled_checks
+            .extend(crate::off_under_mathworks(
+                config,
+                &[
+                    "USESWNS", "PFUTVR", "GPNES", "FVORDO",
+                    // PFCEL, PFFRNG, PFMLTI: MATLAB stayed silent (PFMLTI: it reports PFFORA for
+                    // an assigned inner loop variable) on every probed shape.
+                    "PFCEL", "PFFRNG", "PFMLTI",
+                ],
+            ));
         Box::new(Self {
             config: rule_config,
         })
@@ -410,7 +440,7 @@ impl Rule for LanguageSpecEngine {
 
         // Build metadata and symbol table
         let meta = FileMeta::build(ctx.tree, ctx.source);
-        let symbol_table = SymbolTable::build(ctx.tree, ctx.source);
+        let symbol_table = SymbolTable::shared(|| ctx.tree.root_node(), ctx.source);
 
         // 1. DFS traversal for parfor/spmd/loop context violations
         let root = ctx.tree.root_node();
@@ -463,6 +493,9 @@ impl Rule for LanguageSpecEngine {
 
         // 11. END operator outside index expression
         self.check_end_operator(root, ctx.source, &mut diagnostics);
+
+        // 11b. Repeated name=value argument in one call (DUPNAMEARG)
+        self.check_dupnamearg(root, ctx.source, &mut diagnostics);
 
         // 12. Local function name same as file name
         self.check_local_function_name_conflict(&meta, ctx, &mut diagnostics);
@@ -663,11 +696,8 @@ impl LanguageSpecEngine {
             }
 
             "break_statement" => {
-                // SPBRK (break/continue whose loop is not fully contained in the spmd
-                // block) is subsumed by SPRET, which fires for every break/continue
-                // inside an spmd block.
-                // Check: PFBRK — break inside parfor
-                if current_context == LoopContext::Parfor {
+                // Check: PFBRK — the first break of the parfor loop itself
+                if current_context == LoopContext::Parfor && self.is_first_parfor_break(node) {
                     let pos = node.start_position();
                     diagnostics.push(Diagnostic {
                         rule_id: "PFBRK",
@@ -680,12 +710,12 @@ impl LanguageSpecEngine {
                         fix: None,
                     });
                 }
-                // Check: SPRET — break inside spmd
+                // Check: SPBRK — break inside spmd whose loop is outside the block
                 if current_context == LoopContext::Spmd {
                     let pos = node.start_position();
                     diagnostics.push(Diagnostic {
-                        rule_id: "SPRET",
-                        message: "break statement cannot be used inside an SPMD block.".to_string(),
+                        rule_id: "SPBRK",
+                        message: "The loop containing the BREAK or CONTINUE must be completely contained in the SPMD block.".to_string(),
                         severity: Severity::Error,
                         byte_range: node.start_byte()..node.end_byte(),
                         line: pos.row + 1,
@@ -696,11 +726,11 @@ impl LanguageSpecEngine {
             }
 
             "continue_statement" if current_context == LoopContext::Spmd => {
-                // Check: SPRET — continue inside spmd
+                // Check: SPBRK — continue inside spmd whose loop is outside the block
                 let pos = node.start_position();
                 diagnostics.push(Diagnostic {
-                    rule_id: "SPRET",
-                    message: "continue statement cannot be used inside an SPMD block.".to_string(),
+                    rule_id: "SPBRK",
+                    message: "The loop containing the BREAK or CONTINUE must be completely contained in the SPMD block.".to_string(),
                     severity: Severity::Error,
                     byte_range: node.start_byte()..node.end_byte(),
                     line: pos.row + 1,
@@ -729,7 +759,7 @@ impl LanguageSpecEngine {
                     let pos = node.start_position();
                     diagnostics.push(Diagnostic {
                         rule_id: "SPRET",
-                        message: "return statement cannot be used inside an SPMD block."
+                        message: "RETURN statement cannot be used inside an SPMD block."
                             .to_string(),
                         severity: Severity::Error,
                         byte_range: node.start_byte()..node.end_byte(),
@@ -776,6 +806,38 @@ impl LanguageSpecEngine {
             }
 
             "assignment" if current_context == LoopContext::Parfor => {
+                // PFXST for indexed (`i(1) = 2`) and multi-output (`[~, i] = f()`) targets
+                // of the loop variable, reported at the variable (probed).
+                let loop_var = context_stack
+                    .iter()
+                    .rev()
+                    .find(|f| f.context == LoopContext::Parfor)
+                    .and_then(|f| f.parfor_var.as_deref());
+                if let (Some(pv), Some(lhs)) = (loop_var, node.child_by_field_name("left")) {
+                    if lhs.kind() != "identifier" && lhs.kind() != "field_expression" {
+                        let targets: Vec<tree_sitter::Node> = if lhs.kind() == "function_call" {
+                            lhs.named_child(0).into_iter().collect()
+                        } else {
+                            let mut cursor = lhs.walk();
+                            lhs.named_children(&mut cursor).collect()
+                        };
+                        for target in targets {
+                            if target.kind() == "identifier" && node_text(target, source) == pv {
+                                let pos = target.start_position();
+                                diagnostics.push(Diagnostic {
+                                    rule_id: "PFXST",
+                                    message: "Assigning to the parfor loop index variable is not supported in parfor loops.".to_string(),
+                                    severity: Severity::Error,
+                                    byte_range: target.start_byte()..target.end_byte(),
+                                    line: pos.row + 1,
+                                    column: pos.column + 1,
+                                    fix: None,
+                                });
+                            }
+                        }
+                    }
+                }
+
                 // Check: PFXST — assignment to parfor loop variable
                 // Check: PFFORA — assignment to for-loop variable inside parfor
                 if let Some(lhs_name) = self.extract_assignment_lhs_name(node, source) {
@@ -879,6 +941,8 @@ impl LanguageSpecEngine {
                 if current_context == LoopContext::Parfor {
                     self.check_parfor_command(node, source, diagnostics);
                 }
+                // ERTXT / WTXT: command form `error MyTool:id`
+                self.check_error_warning_command(node, source, diagnostics);
                 self.visit_children(node, source, context_stack, nested_functions, diagnostics);
                 return;
             }
@@ -886,6 +950,22 @@ impl LanguageSpecEngine {
             "identifier" if current_context == LoopContext::Parfor => {
                 // C1 checks: record whole (non-indexed) variable reads
                 self.check_parfor_identifier(node, source, context_stack);
+                // PFNAIO: bare `nargin`/`nargout` used as a value
+                self.check_parfor_bare_nargin(node, source, diagnostics);
+                // NCHKOS: bare `narginchk` used as a value
+                self.check_nchkos_bare(node, source, diagnostics);
+            }
+
+            "identifier" if current_context == LoopContext::Spmd => {
+                // SPWHOS: bare `who`/`whos` used as a value
+                self.check_spmd_bare_who(node, source, diagnostics);
+                // NCHKOS: bare `narginchk` used as a value
+                self.check_nchkos_bare(node, source, diagnostics);
+            }
+
+            "identifier" => {
+                // NCHKOS: bare `narginchk` used as a value
+                self.check_nchkos_bare(node, source, diagnostics);
             }
 
             "lambda" if current_context == LoopContext::Parfor => {
@@ -931,6 +1011,42 @@ impl LanguageSpecEngine {
             }
         }
         false
+    }
+
+    /// The parfor loop that owns `brk`: its nearest enclosing loop, provided no
+    /// `while` or `switch` lies between them.
+    fn owning_parfor<'a>(&self, brk: tree_sitter::Node<'a>) -> Option<tree_sitter::Node<'a>> {
+        let mut parent = brk.parent();
+        while let Some(p) = parent {
+            match p.kind() {
+                "while_statement" | "switch_statement" => return None,
+                "for_statement" => return self.is_parfor_node(p).then_some(p),
+                _ => {}
+            }
+            parent = p.parent();
+        }
+        None
+    }
+
+    /// Whether `brk` is the first break owned by its parfor loop. Probed: MATLAB
+    /// reports PFBRK once per loop and is silent for breaks inside a nested `for`,
+    /// `while` or `switch`.
+    fn is_first_parfor_break(&self, brk: tree_sitter::Node) -> bool {
+        let Some(parfor) = self.owning_parfor(brk) else {
+            return false;
+        };
+        let mut first: Option<usize> = None;
+        let mut stack = vec![parfor];
+        while let Some(n) = stack.pop() {
+            if n.kind() == "break_statement"
+                && self.owning_parfor(n).is_some_and(|p| p.id() == parfor.id())
+            {
+                first = Some(first.map_or(n.start_byte(), |f| f.min(n.start_byte())));
+            }
+            let mut cursor = n.walk();
+            stack.extend(n.children(&mut cursor));
+        }
+        first == Some(brk.start_byte())
     }
 
     /// Extract the loop variable from a `for_statement` (works for both for and parfor).
@@ -1019,14 +1135,16 @@ impl LanguageSpecEngine {
                 return;
             }
             "assignment" if in_spmd => {
-                if let Some(name) = self.assignment_lhs_var_name(node, source) {
+                // Probed: field and indexed stores (`G.a = 1`, `G(2) = 1`) and each
+                // identifier of a target list (`[G, h] = ...`) report at the variable.
+                for (name, target) in self.assignment_lhs_targets(node, source) {
                     if self.is_global_or_persistent_in_scope(symbol_table, node.start_byte(), &name)
                     {
                         self.push_diag(
-                            node,
+                            target,
                             "SPGP",
                             &format!(
-                                "Setting the GLOBAL or PERSISTENT variable {name} in an SPMD block might fail because the set happens on a worker machine."
+                                "Setting the GLOBAL or PERSISTENT variable '{name}' in an SPMD block might fail because the set happens on a worker machine."
                             ),
                             diagnostics,
                         );
@@ -1074,15 +1192,35 @@ impl LanguageSpecEngine {
         false
     }
 
-    /// Extract the variable name assigned to, handling both simple (`x = ...`)
-    /// and indexed (`x(i) = ...`) left-hand sides.
-    fn assignment_lhs_var_name(&self, node: tree_sitter::Node, source: &str) -> Option<String> {
-        let lhs = node.child_by_field_name("left")?;
-        match lhs.kind() {
-            "identifier" => Some(node_text(lhs, source).to_string()),
-            "function_call" => callee_name(lhs, source),
-            _ => None,
+    /// Variables an assignment stores into, each with the node to report at: the
+    /// base of `v`, `v(...)`, `v.f` or `v.f(...)`, or each identifier of a target
+    /// list such as `[a, b] = ...`.
+    fn assignment_lhs_targets<'a>(
+        &self,
+        node: tree_sitter::Node<'a>,
+        source: &str,
+    ) -> Vec<(String, tree_sitter::Node<'a>)> {
+        let Some(lhs) = node.child_by_field_name("left") else {
+            return Vec::new();
+        };
+        let mut base = lhs;
+        while matches!(base.kind(), "function_call" | "field_expression") {
+            match base.named_child(0) {
+                Some(child) => base = child,
+                None => break,
+            }
         }
+        if base.kind() == "identifier" {
+            return vec![(node_text(base, source).to_string(), base)];
+        }
+        let mut out = Vec::new();
+        let mut cursor = lhs.walk();
+        for child in lhs.named_children(&mut cursor) {
+            if child.kind() == "identifier" {
+                out.push((node_text(child, source).to_string(), child));
+            }
+        }
+        out
     }
 }
 
@@ -1143,6 +1281,29 @@ impl LanguageSpecEngine {
                 "'ans' is not supported as a for loop variable in parfor loops.",
                 diagnostics,
             );
+        }
+
+        // A nested `for` over the parfor index assigns it (probed: PFXST at the `for`
+        // line, and no PFCTXT or PFFRNG for its indexing).
+        let parfor_var = context_stack
+            .iter()
+            .rev()
+            .find(|f| f.context == LoopContext::Parfor)
+            .and_then(|f| f.parfor_var.as_deref());
+        if parfor_var == Some(var.as_str()) {
+            let pos = node.start_position();
+            diagnostics.push(Diagnostic {
+                rule_id: "PFXST",
+                message:
+                    "Assigning to the parfor loop index variable is not supported in parfor loops."
+                        .to_string(),
+                severity: Severity::Error,
+                byte_range: node.start_byte()..node.end_byte(),
+                line: pos.row + 1,
+                column: pos.column + 1,
+                fix: None,
+            });
+            return;
         }
 
         let (range_start, range_end, is_const_pos) = self.nested_for_range_info(node, source);
@@ -1211,6 +1372,21 @@ impl LanguageSpecEngine {
                         if l.kind() == "identifier" && node_text(l, source) == lhs_name {
                             reduction_op = Some(operator_text(rhs_node, source));
                         }
+                    }
+                }
+                "matrix" => {
+                    // `s = [s i]`: a reduction by concatenation (probed: PFINCR next to `s = s + i`).
+                    let first = rhs_node.named_child(0).map(|r| {
+                        if r.kind() == "row" {
+                            r.named_child(0).unwrap_or(r)
+                        } else {
+                            r
+                        }
+                    });
+                    if first.is_some_and(|a| {
+                        a.kind() == "identifier" && node_text(a, source) == lhs_name
+                    }) {
+                        reduction_op = Some("[]".to_string());
                     }
                 }
                 "function_call" => {
@@ -1379,7 +1555,7 @@ impl LanguageSpecEngine {
                 }
             }
             "load" => {
-                if !is_assignment_rhs(node) {
+                if !is_assignment_rhs(node) && !node_is_inside_lambda(node) {
                     self.push_diag(
                         node,
                         "PFLD",
@@ -1560,10 +1736,41 @@ impl LanguageSpecEngine {
             collect_lambda_refs(child, source, &params, &mut refs);
         }
         if let Some(analysis) = current_parfor_analysis_mut(context_stack) {
-            analysis
-                .lambdas
-                .push((node.start_byte(), refs.into_iter().collect()));
+            analysis.lambdas.push((
+                node.start_byte(),
+                refs.into_iter().collect(),
+                node_text(node, source).to_string(),
+            ));
         }
+    }
+
+    /// The first whole-word mention of `name` in the body of a `parfor` loop. MATLAB
+    /// places the sliced-output and temporary-variable reports here, not at the
+    /// first invalid access (probed: `disp(r)` before `r(i) = 1`, `save('a.mat', 'r')`,
+    /// `x = v(k)` before `v(i) = x`, `v(i) = 1` before `x = v(i - 1)`).
+    fn first_body_mention(
+        &self,
+        parfor: tree_sitter::Node,
+        source: &str,
+        name: &str,
+    ) -> Option<usize> {
+        let mut cursor = parfor.walk();
+        let body = parfor.children(&mut cursor).find(|c| c.kind() == "block")?;
+        let text = &source[body.start_byte()..body.end_byte()];
+        let bytes = text.as_bytes();
+        let is_word = |b: u8| b.is_ascii_alphanumeric() || b == b'_';
+        let mut from = 0;
+        while let Some(pos) = text[from..].find(name) {
+            let start = from + pos;
+            let end = start + name.len();
+            if (start == 0 || !is_word(bytes[start - 1]))
+                && (end == bytes.len() || !is_word(bytes[end]))
+            {
+                return Some(body.start_byte() + start);
+            }
+            from = end;
+        }
+        None
     }
 
     /// Run the body-level parfor checks once the whole parfor body has been
@@ -1581,7 +1788,18 @@ impl LanguageSpecEngine {
         let mut reported_utvr = HashSet::new();
 
         // PFINCR: different reduction functions with the same reduction variable
-        for (var, ops) in &analysis.reductions {
+        // A variable reduced only by functions (`s = max(s, i); s = min(s, i)`) has no
+        // operator entry, so the keys of both maps are visited (probed: PFINCR).
+        let mut reduced: Vec<&String> = analysis
+            .reductions
+            .keys()
+            .chain(analysis.func_reductions.keys())
+            .collect();
+        reduced.sort();
+        reduced.dedup();
+        for var in reduced {
+            let empty = Vec::new();
+            let ops = analysis.reductions.get(var).unwrap_or(&empty);
             let mut fns: Vec<String> = ops.iter().map(|(op, _)| op.clone()).collect();
             if let Some(frs) = analysis.func_reductions.get(var) {
                 fns.extend(frs.iter().map(|(c, _)| c.clone()));
@@ -1589,7 +1807,18 @@ impl LanguageSpecEngine {
             fns.sort();
             fns.dedup();
             if fns.len() > 1 {
-                let start = ops.iter().map(|(_, s)| *s).min().unwrap_or(0);
+                // MATLAB reports at the first operation that differs from the first one (probed).
+                let mut all: Vec<(String, usize)> = ops.clone();
+                if let Some(frs) = analysis.func_reductions.get(var) {
+                    all.extend(frs.iter().map(|(c, s)| (c.clone(), *s)));
+                }
+                all.sort_by_key(|(_, s)| *s);
+                let first_op = all.first().map(|(c, _)| c.clone()).unwrap_or_default();
+                let start = all
+                    .iter()
+                    .find(|(c, _)| *c != first_op)
+                    .map(|(_, s)| *s)
+                    .unwrap_or(0);
                 self.push_diag_bytes(
                     source,
                     start,
@@ -1609,7 +1838,7 @@ impl LanguageSpecEngine {
                     *start,
                     *start + 1,
                     "PFNAR",
-                    &format!("Subtracting reduction variable {var} from expressions is not supported in parfor loops."),
+                    &format!("Subtracting reduction variable '{var}' from expressions is not supported in parfor loops."),
                     diagnostics,
                 );
             }
@@ -1627,7 +1856,7 @@ impl LanguageSpecEngine {
                         *start,
                         *start + 1,
                         "PFRFH",
-                        &format!("The parfor reduction function {callee} must either be a function name or a broadcast variable."),
+                        &format!("The parfor reduction function '{callee}' must either be a function name or a broadcast variable."),
                         diagnostics,
                     );
                 }
@@ -1635,26 +1864,59 @@ impl LanguageSpecEngine {
         }
 
         // PFUTMP: temporary variable used before it is set in the body
+        let mut pfutmp_vars: Vec<String> = Vec::new();
         for (var, set_starts) in &analysis.temp_assigns {
-            if predefined.contains(var) {
+            // Probed: a read before the first set is PFUTMP even when the variable had a value
+            // before the loop, and an indexed read (`x = u(1)`) counts. A read inside an `if`,
+            // loop, `switch` or `try` is not reported. A variable with a self-update
+            // (`u = u + 1`) is PFUTVR instead (probed).
+            if analysis.reductions.contains_key(var) {
+                continue;
+            }
+            // A function input read in the body is an input (PFIIN), not a temporary.
+            let is_predefined = predefined.contains(var);
+            if is_predefined && !assigned_before_text(source, parfor_node.start_byte(), var) {
                 continue;
             }
             let first_set = set_starts.iter().min().copied();
-            let mut read_starts: Vec<usize> = Vec::new();
-            if let Some(rs) = analysis.whole_reads.get(var) {
-                read_starts.extend(rs.iter().copied());
-            }
+            let mut all_reads: Vec<usize> =
+                analysis.whole_reads.get(var).cloned().unwrap_or_default();
             if let Some(rs) = analysis.indexed_reads.get(var) {
-                read_starts.extend(rs.iter().map(|(_, s, _, _)| *s));
+                all_reads.extend(rs.iter().map(|(_, s, _, _)| *s));
             }
+            let read_starts: Vec<usize> = all_reads
+                .into_iter()
+                .filter(|&s| top_level_read(parfor_node, s, var, source))
+                .collect();
             if let (Some(fs), Some(fr)) = (first_set, read_starts.into_iter().min()) {
                 if fr < fs {
+                    pfutmp_vars.push(var.clone());
                     self.push_diag_bytes(
                         source,
                         fr,
                         fr + 1,
                         "PFUTMP",
-                        &format!("Temporary variable {var} must be set inside the parfor loop before it is used."),
+                        &format!("Temporary variable '{var}' must be set inside the parfor loop before it is used."),
+                        diagnostics,
+                    );
+                }
+            }
+            // `k = k(i) + 1`: the indexed read on the right of a whole-variable set comes first.
+            if let (Some(fs), false) = (first_set, is_predefined) {
+                let same_statement_read = analysis.indexed_reads.get(var).and_then(|rs| {
+                    rs.iter()
+                        .map(|(_, s, _, _)| *s)
+                        .filter(|&s| s > fs && !source[fs..s].contains(['\n', ';', ',']))
+                        .min()
+                });
+                if let Some(fr) = same_statement_read.filter(|_| !pfutmp_vars.contains(var)) {
+                    pfutmp_vars.push(var.clone());
+                    self.push_diag_bytes(
+                        source,
+                        fr,
+                        fr + 1,
+                        "PFUTMP",
+                        &format!("Temporary variable '{var}' must be set inside the parfor loop before it is used."),
                         diagnostics,
                     );
                 }
@@ -1693,91 +1955,351 @@ impl LanguageSpecEngine {
             }
         }
 
-        // PFSLO: indexed with the parfor loop variable but not a sliced output
-        for (var, reads) in &analysis.indexed_reads {
-            if analysis.temp_assigns.contains_key(var) && !analysis.sliced_lhs.contains_key(var) {
-                if let Some(first) = reads
-                    .iter()
-                    .filter(|(args, _, _, _)| args_tokens(args).contains(&parfor_var))
-                    .map(|(_, s, _, _)| *s)
-                    .min()
-                {
-                    self.push_diag_bytes(
-                        source,
-                        first,
-                        first + 1,
-                        "PFSLO",
-                        &format!("Variable {var} is indexed using the parfor loop variable, but it is not a valid sliced output variable."),
-                        diagnostics,
-                    );
-                }
-            }
-        }
+        // A temporary read as `t(i)` is not reported as PFSLO: MATLAB is silent for
+        // `a = data; b(i) = a(i)` and for `f = @(x) ...; a(i) = f(i)` (probed).
 
         // PFSLRD: sliced output variable read without slicing
+        let saved = save_named_vars(parfor_node, source);
         for var in analysis.sliced_lhs.keys() {
+            // Probed: a temporary (assigned as a whole first) is not a sliced output, and
+            // the report is at the first sliced write (pfunk_02, pfunk_12). A reduction
+            // variable is a temporary to MATLAB (PFUTVR), not a sliced output.
+            if analysis.temp_assigns.contains_key(var) || analysis.reductions.contains_key(var) {
+                continue;
+            }
+            if saved.contains(var) && !analysis.whole_reads.contains_key(var) {
+                let first = self
+                    .first_body_mention(parfor_node, source, var)
+                    .unwrap_or_else(|| {
+                        analysis
+                            .sliced_lhs
+                            .get(var)
+                            .and_then(|w| w.iter().map(|(_, s, _, _)| *s).min())
+                            .unwrap_or(0)
+                    });
+                self.push_diag_bytes(
+                    source,
+                    first,
+                    first + 1,
+                    "PFSLRD",
+                    &format!("Parfor loop variable '{var}' is accessed with an invalid combination of sliced indexing expressions and non-indexed reads. It is not valid to access the whole value of a sliced output variable."),
+                    diagnostics,
+                );
+                continue;
+            }
             if let Some(wrs) = analysis.whole_reads.get(var) {
                 if let Some(first) = wrs.iter().min().copied() {
+                    let first = self
+                        .first_body_mention(parfor_node, source, var)
+                        .unwrap_or_else(|| {
+                            analysis
+                                .sliced_lhs
+                                .get(var)
+                                .and_then(|w| w.iter().map(|(_, s, _, _)| *s).min())
+                                .unwrap_or(first)
+                        });
                     self.push_diag_bytes(
                         source,
                         first,
                         first + 1,
                         "PFSLRD",
-                        &format!("Parfor loop variable {var} is accessed with an invalid combination of sliced indexing expressions and non-indexed reads. It is not valid to access the whole value of a sliced output variable."),
+                        &format!("Parfor loop variable '{var}' is accessed with an invalid combination of sliced indexing expressions and non-indexed reads. It is not valid to access the whole value of a sliced output variable."),
                         diagnostics,
                     );
                 }
             }
         }
 
-        // PFSLW: multiple sliced accesses with different subscripts
+        // PFSLO / PFSLW for sliced outputs. MATLAB reports PFSLW only when every access
+        // has the loop variable as its first subscript, all with the same number of
+        // subscripts, and the lists differ (`a(i,1)` and `a(i,2)`). Any other
+        // inconsistency is PFSLO, at the first sliced write (probed).
         for (var, writes) in &analysis.sliced_lhs {
-            let mut sigs: Vec<String> = writes.iter().map(|(args, _, _, _)| args.clone()).collect();
+            let mut accesses: Vec<&str> =
+                writes.iter().map(|(args, _, _, _)| args.as_str()).collect();
             if let Some(reads) = analysis.indexed_reads.get(var) {
-                sigs.extend(reads.iter().map(|(args, _, _, _)| args.clone()));
+                accesses.extend(reads.iter().map(|(args, _, _, _)| args.as_str()));
             }
-            sigs.sort();
-            sigs.dedup();
-            if sigs.len() > 1 {
-                let first = writes.iter().map(|(_, s, _, _)| *s).min().unwrap_or(0);
+            let lists: Vec<Vec<&str>> = accesses
+                .iter()
+                .map(|a| a.split(',').map(str::trim).collect())
+                .collect();
+            // Only accesses that use the loop variable as a whole subscript form a sliced
+            // output (probed: `v(k)` with a temporary `k` is not one, pfslo_07).
+            if !lists.iter().any(|l| l.contains(&parfor_var.as_str())) {
+                continue;
+            }
+            // The loop variable is one whole subscript, at the same position in every
+            // access (probed: `z(1, i)` alone is valid; `a(i, 1)` with `a(1, i)` is not).
+            let positions: Vec<Option<usize>> = lists
+                .iter()
+                .map(|l| {
+                    let hits: Vec<usize> = l
+                        .iter()
+                        .enumerate()
+                        .filter(|(_, t)| **t == parfor_var.as_str())
+                        .map(|(p, _)| p)
+                        .collect();
+                    (hits.len() == 1).then(|| hits[0])
+                })
+                .collect();
+            // A temporary in a subscript list is not a sliced subscript (probed: `q = 1;
+            // v(q, i) = 1` is PFSLO).
+            let temp_subscript = lists.iter().flatten().any(|t| {
+                t.split(|c: char| !(c.is_alphanumeric() || c == '_'))
+                    .any(|tok| {
+                        tok != parfor_var.as_str() && analysis.temp_assigns.contains_key(tok)
+                    })
+            });
+            let consistent = !temp_subscript
+                && lists.iter().zip(&positions).all(|(l, p)| {
+                    p.is_some()
+                        && l.iter()
+                            .enumerate()
+                            .all(|(q, t)| Some(q) == *p || !args_tokens(t).contains(&parfor_var))
+                })
+                && positions.iter().all(|p| *p == positions[0]);
+            let same_count = lists.windows(2).all(|w| w[0].len() == w[1].len());
+            let first = writes.iter().map(|(_, s, _, _)| *s).min().unwrap_or(0);
+            if !consistent || !same_count {
+                let first = self
+                    .first_body_mention(parfor_node, source, var)
+                    .unwrap_or(first);
+                self.push_diag_bytes(
+                    source,
+                    first,
+                    first + 1,
+                    "PFSLO",
+                    &format!("Variable '{var}' is indexed using the parfor loop variable, but it is not a valid sliced output variable."),
+                    diagnostics,
+                );
+            } else if lists.iter().any(|l| *l != lists[0]) {
                 self.push_diag_bytes(
                     source,
                     first,
                     first + 1,
                     "PFSLW",
-                    &format!("Parfor loop variable {var} has multiple sliced accesses, but they do not all have the same list of subscripts. Each access to a sliced variable must use precisely the same list of subscripts."),
+                    &format!("Parfor loop variable '{var}' has multiple sliced accesses, but they do not all have the same list of subscripts. Each access to a sliced variable must use precisely the same list of subscripts."),
                     diagnostics,
                 );
             }
         }
 
-        // PFUNK: variable used both as a sliced output and as a temporary
-        for var in analysis.sliced_lhs.keys() {
-            if let Some(temps) = analysis.temp_assigns.get(var) {
-                let start = temps.iter().min().copied().unwrap_or(0);
+        // PFUNK for writes that are neither sliced nor temporary subscripts: a variable
+        // with no write subscripted by the loop variable or by a bare name, and a write
+        // whose subscripts are literals, ranges, `end`, calls or fields (`x(3) = 1`,
+        // `x(1:3) = 1`, `x(end) = 1`, `x(v(i)) = 1`, `x{1} = i`) (probed).
+        let mut unclassified: Vec<(&String, usize)> = Vec::new();
+        for (var, writes) in &analysis.sliced_lhs {
+            if !predefined.contains(var) || analysis.temp_assigns.contains_key(var) {
+                continue;
+            }
+            if analysis.reductions.contains_key(var) {
+                continue;
+            }
+            let classified = writes.iter().any(|(args, _, _, _)| {
+                args.split(',').any(|sub| {
+                    let sub: String = sub.trim().chars().filter(|c| !c.is_whitespace()).collect();
+                    is_sliced_text(&sub, &parfor_var)
+                        || (sub != "end"
+                            && sub.starts_with(|c: char| c.is_alphabetic() || c == '_')
+                            && sub.chars().all(|c| c.is_alphanumeric() || c == '_'))
+                })
+            });
+            if classified {
+                continue;
+            }
+            if let Some(start) = writes.iter().map(|(_, s, _, _)| *s).min() {
+                unclassified.push((var, start));
+            }
+        }
+        for (var, start) in unclassified {
+            self.push_diag_bytes(
+                source,
+                start,
+                start + 1,
+                "PFUNK",
+                &format!("Unable to classify variable '{var}' in the body of the parfor loop."),
+                diagnostics,
+            );
+        }
+
+        // PFUNK for a field of a predefined variable written in the body (`s.f = 1`,
+        // `s.f(i) = 1`), at the assignment (probed: `s.i = 1` and `v(i) = s.i`).
+        let mut field_writes: Vec<(String, usize)> = Vec::new();
+        let mut walk = vec![parfor_node];
+        while let Some(m) = walk.pop() {
+            if m.kind() == "lambda" {
+                continue;
+            }
+            if m.kind() == "assignment" {
+                if let Some(left) = m.child_by_field_name("left") {
+                    let base = match left.kind() {
+                        "field_expression" => left.named_child(0),
+                        "function_call" => left
+                            .named_child(0)
+                            .filter(|b| b.kind() == "field_expression")
+                            .and_then(|b| b.named_child(0)),
+                        _ => None,
+                    };
+                    if let Some(b) = base.filter(|b| b.kind() == "identifier") {
+                        field_writes.push((node_text(b, source).to_string(), m.start_byte()));
+                    }
+                }
+            }
+            let mut c = m.walk();
+            walk.extend(m.children(&mut c));
+        }
+        field_writes.sort_by_key(|(_, start)| *start);
+        let mut reported_fields: HashSet<String> = HashSet::new();
+        for (var, start) in field_writes {
+            if var == parfor_var
+                || !(predefined.contains(&var)
+                    || assigned_before_text(source, parfor_node.start_byte(), &var))
+                || !reported_fields.insert(var.clone())
+            {
+                continue;
+            }
+            self.push_diag_bytes(
+                source,
+                start,
+                start + 1,
+                "PFUNK",
+                &format!("Unable to classify variable '{var}' in the body of the parfor loop."),
+                diagnostics,
+            );
+        }
+
+        // PFUNK is not emitted for a variable that is both sliced and assigned as a
+        // whole. Probed: MATLAB is silent for `a(i) = i; a = 3` and for `q = zeros(3,1);
+        // q(i) = 1`, and reports PFUNK only for less common shapes such as a sliced
+        // variable indexed by a temporary (`k = i; v(k) = 1`).
+
+        // PFUNK: a sliced write subscripted by an inner loop variable (`for j=1:3, y(j) = i;
+        // end`), whether or not `y` had a value before the loop (probed). A variable that
+        // is also indexed by the loop variable is classified and stays silent.
+        let mut inner_loop_vars: HashSet<String> = HashSet::new();
+        let mut walk_loops = vec![parfor_node];
+        while let Some(m) = walk_loops.pop() {
+            if m.kind() == "for_statement"
+                && m.id() != parfor_node.id()
+                && !node_text(m, source).starts_with("parfor")
+            {
+                if let Some(var) = self.extract_for_variable(m, source) {
+                    inner_loop_vars.insert(var);
+                }
+            }
+            let mut c = m.walk();
+            walk_loops.extend(m.children(&mut c));
+        }
+        if !inner_loop_vars.is_empty() {
+            let tokens = |args: &str| -> Vec<String> {
+                args.split(|c: char| !(c.is_alphanumeric() || c == '_'))
+                    .map(str::to_string)
+                    .collect()
+            };
+            for (var, writes) in &analysis.sliced_lhs {
+                let loop_indexed = |args: &str| tokens(args).contains(&parfor_var);
+                if analysis.temp_assigns.contains_key(var)
+                    || writes
+                        .iter()
+                        .any(|(args, _, _, _)| loop_indexed(args.as_str()))
+                    || analysis.indexed_reads.get(var).is_some_and(|rs| {
+                        rs.iter().any(|(args, _, _, _)| loop_indexed(args.as_str()))
+                    })
+                {
+                    continue;
+                }
+                let first = writes
+                    .iter()
+                    .filter(|(args, _, _, _)| {
+                        tokens(args.as_str())
+                            .iter()
+                            .any(|t| inner_loop_vars.contains(t))
+                    })
+                    .map(|(_, start, _, _)| *start)
+                    .min();
+                if let Some(start) = first {
+                    self.push_diag_bytes(
+                        source,
+                        start,
+                        start + 1,
+                        "PFUNK",
+                        &format!(
+                            "Unable to classify variable '{var}' in the body of the parfor loop."
+                        ),
+                        diagnostics,
+                    );
+                }
+            }
+        }
+
+        // PFUNK: a sliced write whose subscript is a temporary of the body, as in
+        // `k = i; v(k) = 1`. Probed: MATLAB reports it whatever the temporary's value
+        // (`k = 2; v(k) = i`) and whether `k` is reassigned later (`k = 2` after the write).
+        for (var, writes) in &analysis.sliced_lhs {
+            // A variable that is also indexed by the loop variable is PFSLO, not PFUNK
+            // (probed: `w = v(i); v(w) = 1` and `k = i; v(k) = 1; v(i) = 2`).
+            let loop_indexed = |args: &str| {
+                args.split(|c: char| !(c.is_alphanumeric() || c == '_'))
+                    .any(|t| t == parfor_var.as_str())
+            };
+            if writes
+                .iter()
+                .any(|(args, _, _, _)| loop_indexed(args.as_str()))
+                || analysis
+                    .indexed_reads
+                    .get(var)
+                    .is_some_and(|rs| rs.iter().any(|(args, _, _, _)| loop_indexed(args.as_str())))
+            {
+                continue;
+            }
+            let mut first_write: Option<usize> = None;
+            for (args, start, _end, _is_cell) in writes {
+                let uses_temp = args
+                    .split(|c: char| !(c.is_alphanumeric() || c == '_'))
+                    .any(|t| t != analysis.parfor_var && analysis.temp_assigns.contains_key(t));
+                if uses_temp
+                    && !args
+                        .split(|c: char| !(c.is_alphanumeric() || c == '_'))
+                        .any(|t| t == analysis.parfor_var)
+                {
+                    first_write = Some(first_write.map_or(*start, |f| f.min(*start)));
+                }
+            }
+            if let Some(start) = first_write {
                 self.push_diag_bytes(
                     source,
                     start,
                     start + 1,
                     "PFUNK",
-                    &format!("Unable to classify variable {var} in the body of the parfor loop."),
+                    &format!("Unable to classify variable '{var}' in the body of the parfor loop."),
                     diagnostics,
                 );
             }
         }
 
-        // PFANON: sliced output variable used inside an anonymous function
-        for (start, refs) in &analysis.lambdas {
-            if refs.iter().any(|r| analysis.sliced_lhs.contains_key(r)) {
-                self.push_diag_bytes(
-                    source,
-                    *start,
-                    *start + 1,
-                    "PFANON",
-                    "Using a sliced output variable in an anonymous function is not \
-                     supported in parfor loops.",
-                    diagnostics,
-                );
+        // Anonymous functions in the body (probed on R2026b): a sliced output read whole is
+        // PFSLRD and one indexed by anything but the plain loop variable (`x(1)`, `x(i - 1)`,
+        // `x(t)` with a lambda parameter) is PFSLO, both at the first mention of the variable
+        // in the body; `x(i)` is PFANON at the variable inside the anonymous function.
+        for (start, refs, text) in &analysis.lambdas {
+            for var in refs.iter().filter(|r| analysis.sliced_lhs.contains_key(*r)) {
+                let uses = lambda_uses(text, var, &parfor_var);
+                let first = self
+                    .first_body_mention(parfor_node, source, var)
+                    .unwrap_or(*start);
+                let (id, message, at) = if uses.whole {
+                    ("PFSLRD", format!("Parfor loop variable '{var}' is accessed with an invalid combination of sliced indexing expressions and non-indexed reads. It is not valid to access the whole value of a sliced output variable."), first)
+                } else if let Some(offset) = uses.loop_indexed {
+                    ("PFANON", "Using a sliced output variable in an anonymous function is not supported in parfor loops.".to_string(), *start + offset)
+                } else if uses.constant {
+                    ("PFSLO", format!("Variable '{var}' is indexed using the parfor loop variable, but it is not a valid sliced output variable."), first)
+                } else {
+                    continue;
+                };
+                self.push_diag_bytes(source, at, at + 1, id, &message, diagnostics);
+                break;
             }
         }
 
@@ -1986,7 +2508,8 @@ impl LanguageSpecEngine {
         self.check_mcred(class, diagnostics);
         self.check_mccbd(class, meta, ctx, diagnostics);
         self.check_setter_getter_signatures(class, meta, diagnostics);
-        self.check_mceb(class, diagnostics);
+        let value_bases = class.has_only_value_bases(ctx.project, ctx.file_path);
+        self.check_mceb(class, value_bases, diagnostics);
         self.check_mcani(class, diagnostics);
         self.check_mcasc(class, diagnostics);
         self.check_mcsga(class, meta, diagnostics);
@@ -2004,7 +2527,6 @@ impl LanguageSpecEngine {
         self.check_mcgsa(class, diagnostics);
         self.check_mcpsg(class, diagnostics);
         self.check_mccsop(class, ctx, diagnostics);
-        self.check_mcscn(class, ctx, diagnostics);
         self.check_mwkcl(class, diagnostics);
         self.check_mwkct(class, diagnostics);
         self.check_mwkref(class, diagnostics);
@@ -2153,17 +2675,42 @@ impl LanguageSpecEngine {
             fix: None,
         });
     }
-}
 
-impl LanguageSpecEngine {
-    /// Whether a property is a positional input argument (not ignored, not a
-    /// name-value argument, and not `varargin`).
-    pub(crate) fn fv_is_positional_prop(&self, prop: tree_sitter::Node, source: &str) -> bool {
-        !prop_has_ignored(prop)
-            && !prop_has_name_value(prop)
-            && prop_plain_name(prop, source)
-                .map(|n| n != "varargin")
-                .unwrap_or(false)
+    /// Like [`Self::push_block_diag`], but reported at the declaration line of
+    /// argument `name` inside the block (MATLAB points at the argument, probed).
+    /// Falls back to the block header when the argument is not found.
+    pub(crate) fn push_arg_diag(
+        &self,
+        block: &ArgumentsBlockMeta,
+        name: &str,
+        rule_id: &'static str,
+        message: &str,
+        source: &str,
+        diagnostics: &mut Vec<Diagnostic>,
+    ) {
+        let header = block.node.start_position();
+        let text = &source[block.byte_range.clone()];
+        let (line, column) = text
+            .lines()
+            .enumerate()
+            .skip(1)
+            .find_map(|(i, l)| {
+                let trimmed = l.trim_start();
+                let first = trimmed
+                    .split(|c: char| !(c.is_alphanumeric() || c == '_'))
+                    .next();
+                (first == Some(name)).then(|| (header.row + i + 1, l.len() - trimmed.len() + 1))
+            })
+            .unwrap_or((header.row + 1, header.column + 1));
+        diagnostics.push(Diagnostic {
+            rule_id,
+            message: message.to_string(),
+            severity: Severity::Error,
+            byte_range: block.byte_range.clone(),
+            line,
+            column,
+            fix: None,
+        });
     }
 }
 
@@ -2291,6 +2838,152 @@ pub(crate) fn arguments_text(node: tree_sitter::Node, source: &str) -> String {
 }
 
 /// Tokenize an arguments text into identifier-like tokens.
+/// `i` or `i+k` / `i-k` for a constant `k` (whitespace-free text).
+fn is_sliced_text(text: &str, parfor_var: &str) -> bool {
+    if text == parfor_var {
+        return true;
+    }
+    text.strip_prefix(parfor_var)
+        .and_then(|rest| rest.strip_prefix(['+', '-']))
+        .is_some_and(|k| !k.is_empty() && k.chars().all(|c| c.is_ascii_digit()))
+}
+
+/// Whether a line before `before` starts with `name` followed by `=`, `.`, `(` or `{`.
+fn assigned_before_text(source: &str, before: usize, name: &str) -> bool {
+    source[..before].lines().any(|line| {
+        line.trim_start()
+            .strip_prefix(name)
+            .and_then(|rest| rest.trim_start().chars().next())
+            .is_some_and(|c| matches!(c, '=' | '.' | '(' | '{'))
+    })
+}
+
+/// Variables named by a `save` in a parfor body, as `save('f.mat', 'v')` or
+/// `save f v` (probed: both read the whole value, PFSLRD). The first argument is the
+/// file, so it is not a variable.
+/// Whether the read of `var` that starts at byte `start` is a statement of the body of
+/// `parfor`: no `if`, loop, `switch`, `try` or anonymous function lies between them
+/// (probed: MATLAB reports PFUTMP for a top-level read only).
+fn top_level_read(parfor: tree_sitter::Node, start: usize, var: &str, source: &str) -> bool {
+    let Some(mut node) = parfor.descendant_for_byte_range(start, start + 1) else {
+        return false;
+    };
+    while let Some(parent) = node.parent() {
+        if parent.kind() == "block" && parent.parent().is_some_and(|p| p.id() == parfor.id()) {
+            // `var = var + i` reads `var` before its own store: it is a reduction, not a read
+            // before the first set (probed: no PFUTMP for `s = s + i; s = 2 * s`).
+            let self_update = node.kind() == "assignment"
+                && node
+                    .child_by_field_name("left")
+                    .is_some_and(|l| &source[l.byte_range()] == var);
+            return !self_update;
+        }
+        if parent.id() == parfor.id()
+            || matches!(
+                parent.kind(),
+                "if_statement"
+                    | "for_statement"
+                    | "while_statement"
+                    | "switch_statement"
+                    | "try_statement"
+                    | "lambda"
+            )
+        {
+            return false;
+        }
+        node = parent;
+    }
+    false
+}
+
+fn save_named_vars(parfor_node: tree_sitter::Node, source: &str) -> HashSet<String> {
+    let mut names = HashSet::new();
+    let mut walk = vec![parfor_node];
+    while let Some(m) = walk.pop() {
+        if m.kind() == "function_call"
+            && m.named_child(0)
+                .is_some_and(|b| node_text(b, source) == "save")
+        {
+            for arg in argument_nodes(m).into_iter().skip(1) {
+                let text = node_text(arg, source).trim();
+                let name = text.trim_matches('\'');
+                if name.chars().all(|c| c.is_alphanumeric() || c == '_') && !name.is_empty() {
+                    names.insert(name.to_string());
+                }
+            }
+        } else if m.kind() == "command"
+            && node_text(m, source).split_whitespace().next() == Some("save")
+        {
+            for word in node_text(m, source).split_whitespace().skip(2) {
+                names.insert(word.to_string());
+            }
+        }
+        let mut c = m.walk();
+        walk.extend(m.children(&mut c));
+    }
+    names
+}
+
+/// How a variable is used in the text of an anonymous function: `whole` for a bare
+/// read, `constant` for an index without the loop variable, `loop_indexed` for one
+/// with it.
+struct LambdaUses {
+    whole: bool,
+    constant: bool,
+    /// The byte offset in the lambda text of the first `x(i)`, an index that is exactly
+    /// the loop variable.
+    loop_indexed: Option<usize>,
+}
+
+fn lambda_uses(text: &str, var: &str, parfor_var: &str) -> LambdaUses {
+    let bytes = text.as_bytes();
+    let is_word = |c: u8| c.is_ascii_alphanumeric() || c == b'_';
+    let mut uses = LambdaUses {
+        whole: false,
+        constant: false,
+        loop_indexed: None,
+    };
+    let mut search = 0;
+    while let Some(found) = text[search..].find(var) {
+        let at = search + found;
+        let end = at + var.len();
+        search = end;
+        let before_ok = at == 0 || (!is_word(bytes[at - 1]) && bytes[at - 1] != b'.');
+        let after_ok = end >= bytes.len() || !is_word(bytes[end]);
+        if !before_ok || !after_ok {
+            continue;
+        }
+        let rest = text[end..].trim_start();
+        if !rest.starts_with('(') {
+            uses.whole = true;
+            continue;
+        }
+        let open = text.len() - rest.len();
+        let mut depth = 0;
+        let mut close = text.len();
+        for (k, c) in text[open..].char_indices() {
+            match c {
+                '(' => depth += 1,
+                ')' => {
+                    depth -= 1;
+                    if depth == 0 {
+                        close = open + k;
+                        break;
+                    }
+                }
+                _ => {}
+            }
+        }
+        let args = &text[open + 1..close.min(text.len())];
+        if args.split(',').any(|a| a.trim() == parfor_var) {
+            uses.loop_indexed.get_or_insert(at);
+        } else {
+            uses.constant = true;
+        }
+    }
+    uses
+}
+
 pub(crate) fn args_tokens(args: &str) -> Vec<String> {
     args.split(|c: char| !(c.is_alphanumeric() || c == '_'))
         .filter(|s| !s.is_empty())
@@ -2614,20 +3307,10 @@ pub(crate) fn extract_arguments_blocks_grouped<'a>(
 
 /// Collect the attribute identifiers declared on an arguments block.
 pub(crate) fn block_attributes(block_node: tree_sitter::Node, source: &str) -> Vec<String> {
-    let mut attrs = Vec::new();
-    let mut cursor = block_node.walk();
-    for child in block_node.children(&mut cursor) {
-        if child.kind() == "attributes" {
-            let mut inner = child.walk();
-            for attr in child.children(&mut inner) {
-                if attr.kind() == "identifier" {
-                    attrs.push(node_text(attr, source).to_string());
-                }
-            }
-            break;
-        }
-    }
-    attrs
+    attributes_of(block_node, source, AttrForms::Bare)
+        .into_iter()
+        .map(|attr| attr.name)
+        .collect()
 }
 
 /// Derive the role of an arguments block from its attribute identifiers.
@@ -2748,8 +3431,36 @@ pub(crate) fn prop_has_ignored(prop: tree_sitter::Node) -> bool {
 }
 
 /// Whether the property is a name-value argument (`struct.field`).
+///
+/// A declaration with a class name (`camObj pkg.Class`) also holds a `property_name`
+/// node, but the grammar gives its plain name the `name` field, and a name-value
+/// declaration has no such field or sets it to the `property_name` itself.
 pub(crate) fn prop_has_name_value(prop: tree_sitter::Node) -> bool {
     find_child_kind(prop, "property_name").is_some()
+        && prop
+            .child_by_field_name("name")
+            .is_none_or(|name| name.kind() == "property_name")
+}
+
+/// Whether the property is a name-value argument, including the class form `struct.?Class`.
+pub(crate) fn prop_has_name_value_src(prop: tree_sitter::Node, source: &str) -> bool {
+    prop_has_name_value(prop) || prop_meta_class_struct(prop, source).is_some()
+}
+
+/// The struct name of a name-value property, including the class form `struct.?Class`.
+pub(crate) fn prop_name_value_struct_src(prop: tree_sitter::Node, source: &str) -> Option<String> {
+    // The `?` form first: a class-typed name (`opts.?pkg.Class`) has a dotted
+    // `property_name` that is not the struct.
+    prop_meta_class_struct(prop, source).or_else(|| prop_name_value_struct(prop, source))
+}
+
+/// The struct name of `struct.?Class`, which the grammar does not give a `property_name`.
+fn prop_meta_class_struct(prop: tree_sitter::Node, source: &str) -> Option<String> {
+    let text = source.get(prop.start_byte()..prop.end_byte())?;
+    let (head, rest) = text.split_once('.')?;
+    let head = head.trim();
+    let is_name = !head.is_empty() && head.chars().all(|c| c.is_alphanumeric() || c == '_');
+    (is_name && rest.trim_start().starts_with('?')).then(|| head.to_string())
 }
 
 /// The full dotted text of a name-value property.
@@ -2763,19 +3474,6 @@ pub(crate) fn prop_name_value_text(prop: tree_sitter::Node, source: &str) -> Str
 pub(crate) fn prop_name_value_struct(prop: tree_sitter::Node, source: &str) -> Option<String> {
     let pn = find_child_kind(prop, "property_name")?;
     find_child_kind(pn, "identifier").map(|n| node_text(n, source).to_string())
-}
-
-/// The field name of a name-value property (after the last dot).
-pub(crate) fn prop_name_value_field(prop: tree_sitter::Node, source: &str) -> Option<String> {
-    let pn = find_child_kind(prop, "property_name")?;
-    let mut last = None;
-    let mut cursor = pn.walk();
-    for child in pn.children(&mut cursor) {
-        if child.kind() == "identifier" {
-            last = Some(node_text(child, source).to_string());
-        }
-    }
-    last
 }
 
 /// The plain identifier name of a positional property.
@@ -2796,48 +3494,57 @@ pub(crate) fn prop_has_validation(prop: tree_sitter::Node) -> bool {
     find_child_kind(prop, "validation_functions").is_some()
 }
 
-/// Whether the property declares a size constraint.
-pub(crate) fn prop_has_dimensions(prop: tree_sitter::Node) -> bool {
-    find_child_kind(prop, "dimensions").is_some()
-}
-
 /// Collect the `property` and `class_property` children of an arguments block.
+///
+/// A `struct.?Class = default` line does not parse as a `class_property` (the
+/// grammar has no default value for it): the grammar wraps the class property in
+/// an `ERROR` node next to the block's other declarations, so those are looked
+/// into too.
 pub(crate) fn block_properties(block_node: tree_sitter::Node) -> Vec<tree_sitter::Node> {
     let mut props = Vec::new();
     let mut cursor = block_node.walk();
     for child in block_node.children(&mut cursor) {
         if child.kind() == "property" || child.kind() == "class_property" {
             props.push(child);
+        } else if child.kind() == "ERROR" {
+            let mut inner = child.walk();
+            props.extend(
+                child
+                    .children(&mut inner)
+                    .filter(|c| c.kind() == "class_property"),
+            );
         }
     }
     props
 }
 
-/// Whether an arguments block declares any attribute value (must be logical constants).
-pub(crate) fn attributes_have_value(block_node: tree_sitter::Node) -> bool {
+/// Whether an arguments block assigns an attribute a value other than `true` or `false`.
+pub(crate) fn attributes_have_value(block_node: tree_sitter::Node, source: &str) -> bool {
     let mut cursor = block_node.walk();
-    for child in block_node.children(&mut cursor) {
-        if child.kind() != "attributes" {
-            continue;
-        }
-        let mut inner = child.walk();
-        for attr in child.children(&mut inner) {
-            if attr.kind() == "=" || attr.is_error() || attr.is_missing() {
-                return true;
-            }
-        }
-        return false;
-    }
-    false
+    let attrs: Vec<tree_sitter::Node> = block_node
+        .children(&mut cursor)
+        .filter(|child| child.kind() == "attributes")
+        .collect();
+    attrs.into_iter().any(|attrs| {
+        attribute_entries(attrs, source, AttrForms::Written)
+            .iter()
+            .any(|attr| {
+                attr.value
+                    .as_deref()
+                    .is_some_and(|v| v != "true" && v != "false")
+            })
+    })
 }
 
 /// A reference made inside a validation function call.
 #[derive(Debug, Clone)]
 enum CallReference {
-    /// A plain identifier reference.
+    /// A plain identifier reference, or the callee of a nested call.
     Identifier(String),
     /// A dotted field reference such as `opts.Name`.
-    Field,
+    Field(String),
+    /// Any other non-literal expression, such as a metaclass operator.
+    Other,
 }
 
 /// A validation function call extracted from an arguments block property.
@@ -2845,6 +3552,8 @@ enum CallReference {
 pub(crate) struct ValidatorCall {
     /// References to arguments made inside the call.
     references: Vec<CallReference>,
+    /// Whether the call has no argument list, `{mustBeText()}` (VTPEAL, not FVVIN).
+    pub(crate) no_arguments: bool,
 }
 
 /// Extract all validation function calls from a property.
@@ -2870,23 +3579,47 @@ pub(crate) fn extract_validator_call(
     source: &str,
 ) -> Option<ValidatorCall> {
     let mut references = Vec::new();
-    if let Some(args_node) = find_child_kind(call_node, "arguments") {
-        let mut cursor = args_node.walk();
-        for arg in args_node.children(&mut cursor) {
-            match arg.kind() {
-                "identifier" => {
-                    references.push(CallReference::Identifier(
-                        node_text(arg, source).to_string(),
-                    ));
-                }
-                "field_expression" => {
-                    references.push(CallReference::Field);
-                }
-                _ => {}
+    collect_validator_references(call_node, source, &mut references);
+    Some(ValidatorCall {
+        references,
+        no_arguments: crate::readability::find_arguments(call_node).is_none(),
+    })
+}
+
+/// Collect the references made by the arguments of a validation call, descending into nested calls.
+fn collect_validator_references(
+    call_node: tree_sitter::Node,
+    source: &str,
+    references: &mut Vec<CallReference>,
+) {
+    let Some(args_node) = find_child_kind(call_node, "arguments") else {
+        return;
+    };
+    let mut cursor = args_node.walk();
+    let children: Vec<tree_sitter::Node> = args_node.children(&mut cursor).collect();
+    for arg in children {
+        match arg.kind() {
+            "identifier" => {
+                references.push(CallReference::Identifier(
+                    node_text(arg, source).to_string(),
+                ));
             }
+            "field_expression" => {
+                references.push(CallReference::Field(node_text(arg, source).to_string()));
+            }
+            "function_call" => {
+                match find_child_kind(arg, "identifier") {
+                    Some(callee) => references.push(CallReference::Identifier(
+                        node_text(callee, source).to_string(),
+                    )),
+                    None => references.push(CallReference::Other),
+                }
+                collect_validator_references(arg, source, references);
+            }
+            "metaclass_operator" => references.push(CallReference::Other),
+            _ => {}
         }
     }
-    Some(ValidatorCall { references })
 }
 
 /// Collect all `function_call` nodes within a subtree.
@@ -2925,78 +3658,6 @@ pub(crate) fn default_refs_name_value(
     false
 }
 
-/// Build the declaration sequence of an arguments block group.
-///
-/// Consecutive name-value struct names are deduplicated: multiple fields of
-/// the same structure map to a single function-line argument.
-pub(crate) fn block_declaration_sequence(
-    blocks: &[ArgumentsBlockMeta],
-    source: &str,
-    outputs: bool,
-) -> Vec<String> {
-    let mut sequence = Vec::new();
-    for block in blocks {
-        let relevant = if outputs {
-            block.role.is_output() || block.is_output_repeating()
-        } else {
-            block.role.is_input() || block.is_input_repeating()
-        };
-        if !relevant {
-            continue;
-        }
-        for prop in block_properties(block.node) {
-            let name = if prop_has_ignored(prop) {
-                Some("~".to_string())
-            } else if prop_has_name_value(prop) {
-                prop_name_value_struct(prop, source)
-            } else {
-                prop_plain_name(prop, source)
-            };
-            let Some(name) = name else {
-                continue;
-            };
-            if sequence.last() == Some(&name) {
-                continue;
-            }
-            sequence.push(name);
-        }
-    }
-    sequence
-}
-
-/// Whether `sequence` is a prefix of `full`.
-pub(crate) fn is_prefix_of(sequence: &[String], full: &[String]) -> bool {
-    sequence.len() <= full.len() && sequence.iter().zip(full.iter()).all(|(a, b)| a == b)
-}
-
-/// Whether a name is a known MATLAB class name.
-pub(crate) fn is_known_class_name(name: &str) -> bool {
-    matches!(
-        name,
-        "double"
-            | "single"
-            | "logical"
-            | "char"
-            | "string"
-            | "cell"
-            | "struct"
-            | "function_handle"
-            | "int8"
-            | "int16"
-            | "int32"
-            | "int64"
-            | "uint8"
-            | "uint16"
-            | "uint32"
-            | "uint64"
-            | "table"
-            | "datetime"
-            | "duration"
-            | "categorical"
-            | "calendarDuration"
-    )
-}
-
 /// Functions that are not supported inside arguments blocks.
 const BANNED_ARGUMENTS_FUNCTIONS: &[&str] = &[
     "eval",
@@ -3010,21 +3671,13 @@ const BANNED_ARGUMENTS_FUNCTIONS: &[&str] = &[
 ];
 
 /// Built-in MATLAB classes that cannot be subclassed directly.
-const NON_SUBCLASSABLE_BUILTINS: &[&str] = &[
-    "double", "single", "int8", "int16", "int32", "int64", "uint8", "uint16", "uint32", "uint64",
-    "char", "logical", "cell", "struct",
-];
+// MATLAB reports char, cell, struct and function_handle; it was silent on the numeric and
+// logical classes in the probes.
+const NON_SUBCLASSABLE_BUILTINS: &[&str] = &["char", "cell", "struct", "function_handle"];
 
-/// Get the callee name of a `function_call` node.
+/// Get the callee name of a `function_call` node: `f` for `f(x)` and `s.f(x)`.
 pub(crate) fn callee_name(node: tree_sitter::Node, source: &str) -> Option<String> {
-    callee_node(node).map(|n| node_text(n, source).to_string())
-}
-
-/// Get the callee identifier node of a `function_call`.
-pub(crate) fn callee_node(node: tree_sitter::Node) -> Option<tree_sitter::Node> {
-    node.child_by_field_name("name")
-        .or_else(|| node.child(0))
-        .filter(|n| n.kind() == "identifier")
+    crate::analysis::callee::call_identifier(node, source).map(str::to_string)
 }
 
 /// Get the named argument nodes of a `function_call` (excluding commas).
@@ -3119,13 +3772,14 @@ mod check_class_attributes;
 mod check_class_file_rules;
 mod check_ctoine;
 mod check_ctoro;
+mod check_dupnamearg;
 mod check_end_operator;
+pub(crate) use check_end_operator::in_control_header;
 mod check_error_warning_message;
 mod check_fconv;
 mod check_fv_ordering;
 mod check_fv_structure;
 mod check_fv_validation;
-mod check_fvapn;
 mod check_fvatf;
 mod check_fvbtn;
 mod check_fvdan;
@@ -3142,7 +3796,6 @@ mod check_fvnsc;
 mod check_fvnst;
 mod check_fvobi;
 mod check_fvond;
-mod check_fvonv;
 mod check_fvood_fvooi_fvoon;
 mod check_fvordi;
 mod check_fvordn;
@@ -3154,8 +3807,9 @@ mod check_fvrepo;
 mod check_fvsor;
 mod check_fvsoro;
 mod check_fvtinvaldim_ttoofewdims;
+mod check_fvubd;
 mod check_fvvin_fvocon;
-mod check_fvvin_fvvcon_fvubd;
+mod check_fvvin_fvvcon;
 mod check_fvvrep;
 mod check_global_persistent_rules;
 mod check_gpfst;
@@ -3221,19 +3875,49 @@ mod tests {
         parser
             .set_language(&language.into())
             .expect("failed to set MATLAB language");
+        malt_core::note_parse();
         parser.parse(source, None).expect("failed to parse")
     }
 
     /// Run the language spec engine on source code with a given file path.
     pub(crate) fn check_source(source: &str, file_path: &str) -> Vec<Diagnostic> {
-        let config = Config::default();
-        let rule = LanguageSpecEngine::from_config(&config);
+        check_source_with_config(&Config::default(), source, file_path)
+    }
+
+    /// Like `check_source`, with the `all` preset so checks that the `mathworks`
+    /// preset leaves off (PFUTVR, VTP*) are on.
+    pub(crate) fn check_source_all_presets(source: &str, file_path: &str) -> Vec<Diagnostic> {
+        let config = Config::from_toml("[lint]\npreset = \"all\"\n").unwrap();
+        check_source_with_config(&config, source, file_path)
+    }
+
+    fn check_source_with_config(config: &Config, source: &str, file_path: &str) -> Vec<Diagnostic> {
+        let rule = LanguageSpecEngine::from_config(config);
         let tree = parse_matlab(source);
         let path = Path::new(file_path);
         let ctx = FileContext {
             tree: &tree,
             source,
             file_path: path,
+            project: None,
+        };
+        rule.check_file(&ctx)
+    }
+
+    /// Like `check_source`, with a search path (the path index turned on).
+    pub(crate) fn check_source_with_project(
+        source: &str,
+        file_path: &str,
+        project: &dyn malt_core::ProjectIndex,
+    ) -> Vec<Diagnostic> {
+        let rule = LanguageSpecEngine::from_config(&Config::default());
+        let tree = parse_matlab(source);
+        let path = Path::new(file_path);
+        let ctx = FileContext {
+            tree: &tree,
+            source,
+            file_path: path,
+            project: Some(project),
         };
         rule.check_file(&ctx)
     }
@@ -3246,7 +3930,6 @@ mod tests {
     // ===== Function validation checks (FV* / TIN* / TTOO* group) =====
 
     const FV_CHECK_IDS: &[&str] = &[
-        "FVAPN",
         "FVATF",
         "FVBTN",
         "FVDAN",
@@ -3353,6 +4036,7 @@ end
             tree: &tree,
             source,
             file_path: path,
+            project: None,
         };
         let diags = engine.check_file(&ctx);
         assert!(
@@ -3657,27 +4341,37 @@ end
     // ===== C4: SPMD transparency checks =====
 
     #[test]
-    fn test_spbrk_covered_by_spret() {
-        // SPBRK (break/continue not fully contained in spmd) is subsumed by SPRET,
-        // which fires for every break/continue inside an spmd block.
+    fn test_spbrk_fires_for_break_whose_loop_is_outside_spmd() {
+        // Probed against R2026b: break/continue inside spmd whose loop encloses the
+        // spmd (or with no loop at all) is SPBRK, not SPRET.
         let source = "\
 function foo()
+for i = 1:3
     spmd
         break;
     end
 end
+end
 ";
         let diags = check_source(source, "foo.m");
-        let spret = filter_by_id(&diags, "SPRET");
-        assert!(
-            !spret.is_empty(),
-            "SPRET should fire for break inside spmd (covers SPBRK)"
-        );
-        let spbrk = filter_by_id(&diags, "SPBRK");
-        assert!(
-            spbrk.is_empty(),
-            "SPBRK is deferred — no separate diagnostic emitted"
-        );
+        assert_eq!(filter_by_id(&diags, "SPBRK").len(), 1, "got: {diags:?}");
+        assert!(filter_by_id(&diags, "SPRET").is_empty(), "got: {diags:?}");
+    }
+
+    #[test]
+    fn test_spbrk_ok_when_loop_is_inside_spmd() {
+        let source = "\
+function foo()
+    spmd
+        for i = 1:3
+            break;
+        end
+    end
+end
+";
+        let diags = check_source(source, "foo.m");
+        assert!(filter_by_id(&diags, "SPBRK").is_empty(), "got: {diags:?}");
+        assert!(filter_by_id(&diags, "SPRET").is_empty(), "got: {diags:?}");
     }
 
     // ===== C4: error/warning message checks =====
@@ -3739,6 +4433,7 @@ end
             tree: &tree,
             source,
             file_path: path,
+            project: None,
         };
         let diags = engine.check_file(&ctx);
         let hits = filter_by_id(&diags, "MABSEAC");
@@ -4064,7 +4759,7 @@ function f()
     end
 end
 ";
-        let diags = check_source(source, "f.m");
+        let diags = check_source_all_presets(source, "f.m");
         assert!(
             !filter_by_id(&diags, "PFCEL").is_empty(),
             "PFCEL should fire for cell array arguments"
@@ -4090,12 +4785,78 @@ end
     // -- PFANON --------------------------------------------------------------
 
     #[test]
+    fn test_pfslrd_and_pfslo_at_first_body_mention() {
+        // Probed (e_sr01, e_so05): MATLAB reports at the first mention of the variable in
+        // the body, not at the later invalid access.
+        let read_first = "function r = f(n)\nr = zeros(1, n);\nparfor i = 1:n\n    disp(r);\n    r(i) = 1;\nend\nend\n";
+        let diags = check_source(read_first, "f.m");
+        let pfslrd = filter_by_id(&diags, "PFSLRD");
+        assert_eq!(pfslrd.len(), 1, "got: {diags:?}");
+        assert_eq!(pfslrd[0].line, 4);
+        let shifted = "function v = f(n)\nv = zeros(1, n);\nparfor i = 1:n\n    v(i) = 1;\n    x = v(i - 1);\nend\nend\n";
+        let diags = check_source(shifted, "f.m");
+        let pfslo = filter_by_id(&diags, "PFSLO");
+        assert_eq!(pfslo.len(), 1, "got: {diags:?}");
+        assert_eq!(pfslo[0].line, 4);
+        // A valid sliced write alone is neither PFSLO nor PFSLRD.
+        let valid =
+            "function v = f(n)\nv = zeros(1, n);\nparfor i = 1:n\n    v(i) = i;\nend\nend\n";
+        let diags = check_source(valid, "f.m");
+        assert!(filter_by_id(&diags, "PFSLO").is_empty(), "got: {diags:?}");
+        assert!(filter_by_id(&diags, "PFSLRD").is_empty(), "got: {diags:?}");
+    }
+
+    #[test]
+    fn test_pfunk_not_for_temp_write_on_indexed_variable() {
+        // Probed (e_uk13): with a read `v(i)` in the loop, the temporary subscript is PFSLO
+        // at the first mention of `v`, not PFUNK.
+        let source = "function v = f(n)\nv = zeros(1, n);\nparfor i = 1:n\n    w = v(i);\n    v(w) = 1;\nend\nend\n";
+        let diags = check_source(source, "f.m");
+        assert!(filter_by_id(&diags, "PFUNK").is_empty(), "got: {diags:?}");
+        let pfslo = filter_by_id(&diags, "PFSLO");
+        assert_eq!(pfslo.len(), 1, "got: {diags:?}");
+        assert_eq!(pfslo[0].line, 4);
+    }
+
+    /// Probed on R2026b (v1-v8, f, h): with `x(i) = i;` on line 3, a lambda on line 4 gives
+    /// PFANON at the `x` inside it for `x(i)`, PFSLO at the first mention (3:9) for `x(1)`,
+    /// `x(i - 1)` and `x(t)` (a lambda parameter), and PFSLRD at the first mention for a
+    /// whole read.
+    #[test]
+    fn test_sliced_output_in_a_lambda_follows_matlab() {
+        let cases: [(&str, &str, (usize, usize)); 7] = [
+            ("g = @() x(i);", "PFANON", (4, 17)),
+            ("g = @(t) x(i) + t;", "PFANON", (4, 18)),
+            ("g = @() x(1);", "PFSLO", (3, 9)),
+            ("g = @(t) x(i - 1);", "PFSLO", (3, 9)),
+            ("g = @(t) x(t);", "PFSLO", (3, 9)),
+            ("g = @() x;", "PFSLRD", (3, 9)),
+            ("g = @() numel(x);", "PFSLRD", (3, 9)),
+        ];
+        for (lambda, id, at) in cases {
+            let source = format!("function f(n)\n    parfor i = 1:n\n        x(i) = i;\n        {lambda}\n    end\nend\n");
+            let diags = check_source(&source, "f.m");
+            let found: Vec<(usize, usize)> = filter_by_id(&diags, id)
+                .iter()
+                .map(|d| (d.line, d.column))
+                .collect();
+            assert_eq!(found, vec![at], "{lambda}: {diags:?}");
+        }
+        // A lambda that does not touch the sliced output reports nothing.
+        let source = "function f(n)\n    c = 3;\n    parfor i = 1:n\n        g = @(t) t + c;\n        z(i) = g(i);\n    end\nend\n";
+        let diags = check_source(source, "f.m");
+        for id in ["PFANON", "PFSLO", "PFSLRD"] {
+            assert!(filter_by_id(&diags, id).is_empty(), "{id}");
+        }
+    }
+
+    #[test]
     fn test_pfanon_fires_sliced_var_in_lambda() {
         let source = "\
 function f()
     parfor i = 1:10
         x(i) = i;
-        g = @(t) x(t);
+        g = @(t) x(i);
     end
 end
 ";
@@ -4213,7 +4974,7 @@ function f()
     end
 end
 ";
-        let diags = check_source(source, "f.m");
+        let diags = check_source_all_presets(source, "f.m");
         assert!(
             !filter_by_id(&diags, "PFFRNG").is_empty(),
             "PFFRNG should fire for a non-constant nested loop range"
@@ -4325,7 +5086,7 @@ function f()
     end
 end
 ";
-        let diags = check_source(source, "f.m");
+        let diags = check_source_all_presets(source, "f.m");
         assert!(
             !filter_by_id(&diags, "PFMLTI").is_empty(),
             "PFMLTI should fire when the nested for variable is assigned"
@@ -4442,10 +5203,96 @@ end
 
     // -- PFRNG ---------------------------------------------------------------
 
+    // -- Parfor / SPMD probe regressions (MATLAB R2026b checkcode) ----------
+
+    #[test]
+    fn test_pfslw_fires_on_last_subscript_difference() {
+        // Probed (pfslw_06): same subscript count, only the second subscript differs.
+        let source = "function f()\n    a = zeros(10, 2);\n    parfor i = 1:10\n        a(i, 1) = 1;\n        a(i, 2) = 2;\n    end\nend\n";
+        let diags = check_source(source, "f.m");
+        let pfslw = filter_by_id(&diags, "PFSLW");
+        assert_eq!(pfslw.len(), 1, "got: {diags:?}");
+        assert_eq!(pfslw[0].line, 4);
+        assert!(filter_by_id(&diags, "PFSLO").is_empty(), "got: {diags:?}");
+    }
+
+    #[test]
+    fn test_pfslw_silent_on_repeated_identical_subscripts() {
+        // Probed (pfslw_04): identical subscript lists are consistent.
+        let source = "function f()\n    a = zeros(10, 1);\n    parfor i = 1:10\n        a(i) = 1;\n        a(i) = 2;\n    end\nend\n";
+        let diags = check_source(source, "f.m");
+        assert!(filter_by_id(&diags, "PFSLW").is_empty(), "got: {diags:?}");
+        assert!(filter_by_id(&diags, "PFSLO").is_empty(), "got: {diags:?}");
+    }
+
+    #[test]
+    fn test_pfbrk_reports_first_break_of_parfor_only() {
+        // Probed (pfbrk_13, pfbrk_20): one PFBRK per parfor loop, at its first break.
+        let source = "function f()\n    parfor i = 1:10\n        if i > 2\n            break\n        end\n        if i > 3\n            break\n        end\n    end\nend\n";
+        let diags = check_source(source, "f.m");
+        let pfbrk = filter_by_id(&diags, "PFBRK");
+        assert_eq!(pfbrk.len(), 1, "got: {diags:?}");
+        assert_eq!(pfbrk[0].line, 4);
+    }
+
+    #[test]
+    fn test_pfbrk_silent_for_break_in_nested_loop_or_switch() {
+        // Probed (pfbrk_16, pfbrk_18, pfbrk_21, pfbrk_22): breaks owned by a nested loop
+        // or a switch are not parfor breaks.
+        let source = "function f()\n    parfor i = 1:10\n        for j = 1:3\n            break\n        end\n        switch i\n            case 2\n                break\n        end\n    end\nend\n";
+        let diags = check_source(source, "f.m");
+        assert!(filter_by_id(&diags, "PFBRK").is_empty(), "got: {diags:?}");
+    }
+
+    #[test]
+    fn test_pfxst_fires_on_indexed_assignment_to_loop_variable() {
+        // Probed (pfxst_03): `i(1) = 2` assigns the loop variable, reported at `i`.
+        let source = "function f()\n    parfor i = 1:10\n        i(1) = 2;\n    end\nend\n";
+        let diags = check_source(source, "f.m");
+        let pfxst = filter_by_id(&diags, "PFXST");
+        assert_eq!(pfxst.len(), 1, "got: {diags:?}");
+        assert_eq!((pfxst[0].line, pfxst[0].column), (3, 9));
+    }
+
+    #[test]
+    fn test_pfxst_silent_on_indexed_write_with_loop_variable_subscript() {
+        // Probed (pfous_03): the loop variable as a subscript is not an assignment to it.
+        let source = "function f()\n    parfor i = 1:10\n        x(i) = 1;\n    end\nend\n";
+        let diags = check_source(source, "f.m");
+        assert!(filter_by_id(&diags, "PFXST").is_empty(), "got: {diags:?}");
+    }
+
+    #[test]
+    fn test_pfincr_reports_at_first_differing_operation() {
+        // Probed (pfincr_01): reported at the statement whose operator differs from the first.
+        let source = "function f()\n    s = 0;\n    parfor i = 1:10\n        s = s + i;\n        s = s - 1;\n    end\nend\n";
+        let diags = check_source(source, "f.m");
+        let pfincr = filter_by_id(&diags, "PFINCR");
+        assert_eq!(pfincr.len(), 1, "got: {diags:?}");
+        assert_eq!(pfincr[0].line, 5);
+    }
+
+    #[test]
+    fn test_spgp_fires_on_field_store_to_global() {
+        // Probed (spgp_02): `G.a = 1` in spmd sets the global G on the worker.
+        let source = "function f()\n    global G\n    spmd\n        G.a = 1;\n    end\nend\n";
+        let diags = check_source(source, "f.m");
+        assert_eq!(filter_by_id(&diags, "SPGP").len(), 1, "got: {diags:?}");
+    }
+
+    #[test]
+    fn test_spbfn_fires_on_evalc_and_clear_command_in_spmd() {
+        // Probed (spbfn_02, spbfn_03): evalc and `clear x` are workspace-non-transparent.
+        let source =
+            "function f()\n    spmd\n        s = evalc('1');\n        clear x\n    end\nend\n";
+        let diags = check_source(source, "f.m");
+        assert_eq!(filter_by_id(&diags, "SPBFN").len(), 2, "got: {diags:?}");
+    }
+
     // -- PFSLO ---------------------------------------------------------------
 
     #[test]
-    fn test_pfslo_fires_temp_indexed_with_loop_variable() {
+    fn test_pfslo_silent_temp_indexed_with_loop_variable() {
         let source = "\
 function f()
     parfor i = 1:10
@@ -4456,8 +5303,8 @@ end
 ";
         let diags = check_source(source, "f.m");
         assert!(
-            !filter_by_id(&diags, "PFSLO").is_empty(),
-            "PFSLO should fire when a temporary is indexed with the loop variable"
+            filter_by_id(&diags, "PFSLO").is_empty(),
+            "PFSLO should NOT fire for a temporary indexed with the loop variable (probed: pfbns_17)"
         );
     }
 
@@ -4517,7 +5364,7 @@ end
     // -- PFSLW ---------------------------------------------------------------
 
     #[test]
-    fn test_pfslw_fires_different_subscripts() {
+    fn test_pfslo_fires_on_subscript_count_mismatch() {
         let source = "\
 function f()
     parfor i = 1:10
@@ -4528,8 +5375,8 @@ end
 ";
         let diags = check_source(source, "f.m");
         assert!(
-            !filter_by_id(&diags, "PFSLW").is_empty(),
-            "PFSLW should fire for mismatched subscript lists"
+            !filter_by_id(&diags, "PFSLO").is_empty(),
+            "PFSLO should fire for a subscript count mismatch (probed: pfslw_01)"
         );
     }
 
@@ -4553,7 +5400,9 @@ end
     // -- PFUNK ---------------------------------------------------------------
 
     #[test]
-    fn test_pfunk_fires_sliced_and_temp_mix() {
+    fn test_pfunk_silent_sliced_then_whole_assignment() {
+        // Probed (pfunk_01): MATLAB reports nothing for a sliced variable that is then
+        // assigned as a whole.
         let source = "\
 function f()
     parfor i = 1:10
@@ -4564,8 +5413,8 @@ end
 ";
         let diags = check_source(source, "f.m");
         assert!(
-            !filter_by_id(&diags, "PFUNK").is_empty(),
-            "PFUNK should fire when a variable is both sliced and a temporary"
+            filter_by_id(&diags, "PFUNK").is_empty(),
+            "PFUNK should NOT fire for a sliced variable assigned as a whole"
         );
     }
 
@@ -4601,6 +5450,42 @@ end
         assert!(
             !filter_by_id(&diags, "PFUTMP").is_empty(),
             "PFUTMP should fire when a temporary is used before it is set"
+        );
+    }
+
+    #[test]
+    fn test_pfunk_fires_on_sliced_write_through_temporary() {
+        // Probed (pu01, u20, u32): a sliced write whose subscript is a body temporary is
+        // PFUNK, whatever the temporary holds, and the write is reported.
+        for body in [
+            "k = i;\n        v(k) = 1;",
+            "k = 2;\n        v(k) = i;",
+            "k = i;\n        v(k) = 1;\n        k = 2;",
+        ] {
+            let source = format!("function v = f(n)\n    v = zeros(1, n);\n    parfor i = 1:n\n        {body}\n    end\nend\n");
+            let diags = check_source(&source, "f.m");
+            assert_eq!(filter_by_id(&diags, "PFUNK").len(), 1, "{body}");
+        }
+        // Probed: a sliced write by the loop index itself is not PFUNK.
+        let source = "function v = f(n)\n    v = zeros(1, n);\n    parfor i = 1:n\n        k = i;\n        v(i) = k;\n    end\nend\n";
+        let diags = check_source(source, "f.m");
+        assert!(filter_by_id(&diags, "PFUNK").is_empty());
+    }
+
+    #[test]
+    fn test_pfutmp_no_fire_read_after_separator_on_same_line() {
+        // Probed (q08): `x = data(1:3); r(i) = x(1);` on one line is set before use.
+        let source = "\
+function f(data)
+    parfor i = 1:10
+        x = data(1:3); r(i) = x(1);
+    end
+end
+";
+        let diags = check_source(source, "f.m");
+        assert!(
+            filter_by_id(&diags, "PFUTMP").is_empty(),
+            "PFUTMP should NOT fire when the read follows a separator"
         );
     }
 
@@ -4643,7 +5528,7 @@ end
     #[test]
     fn test_putvr_fires_uninitialized_reduction() {
         let source = "parfor i = 1:10\n    s = s + x(i);\nend\n";
-        let diags = check_source(source, "script.m");
+        let diags = check_source_all_presets(source, "script.m");
         assert!(
             !filter_by_id(&diags, "PFUTVR").is_empty(),
             "PFUTVR should fire for an uninitialized reduction variable"
@@ -4842,6 +5727,7 @@ end
             tree: &tree,
             source,
             file_path: path,
+            project: None,
         };
         let diags = engine.check_file(&ctx);
         assert!(
@@ -4852,5 +5738,79 @@ end
             filter_by_id(&diags, "PFANSLP").is_empty(),
             "PFANSLP should be disabled via config disabled_checks"
         );
+    }
+}
+
+#[cfg(test)]
+mod r8_recovery_tests {
+    use crate::language_spec::tests::{check_source, filter_by_id};
+
+    #[test]
+    fn pfutmp_fires_for_indexed_read_before_whole_set() {
+        let source = "function p1(n)\nparfor i = 1:n\n  k = k(i) + 1;\nend\nend\n";
+        let diags = check_source(source, "p1.m");
+        assert!(!filter_by_id(&diags, "PFUTMP").is_empty());
+        assert!(filter_by_id(&diags, "PFSLO").is_empty());
+    }
+
+    #[test]
+    fn pfutmp_does_not_fire_for_sliced_output() {
+        let source = "function p2(n)\nk = zeros(n,1);\nparfor i = 1:n\n  k(i) = i;\nend\nend\n";
+        let diags = check_source(source, "p2.m");
+        assert!(filter_by_id(&diags, "PFUTMP").is_empty());
+    }
+
+    #[test]
+    fn fvdan_and_fvordn_treat_struct_dot_question_as_name_value() {
+        let source = "function f(a, opts)\n    arguments\n        a\n        opts.alpha = 1\n        opts.?double\n    end\n    r = 1;\nend\n";
+        let diags = check_source(source, "f.m");
+        assert!(filter_by_id(&diags, "FVDAN").is_empty());
+        assert!(filter_by_id(&diags, "FVORDN").is_empty());
+    }
+
+    #[test]
+    fn test_pfutmp_fires_on_indexed_read_before_set() {
+        // Probed (xcv23, xcv24): `x = u(1)` reads `u` before its first set in the body.
+        let source = "function f(n)\nparfor k = 1:n\n    x = u(1);\n    u = k;\nend\nend\n";
+        assert!(!filter_by_id(&check_source(source, "f.m"), "PFUTMP").is_empty());
+    }
+
+    #[test]
+    fn test_pfutmp_fires_when_variable_was_set_before_loop() {
+        // Probed (xcv10, xcp39): a value set before the loop does not make the read a set.
+        let source = "function f(n)\nu = 0;\nparfor k = 1:n\n    w = u;\n    u = k;\nend\nend\n";
+        assert!(!filter_by_id(&check_source(source, "f.m"), "PFUTMP").is_empty());
+    }
+
+    #[test]
+    fn test_pfutmp_silent_on_conditional_read_or_self_update() {
+        // Probed (xcv22, xcv20): a read under `if` is not reported; `u = u + 1` in the body makes
+        // the variable PFUTVR instead.
+        let source =
+            "function f(n)\nparfor k = 1:n\n    if k > 1, w = u; end\n    u = k;\nend\nend\n";
+        assert!(filter_by_id(&check_source(source, "f.m"), "PFUTMP").is_empty());
+        let source =
+            "function f(n)\nparfor k = 1:n\n    w = u;\n    u = k;\n    u = u + 1;\nend\nend\n";
+        assert!(filter_by_id(&check_source(source, "f.m"), "PFUTMP").is_empty());
+    }
+
+    #[test]
+    fn test_pfunk_fires_on_sliced_write_by_inner_loop_variable() {
+        // Probed (xcu01, xcu02, xcu08): `y(j) = i` in a nested `for j` is not classified, with or
+        // without an earlier value of `y`.
+        let source = "function f(n)\ny = zeros(1, 3);\nparfor i = 1:n\n    for j = 1:3\n        y(j) = i;\n    end\nend\nend\n";
+        assert!(!filter_by_id(&check_source(source, "f.m"), "PFUNK").is_empty());
+        let source = "function f(n)\nparfor i = 1:n\n    for j = 1:3\n        y(j) = 1;\n    end\nend\nend\n";
+        assert!(!filter_by_id(&check_source(source, "f.m"), "PFUNK").is_empty());
+    }
+
+    #[test]
+    fn test_pfunk_silent_when_loop_variable_also_indexes_or_body_assigns() {
+        // Probed (xcu14, xcp29): `y(i) = 1` classifies `y`; a whole assignment of `y` in the body
+        // does too.
+        let source = "function f(n)\ny = zeros(1, 3);\nparfor i = 1:n\n    for j = 1:3\n        y(j) = i;\n        y(i) = 1;\n    end\nend\nend\n";
+        assert!(filter_by_id(&check_source(source, "f.m"), "PFUNK").is_empty());
+        let source = "function f(n)\nparfor i = 1:n\n    y = zeros(1, 3);\n    for j = 1:3\n        y(j) = i;\n    end\nend\nend\n";
+        assert!(filter_by_id(&check_source(source, "f.m"), "PFUNK").is_empty());
     }
 }

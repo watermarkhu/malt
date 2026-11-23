@@ -1,0 +1,1 @@
+data = dlmread('data.txt');

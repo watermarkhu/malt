@@ -7,6 +7,7 @@ impl LanguageSpecEngine {
     pub(crate) fn check_fvrepo(
         &self,
         blocks: &[ArgumentsBlockMeta],
+        source: &str,
         diagnostics: &mut Vec<Diagnostic>,
     ) {
         if !self.is_check_enabled("FVREPO") {
@@ -18,10 +19,12 @@ impl LanguageSpecEngine {
             }
             let has_varargin = block.args.iter().any(|a| a.name == "varargin");
             if has_varargin && block.args.len() > 1 {
-                self.push_block_diag(
+                self.push_arg_diag(
                     block,
+                    "varargin",
                     "FVREPO",
                     "Repeating input arguments block containing varargin must not have other arguments.",
+                    source,
                     diagnostics,
                 );
             }
@@ -33,6 +36,25 @@ impl LanguageSpecEngine {
 mod tests {
 
     use crate::language_spec::tests::{check_source, filter_by_id};
+
+    #[test]
+    fn test_fvrepo_reported_at_the_varargin_line() {
+        // Probed: MATLAB points at the varargin declaration, not the block header.
+        let source = "\
+function f(x, varargin)
+    arguments (Repeating)
+        x
+        varargin
+    end
+end
+";
+        let diags = check_source(source, "f.m");
+        let lines: Vec<usize> = filter_by_id(&diags, "FVREPO")
+            .iter()
+            .map(|d| d.line)
+            .collect();
+        assert_eq!(lines, vec![4]);
+    }
 
     #[test]
     fn test_fvrepo_fires_varargin_with_others() {

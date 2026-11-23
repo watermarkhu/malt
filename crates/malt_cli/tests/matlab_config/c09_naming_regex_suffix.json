@@ -1,0 +1,11 @@
+{
+  "schemaVersion": "1.1.0",
+  "naming": {
+    "function": {
+      "regularExpression": "[a-z_]+"
+    },
+    "variable": {
+      "disallowedSuffix": "x"
+    }
+  }
+}

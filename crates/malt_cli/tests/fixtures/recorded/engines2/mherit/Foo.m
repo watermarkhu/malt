@@ -1,0 +1,2 @@
+classdef Foo < char
+end

@@ -59,3 +59,30 @@ impl LanguageSpecEngine {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+
+    use crate::language_spec::tests::{check_source, check_source_all_presets, filter_by_id};
+
+    const NESTED: &str = "\
+function outer()
+    function inner()
+        global h
+    end
+end
+";
+
+    #[test]
+    fn test_gpnes_off_under_mathworks() {
+        // MATLAB never reports GPNES in the fixtures or the probes.
+        let diags = check_source(NESTED, "outer.m");
+        assert!(filter_by_id(&diags, "GPNES").is_empty());
+    }
+
+    #[test]
+    fn test_gpnes_fires_nested_global_under_all_presets() {
+        let diags = check_source_all_presets(NESTED, "outer.m");
+        assert_eq!(filter_by_id(&diags, "GPNES").len(), 1);
+    }
+}

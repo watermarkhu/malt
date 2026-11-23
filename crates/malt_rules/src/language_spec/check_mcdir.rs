@@ -16,9 +16,14 @@ impl LanguageSpecEngine {
                     if stripped != class.name {
                         diagnostics.push(Diagnostic {
                             rule_id: "MCDIR",
+                            // MATLAB quotes the class name and names the file by its
+                            // absolute path (probed, plan 6.2).
                             message: format!(
-                                "Class name {} and @directory name do not agree: {}.",
-                                class.name, stripped
+                                "Class name '{}' and @directory name do not agree: '{}'.",
+                                class.name,
+                                std::path::absolute(ctx.file_path)
+                                    .unwrap_or_else(|_| ctx.file_path.to_path_buf())
+                                    .display()
                             ),
                             severity: Severity::Error,
                             byte_range: class.byte_range.clone(),

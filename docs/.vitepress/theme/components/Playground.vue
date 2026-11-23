@@ -69,8 +69,7 @@ const DEFAULT_TOML = `# malt playground configuration (.malt.toml).
 # Everything here is optional; comments-only uses malt's defaults.
 # Off by default (uncomment a block to re-enable):
 #   code-generation, deployment, system-objects,
-#   configuration-issues, suggested-improvements, unsupported,
-#   and naming + custom-checks (via the default "mathworks" preset).
+#   unsupported, and naming + custom-checks (via the default "mathworks" preset).
 # preset = "all" under [lint] turns everything on.
 #
 # [lint.categories]

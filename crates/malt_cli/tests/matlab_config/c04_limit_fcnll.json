@@ -1,0 +1,9 @@
+{
+  "schemaVersion": "1.1.0",
+  "checks": {
+    "FCNLL": {
+      "enabled": true,
+      "limit": 3
+    }
+  }
+}

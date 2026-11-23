@@ -5,7 +5,6 @@
     "reviewer": {
       "description": "Step 2 of the rule pipeline. Reviews an implementation plan produced by the main session for a MATLAB Code Analyzer rule. Use with a rule ID plus the plan text, e.g. Task(subagent_type=\"reviewer\", prompt=\"... plan ...\").",
       "mode": "subagent",
-      "model": "opencode-go/mimo-v2.5",
       "system": "{file:.agents/agents/reviewer.md}",
       "permissions": [
         { "action": "edit", "resource": "*", "effect": "deny" },
@@ -15,7 +14,6 @@
     "implementer": {
       "description": "Step 3 of the rule pipeline. Implements a MATLAB Code Analyzer rule in malt following the reviewed plan. Use with a rule ID plus the approved plan, e.g. Task(subagent_type=\"implementer\", prompt=\"... plan ...\").",
       "mode": "subagent",
-      "model": "opencode-go/deepseek-v4-flash",
       "system": "{file:.agents/agents/implementer.md}"
     }
   }

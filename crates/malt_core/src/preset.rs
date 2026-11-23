@@ -49,32 +49,66 @@ impl PresetDef {
 ///
 /// To add a preset, add a row here. Presets must be listed in
 /// [`PRESETS`] to be resolvable by name.
-pub static PRESETS: &[PresetDef] = &[
-    PresetDef {
-        name: "all",
-        disabled_categories: &[],
-        enables_default_off: true,
-    },
-    PresetDef {
-        name: "mathworks",
-        // Matches MATLAB Code Analyzer's factory configuration: the "Custom
-        // Checks" complexity metrics and "Naming" conventions are opt-in.
-        disabled_categories: &[Category::CustomChecks, Category::Naming],
-        enables_default_off: false,
-    },
-    PresetDef {
-        name: "recommended",
-        // Errors and warnings on; Info-level style/suggestion checks off.
-        disabled_categories: &[
-            Category::Performance,
-            Category::Readability,
-            Category::Formatting,
-            Category::SuggestedImprovements,
-            Category::Naming,
-            Category::CustomChecks,
-        ],
-        enables_default_off: false,
-    },
+pub static PRESETS: &[PresetDef] = &[ALL, MATHWORKS, RECOMMENDED];
+
+const ALL: PresetDef = PresetDef {
+    name: "all",
+    disabled_categories: &[],
+    enables_default_off: true,
+};
+
+/// Matches MATLAB Code Analyzer's factory configuration: the "Custom Checks"
+/// complexity metrics and "Naming" conventions are opt-in.
+const MATHWORKS: PresetDef = PresetDef {
+    name: "mathworks",
+    disabled_categories: &[Category::CustomChecks, Category::Naming],
+    enables_default_off: false,
+};
+
+/// Errors and warnings on; Info-level style/suggestion checks off.
+const RECOMMENDED: PresetDef = PresetDef {
+    name: "recommended",
+    disabled_categories: &[
+        Category::Performance,
+        Category::Readability,
+        Category::Formatting,
+        Category::SuggestedImprovements,
+        Category::Naming,
+        Category::CustomChecks,
+    ],
+    enables_default_off: false,
+};
+
+impl PresetDef {
+    /// The same preset with the experimental checks switched on: it also
+    /// enables the checks that are off by default for lack of verification
+    /// (`[lint] experimental = true`, see `malt_rules::maturity`), and keeps
+    /// the categories it disables.
+    const fn experimental(self) -> PresetDef {
+        PresetDef {
+            enables_default_off: true,
+            ..self
+        }
+    }
+
+    /// This preset when `experimental` is false, else its experimental variant.
+    /// A preset that already enables default-off rules (`all`) is unchanged.
+    pub fn with_experimental(&'static self, experimental: bool) -> &'static PresetDef {
+        if !experimental || self.enables_default_off {
+            return self;
+        }
+        EXPERIMENTAL_PRESETS
+            .iter()
+            .find(|p| p.name == self.name)
+            .unwrap_or(self)
+    }
+}
+
+/// Each preset with the experimental checks on, in the order of [`PRESETS`].
+static EXPERIMENTAL_PRESETS: &[PresetDef] = &[
+    ALL.experimental(),
+    MATHWORKS.experimental(),
+    RECOMMENDED.experimental(),
 ];
 
 /// Resolve a preset by name.
@@ -96,6 +130,20 @@ mod tests {
         assert_eq!(resolve("all").unwrap().name, "all");
         assert_eq!(resolve("mathworks").unwrap().name, "mathworks");
         assert_eq!(resolve("recommended").unwrap().name, "recommended");
+    }
+
+    #[test]
+    fn experimental_variant_keeps_the_categories_and_turns_default_off_rules_on() {
+        for preset in PRESETS {
+            let exp = preset.with_experimental(true);
+            assert_eq!(exp.name, preset.name);
+            assert!(exp.enables_default_off);
+            assert_eq!(exp.disabled_categories, preset.disabled_categories);
+            // Without the flag the preset is returned as is.
+            assert!(std::ptr::eq(preset.with_experimental(false), preset));
+        }
+        assert!(!resolve("mathworks").unwrap().enables_default_off);
+        assert_eq!(EXPERIMENTAL_PRESETS.len(), PRESETS.len());
     }
 
     #[test]

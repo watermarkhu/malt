@@ -35,6 +35,7 @@ export default defineConfig({
       { text: 'Playground', link: '/playground', activeMatch: '/playground' },
       { text: 'Configuration', link: '/configuration', activeMatch: '/configuration' },
       { text: 'Rules', link: '/rules', activeMatch: '/rules' },
+      { text: 'Conformance', link: '/verification', activeMatch: '/verification|/migration' },
     ],
     sidebar: {
       '/': [
@@ -58,6 +59,14 @@ export default defineConfig({
         },
         { text: 'Playground', link: '/playground' },
         { text: 'Configuration', link: '/configuration' },
+        {
+          text: 'Conformance',
+          collapsed: false,
+          items: [
+            { text: 'How malt is verified', link: '/verification' },
+            { text: 'Migration from earlier malt', link: '/migration' },
+          ],
+        },
         {
           text: 'Rules',
           collapsed: false,
@@ -85,7 +94,7 @@ export default defineConfig({
                 { text: 'Performance Improvements', link: '/rules/performance' },
                 { text: 'Custom Checks', link: '/rules/custom-checks' },
                 { text: 'Naming Checks', link: '/rules/naming' },
-                { text: 'NOSEMI - Trailing Semicolon Missing', link: '/rules/nosemi' },
+                { text: 'NOSEMI - Extra Semicolon', link: '/rules/nosemi' },
               ],
             },
             {
@@ -104,7 +113,6 @@ export default defineConfig({
                 { text: 'MATLAB Compiler (Deployment)', link: '/rules/deployment' },
                 { text: 'System Objects', link: '/rules/system-objects' },
                 { text: 'Unsupported Features', link: '/rules/unsupported' },
-                { text: 'Code Analyzer Configuration Issues', link: '/rules/config-issues' },
               ],
             },
           ],

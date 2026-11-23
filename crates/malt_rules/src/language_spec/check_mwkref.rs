@@ -9,14 +9,8 @@ impl LanguageSpecEngine {
             return;
         }
         for pb in &class.properties_blocks {
-            let is_weak = pb
-                .attributes
-                .iter()
-                .any(|a| a.name == "WeakHandle" && !a.negated);
-            let is_dependent = pb
-                .attributes
-                .iter()
-                .any(|a| a.name == "Dependent" && !a.negated);
+            let is_weak = Attributes(&pb.attributes).is_present("WeakHandle");
+            let is_dependent = Attributes(&pb.attributes).is_present("Dependent");
             if is_weak && is_dependent {
                 diagnostics.push(Diagnostic {
                     rule_id: "MWKREF",
@@ -24,7 +18,7 @@ impl LanguageSpecEngine {
                         .to_string(),
                     severity: Severity::Error,
                     byte_range: class.byte_range.clone(),
-                    line: class.line,
+                    line: pb.line,
                     column: 1,
                     fix: None,
                 });

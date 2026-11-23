@@ -1,0 +1,11 @@
+{
+  "schemaVersion": "1.1.0",
+  "checks": {
+    "CYCCOM": {
+      "enabled": true
+    },
+    "FCNLL": {
+      "enabled": true
+    }
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "schemaVersion": "1.1.0",
+  "checks": {
+    "noDisp": {
+      "severity": "error",
+      "rule": {
+        "template": "functionCall",
+        "functionNames": [
+          "disp"
+        ]
+      }
+    }
+  }
+}

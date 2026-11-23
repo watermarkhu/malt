@@ -7,9 +7,8 @@ impl UnusedEngine {
     ///
     /// # Limitations
     ///
-    /// PUSE is the narrower sibling of NUSED (which also covers globals). An
-    /// unused `persistent` declaration fires both PUSE and NUSED; this overlap
-    /// follows the two MathWorks messages verbatim.
+    /// PUSE is for a persistent that is written but never read. A declaration
+    /// that nothing else touches is NUSED's alone (NUSED also covers globals).
     pub(crate) fn check_puse(&self, table: &SymbolTable, diagnostics: &mut Vec<Diagnostic>) {
         if self.is_check_disabled("PUSE") {
             return;
@@ -26,7 +25,14 @@ impl UnusedEngine {
                     continue;
                 }
 
-                if !scope.is_used(name) {
+                // A declaration that nothing else touches is NUSED's alone (probed).
+                let touched = scope
+                    .defs
+                    .iter()
+                    .any(|d| d.kind != DefKind::Persistent && d.name == *name)
+                    || scope.uses.iter().any(|u| u.name == *name);
+
+                if touched && !scope.is_used(name) {
                     diagnostics.push(Diagnostic {
                         rule_id: "PUSE",
                         message: "Persistent variable might be unused.".to_string(),
@@ -46,18 +52,31 @@ impl UnusedEngine {
 mod tests {
     use super::*;
     use crate::test_util::{has_id, lint_file};
-    use malt_core::Config;
 
     fn engine() -> Box<dyn Rule> {
-        UnusedEngine::from_config(&Config::default())
+        Box::new(UnusedEngine {
+            config: UnusedConfig::default(),
+        })
     }
 
     // -- PUSE: persistent declared but not used ------------------------------
 
     #[test]
-    fn puse_fires_on_unused_persistent() {
-        let diags = lint_file(&*engine(), "function foo()\n    persistent p;\nend\n");
+    fn puse_fires_on_persistent_only_written() {
+        // Probed: a persistent that is written and never read.
+        let diags = lint_file(
+            &*engine(),
+            "function foo()\n    persistent p;\n    p = 1;\nend\n",
+        );
         assert!(has_id(&diags, "PUSE"), "got: {diags:?}");
+    }
+
+    #[test]
+    fn puse_silent_on_bare_declaration_nused_only() {
+        // Probed: MATLAB reports a declaration that nothing else touches as NUSED.
+        let diags = lint_file(&*engine(), "function foo()\n    persistent p;\nend\n");
+        assert!(!has_id(&diags, "PUSE"), "got: {diags:?}");
+        assert!(has_id(&diags, "NUSED"), "got: {diags:?}");
     }
 
     #[test]

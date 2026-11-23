@@ -1,0 +1,54 @@
+# What MATLAB R2026b's codeIssues reports for each case of this directory: one row
+# per finding (case, file, line, check ID, severity), or NONE when it reports nothing and
+# ERROR when it refuses the configuration. Recorded with the case's JSON as
+# resources/codeAnalyzerConfiguration.json (facts only, no message text).
+# c18: MATLAB reports the custom check; malt does not support custom checks (a known gap).
+c00_default	func_a.m	3	NOPRT	info
+c00_default	func_a.m	8	NASGU	warning
+c00_default	script_b.m	3	NOPTS	info
+c00_default	disp_c.m	NONE
+c01_disable_noprt	func_a.m	8	NASGU	warning
+c02_severity_error	func_a.m	3	NOPRT	error
+c02_severity_error	func_a.m	8	NASGU	warning
+c03_severity_warning_info	func_a.m	3	NOPRT	warning
+c03_severity_warning_info	func_a.m	8	NASGU	info
+c04_limit_fcnll	func_a.m	1	FCNLL	warning
+c04_limit_fcnll	func_a.m	3	NOPRT	info
+c04_limit_fcnll	func_a.m	8	NASGU	warning
+c05_limit_cyccom	func_a.m	1	CYCCOM	warning
+c05_limit_cyccom	func_a.m	3	NOPRT	info
+c05_limit_cyccom	func_a.m	8	NASGU	warning
+c06_limit_missing_is_inert	func_a.m	3	NOPRT	info
+c06_limit_missing_is_inert	func_a.m	8	NASGU	warning
+c07_naming_variable	func_a.m	2	naming.variable.maxLength	info
+c07_naming_variable	func_a.m	3	naming.variable.casing	info
+c07_naming_variable	func_a.m	3	naming.variable.maxLength	info
+c07_naming_variable	func_a.m	3	NOPRT	info
+c07_naming_variable	func_a.m	8	NASGU	warning
+c08_naming_required_prefix	func_a.m	1	naming.variable.requiredPrefix	info
+c08_naming_required_prefix	func_a.m	1	naming.variable.requiredPrefix	info
+c08_naming_required_prefix	func_a.m	2	naming.variable.requiredPrefix	info
+c08_naming_required_prefix	func_a.m	3	NOPRT	info
+c08_naming_required_prefix	func_a.m	4	naming.variable.requiredPrefix	info
+c08_naming_required_prefix	func_a.m	8	NASGU	warning
+c09_naming_regex_suffix	func_a.m	3	NOPRT	info
+c09_naming_regex_suffix	func_a.m	4	naming.variable.disallowedSuffix	info
+c09_naming_regex_suffix	func_a.m	8	NASGU	warning
+c10_disallow_script_and_anon	script_b.m	1	DAFSC	warning
+c10_disallow_script_and_anon	script_b.m	2	DAFAF	warning
+c10_disallow_script_and_anon	script_b.m	3	NOPTS	info
+c11_unknown_id_ignored	func_a.m	3	NOPRT	info
+c11_unknown_id_ignored	func_a.m	8	NASGU	warning
+c12_invalid_severity_ignored	func_a.m	3	NOPRT	info
+c12_invalid_severity_ignored	func_a.m	8	NASGU	warning
+c13_mixed_valid_and_unknown	func_a.m	3	NOPRT	error
+c13_mixed_valid_and_unknown	func_a.m	8	NASGU	warning
+c14_ignored_files	func_a.m	NONE
+c15_enabled_true_default_on	func_a.m	3	NOPRT	info
+c15_enabled_true_default_on	func_a.m	8	NASGU	warning
+c16_invalid_limit_type	func_a.m	ERROR
+c17_malformed_json	func_a.m	ERROR
+c18_custom_template_unsupported	disp_c.m	2	noDisp	error
+c19_limit_mncsn	func_a.m	3	NOPRT	info
+c19_limit_mncsn	func_a.m	7	MNCSN	warning
+c19_limit_mncsn	func_a.m	8	NASGU	warning

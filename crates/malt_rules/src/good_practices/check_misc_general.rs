@@ -1,14 +1,13 @@
 use super::*;
 
 impl GoodPracticesEngine {
-    /// SUBSINDEX / VTFIN / CTOINW / FXUP: miscellaneous general practice checks.
+    /// SUBSINDEX / CTOINW / FXUP: miscellaneous general practice checks.
     pub(crate) fn check_misc_general(
         &self,
         tree: &tree_sitter::Tree,
         source: &str,
     ) -> Vec<Diagnostic> {
         let any_enabled = self.is_check_enabled("SUBSINDEX")
-            || self.is_check_enabled("VTFIN")
             || self.is_check_enabled("CTOINW")
             || self.is_check_enabled("FXUP");
         if !any_enabled {
@@ -20,11 +19,14 @@ impl GoodPracticesEngine {
         if self.is_check_enabled("SUBSINDEX") {
             collect_subsindex(tree, source, &mut diagnostics);
         }
-        if self.is_check_enabled("VTFIN") {
-            collect_vtfin(tree, source, &mut diagnostics);
-        }
         if self.is_check_enabled("CTOINW") {
-            collect_ctoinw(tree, source, &mut diagnostics);
+            // Probed (plan 6.2): MATLAB reports a constructor that takes its own
+            // output as an input; the `Class(Class(x))` call form it never
+            // reported, so that one is off under `mathworks` (CTOINW_CALL).
+            collect_ctoinw_inputs(tree, source, &mut diagnostics);
+            if self.is_check_enabled("CTOINW_CALL") {
+                collect_ctoinw(tree, source, &mut diagnostics);
+            }
         }
         if self.is_check_enabled("FXUP") {
             collect_fxup(tree, source, &mut diagnostics);
@@ -63,41 +65,6 @@ fn collect_subsindex(tree: &tree_sitter::Tree, source: &str, diagnostics: &mut V
                 fix: None,
             });
         }
-    }
-}
-
-/// VTFIN: a `validate*` function whose body validates a value that is not its
-/// first input argument.
-fn collect_vtfin(tree: &tree_sitter::Tree, source: &str, diagnostics: &mut Vec<Diagnostic>) {
-    let mut functions = Vec::new();
-    collect_nodes_of_kind(tree.root_node(), "function_definition", &mut functions);
-    for f in functions {
-        let name = f
-            .child_by_field_name("name")
-            .map(|n| node_text(n, source))
-            .unwrap_or("");
-        if !name.starts_with("validate") || name == "validateattributes" {
-            continue;
-        }
-        let Some(first_input) = first_input_arg(f, source) else {
-            continue;
-        };
-        let Some(value) = validated_value(f, source) else {
-            continue;
-        };
-        if value == first_input {
-            continue;
-        }
-        let pos = f.start_position();
-        diagnostics.push(Diagnostic {
-            rule_id: "VTFIN",
-            message: format!("{value} should be the first input argument to the {name} function."),
-            severity: Severity::Warning,
-            byte_range: f.start_byte()..f.end_byte(),
-            line: pos.row + 1,
-            column: pos.column + 1,
-            fix: None,
-        });
     }
 }
 
@@ -140,6 +107,69 @@ fn collect_ctoinw(tree: &tree_sitter::Tree, source: &str, diagnostics: &mut Vec<
     }
 }
 
+/// CTOINW: a constructor (a method named like its class) with an input argument that
+/// has the name of its output variable, reported at that input. Probed: every
+/// position, `~` before it, any output name; a method that is not the constructor
+/// is silent.
+fn collect_ctoinw_inputs(
+    tree: &tree_sitter::Tree,
+    source: &str,
+    diagnostics: &mut Vec<Diagnostic>,
+) {
+    let mut classes = Vec::new();
+    collect_nodes_of_kind(tree.root_node(), "class_definition", &mut classes);
+    for class in classes {
+        let Some(class_name) = class
+            .child_by_field_name("name")
+            .map(|n| node_text(n, source))
+        else {
+            continue;
+        };
+        let mut functions = Vec::new();
+        collect_nodes_of_kind(class, "function_definition", &mut functions);
+        for function in functions {
+            let named = function
+                .child_by_field_name("name")
+                .map(|n| node_text(n, source));
+            if named != Some(class_name) {
+                continue;
+            }
+            let mut cursor = function.walk();
+            let children: Vec<Node> = function.children(&mut cursor).collect();
+            let (Some(output), Some(inputs)) = (
+                children.iter().find(|c| c.kind() == "function_output"),
+                children.iter().find(|c| c.kind() == "function_arguments"),
+            ) else {
+                continue;
+            };
+            let mut outputs = Vec::new();
+            collect_nodes_of_kind(*output, "identifier", &mut outputs);
+            let [out] = outputs.as_slice() else {
+                continue;
+            };
+            let out_name = node_text(*out, source);
+            let mut args = Vec::new();
+            collect_nodes_of_kind(*inputs, "identifier", &mut args);
+            for arg in args {
+                if node_text(arg, source) != out_name {
+                    continue;
+                }
+                let pos = arg.start_position();
+                diagnostics.push(Diagnostic {
+                    rule_id: "CTOINW",
+                    message: "Use of constructed object as input to constructor is not necessary."
+                        .to_string(),
+                    severity: Severity::Warning,
+                    byte_range: arg.start_byte()..arg.end_byte(),
+                    line: pos.row + 1,
+                    column: pos.column + 1,
+                    fix: None,
+                });
+            }
+        }
+    }
+}
+
 /// FXUP: a nested function assigns to the index variable of a `for` loop in
 /// its enclosing function.
 fn collect_fxup(tree: &tree_sitter::Tree, source: &str, diagnostics: &mut Vec<Diagnostic>) {
@@ -151,22 +181,53 @@ fn collect_fxup(tree: &tree_sitter::Tree, source: &str, diagnostics: &mut Vec<Di
         let Some(outer) = enclosing_function(f) else {
             continue;
         };
-        let loop_indices = collect_outer_loop_indices(outer, source);
-        if loop_indices.is_empty() {
+        let mut heads = Vec::new();
+        collect_outer_loop_heads(outer, outer, source, &mut heads);
+        if heads.is_empty() {
             continue;
+        }
+        let loop_indices: std::collections::HashSet<String> =
+            heads.iter().map(|(name, _)| name.clone()).collect();
+        // Probed in MATLAB: a plain assignment in the nested function reports the
+        // outer loop head once; a `for` over the same name reports the outer
+        // head and its own index. A plain assignment gets no report of its own.
+        let mut for_indices: Vec<(String, Node)> = Vec::new();
+        let mut for_loops = Vec::new();
+        collect_nodes_of_kind(f, "for_statement", &mut for_loops);
+        for l in for_loops {
+            if let Some(idx) = find_parfor_index_identifier(l) {
+                let name = node_text(idx, source);
+                if loop_indices.contains(name) {
+                    for_indices.push((name.to_string(), idx));
+                }
+            }
         }
         let mut assignments = Vec::new();
         collect_fxup_assignments(f, source, &loop_indices, &mut assignments);
-        for (name, lhs) in assignments {
-            if !seen.insert(lhs.start_byte()) {
-                continue;
+        let mut reports: Vec<(String, Node)> = Vec::new();
+        for name in assignments
+            .iter()
+            .map(|(name, _)| name)
+            .chain(for_indices.iter().map(|(name, _)| name))
+        {
+            if let Some((_, head)) = heads.iter().find(|(n, _)| n == name) {
+                if seen.insert(head.start_byte()) {
+                    reports.push((name.clone(), *head));
+                }
             }
-            let pos = lhs.start_position();
+        }
+        for (name, idx) in for_indices {
+            if seen.insert(idx.start_byte()) {
+                reports.push((name, idx));
+            }
+        }
+        for (name, node) in reports {
+            let pos = node.start_position();
             diagnostics.push(Diagnostic {
                 rule_id: "FXUP",
-                message: format!("Outer loop variable {name} is set inside a nested function."),
+                message: format!("Outer loop variable '{name}' is set inside a nested function."),
                 severity: Severity::Warning,
-                byte_range: lhs.start_byte()..lhs.end_byte(),
+                byte_range: node.start_byte()..node.end_byte(),
                 line: pos.row + 1,
                 column: pos.column + 1,
                 fix: None,
@@ -175,74 +236,31 @@ fn collect_fxup(tree: &tree_sitter::Tree, source: &str, diagnostics: &mut Vec<Di
     }
 }
 
-/// Get the first non-ignored input argument name of a function.
-fn first_input_arg(func: Node, source: &str) -> Option<String> {
-    let args = find_child_of_kind(func, "function_arguments")?;
-    let mut cursor = args.walk();
-    for child in args.children(&mut cursor) {
-        match child.kind() {
-            "identifier" => return Some(node_text(child, source).to_string()),
-            "ignored_argument" => continue,
-            _ => {}
-        }
-    }
-    None
-}
-
-/// Find the value that a `validate*` function validates: the first argument of
-/// a `validateattributes(...)` or `mustBe*(...)` call in its body. Returns the
-/// value's name only when it is a plain identifier.
-fn validated_value(func: Node, source: &str) -> Option<String> {
-    let block = find_child_of_kind(func, "block")?;
-    let mut calls = Vec::new();
-    collect_nodes_of_kind(block, "function_call", &mut calls);
-    for call in calls {
-        let Some(call_name) = get_function_call_name(call, source) else {
-            continue;
-        };
-        if call_name != "validateattributes" && !call_name.starts_with("mustBe") {
-            continue;
-        }
-        let Some(args) = find_child_of_kind(call, "arguments") else {
-            continue;
-        };
-        let Some(first) = first_named_child(args) else {
-            continue;
-        };
-        if first.kind() != "identifier" {
-            return None;
-        }
-        return Some(node_text(first, source).to_string());
-    }
-    None
-}
-
 /// Collect the index variables of `for` loops in a function's own body,
 /// excluding loops inside any nested function.
-fn collect_outer_loop_indices(outer: Node, source: &str) -> std::collections::HashSet<String> {
-    let mut result = std::collections::HashSet::new();
-    collect_loops_pruning_functions(outer, outer, source, &mut result);
-    result
-}
-
-fn collect_loops_pruning_functions(
-    node: Node,
-    outer: Node,
+/// The first `for` index identifier of each name in the outer function's own
+/// body (nested functions are skipped), in source order.
+fn collect_outer_loop_heads<'a>(
+    node: Node<'a>,
+    outer: Node<'a>,
     source: &str,
-    out: &mut std::collections::HashSet<String>,
+    out: &mut Vec<(String, Node<'a>)>,
 ) {
     if node.kind() == "function_definition" && node.id() != outer.id() {
         return;
     }
     if node.kind() == "for_statement" {
         if let Some(idx) = find_parfor_index_identifier(node) {
-            out.insert(node_text(idx, source).to_string());
+            let name = node_text(idx, source);
+            if !out.iter().any(|(n, _)| n == name) {
+                out.push((name.to_string(), idx));
+            }
         }
     }
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
         if child.is_named() {
-            collect_loops_pruning_functions(child, outer, source, out);
+            collect_outer_loop_heads(child, outer, source, out);
         }
     }
 }
@@ -331,42 +349,30 @@ mod tests {
     }
 
     #[test]
-    fn test_vtfin_fires_when_validated_value_not_first_input() {
-        let source = "function validateFoo(name, value)\n    validateattributes(value, {'numeric'}, {'scalar'});\nend\n";
-        let ids = misc_ids_for(source, "VTFIN");
-        assert_eq!(ids.len(), 1, "got: {:?}", misc_ids(source));
-        let tree = parse(source);
-        let eng = engine();
-        let diag = eng
-            .check_misc_general(&tree, source)
-            .into_iter()
-            .find(|d| d.rule_id == "VTFIN")
-            .unwrap();
-        assert!(diag.message.contains("value"), "got: {}", diag.message);
-        assert!(
-            diag.message.contains("validateFoo"),
-            "got: {}",
-            diag.message
-        );
-    }
-
-    #[test]
-    fn test_vtfin_silent_when_validated_value_is_first_input() {
-        let source = "function validateFoo(value, name)\n    validateattributes(value, {'numeric'}, {'scalar'});\nend\n";
-        assert!(misc_ids_for(source, "VTFIN").is_empty());
-    }
-
-    #[test]
-    fn test_vtfin_silent_for_non_validator_function() {
-        let source = "function helper(name, value)\n    validateattributes(value, {'numeric'}, {'scalar'});\nend\n";
-        assert!(misc_ids_for(source, "VTFIN").is_empty());
-    }
-
-    #[test]
     fn test_ctoinw_fires_on_constructor_wrapping() {
         let source = "classdef Foo\n    methods\n        function y = ctor(x)\n            y = Foo(Foo(x));\n        end\n    end\nend\n";
         let ids = misc_ids_for(source, "CTOINW");
         assert_eq!(ids.len(), 1, "got: {:?}", misc_ids(source));
+    }
+
+    #[test]
+    fn test_ctoinw_fires_on_constructor_taking_its_output() {
+        // Probed (plan 6.2): reported at the input, whatever its position.
+        for header in [
+            "function obj = Foo(obj, args)",
+            "function obj = Foo(a, obj, b)",
+            "function obj = Foo(~, obj)",
+            "function out = Foo(out)",
+        ] {
+            let source =
+                format!("classdef Foo\n    methods\n        {header}\n        end\n    end\nend\n");
+            let ids = misc_ids_for(&source, "CTOINW");
+            assert_eq!(ids.len(), 1, "{header}: {:?}", misc_ids(&source));
+        }
+        let method = "classdef Foo\n    methods\n        function obj = f(obj, args)\n        end\n    end\nend\n";
+        assert!(misc_ids_for(method, "CTOINW").is_empty());
+        let plain = "classdef Foo\n    methods\n        function obj = Foo(args)\n        end\n    end\nend\n";
+        assert!(misc_ids_for(plain, "CTOINW").is_empty());
     }
 
     #[test]
@@ -388,6 +394,40 @@ mod tests {
         assert!(misc_ids_for(source, "FXUP").is_empty());
     }
 
+    /// (line, column) of each FXUP diagnostic.
+    fn fxup_positions(source: &str) -> Vec<(usize, usize)> {
+        let tree = parse(source);
+        engine()
+            .check_misc_general(&tree, source)
+            .iter()
+            .filter(|d| d.rule_id == "FXUP")
+            .map(|d| (d.line, d.column))
+            .collect()
+    }
+
+    #[test]
+    fn test_fxup_reports_outer_head_for_plain_assignment() {
+        // Probed in MATLAB: the report sits on the outer `for` index, not on the
+        // assignment inside the nested function.
+        let source = "function f()\nfor k = 1:3\n  g();\nend\nfunction g()\n  k = 5;\nend\nend\n";
+        assert_eq!(fxup_positions(source), vec![(2, 5)]);
+    }
+
+    #[test]
+    fn test_fxup_reports_outer_head_and_nested_for_index() {
+        // Probed in MATLAB: a `for` over the outer name in the nested function is
+        // reported at its own index as well as at the outer head.
+        let source =
+            "function f()\nfor k = 1:3\n  g();\nend\nfunction g()\n  for k = 1:2, end\nend\nend\n";
+        assert_eq!(fxup_positions(source), vec![(2, 5), (6, 7)]);
+    }
+
+    #[test]
+    fn test_fxup_reports_outer_head_once_for_assignment_and_for() {
+        let source = "function f()\nfor k = 1:3\n  g();\nend\nfunction g()\n  k = 5;\n  for k = 1:2, end\nend\nend\n";
+        assert_eq!(fxup_positions(source), vec![(2, 5), (7, 7)]);
+    }
+
     #[test]
     fn test_fxup_silent_for_local_function_assigning_own_variable() {
         let source = "function outer()\n    for i = 1:10\n        inner();\n    end\nend\nfunction inner()\n    i = 5;\nend\n";
@@ -401,7 +441,6 @@ mod tests {
                 max_variable_name_length: 63,
                 disabled_checks: vec![
                     "SUBSINDEX".to_string(),
-                    "VTFIN".to_string(),
                     "CTOINW".to_string(),
                     "FXUP".to_string(),
                 ],

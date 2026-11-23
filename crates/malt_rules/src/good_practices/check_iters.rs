@@ -7,7 +7,7 @@ impl GoodPracticesEngine {
             return Vec::new();
         }
 
-        let sym = SymbolTable::build(tree, source);
+        let sym = SymbolTable::shared(|| tree.root_node(), source);
         let mut diagnostics = Vec::new();
 
         for (idx, scope) in sym.scopes.iter().enumerate() {

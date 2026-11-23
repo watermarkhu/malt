@@ -9,10 +9,7 @@ impl LanguageSpecEngine {
             return;
         }
         for mb in &class.methods_blocks {
-            let block_abstract = mb
-                .attributes
-                .iter()
-                .any(|a| a.name == "Abstract" && !a.negated);
+            let block_abstract = Attributes(&mb.attributes).is_present("Abstract");
             for method in &mb.methods {
                 if (method.is_setter || method.is_getter) && (method.is_abstract || block_abstract)
                 {

@@ -1,15 +1,17 @@
 //! # COMNL: newline after comma acts as a row separator
 //!
-//! `check_comnl` flags trailing commas in matrix rows when the following
-//! row is separated by a newline, suggesting a semicolon (or an ellipsis)
-//! to make the row separation explicit.
+//! `check_comnl` flags a comma that ends a line inside `[ ]` or `{ }`: the
+//! newline acts as a row separator, so the comma should be a semicolon (or the
+//! line should continue with an ellipsis).
 
 use super::*;
 
 impl ReadabilityEngine {
-    /// COMNL: A newline following a comma in a matrix acts as a row
+    /// COMNL: A newline following a comma in a matrix or cell acts as a row
     /// separator; suggest replacing the comma with a semicolon or using an
-    /// ellipsis to continue the row.
+    /// ellipsis to continue the row. Probed: `[1,` + newline, `{1,` + newline,
+    /// and a comma that ends a line inside a cell nested in a matrix all fire.
+    /// A comma followed by a `%` comment is COMNC instead, and `...` escapes.
     pub(crate) fn check_comnl(
         &self,
         node: tree_sitter::Node,
@@ -19,43 +21,40 @@ impl ReadabilityEngine {
         if !self.is_check_enabled("COMNL") {
             return;
         }
-
-        // Collect `row` children in source order using children() + kind
-        // filter (NOT named_children): `line_continuation`/`...` is a NAMED
-        // extra and would leak into named_children().
-        let rows: Vec<tree_sitter::Node> = node
-            .children(&mut node.walk())
-            .filter(|c| c.kind() == "row")
-            .collect();
-
-        for i in 0..rows.len().saturating_sub(1) {
-            let row = rows[i];
-            let next_row = rows[i + 1];
-
-            let Some(comma) = find_trailing_comma(row) else {
-                continue;
-            };
-
-            // Source gap between this row and the next row.
-            let gap = &source[row.end_byte()..next_row.start_byte()];
-
-            // Fire ONLY when a NEWLINE acts as the row separator:
-            //   - gap contains '\n' (row separator is a newline), AND
-            //   - gap does NOT contain ';' (semicolon is explicit row
-            //     separator; replacing the comma would create a broken `;;`),
-            //   AND
-            //   - gap does NOT contain '...' (ellipsis escapes the newline).
-            if gap.contains('\n') && !gap.contains(';') && !gap.contains("...") {
-                let range = comma.start_byte()..comma.end_byte();
+        let mut commas = Vec::new();
+        collect_element_commas(node, &mut commas);
+        for comma in commas {
+            if comma_ends_line(comma, source) {
                 results.push(self.diag(
                     "COMNL",
                     "Newline following comma acts as a row separator. Replace the comma with a semicolon to make the row separation clearer. Alternatively, use an ellipsis (...) to continue the current row on the next line.",
                     comma,
-                    Some(Fix::new(range, ";")),
+                    Some(Fix::new(comma.start_byte()..comma.end_byte(), ";")),
                 ));
             }
         }
     }
+}
+
+/// Collects the `,` tokens that separate the elements of `node`, a matrix or a
+/// cell. Nested matrices and cells are visited on their own; calls and indexing
+/// (`f(1,` ...) are skipped because their commas are not element separators.
+fn collect_element_commas<'a>(node: tree_sitter::Node<'a>, out: &mut Vec<tree_sitter::Node<'a>>) {
+    for child in node.children(&mut node.walk()) {
+        match child.kind() {
+            "," => out.push(child),
+            "matrix" | "cell" | "function_call" => {}
+            _ => collect_element_commas(child, out),
+        }
+    }
+}
+
+/// Whether only blanks separate `comma` from the line break that follows it.
+/// A `%` comment, an ellipsis, or a `;` after the comma all return false.
+fn comma_ends_line(comma: tree_sitter::Node, source: &str) -> bool {
+    source[comma.end_byte()..]
+        .trim_start_matches([' ', '\t'])
+        .starts_with(['\n', '\r'])
 }
 
 #[cfg(test)]
@@ -81,6 +80,47 @@ mod tests {
         let diags = lint_nodes(&*engine(), "x = [1, 2,\n3, 4,\n5, 6];\n");
         let count = diags.iter().filter(|d| d.rule_id == "COMNL").count();
         assert_eq!(count, 2, "got: {diags:?}");
+    }
+
+    #[test]
+    fn comnl_fires_for_comma_before_newline_in_cell() {
+        // Probed: `{ 'a',` + newline and `{` + `'a',` + newline both fire.
+        let diags = lint_nodes(&*engine(), "c = { 'a',\n 'b' };\n");
+        assert!(has_id(&diags, "COMNL"), "got: {diags:?}");
+        let diags = lint_nodes(&*engine(), "c = {\n 'a',\n 'b' };\n");
+        assert!(has_id(&diags, "COMNL"), "got: {diags:?}");
+    }
+
+    #[test]
+    fn comnl_every_line_end_comma_in_cell_fires() {
+        // Probed: `{1,` `2,` `3};` gives COMNL on the first two lines; the
+        // comma before the closing brace does not end a line.
+        let diags = lint_nodes(&*engine(), "q = {1,\n 2,\n 3};\n");
+        let count = diags.iter().filter(|d| d.rule_id == "COMNL").count();
+        assert_eq!(count, 2, "got: {diags:?}");
+    }
+
+    #[test]
+    fn comnl_cell_comma_inside_matrix_fires() {
+        // Probed: `[{1,` + newline fires once on the cell's comma.
+        let diags = lint_nodes(&*engine(), "y = [{1,\n 2}, 3];\n");
+        let count = diags.iter().filter(|d| d.rule_id == "COMNL").count();
+        assert_eq!(count, 1, "got: {diags:?}");
+    }
+
+    #[test]
+    fn comnl_comment_after_comma_does_not_fire() {
+        // Probed: `[1, % c` gives COMNC, not COMNL.
+        let diags = lint_nodes(&*engine(), "x = [1, % c\n 2];\n");
+        assert!(!has_id(&diags, "COMNL"), "got: {diags:?}");
+        let diags = lint_nodes(&*engine(), "x = {1, % c\n 2};\n");
+        assert!(!has_id(&diags, "COMNL"), "got: {diags:?}");
+    }
+
+    #[test]
+    fn comnl_cell_with_ellipsis_does_not_fire() {
+        let diags = lint_nodes(&*engine(), "c = { 'a', ...\n 'b' };\n");
+        assert!(!has_id(&diags, "COMNL"), "got: {diags:?}");
     }
 
     #[test]

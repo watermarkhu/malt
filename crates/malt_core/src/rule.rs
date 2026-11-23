@@ -128,6 +128,43 @@ impl std::fmt::Display for Category {
 }
 
 // ---------------------------------------------------------------------------
+// Maturity
+// ---------------------------------------------------------------------------
+
+/// How far a check has been verified against MATLAB's Code Analyzer.
+///
+/// Metadata only: it does not change what a check reports. Experimental
+/// checks are off by default and run with `[lint] experimental = true`, the
+/// `all` preset, or an explicit rule setting. The classification lives in
+/// `malt_rules::maturity`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub enum Maturity {
+    /// Verified against MATLAB (recorded findings), or part of the default
+    /// analysis that the conformance suite covers.
+    #[default]
+    Stable,
+    /// Verified against the documentation only, never reported by MATLAB in
+    /// the recorded fixtures, or of low reliability.
+    Experimental,
+}
+
+impl Maturity {
+    /// The word used in the docs and in the data file.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Stable => "stable",
+            Self::Experimental => "experimental",
+        }
+    }
+}
+
+impl std::fmt::Display for Maturity {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Context types
 // ---------------------------------------------------------------------------
 
@@ -140,16 +177,51 @@ pub struct NodeContext<'a> {
     pub node: Node<'a>,
     pub source: &'a str,
     pub file_path: &'a Path,
+    /// The ancestors of `node`, the root first, when the caller walked down to
+    /// it and knows them (the linter does). `None` makes [`NodeContext::ancestors`]
+    /// ask tree-sitter instead.
+    pub ancestors: Option<&'a [Node<'a>]>,
+}
+
+impl<'a> NodeContext<'a> {
+    /// The ancestors of the node, nearest (the parent) first.
+    ///
+    /// Prefer it to climbing with `Node::parent`, which walks down from the root
+    /// for every step: as costly as the siblings of every ancestor.
+    pub fn ancestors(&self) -> Box<dyn Iterator<Item = Node<'a>> + 'a> {
+        match self.ancestors {
+            Some(known) => Box::new(known.iter().rev().copied()),
+            None => Box::new(std::iter::successors(self.node.parent(), |n| n.parent())),
+        }
+    }
+}
+
+/// What a host knows about the MATLAB search path beyond the file being linted.
+///
+/// MATLAB's Code Analyzer reads one file at a time, so by default no rule asks
+/// for this. A host supplies an implementation only when the user turns the path
+/// index on (`[index] enabled`), and then a rule may report what the other files
+/// on the path show. Rules must give the same result as before without one.
+pub trait ProjectIndex: Send + Sync {
+    /// Whether the class `name`, named as a superclass by a classdef in the file
+    /// `from`, is a handle class. `Some(true)`: `handle`, or a class that derives
+    /// from it. `Some(false)`: a class whose whole hierarchy is known and has no
+    /// `handle` in it. `None`: unknown, because the name or one of its bases is
+    /// not on the path.
+    fn is_handle_class(&self, name: &str, from: &Path) -> Option<bool>;
 }
 
 /// Context passed to [`Rule::check_file`] after the full traversal completes.
 ///
 /// Provides the parsed tree (for rules that need their own traversal strategy),
-/// the full source text, and the file path.
+/// the full source text, the file path, and the search path when the host
+/// enabled it (see [`ProjectIndex`]).
 pub struct FileContext<'a> {
     pub tree: &'a Tree,
     pub source: &'a str,
     pub file_path: &'a Path,
+    /// The search path of the run, `None` unless the host enabled the path index.
+    pub project: Option<&'a dyn ProjectIndex>,
 }
 
 // ---------------------------------------------------------------------------
@@ -212,6 +284,16 @@ pub trait Rule: Send + Sync {
         false
     }
 
+    /// The check IDs this rule reports under the current configuration: the
+    /// IDs it is set up to report, minus those switched off.
+    ///
+    /// The linter uses them for MSNU (a `%#ok<ID>` directive whose check
+    /// reported nothing on its line). The default declares none, so a rule that
+    /// does not list its IDs never causes an MSNU.
+    fn active_check_ids(&self) -> Vec<&'static str> {
+        Vec::new()
+    }
+
     /// Check a single node encountered during the single-pass traversal.
     ///
     /// Only called for nodes whose `kind()` is in [`target_node_types`].
@@ -226,6 +308,13 @@ pub trait Rule: Send + Sync {
     /// Use this for rules that require full-file context (e.g., unused variables,
     /// duplicate definitions). Default implementation returns no diagnostics.
     fn check_file(&self, _ctx: &FileContext) -> Vec<Diagnostic> {
+        Vec::new()
+    }
+
+    /// MATLAB's own limits that stop the analysis of a file (NOSPC, MXASET), run
+    /// before any other check on every tree. MATLAB then reports only these, so
+    /// a file that reaches one is not analysed further. Default returns none.
+    fn check_limits(&self, _tree: &tree_sitter::Tree, _source: &str) -> Vec<Diagnostic> {
         Vec::new()
     }
 }

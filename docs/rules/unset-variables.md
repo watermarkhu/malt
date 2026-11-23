@@ -9,6 +9,7 @@ icon: lucide/alert-triangle
 **Category:** Unset Variables
 **Can be disabled:** Yes
 **Enabled by default:** Yes
+**Maturity:** Mixed (2 of 5 experimental)
 
 ## What this rule does
 
@@ -17,45 +18,45 @@ engine (`UnsetVariablesEngine`) builds a symbol table and runs
 definite-assignment analysis to find variables used on code paths where
 they may never have been assigned. It covers 6 checks from MATLAB's "Unset
 Variables" category; each diagnostic carries the specific check ID (e.g.
-`NODEF`, `PSET`, `STOUT`).
+`NODEF`, `STOUT`).
 
 ## Check IDs
 
 ### NODEF
 
-Severity: **warning** · Auto-fix: **no**
+Severity: **warning** · Auto-fix: **no** · Maturity: **stable**
 
 Variable might be used before it is defined.
 
 ### USENS
 
-Severity: **warning** · Auto-fix: **no**
+Severity: **warning** · Auto-fix: **no** · Maturity: **experimental**
 
 Explicitly initialize this variable to avoid a potential uninitialized variable, or use a valid syntax for function call on line VAR_NUMBER.
 
-### PSET
-
-Severity: **warning** · Auto-fix: **no**
-
-Persistent variable is used, but might be unset.
-
 ### SUSENS
 
-Severity: **warning** · Auto-fix: **no**
+Severity: **warning** · Auto-fix: **no** · Maturity: **experimental**
 
 Variable is used, but might be unset (within a script).
 
 ### SVNODEF
 
-Severity: **warning** · Auto-fix: **no**
+Severity: **warning** · Auto-fix: **no** · Maturity: **stable**
 
 Variable might not have a value, because variable definition may not be executed.
 
 ### STOUT
 
-Severity: **warning** · Auto-fix: **no**
+Severity: **warning** · Auto-fix: **no** · Maturity: **stable**
 
 Function return value might be unset.
+
+## Maturity
+
+Experimental checks are off by default and run with `[lint] experimental = true`, the `all` preset, or an explicit rule setting (see [Experimental checks](../configuration.md#experimental-checks)).
+
+`USENS`, `SUSENS`: On the mathworks off-list: MATLAB's default analysis reported none of them in 4 or more probe shapes each, so their on-side (the --preset all behaviour) is not compared with MATLAB.
 
 ## Examples
 

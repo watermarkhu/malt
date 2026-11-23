@@ -8,11 +8,7 @@ impl LanguageSpecEngine {
         if !self.is_check_enabled("MCSWA") || !class.is_sealed() {
             return;
         }
-        if class
-            .attributes
-            .iter()
-            .any(|a| a.name == "AllowedSubclasses" && !a.negated)
-        {
+        if Attributes(&class.attributes).is_set("AllowedSubclasses") {
             diagnostics.push(Diagnostic {
                 rule_id: "MCSWA",
                 message: "A sealed class cannot specify allowed subclasses.".to_string(),

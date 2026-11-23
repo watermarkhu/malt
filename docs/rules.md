@@ -7,30 +7,33 @@ icon: lucide/list-checks
 ## Overview
 <!-- GENERATED: Rule Table -->
 
-| Rule ID | Category | Description | Default Severity | Auto-fix |
-| ------- | -------- | ----------- | ---------------- | -------- |
-| [`BUGS_ENGINE`](rules/bugs.md) | Bugs | Bug detection checks for likely bugs and logic errors | Error | Yes |
-| [`CODEGEN_ENGINE`](rules/codegen.md) | Code Generation | MATLAB code generation constraint checks | Error | No |
-| [`COMPAT`](rules/compatibility.md) | Compatibility | Deprecated or removed function usage | Warning | No |
-| [`CONFIG_ISSUES_ENGINE`](rules/config-issues.md) | Configuration Issues | Detects configuration-related issues in MATLAB code | Error | No |
-| [`CUSTOM_CHECKS`](rules/custom-checks.md) | Custom Checks | Code complexity and style metrics | Warning | No |
-| [`DEPLOYMENT_ENGINE`](rules/deployment.md) | Deployment | MATLAB Compiler deployment constraint checks | Warning | No |
-| [`FORMATTING_ENGINE`](rules/formatting.md) | Formatting | Formatting suggestion checks (NOCOMMA, NO4LP, ALIGN, NOPTS, NOPRT, PRTCAL, NCOMMA) | Info | Yes |
-| [`GOOD_PRACTICES_ENGINE`](rules/good-practices.md) | Good Practices | Common best-practice checks for MATLAB code | Warning | Yes |
-| [`INCOMPLETE_ANALYSIS`](rules/incomplete-analysis.md) | Incomplete Analysis | Internal linter limits and analysis integrity checks | Error | No |
-| [`LANGUAGE_SPEC_ENGINE`](rules/language-spec.md) | Language Specification | Language specification constraint violation | Error | No |
-| [`NAMING_ENGINE`](rules/naming.md) | Naming | Naming convention checks (81 sub-rules for 9 entity types x 9 check types) | Info | No |
-| [`NOSEMI`](rules/nosemi.md) | Formatting | Statement without trailing semicolon may produce unintended console output | Info | Yes |
-| [`PERFORMANCE_ENGINE`](rules/performance.md) | Performance | Performance improvement suggestions | Info | Yes |
-| [`READABILITY_ENGINE`](rules/readability.md) | Readability | Readability improvement checks for MATLAB code | Info | Yes |
-| [`SUGGESTED_IMPROVEMENTS`](rules/suggested-improvements.md) | Suggested Improvements | Not-recommended function or pattern with suggested replacement | Info | No |
-| [`SYNTAX_ERRORS_ENGINE`](rules/syntax-errors.md) | Syntax Errors | Parser-level and semantic syntax validation | Error | Yes |
-| [`SYSTEM_OBJECTS_ENGINE`](rules/system-objects.md) | System Objects | System object validation checks | Warning | No |
-| [`UNSET_VARIABLES_ENGINE`](rules/unset-variables.md) | Unset Variables | Detects variables that might not be defined before use | Warning | No |
-| [`UNSUPPORTED_ENGINE`](rules/unsupported.md) | Unsupported | Unsupported or deprecated feature checks | Warning | No |
-| [`UNUSED_ENGINE`](rules/unused.md) | Unused Constructions | Detect unused variables, functions, and dead code | Warning | No |
+| Rule ID | Category | Description | Default Severity | Auto-fix | Maturity |
+| ------- | -------- | ----------- | ---------------- | -------- | -------- |
+| [`BUGS_ENGINE`](rules/bugs.md) | Bugs | Bug detection checks for likely bugs and logic errors | Error | Yes | Mixed (7 of 33 experimental) |
+| [`CODEGEN_ENGINE`](rules/codegen.md) | Code Generation | MATLAB code generation constraint checks | Error | No | Experimental |
+| [`COMPAT`](rules/compatibility.md) | Compatibility | Deprecated or removed function usage | Warning | No | Mixed (1123 of 1832 experimental) |
+| [`CUSTOM_CHECKS`](rules/custom-checks.md) | Custom Checks | Code complexity and style metrics | Warning | No | Mixed (20 of 25 experimental) |
+| [`DEPLOYMENT_ENGINE`](rules/deployment.md) | Deployment | MATLAB Compiler deployment constraint checks | Warning | No | Experimental |
+| [`FORMATTING_ENGINE`](rules/formatting.md) | Formatting | Formatting suggestion checks (NOCOMMA, NO4LP, ALIGN, NOPTS, NOPRT, NCOMMA) | Info | Yes | Stable |
+| [`GOOD_PRACTICES_ENGINE`](rules/good-practices.md) | Good Practices | Common best-practice checks for MATLAB code | Warning | Yes | Mixed (15 of 106 experimental) |
+| [`INCOMPLETE_ANALYSIS`](rules/incomplete-analysis.md) | Incomplete Analysis | Internal linter limits and analysis integrity checks | Error | No | Mixed (1 of 10 experimental) |
+| [`LANGUAGE_SPEC_ENGINE`](rules/language-spec.md) | Language Specification | Language specification constraint violation | Error | Yes | Mixed (13 of 161 experimental) |
+| [`NAMING_ENGINE`](rules/naming.md) | Naming | Naming convention checks (81 sub-rules for 9 entity types x 9 check types) | Info | No | Mixed (77 of 81 experimental) |
+| [`NOSEMI`](rules/nosemi.md) | Formatting | Extra semicolon is unnecessary | Info | Yes | Stable |
+| [`PERFORMANCE_ENGINE`](rules/performance.md) | Performance | Performance improvement suggestions | Info | Yes | Mixed (2 of 40 experimental) |
+| [`READABILITY_ENGINE`](rules/readability.md) | Readability | Readability improvement checks for MATLAB code | Info | Yes | Mixed (4 of 35 experimental) |
+| [`SUGGESTED_IMPROVEMENTS`](rules/suggested-improvements.md) | Suggested Improvements | Not-recommended function or pattern with suggested replacement | Info | Yes | Mixed (32 of 243 experimental) |
+| [`SYNTAX_ERRORS_ENGINE`](rules/syntax-errors.md) | Syntax Errors | Parser-level and semantic syntax validation | Error | Yes | Stable |
+| [`SYSTEM_OBJECTS_ENGINE`](rules/system-objects.md) | System Objects | System object validation checks | Warning | No | Experimental |
+| [`UNSET_VARIABLES_ENGINE`](rules/unset-variables.md) | Unset Variables | Detects variables that might not be defined before use | Warning | No | Mixed (2 of 5 experimental) |
+| [`UNSUPPORTED_ENGINE`](rules/unsupported.md) | Unsupported | Unsupported or deprecated feature checks | Warning | No | Experimental |
+| [`UNUSED_ENGINE`](rules/unused.md) | Unused Constructions | Detect unused variables, functions, and dead code | Warning | No | Mixed (2 of 15 experimental) |
 
 These rows are generated from the rule docstrings by `docs/scripts/gen_rules_docs.ts`. Rebuild the docs (`bun run docs:gen`) to refresh them.
+
+<!-- GENERATED: Check Counts -->
+
+**How many checks malt implements.** 2693 unique check IDs, counted from the rule sources whenever these pages are generated: 532 in the engine tables above, 81 `naming.<entity>.<check>` IDs, 1 single-check rule (`NOSEMI`), 1832 compatibility entries (920 compatibility, 7 forward-compatibility, 905 behavior-changes; 914 of them are low-reliability and off by default), 243 suggested-improvement entries (241 unique IDs), and 6 emitted outside the rule engines (`MSNE`, `MSNU`, `QUIT`, `NOFIL`, `RDERR`, `SZCLN`). 1344 of them are experimental (verified against the documentation only, or low-reliability: off by default, see [Experimental checks](configuration.md#experimental-checks)). Which of them are on by default, and which engines are verified against MATLAB, is on the [How malt is verified](verification.md) page.
 
 ## Data-Driven Check IDs
 
@@ -39,7 +42,7 @@ generator in `docs/scripts/gen_rules_docs.ts`. Rebuild the docs (`bun run docs:g
 to refresh them whenever `data/compatibility.toml` or
 `data/suggested_improvements.toml` changes.
 
-### Compatibility Considerations (899 checks)
+### Compatibility Considerations (920 checks)
 
 | Check ID | Message |
 | -------- | ------- |
@@ -92,11 +95,11 @@ to refresh them whenever `data/compatibility.toml` or
 | [`HAND2STCT`](rules/compatibility.md#hand2stct) | 'handle2struct' will be removed in a future release. There is no simple replacement for this. |
 | [`HILBIIR`](rules/compatibility.md#hilbiir) | 'hilbiir' has been removed. With appropriate code changes, use 'fdesign.hilbert' or 'hilbert' instead. |
 | [`MOVIE2`](rules/compatibility.md#movie2) | 'movie2avi' has been removed. With appropriate code changes, use 'VideoWriter' instead. |
-| [`SERIAL`](rules/compatibility.md#serial) | 'serial' will be removed in a future release. With appropriate code changes, use 'serialport' instead. |
-| [`GPIB`](rules/compatibility.md#gpib) | 'gpib' will be removed in a future release. With appropriate code changes, use 'visadev' instead. |
-| [`VISA`](rules/compatibility.md#visa) | 'visa' will be removed in a future release. With appropriate code changes, use 'visadev' instead. |
-| [`UDPP`](rules/compatibility.md#udpp) | 'udp' will be removed in a future release. With appropriate code changes, use 'udpport' instead. |
-| [`BLUTH`](rules/compatibility.md#bluth) | 'Bluetooth' will be removed in a future release. With appropriate code changes, use 'bluetooth' instead. |
+| [`SERIAL`](rules/compatibility.md#serial) | 'serial' has been removed. With appropriate code changes, use 'serialport' instead. |
+| [`GPIB`](rules/compatibility.md#gpib) | 'gpib' has been removed. With appropriate code changes, use 'visadev' instead. |
+| [`VISA`](rules/compatibility.md#visa) | 'visa' has been removed. With appropriate code changes, use 'visadev' instead. |
+| [`UDPP`](rules/compatibility.md#udpp) | 'udp' has been removed. With appropriate code changes, use 'udpport' instead. |
+| [`BLUTH`](rules/compatibility.md#bluth) | 'Bluetooth' has been removed. With appropriate code changes, use 'bluetooth' instead. |
 | [`IMTOOL`](rules/compatibility.md#imtool) | 'imtool' will be removed in a future release. With appropriate code changes, use 'imageViewer' instead. |
 | [`IMJAV`](rules/compatibility.md#imjav) | 'im2java2d' has been removed. There is no simple replacement for this. |
 | [`DPOOL`](rules/compatibility.md#dpool) | 'matlabpool' has been removed. With appropriate code changes, use 'parpool' instead. |
@@ -162,19 +165,19 @@ to refresh them whenever `data/compatibility.toml` or
 | [`ACTXC`](rules/compatibility.md#actxc) | 'actxcontrol' has been removed. There is no simple replacement for this. |
 | [`ACTXL`](rules/compatibility.md#actxl) | 'actxcontrollist' has been removed. There is no simple replacement for this. |
 | [`ACTXS`](rules/compatibility.md#actxs) | 'actxcontrolselect' has been removed. There is no simple replacement for this. |
-| [`SOAPM`](rules/compatibility.md#soapm) | 'createSoapMessage' has been removed. With appropriate code changes, use 'matlab.wsdl.createWSDLClient' instead. |
-| [`SOAPS`](rules/compatibility.md#soaps) | 'callSoapService' has been removed. With appropriate code changes, use 'matlab.wsdl.createWSDLClient' instead. |
-| [`SOAPR`](rules/compatibility.md#soapr) | 'parseSoapResponse' has been removed. With appropriate code changes, use 'matlab.wsdl.createWSDLClient' instead. |
-| [`SOAPC`](rules/compatibility.md#soapc) | 'createClassFromWsdl' has been removed. Use 'matlab.wsdl.createWSDLClient' instead, which is a direct replacement. |
-| [`VREDT`](rules/compatibility.md#vredt) | 3D World Editor has been removed, so 'vredit' does not open the virtual world. With appropriate code changes, use sim3d classes to create and view a 3D environment instead. |
-| [`VRPLY`](rules/compatibility.md#vrply) | Simulink 3D Animation Player has been removed, so 'vrplay' does not open and play virtual world animation files. With appropriate code changes, use sim3d classes to create and view a 3D environment instead. |
-| [`VRCNVS`](rules/compatibility.md#vrcnvs) | Simulink 3D Animation Viewer has been removed, so 'vr.canvas' does not open the virtual world. With appropriate code changes, use sim3d classes to create and view a 3D environment instead. |
-| [`VRFIG`](rules/compatibility.md#vrfig) | Simulink 3D Animation Viewer has been removed, so 'vrfigure' does not open the virtual world. With appropriate code changes, use sim3d classes to create and view a 3D environment instead. |
-| [`VRVIEW`](rules/compatibility.md#vrview) | Simulink 3D Animation Viewer has been removed, so 'vrview' does not open the virtual world. With appropriate code changes, use sim3d classes to create and view a 3D environment instead. |
-| [`VRWRLD`](rules/compatibility.md#vrwrld) | 'vrworld' will be removed in a future release. With appropriate code changes, use sim3d classes to create and view a 3D environment instead. |
-| [`VRNDE`](rules/compatibility.md#vrnde) | 'vrnode' will be removed in a future release. With appropriate code changes, use sim3d classes to create and view a 3D environment instead. |
-| [`VRJOYSTK`](rules/compatibility.md#vrjoystk) | 'vrjoystick' will be removed in a future release. Use 'sim3d.io.Joystick' instead, which is a direct replacement. |
-| [`VRSPCMOUSE`](rules/compatibility.md#vrspcmouse) | 'vrspacemouse' will be removed in a future release. Use 'sim3d.io.SpaceMouse' instead, which is a direct replacement. |
+| [`SOAPM`](rules/compatibility.md#soapm) | 'createSoapMessage' has been removed. Use MATLAB RESTful functions ('webread' and 'webwrite') or MATLAB HTTP interface instead. |
+| [`SOAPS`](rules/compatibility.md#soaps) | 'callSoapService' has been removed. Use MATLAB RESTful functions ('webread' and 'webwrite') or MATLAB HTTP interface instead. |
+| [`SOAPR`](rules/compatibility.md#soapr) | 'parseSoapResponse' has been removed. Use MATLAB RESTful functions ('webread' and 'webwrite') or MATLAB HTTP interface instead. |
+| [`SOAPC`](rules/compatibility.md#soapc) | 'createClassFromWsdl' has been removed. Use MATLAB RESTful functions ('webread' and 'webwrite') or MATLAB HTTP interface instead. |
+| [`VREDT`](rules/compatibility.md#vredt) | 'vredit' and the 3D World Editor have been removed. With appropriate code changes, use sim3d classes to create and view a 3D environment instead. |
+| [`VRPLY`](rules/compatibility.md#vrply) | 'vrplay' and the Simulink 3D Animation Player have been removed. With appropriate code changes, use sim3d classes to create and view a 3D environment instead. |
+| [`VRCNVS`](rules/compatibility.md#vrcnvs) | 'vr.canvas' and the Simulink 3D Animation Viewer have been removed. With appropriate code changes, use sim3d classes to create and view a 3D environment instead. |
+| [`VRFIG`](rules/compatibility.md#vrfig) | 'vrfigure' and the Simulink 3D Animation Viewer have been removed. With appropriate code changes, use sim3d classes to create and view a 3D environment instead. |
+| [`VRVIEW`](rules/compatibility.md#vrview) | 'vrview' and the Simulink 3D Animation Viewer have been removed. With appropriate code changes, use sim3d classes to create and view a 3D environment instead. |
+| [`VRWRLD`](rules/compatibility.md#vrwrld) | 'vrworld' has been removed. With appropriate code changes, use sim3d classes to create and view a 3D environment instead. |
+| [`VRNDE`](rules/compatibility.md#vrnde) | 'vrnode' has been removed. With appropriate code changes, use sim3d classes to create and view a 3D environment instead. |
+| [`VRJOYSTK`](rules/compatibility.md#vrjoystk) | 'vrjoystick' has been removed. Use 'sim3d.io.Joystick' instead, which is a direct replacement. |
+| [`VRSPCMOUSE`](rules/compatibility.md#vrspcmouse) | 'vrspacemouse' has been removed. Use 'sim3d.io.SpaceMouse' instead, which is a direct replacement. |
 | [`SLRTBNCH`](rules/compatibility.md#slrtbnch) | 'slrtbench' has been removed. With appropriate code changes, use 'SimulinkRealTime.utils.minimumSampleTime' instead. |
 | [`RCSIIR`](rules/compatibility.md#rcsiir) | 'rcosiir' is unsupported and has been removed. There is no simple replacement for this. |
 | [`RCSFIR`](rules/compatibility.md#rcsfir) | 'rcosfir' is unsupported and has been removed. With appropriate code changes, use 'rcosdesign' instead. |
@@ -235,8 +238,8 @@ to refresh them whenever `data/compatibility.toml` or
 | [`PERFREF`](rules/compatibility.md#perfref) | 'perfect-reflector' value will be removed in a future release. Use value 'PEC' instead, which is a direct replacement. |
 | [`YOLOV`](rules/compatibility.md#yolov) | 'yolov2ReorgLayer' has been removed. With appropriate code changes, use 'spaceToDepthLayer' instead. |
 | [`DDTRD`](rules/compatibility.md#ddtrd) | 'dataread' will be removed in a future release. With appropriate code changes, use 'textscan' instead. |
-| [`IMPIVD`](rules/compatibility.md#impivd) | Malformed import argument VAR_NAME will not be supported in a future release. |
-| [`IMPKEY`](rules/compatibility.md#impkey) | Importing VAR_NAME will not be supported in a future release because VAR_NAME is a reserved word. |
+| [`IMPIVD`](rules/compatibility.md#impivd) | Malformed import argument 'VAR_NAME' will not be supported in a future release. |
+| [`IMPKEY`](rules/compatibility.md#impkey) | Importing 'VAR_NAME' will not be supported in a future release because 'VAR_WORD' is a reserved word. |
 | [`REDEFGI`](rules/compatibility.md#redefgi) | Declaring an input or output variable to be global might not be supported in a future release. |
 | [`REDEFGG`](rules/compatibility.md#redefgg) | Declaring a variable to be global more than once might not be supported in a future release. |
 | [`MCPDC`](rules/compatibility.md#mcpdc) | Specifying both the 'Constant' and 'Dependent' attributes on the same property is not supported. |
@@ -277,8 +280,8 @@ to refresh them whenever `data/compatibility.toml` or
 | [`JAPIMATHWORKS`](rules/compatibility.md#japimathworks) | 'com.mathworks' namespace and sub namespaces will be removed in a future release. There is no simple replacement for this. |
 | [`IMCLASS`](rules/compatibility.md#imclass) | In a future release, 'ismethod' will treat a string or character vector in its first input as a 'string' or 'char' class object. Pass an object to 'ismethod' or use any(strcmp('methodName', methods('ClassName'))) instead. |
 | [`WEBREMOVE`](rules/compatibility.md#webremove) | The 'web' function does not return a handle or URL for pages that open in the system browser. Use 'stat = web(___, '-browser')' instead. |
-| [`TCPC`](rules/compatibility.md#tcpc) | 'tcpip' with 'client' as a 'NetworkRole' will be removed in a future release. With appropriate code changes, use 'tcpclient' instead. |
-| [`TCPS`](rules/compatibility.md#tcps) | 'tcpip' with 'server' as a 'NetworkRole' will be removed in a future release. With appropriate code changes, use 'tcpserver' instead. |
+| [`TCPC`](rules/compatibility.md#tcpc) | 'tcpip' with 'client' as a 'NetworkRole' has been removed. With appropriate code changes, use 'tcpclient' instead. |
+| [`TCPS`](rules/compatibility.md#tcps) | 'tcpip' with 'server' as a 'NetworkRole' has been removed. With appropriate code changes, use 'tcpserver' instead. |
 | [`QAMDEPM`](rules/compatibility.md#qamdepm) | 'qammod' no longer accepts the initial phase of a signal. |
 | [`QAMDEPD`](rules/compatibility.md#qamdepd) | 'qamdemod' no longer accepts the initial phase of a signal. |
 | [`GETERR`](rules/compatibility.md#geterr) | The 'ErrorMessage' property has been removed. At the command line, use 'MException.last' instead. |
@@ -299,14 +302,6 @@ to refresh them whenever `data/compatibility.toml` or
 | [`AFNLMS`](rules/compatibility.md#afnlms) | 'adaptfilt.nlms' has been removed. With appropriate code changes, use 'dsp.LMSFilter' instead. |
 | [`AFRLS`](rules/compatibility.md#afrls) | 'adaptfilt.rls' has been removed. With appropriate code changes, use 'dsp.RLSFilter' instead. |
 | [`AFBLMS`](rules/compatibility.md#afblms) | 'adaptfilt.blms' has been removed. With appropriate code changes, use 'dsp.BlockLMSFilter' instead. |
-| [`DLABINDEX`](rules/compatibility.md#dlabindex) | 'labindex' is not recommended. Use 'spmdIndex' instead, which is a direct replacement. |
-| [`DNUMLABS`](rules/compatibility.md#dnumlabs) | 'numlabs' is not recommended. Use 'spmdSize' instead, which is a direct replacement. |
-| [`DLABBARRIER`](rules/compatibility.md#dlabbarrier) | 'labBarrier' is not recommended. Use 'spmdBarrier' instead, which is a direct replacement. |
-| [`DLABSEND`](rules/compatibility.md#dlabsend) | 'labSend' is not recommended. Use 'spmdSend' instead, which is a direct replacement. |
-| [`DLABRECEIVE`](rules/compatibility.md#dlabreceive) | 'labReceive' is not recommended. Use 'spmdReceive' instead, which is a direct replacement. |
-| [`DLABBROADCAST`](rules/compatibility.md#dlabbroadcast) | 'labBroadcast' is not recommended. Use 'spmdBroadcast' instead, which is a direct replacement. |
-| [`DLABSENDRECEIVE`](rules/compatibility.md#dlabsendreceive) | 'labSendReceive' is not recommended. Use 'spmdSendReceive' instead, which is a direct replacement. |
-| [`DLABPROBE`](rules/compatibility.md#dlabprobe) | 'labProbe' is not recommended. Use 'spmdProbe' instead, which is a direct replacement. |
 | [`AXSTATE`](rules/compatibility.md#axstate) | 'axis('state')' has been removed. With appropriate code changes, use 'XLimMode', 'YLimMode', 'ZLimMode', 'Visible', 'XDir', and 'YDir' properties of an axes object instead. |
 | [`FDDECI1`](rules/compatibility.md#fddeci1) | The 'Raised Cosine' response method of 'fdesign.decimator' object has been removed. With appropriate code changes use 'comm.RaisedCosineReceiveFilter' object instead. |
 | [`FDDECI2`](rules/compatibility.md#fddeci2) | The 'Square Root Raised Cosine' response method of 'fdesign.decimator' object has been removed. With appropriate code changes use 'comm.RaisedCosineReceiveFilter' object instead. |
@@ -326,7 +321,7 @@ to refresh them whenever `data/compatibility.toml` or
 | [`DGETST`](rules/compatibility.md#dgetst) | 'getstatus' will be removed in a future release. There is no simple replacement for this. |
 | [`DMENUL`](rules/compatibility.md#dmenul) | 'menulabel' will be removed in a future release. There is no simple replacement for this. |
 | [`DUIGET`](rules/compatibility.md#duiget) | 'uigettoolbar' will be removed in a future release. There is no simple replacement for this. |
-| [`AVRREM`](rules/compatibility.md#avrrem) | The 'Aero.VirtualRealityAnimation' class no longer creates visualizations and will be removed in a future release. With appropriate code changes, use sim3d classes to create and view a 3D environment instead. |
+| [`AVRREM`](rules/compatibility.md#avrrem) | The 'Aero.VirtualRealityAnimation' class has been removed. With appropriate code changes, use sim3d classes to create and view a 3D environment instead. |
 | [`DAVIINF`](rules/compatibility.md#daviinf) | 'aviinfo' will be removed in a future release. With appropriate code changes, use 'VideoReader' instead. |
 | [`DAFINF`](rules/compatibility.md#dafinf) | 'avifinfo' will be removed in a future release. With appropriate code changes, use 'VideoReader' instead. |
 | [`COMMCCDF`](rules/compatibility.md#commccdf) | 'comm.CCDF' has been removed. With appropriate code changes, use 'powermeter' instead. |
@@ -349,8 +344,8 @@ to refresh them whenever `data/compatibility.toml` or
 | [`DEVM`](rules/compatibility.md#devm) | 'commmeasure.EVM' has been removed. With appropriate code changes, use 'comm.EVM' instead. |
 | [`DMER`](rules/compatibility.md#dmer) | 'commmeasure.MER' has been removed. With appropriate code changes, use 'comm.MER' instead. |
 | [`DACPR`](rules/compatibility.md#dacpr) | 'commmeasure.ACPR' has been removed. With appropriate code changes, use 'comm.ACPR' instead. |
-| [`CRCGE`](rules/compatibility.md#crcge) | 'crc.generator' has been removed. With appropriate code changes, use 'comm.CRCGenerator' instead. |
-| [`CRCDE`](rules/compatibility.md#crcde) | 'crc.detector' has been removed. With appropriate code changes, use 'comm.CRCDetector' instead. |
+| [`CRCGE`](rules/compatibility.md#crcge) | 'crc.generator' has been removed. With appropriate code changes, use 'crcGenerate' instead. |
+| [`CRCDE`](rules/compatibility.md#crcde) | 'crc.detector' has been removed. With appropriate code changes, use 'crcDetect' instead. |
 | [`COMMCRCGEN`](rules/compatibility.md#commcrcgen) | 'comm.CRCGenerator' will be removed in a future release. With appropriate code changes, use 'crcGenerate' instead. |
 | [`COMMCRCDET`](rules/compatibility.md#commcrcdet) | 'comm.CRCDetector' will be removed in a future release. With appropriate code changes, use 'crcDetect' instead. |
 | [`COMMDVBS2LDPC`](rules/compatibility.md#commdvbs2ldpc) | 'dvbs2ldpc' will be removed in a future release. With appropriate code changes, use 'dvbsLDPCPCM' instead. |
@@ -375,8 +370,8 @@ to refresh them whenever `data/compatibility.toml` or
 | [`DBCHDEC`](rules/compatibility.md#dbchdec) | 'fec.bchdec' has been removed. With appropriate code changes, use 'comm.BCHDecoder' instead. |
 | [`DRSENC`](rules/compatibility.md#drsenc) | 'fec.rsenc' has been removed. With appropriate code changes, use 'comm.RSEncoder' instead. |
 | [`DRSDEC`](rules/compatibility.md#drsdec) | 'fec.rsdec' has been removed. With appropriate code changes, use 'comm.RSDecoder' instead. |
-| [`COMMGPUAWGN`](rules/compatibility.md#commgpuawgn) | 'comm.gpu.AWGNChannel' will be removed in a future release. With appropriate code changes, use 'awgn' instead. |
-| [`COMMGPULDPCDEC`](rules/compatibility.md#commgpuldpcdec) | 'comm.gpu.LDPCDecoder' will be removed in a future release. With appropriate code changes, use 'ldpcDecode' instead. |
+| [`COMMGPUAWGN`](rules/compatibility.md#commgpuawgn) | 'comm.gpu.AWGNChannel' has been removed. With appropriate code changes, use 'awgn' instead. |
+| [`COMMGPULDPCDEC`](rules/compatibility.md#commgpuldpcdec) | 'comm.gpu.LDPCDecoder' has been removed. With appropriate code changes, use 'ldpcDecode' instead. |
 | [`COMMGPUBLKINTRLV`](rules/compatibility.md#commgpublkintrlv) | 'comm.gpu.BlockInterleaver' will be removed in a future release. With appropriate code changes, use 'intrlv' instead. |
 | [`COMMGPUBLKDEINTRLV`](rules/compatibility.md#commgpublkdeintrlv) | 'comm.gpu.BlockDeinterleaver' will be removed in a future release. With appropriate code changes, use 'deintrlv' instead. |
 | [`COMMGPUCONVINTRLV`](rules/compatibility.md#commgpuconvintrlv) | 'comm.gpu.ConvolutionalInterleaver' will be removed in a future release. With appropriate code changes, use 'convintrlv' instead. |
@@ -473,7 +468,7 @@ to refresh them whenever `data/compatibility.toml` or
 | [`MLINTERP`](rules/compatibility.md#mlinterp) | 'mfilt.linearinterp' has been removed. With appropriate code changes, use 'dsp.CICInterpolator' instead. |
 | [`MFFDCM`](rules/compatibility.md#mffdcm) | 'mfilt.firfracdecim' has been removed. With appropriate code changes, use 'dsp.FIRRateConverter' instead. |
 | [`MFFINTRP`](rules/compatibility.md#mffintrp) | 'mfilt.firfracinterp' has been removed. With appropriate code changes, use 'dsp.FIRRateConverter' instead. |
-| [`DSPTS`](rules/compatibility.md#dspts) | 'dsp.TimeScope' will be removed in a future release. Use 'timescope' instead, which is a direct replacement. |
+| [`DSPTS`](rules/compatibility.md#dspts) | 'dsp.TimeScope' has been removed. Use 'timescope' instead, which is a direct replacement. |
 | [`DSPCEP2LPC`](rules/compatibility.md#dspcep2lpc) | 'dsp.CepstralToLPC' has been removed. There is no simple replacement for this. |
 | [`DSPLPC2AUTOCORR`](rules/compatibility.md#dsplpc2autocorr) | 'dsp.LPCToAutocorrelation' has been removed. With appropriate code changes, use 'poly2ac' instead. |
 | [`DSPLPC2CEP`](rules/compatibility.md#dsplpc2cep) | 'dsp.LPCToCepstral' has been removed. There is no simple replacement for this. |
@@ -504,7 +499,7 @@ to refresh them whenever `data/compatibility.toml` or
 | [`OPCQPRT`](rules/compatibility.md#opcqprt) | 'opcqparts' has been removed along with the support for OPC DA. To access live OPC data, use the OPC UA standard instead. |
 | [`OPCDAQS`](rules/compatibility.md#opcdaqs) | 'opc.daQualityString' has been removed along with the support for OPC DA. To access live OPC data, use the OPC UA standard instead. |
 | [`OPCDAEXPL`](rules/compatibility.md#opcdaexpl) | 'opcDataAccessExplorer' has been removed along with the support for OPC DA. To access live OPC data, use the OPC UA standard instead. |
-| [`I2CFUN`](rules/compatibility.md#i2cfun) | 'i2c' will be removed in a future release. With appropriate code changes, use 'device' method of 'ni845x' or 'aardvark' instead. |
+| [`I2CFUN`](rules/compatibility.md#i2cfun) | 'i2c' has been removed. With appropriate code changes, use 'device' method of 'ni845x' or 'aardvark' instead. |
 | [`IVIDC`](rules/compatibility.md#ividc) | 'instrument.ivic.IviDCPwr' will be removed in a future release. With appropriate code changes, use 'ividev' instead. |
 | [`IVIDM`](rules/compatibility.md#ividm) | 'instrument.ivic.IviDmm' will be removed in a future release. With appropriate code changes, use 'ividev' instead. |
 | [`IVIFG`](rules/compatibility.md#ivifg) | 'instrument.ivic.IviFgen' will be removed in a future release. With appropriate code changes, use 'ividev' instead. |
@@ -513,16 +508,16 @@ to refresh them whenever `data/compatibility.toml` or
 | [`IVISP`](rules/compatibility.md#ivisp) | 'instrument.ivic.IviSpecAn' will be removed in a future release. With appropriate code changes, use 'ividev' instead. |
 | [`IVISW`](rules/compatibility.md#ivisw) | 'instrument.ivic.IviSwtch' will be removed in a future release. With appropriate code changes, use 'ividev' instead. |
 | [`IVISC`](rules/compatibility.md#ivisc) | 'instrument.ivic.IviScope' will be removed in a future release. With appropriate code changes, use 'ividev' instead. |
-| [`INSTRR`](rules/compatibility.md#instrr) | 'instrreset' will be removed in a future release. With appropriate code changes, instead use 'delete(serialportfind)', 'delete(tcpclientfind)', 'delete(tcpserverfind)', 'delete(udpportfind)', 'delete(visadevfind)', 'delete(aardvarkfind)', 'delete(ni845xfind)', or 'delete(icdevicefind)' when 'LegacyMode' for icdevice is false. |
-| [`INSTRH`](rules/compatibility.md#instrh) | 'instrhelp' will be removed in a future release. Use 'help' instead, which is a direct replacement. |
-| [`INSTRF`](rules/compatibility.md#instrf) | 'instrfind' will be removed in a future release. With appropriate code changes, instead use 'serialportfind', 'tcpclientfind', 'tcpserverfind', 'udpportfind', 'visadevfind', 'aardvarkfind', 'ni845xfind', or 'icdevicefind' when 'LegacyMode' for icdevice is false. |
-| [`INSTFA`](rules/compatibility.md#instfa) | 'instrfindall' will be removed in a future release. With appropriate code changes, instead use 'serialportfind', 'tcpclientfind', 'tcpserverfind', 'udpportfind', 'visadevfind', 'aardvarkfind', 'ni845xfind', or 'icdevicefind' when 'LegacyMode' for icdevice is false. |
-| [`INSTCA`](rules/compatibility.md#instca) | 'instrcallback' will be removed in a future release. There is no simple replacement for this. |
-| [`INSTRN`](rules/compatibility.md#instrn) | 'instrnotify' will be removed in a future release. There is no simple replacement for this. |
-| [`MKMID`](rules/compatibility.md#mkmid) | 'makemid' will be removed in a future release. There is no simple replacement for this. |
-| [`MIEIT`](rules/compatibility.md#mieit) | 'midedit' will be removed in a future release. There is no simple replacement for this. |
-| [`MIDTT`](rules/compatibility.md#midtt) | 'midtest' will be removed in a future release. There is no simple replacement for this. |
-| [`TMTL`](rules/compatibility.md#tmtl) | 'tmtool' will be removed in a future release. Use 'serialExplorer', 'tcpipExplorer', 'udpExplorer', 'visaExplorer', or 'instrumentExplorer' instead. |
+| [`INSTRR`](rules/compatibility.md#instrr) | 'instrreset' has been removed. With appropriate code changes, instead use 'delete(serialportfind)', 'delete(tcpclientfind)', 'delete(tcpserverfind)', 'delete(udpportfind)', 'delete(visadevfind)', 'delete(aardvarkfind)', 'delete(ni845xfind)', or 'delete(icdevicefind)' when 'LegacyMode' for icdevice is false. |
+| [`INSTRH`](rules/compatibility.md#instrh) | 'instrhelp' has been removed. Use 'help' instead, which is a direct replacement. |
+| [`INSTRF`](rules/compatibility.md#instrf) | 'instrfind' has been removed. With appropriate code changes, instead use 'serialportfind', 'tcpclientfind', 'tcpserverfind', 'udpportfind', 'visadevfind', 'aardvarkfind', 'ni845xfind', or 'icdevicefind' when 'LegacyMode' for icdevice is false. |
+| [`INSTFA`](rules/compatibility.md#instfa) | 'instrfindall' has been removed. With appropriate code changes, instead use 'serialportfind', 'tcpclientfind', 'tcpserverfind', 'udpportfind', 'visadevfind', 'aardvarkfind', 'ni845xfind', or 'icdevicefind' when 'LegacyMode' for icdevice is false. |
+| [`INSTCA`](rules/compatibility.md#instca) | 'instrcallback' has been removed. There is no simple replacement for this. |
+| [`INSTRN`](rules/compatibility.md#instrn) | 'instrnotify' has been removed. There is no simple replacement for this. |
+| [`MKMID`](rules/compatibility.md#mkmid) | 'makemid' has been removed. There is no simple replacement for this. |
+| [`MIEIT`](rules/compatibility.md#mieit) | 'midedit' has been removed. There is no simple replacement for this. |
+| [`MIDTT`](rules/compatibility.md#midtt) | 'midtest' has been removed. There is no simple replacement for this. |
+| [`TMTL`](rules/compatibility.md#tmtl) | 'tmtool' has been removed. Use 'serialExplorer', 'tcpipExplorer', 'udpExplorer', 'visaExplorer', or 'instrumentExplorer' instead. |
 | [`IMJAVA`](rules/compatibility.md#imjava) | 'im2java' has been removed. There is no simple replacement for this. |
 | [`ECF2LV`](rules/compatibility.md#ecf2lv) | 'ecef2lv' has been removed. With appropriate code changes, use 'ecef2enu' instead. |
 | [`LV2ECF`](rules/compatibility.md#lv2ecf) | 'lv2ecef' has been removed. With appropriate code changes, use 'enu2ecef' instead. |
@@ -598,7 +593,7 @@ to refresh them whenever `data/compatibility.toml` or
 | [`SETPOSTN`](rules/compatibility.md#setpostn) | 'setpostn' has been removed. With appropriate code changes, use 'geographicToDiscrete' instead. |
 | [`SPZER`](rules/compatibility.md#spzer) | 'spzerom' has been removed. With appropriate code changes, use 'sparse' instead. |
 | [`ZEROM`](rules/compatibility.md#zerom) | 'zerom' has been removed. With appropriate code changes, use 'zeros' instead. |
-| [`MDTED`](rules/compatibility.md#mdted) | 'dted' will be removed in a future release. With appropriate code changes, use 'readgeoraster' instead. |
+| [`MDTED`](rules/compatibility.md#mdted) | 'dted' has been removed. With appropriate code changes, use 'readgeoraster' instead. |
 | [`ETOPO`](rules/compatibility.md#etopo) | 'etopo' has been removed. With appropriate code changes, use 'readgeoraster' instead. |
 | [`GLDEM`](rules/compatibility.md#gldem) | 'globedem' has been removed. With appropriate code changes, use 'readgeoraster' instead. |
 | [`GTOPO`](rules/compatibility.md#gtopo) | 'gtopo30' has been removed. With appropriate code changes, use 'readgeoraster' instead. |
@@ -780,9 +775,9 @@ to refresh them whenever `data/compatibility.toml` or
 | [`SERENAME`](rules/compatibility.md#serename) | Input argument 'simevents' will be removed in a future release. Use 'slde' instead. |
 | [`HHCNA`](rules/compatibility.md#hhcna) | Input argument 'North America' has been removed. Use 'hrn:here:data::olp-here-had:here-hdlm-protobuf-na-2' instead. |
 | [`HHCWE`](rules/compatibility.md#hhcwe) | Input argument 'Western Europe' has been removed. Use 'hrn:here:data::olp-here-had:here-hdlm-protobuf-weu-2' instead. |
-| [`INSTHWB`](rules/compatibility.md#insthwb) | 'instrhwinfo('bluetooth',...)' will be removed in a future release. With appropriate code changes, use 'bluetoothlist' instead. |
-| [`INSTHWT`](rules/compatibility.md#insthwt) | 'instrhwinfo('tcpip')' will be removed in a future release. There is no simple replacement for this. |
-| [`INSTHWU`](rules/compatibility.md#insthwu) | 'instrhwinfo('udp')' will be removed in a future release. There is no simple replacement for this. |
+| [`INSTHWB`](rules/compatibility.md#insthwb) | 'instrhwinfo('bluetooth',...)' has been removed. With appropriate code changes, use 'bluetoothlist' instead. |
+| [`INSTHWT`](rules/compatibility.md#insthwt) | 'instrhwinfo('tcpip')' has been removed. There is no simple replacement for this. |
+| [`INSTHWU`](rules/compatibility.md#insthwu) | 'instrhwinfo('udp')' has been removed. There is no simple replacement for this. |
 | [`CNNCGA`](rules/compatibility.md#cnncga) | 'cnncodegen' with 'targetlib' as 'arm-compute' has been removed. With appropriate code changes, use 'codegen' instead. |
 | [`CNNCGT`](rules/compatibility.md#cnncgt) | 'cnncodegen' with 'targetlib' as 'tensorrt' has been removed. With appropriate code changes, use 'codegen' instead. |
 | [`CNNCGC`](rules/compatibility.md#cnncgc) | 'cnncodegen' with 'targetlib' as 'cudnn' has been removed. With appropriate code changes, use 'codegen' instead. |
@@ -808,16 +803,16 @@ to refresh them whenever `data/compatibility.toml` or
 | [`MAG2I`](rules/compatibility.md#mag2i) | 'grid2image' with referencing matrix or referencing vector has been removed. With appropriate code changes, use a geographic or map raster reference object as input instead. |
 | [`WFLRD`](rules/compatibility.md#wflrd) | 'worldfileread(worldFileName)' has been removed. With appropriate code changes, use 'worldfileread(worldFileName, coordinateSystemType, rasterSize)' instead. |
 | [`EGMGD`](rules/compatibility.md#egmgd) | 'egm96geoid(SAMPLEFACTOR,...)' has been removed. With appropriate code changes, use 'egm96geoid(R)' instead, where R is a geographic raster reference object. |
-| [`INSTHWS`](rules/compatibility.md#insthws) | 'instrhwinfo('serial')' will be removed in a future release. With appropriate code changes, use 'serialportlist' instead. |
+| [`INSTHWS`](rules/compatibility.md#insthws) | 'instrhwinfo('serial')' has been removed. With appropriate code changes, use 'serialportlist' instead. |
 | [`INSTHWSP`](rules/compatibility.md#insthwsp) | 'instrhwinfo('serialport')' will be removed in a future release. With appropriate code changes, use 'serialportlist' instead. |
-| [`INSTHWV`](rules/compatibility.md#insthwv) | 'instrhwinfo('visa')' will be removed in a future release. With appropriate code changes, use 'visadevlist' instead. |
+| [`INSTHWV`](rules/compatibility.md#insthwv) | 'instrhwinfo('visa')' has been removed. With appropriate code changes, use 'visadevlist' instead. |
 | [`OPGLD`](rules/compatibility.md#opgld) | 'opengl('data')' has been removed. With appropriate code changes, use 'rendererinfo' instead. |
 | [`OPGLO`](rules/compatibility.md#opglo) | 'opengl' has been removed. There is no simple replacement for this. |
 | [`PMRTM1`](rules/compatibility.md#pmrtm1) | 'propagationModel('raytracing-image-method')' syntax has been removed. With appropriate code changes, use 'propagationModel('raytracing', 'Method', 'image')' syntax instead. |
 | [`PMRTM2`](rules/compatibility.md#pmrtm2) | 'propagationModel('raytracing-imagemethod')' syntax has been removed. With appropriate code changes, use 'propagationModel('raytracing', 'Method', 'image')' syntax instead. |
 | [`PMRTM3`](rules/compatibility.md#pmrtm3) | 'propagationModel('raytracingimage-method')' syntax has been removed. With appropriate code changes, use 'propagationModel('raytracing', 'Method', 'image')' syntax instead. |
 | [`PMRTM4`](rules/compatibility.md#pmrtm4) | 'propagationModel('raytracingimagemethod')' syntax has been removed. With appropriate code changes, use 'propagationModel('raytracing', 'Method' , 'image')' syntax instead. |
-| [`INSTHWG`](rules/compatibility.md#insthwg) | 'instrhwinfo('gpib')' will be removed in a future release. With appropriate code changes, use 'visadevlist' instead. |
+| [`INSTHWG`](rules/compatibility.md#insthwg) | 'instrhwinfo('gpib')' has been removed. With appropriate code changes, use 'visadevlist' instead. |
 | [`BLFOP`](rules/compatibility.md#blfop) | 'fopen' method of 'bluetooth' class will be removed in a future release. With appropriate code changes, use 'bluetooth' constructor instead. |
 | [`SPFOP`](rules/compatibility.md#spfop) | 'fopen' method of 'serialport' class will be removed in a future release. With appropriate code changes, use 'serialport' constructor instead. |
 | [`TCFOP`](rules/compatibility.md#tcfop) | 'fopen' method of 'tcpclient' class will be removed in a future release. With appropriate code changes, use 'tcpclient' constructor instead. |
@@ -941,7 +936,36 @@ to refresh them whenever `data/compatibility.toml` or
 | [`UDDRF`](rules/compatibility.md#uddrf) | 'DatagramReceivedFcn' property of 'udpport' class will be removed in a future release. With appropriate code changes, use 'configureCallback' method of 'udpport' class instead. |
 | [`VSRSN`](rules/compatibility.md#vsrsn) | 'RsrcName' property of 'visadev' class will be removed in a future release. With appropriate code changes, use 'ResourceName' property of 'visadev' class instead. |
 | [`ELEVT`](rules/compatibility.md#elevt) | 'elevation' has been removed. With appropriate code changes, use 'geodetic2aer' instead. |
-| [`INSTHWI2C`](rules/compatibility.md#insthwi2c) | 'instrhwinfo('i2c')' will be removed in a future release. With appropriate code changes, use 'ni845xlist' or 'aardvarklist' instead. |
+| [`INSTHWI2C`](rules/compatibility.md#insthwi2c) | 'instrhwinfo('i2c')' has been removed. With appropriate code changes, use 'ni845xlist' or 'aardvarklist' instead. |
+| [`EVDOFRC`](rules/compatibility.md#evdofrc) | 'evdoForwardReferenceChannels' will be removed in a future release. There is no simple replacement for this. |
+| [`EVDOFWG`](rules/compatibility.md#evdofwg) | 'evdoForwardWaveformGenerator' will be removed in a future release. There is no simple replacement for this. |
+| [`EVDORRC`](rules/compatibility.md#evdorrc) | 'evdoReverseReferenceChannels' will be removed in a future release. There is no simple replacement for this. |
+| [`EVDORWG`](rules/compatibility.md#evdorwg) | 'evdoReverseWaveformGenerator' will be removed in a future release. There is no simple replacement for this. |
+| [`CDMA2KFRC`](rules/compatibility.md#cdma2kfrc) | 'cdma2000ForwardReferenceChannels' will be removed in a future release. There is no simple replacement for this. |
+| [`CDMA2KFWG`](rules/compatibility.md#cdma2kfwg) | 'cdma2000ForwardWaveformGenerator' will be removed in a future release. There is no simple replacement for this. |
+| [`CDMA2KRRC`](rules/compatibility.md#cdma2krrc) | 'cdma2000ReverseReferenceChannels' will be removed in a future release. There is no simple replacement for this. |
+| [`CDMA2KRWG`](rules/compatibility.md#cdma2krwg) | 'cdma2000ReverseWaveformGenerator' will be removed in a future release. There is no simple replacement for this. |
+| [`ALGINTRLV`](rules/compatibility.md#algintrlv) | 'algintrlv' will be removed in a future release. With appropriate code changes, use 'intrlv' instead. |
+| [`ALGDEINTRLV`](rules/compatibility.md#algdeintrlv) | 'algdeintrlv' will be removed in a future release. With appropriate code changes, use 'deintrlv' instead. |
+| [`HELSCANINTRLV`](rules/compatibility.md#helscanintrlv) | 'helscanintrlv' will be removed in a future release. With appropriate code changes, use 'intrlv' instead. |
+| [`HELSCANDEINTRLV`](rules/compatibility.md#helscandeintrlv) | 'helscandeintrlv' will be removed in a future release. With appropriate code changes, use 'deintrlv' instead. |
+| [`MUXINTRLV`](rules/compatibility.md#muxintrlv) | 'muxintrlv' will be removed in a future release. With appropriate code changes, use 'convintrlv' instead. |
+| [`MUXDEINTRLV`](rules/compatibility.md#muxdeintrlv) | 'muxdeintrlv' will be removed in a future release. With appropriate code changes, use 'convdeintrlv' instead. |
+| [`COMMSOHELINTRLV`](rules/compatibility.md#commsohelintrlv) | 'comm.HelicalInterleaver' will be removed in a future release. With appropriate code changes, use 'comm.ConvolutionalInterleaver' instead. |
+| [`COMMSOHELDEINTRLV`](rules/compatibility.md#commsoheldeintrlv) | 'comm.HelicalDeinterleaver' will be removed in a future release. With appropriate code changes, use 'comm.ConvolutionalDeinterleaver' instead. |
+| [`COMMSOMUXINTRLV`](rules/compatibility.md#commsomuxintrlv) | 'comm.MultiplexedInterleaver' will be removed in a future release. With appropriate code changes, use 'comm.ConvolutionalInterleaver' instead. |
+| [`COMMSOMUXDEINTRLV`](rules/compatibility.md#commsomuxdeintrlv) | 'comm.MultiplexedDeinterleaver' will be removed in a future release. With appropriate code changes, use 'comm.ConvolutionalDeinterleaver' instead. |
+| [`PDSCHCONFIG`](rules/compatibility.md#pdschconfig) | 'pre6GPDSCHConfig' has been removed. With appropriate code changes, use 'pre6GPhysicalChannelConfig' instead. |
+| [`WSDLCLIENT`](rules/compatibility.md#wsdlclient) | 'matlab.wsdl.createWSDLClient' has been removed. Use MATLAB RESTful functions ('webread' and 'webwrite') or MATLAB HTTP interface instead. |
+| [`WSDLTOOL`](rules/compatibility.md#wsdltool) | 'matlab.wsdl.setWSDLToolPath' has been removed. Use MATLAB RESTful functions ('webread' and 'webwrite') or MATLAB HTTP interface instead. |
+| [`CMAMP`](rules/compatibility.md#cmamp) | 'AMPMConversion' property of 'comm.MemorylessNonlinearity' class will be removed in a future release. There is no simple replacement for this. |
+| [`CMPLW`](rules/compatibility.md#cmplw) | 'PowerLowerLimit' property of 'comm.MemorylessNonlinearity' class will be removed in a future release. There is no simple replacement for this. |
+| [`CMPUL`](rules/compatibility.md#cmpul) | 'PowerUpperLimit' property of 'comm.MemorylessNonlinearity' class will be removed in a future release. There is no simple replacement for this. |
+| [`CMMHT`](rules/compatibility.md#cmmht) | 'Hyperbolic tangent' value for the 'Method' property on 'comm.MemorylessNonlinearity' class will be removed in a future release. There is no simple replacement for this. |
+| [`CMMGM`](rules/compatibility.md#cmmgm) | 'Ghorbani model' value for the 'Method' property on 'comm.MemorylessNonlinearity' class will be removed in a future release. There is no simple replacement for this. |
+| [`ISPIX`](rules/compatibility.md#ispix) | 'pixelLabelImageSource' has been removed. Use 'pixelLabelImageDatastore' instead, which is a direct replacement. |
+| [`ISAUG`](rules/compatibility.md#isaug) | 'augmentedImageSource' has been removed. Use 'augmentedImageDatastore' instead, which is a direct replacement. |
+| [`ISDNS`](rules/compatibility.md#isdns) | 'denoisingImageSource' has been removed. Use 'denoisingImageDatastore' instead, which is a direct replacement. |
 
 ### Forward Compatibility (7 checks)
 
@@ -1249,7 +1273,7 @@ to refresh them whenever `data/compatibility.toml` or
 | [`JAPIEXT13`](rules/compatibility.md#japiext13) | 'org.jdesktop.swingx' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
 | [`JAPIEXT30`](rules/compatibility.md#japiext30) | 'com.jidesoft.icons' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
 | [`JAPIEXT45`](rules/compatibility.md#japiext45) | 'info.clearthought.layout' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
-| [`JAPIEXT46`](rules/compatibility.md#japiext46) | 'org.antlr.misc' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
+| [`JAPIEXT46`](rules/compatibility.md#japiext46) | 'org.antlr.misc' Java package and subpackages are not available in MATLAB. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
 | [`JAPIEXT48`](rules/compatibility.md#japiext48) | 'org.powermock.configuration' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
 | [`JAPIEXT49`](rules/compatibility.md#japiext49) | 'javax.mail.util' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
 | [`JAPIEXT51`](rules/compatibility.md#japiext51) | 'com.thaiopensource.validate' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
@@ -1259,8 +1283,8 @@ to refresh them whenever `data/compatibility.toml` or
 | [`JAPIEXT58`](rules/compatibility.md#japiext58) | 'org.h2.store' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
 | [`JAPIEXT59`](rules/compatibility.md#japiext59) | 'com.google.protobuf' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
 | [`JAPIEXT60`](rules/compatibility.md#japiext60) | 'org.h2.util' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
-| [`JAPIEXT61`](rules/compatibility.md#japiext61) | 'org.jaxen.expr' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
-| [`JAPIEXT68`](rules/compatibility.md#japiext68) | 'org.antlr.codegen' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
+| [`JAPIEXT61`](rules/compatibility.md#japiext61) | 'org.jaxen.expr' Java package and subpackages are not available in MATLAB. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
+| [`JAPIEXT68`](rules/compatibility.md#japiext68) | 'org.antlr.codegen' Java package and subpackages are not available in MATLAB. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
 | [`JAPIEXT69`](rules/compatibility.md#japiext69) | 'org.mockito.listeners' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
 | [`JAPIEXT70`](rules/compatibility.md#japiext70) | 'org.h2.result' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
 | [`JAPIEXT71`](rules/compatibility.md#japiext71) | 'com.jogamp.newt' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
@@ -1284,19 +1308,19 @@ to refresh them whenever `data/compatibility.toml` or
 | [`JAPIEXT102`](rules/compatibility.md#japiext102) | 'org.powermock.core' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
 | [`JAPIEXT104`](rules/compatibility.md#japiext104) | 'org.geotools.resources' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
 | [`JAPIEXT105`](rules/compatibility.md#japiext105) | 'org.openxml4j.samples' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
-| [`JAPIEXT106`](rules/compatibility.md#japiext106) | 'org.w3c.css' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
+| [`JAPIEXT106`](rules/compatibility.md#japiext106) | 'org.w3c.css' Java package and subpackages are not available in MATLAB. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
 | [`JAPIEXT107`](rules/compatibility.md#japiext107) | 'org.cef.handler' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
 | [`JAPIEXT108`](rules/compatibility.md#japiext108) | 'org.mortbay.jetty' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
 | [`JAPIEXT110`](rules/compatibility.md#japiext110) | 'jogamp.nativewindow.awt' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
 | [`JAPIEXT113`](rules/compatibility.md#japiext113) | 'com.jidesoft.popup' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
-| [`JAPIEXT117`](rules/compatibility.md#japiext117) | 'org.apache.batik' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
-| [`JAPIEXT119`](rules/compatibility.md#japiext119) | 'net.jpountz.xxhash' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
+| [`JAPIEXT117`](rules/compatibility.md#japiext117) | 'org.apache.batik' Java package and subpackages are not available in MATLAB. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
+| [`JAPIEXT119`](rules/compatibility.md#japiext119) | 'net.jpountz.xxhash' Java package and subpackages are not available in MATLAB. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
 | [`JAPIEXT122`](rules/compatibility.md#japiext122) | 'org.apache.axis2' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
 | [`JAPIEXT124`](rules/compatibility.md#japiext124) | 'com.jogamp.opengl' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
 | [`JAPIEXT125`](rules/compatibility.md#japiext125) | 'com.reuters.sdist' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
-| [`JAPIEXT127`](rules/compatibility.md#japiext127) | 'org.jaxen.dom' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
+| [`JAPIEXT127`](rules/compatibility.md#japiext127) | 'org.jaxen.dom' Java package and subpackages are not available in MATLAB. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
 | [`JAPIEXT128`](rules/compatibility.md#japiext128) | 'org.aopalliance.intercept' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
-| [`JAPIEXT129`](rules/compatibility.md#japiext129) | 'org.jaxen.util' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
+| [`JAPIEXT129`](rules/compatibility.md#japiext129) | 'org.jaxen.util' Java package and subpackages are not available in MATLAB. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
 | [`JAPIEXT130`](rules/compatibility.md#japiext130) | 'jogamp.opengl.gl4' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
 | [`JAPIEXT131`](rules/compatibility.md#japiext131) | 'com.thaiopensource.datatype' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
 | [`JAPIEXT132`](rules/compatibility.md#japiext132) | 'com.jidesoft.awt' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
@@ -1304,23 +1328,23 @@ to refresh them whenever `data/compatibility.toml` or
 | [`JAPIEXT137`](rules/compatibility.md#japiext137) | 'org.jacoco.ant' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
 | [`JAPIEXT139`](rules/compatibility.md#japiext139) | 'org.objenesis.instantiator' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
 | [`JAPIEXT140`](rules/compatibility.md#japiext140) | 'net.jini.event' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
-| [`JAPIEXT141`](rules/compatibility.md#japiext141) | 'edu.uci.ics' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
+| [`JAPIEXT141`](rules/compatibility.md#japiext141) | 'edu.uci.ics' Java package and subpackages are not available in MATLAB. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
 | [`JAPIEXT142`](rules/compatibility.md#japiext142) | 'org.geotools.parameter' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
-| [`JAPIEXT143`](rules/compatibility.md#japiext143) | 'com.googlecode.javaewah32' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
-| [`JAPIEXT144`](rules/compatibility.md#japiext144) | 'org.jaxen.function' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
+| [`JAPIEXT143`](rules/compatibility.md#japiext143) | 'com.googlecode.javaewah32' Java package and subpackages are not available in MATLAB. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
+| [`JAPIEXT144`](rules/compatibility.md#japiext144) | 'org.jaxen.function' Java package and subpackages are not available in MATLAB. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
 | [`JAPIEXT146`](rules/compatibility.md#japiext146) | 'com.jidesoft.spinner' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
 | [`JAPIEXT147`](rules/compatibility.md#japiext147) | 'org.mockito.exceptions' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
 | [`JAPIEXT148`](rules/compatibility.md#japiext148) | 'org.objectweb.asm' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
 | [`JAPIEXT149`](rules/compatibility.md#japiext149) | 'org.jdom2.located' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
 | [`JAPIEXT150`](rules/compatibility.md#japiext150) | 'org.mortbay.xml' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
-| [`JAPIEXT151`](rules/compatibility.md#japiext151) | 'antlr.debug.misc' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
+| [`JAPIEXT151`](rules/compatibility.md#japiext151) | 'antlr.debug.misc' Java package and subpackages are not available in MATLAB. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
 | [`JAPIEXT152`](rules/compatibility.md#japiext152) | 'javax.servlet.annotation' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
 | [`JAPIEXT153`](rules/compatibility.md#japiext153) | 'net.jini.space' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
 | [`JAPIEXT154`](rules/compatibility.md#japiext154) | 'org.apache.http' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
 | [`JAPIEXT155`](rules/compatibility.md#japiext155) | 'org.jdom2.util' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
-| [`JAPIEXT156`](rules/compatibility.md#japiext156) | 'org.antlr.stringtemplate' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
+| [`JAPIEXT156`](rules/compatibility.md#japiext156) | 'org.antlr.stringtemplate' Java package and subpackages are not available in MATLAB. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
 | [`JAPIEXT157`](rules/compatibility.md#japiext157) | 'com.graphbuilder.geom' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
-| [`JAPIEXT158`](rules/compatibility.md#japiext158) | 'antlr.actions.python' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
+| [`JAPIEXT158`](rules/compatibility.md#japiext158) | 'antlr.actions.python' Java package and subpackages are not available in MATLAB. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
 | [`JAPIEXT159`](rules/compatibility.md#japiext159) | 'org.eclipse.core' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
 | [`JAPIEXT161`](rules/compatibility.md#japiext161) | 'org.w3c.dom' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
 | [`JAPIEXT162`](rules/compatibility.md#japiext162) | 'javassist.tools.reflect' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
@@ -1332,7 +1356,7 @@ to refresh them whenever `data/compatibility.toml` or
 | [`JAPIEXT168`](rules/compatibility.md#japiext168) | 'jogamp.newt.event' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
 | [`JAPIEXT171`](rules/compatibility.md#japiext171) | 'jogamp.graph.font' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
 | [`JAPIEXT172`](rules/compatibility.md#japiext172) | 'org.jdom2.xpath' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
-| [`JAPIEXT174`](rules/compatibility.md#japiext174) | 'org.jaxen.xom' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
+| [`JAPIEXT174`](rules/compatibility.md#japiext174) | 'org.jaxen.xom' Java package and subpackages are not available in MATLAB. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
 | [`JAPIEXT175`](rules/compatibility.md#japiext175) | 'org.geotools.factory' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
 | [`JAPIEXT176`](rules/compatibility.md#japiext176) | 'javax.xml.datatype' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
 | [`JAPIEXT177`](rules/compatibility.md#japiext177) | 'net.jini.lookup' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
@@ -1342,7 +1366,7 @@ to refresh them whenever `data/compatibility.toml` or
 | [`JAPIEXT183`](rules/compatibility.md#japiext183) | 'org.mortbay.resource' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
 | [`JAPIEXT184`](rules/compatibility.md#japiext184) | 'jogamp.opengl.awt' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
 | [`JAPIEXT185`](rules/compatibility.md#japiext185) | 'jogamp.opengl.x11' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
-| [`JAPIEXT186`](rules/compatibility.md#japiext186) | 'org.tanukisoftware.wrapper' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
+| [`JAPIEXT186`](rules/compatibility.md#japiext186) | 'org.tanukisoftware.wrapper' Java package and subpackages are not available in MATLAB. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
 | [`JAPIEXT188`](rules/compatibility.md#japiext188) | 'org.geotools.map' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
 | [`JAPIEXT189`](rules/compatibility.md#japiext189) | 'org.cyberneko.html' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
 | [`JAPIEXT190`](rules/compatibility.md#japiext190) | 'org.openxmlformats.schemas' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
@@ -1359,7 +1383,7 @@ to refresh them whenever `data/compatibility.toml` or
 | [`JAPIEXT208`](rules/compatibility.md#japiext208) | 'net.jini.discovery' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
 | [`JAPIEXT210`](rules/compatibility.md#japiext210) | 'org.h2.jmx' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
 | [`JAPIEXT213`](rules/compatibility.md#japiext213) | 'net.jini.io' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
-| [`JAPIEXT214`](rules/compatibility.md#japiext214) | 'antlr.actions.csharp' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
+| [`JAPIEXT214`](rules/compatibility.md#japiext214) | 'antlr.actions.csharp' Java package and subpackages are not available in MATLAB. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
 | [`JAPIEXT215`](rules/compatibility.md#japiext215) | 'javassist.bytecode.analysis' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
 | [`JAPIEXT216`](rules/compatibility.md#japiext216) | 'javax.xml.transform' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
 | [`JAPIEXT217`](rules/compatibility.md#japiext217) | 'abbot.editor.actions' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
@@ -1367,7 +1391,7 @@ to refresh them whenever `data/compatibility.toml` or
 | [`JAPIEXT221`](rules/compatibility.md#japiext221) | 'org.powermock.reflect' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
 | [`JAPIEXT222`](rules/compatibility.md#japiext222) | 'jogamp.opengl.macosx' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
 | [`JAPIEXT223`](rules/compatibility.md#japiext223) | 'org.apache.xmlcommons' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
-| [`JAPIEXT224`](rules/compatibility.md#japiext224) | 'org.jaxen.javabean' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
+| [`JAPIEXT224`](rules/compatibility.md#japiext224) | 'org.jaxen.javabean' Java package and subpackages are not available in MATLAB. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
 | [`JAPIEXT225`](rules/compatibility.md#japiext225) | 'net.sf.xslthl' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
 | [`JAPIEXT226`](rules/compatibility.md#japiext226) | 'org.mockito.codegen' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
 | [`JAPIEXT227`](rules/compatibility.md#japiext227) | 'net.jini.activation' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
@@ -1378,13 +1402,13 @@ to refresh them whenever `data/compatibility.toml` or
 | [`JAPIEXT236`](rules/compatibility.md#japiext236) | 'org.openxml4j.document' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
 | [`JAPIEXT237`](rules/compatibility.md#japiext237) | 'freemarker.ext.jdom' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
 | [`JAPIEXT238`](rules/compatibility.md#japiext238) | 'org.geotools.feature' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
-| [`JAPIEXT239`](rules/compatibility.md#japiext239) | 'org.eclipse.jgit' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
+| [`JAPIEXT239`](rules/compatibility.md#japiext239) | 'org.eclipse.jgit' Java package and subpackages are not available in MATLAB. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
 | [`JAPIEXT241`](rules/compatibility.md#japiext241) | 'org.h2.server' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
 | [`JAPIEXT243`](rules/compatibility.md#japiext243) | 'net.jini.security' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
 | [`JAPIEXT244`](rules/compatibility.md#japiext244) | 'com.jidesoft.csv' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
-| [`JAPIEXT245`](rules/compatibility.md#japiext245) | 'org.tmatesoft.svn' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
+| [`JAPIEXT245`](rules/compatibility.md#japiext245) | 'org.tmatesoft.svn' Java package and subpackages are not available in MATLAB. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
 | [`JAPIEXT246`](rules/compatibility.md#japiext246) | 'freemarker.ext.xml' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
-| [`JAPIEXT247`](rules/compatibility.md#japiext247) | 'org.antlr.grammar' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
+| [`JAPIEXT247`](rules/compatibility.md#japiext247) | 'org.antlr.grammar' Java package and subpackages are not available in MATLAB. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
 | [`JAPIEXT248`](rules/compatibility.md#japiext248) | 'com.jidesoft.field' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
 | [`JAPIEXT249`](rules/compatibility.md#japiext249) | 'jogamp.nativewindow.windows' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
 | [`JAPIEXT250`](rules/compatibility.md#japiext250) | 'jogamp.nativewindow.macosx' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
@@ -1412,10 +1436,10 @@ to refresh them whenever `data/compatibility.toml` or
 | [`JAPIEXT280`](rules/compatibility.md#japiext280) | 'org.opengis.feature' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
 | [`JAPIEXT282`](rules/compatibility.md#japiext282) | 'com.vividsolutions.jts' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
 | [`JAPIEXT283`](rules/compatibility.md#japiext283) | 'org.apache.ws' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
-| [`JAPIEXT284`](rules/compatibility.md#japiext284) | 'com.intel.bluetooth' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
+| [`JAPIEXT284`](rules/compatibility.md#japiext284) | 'com.intel.bluetooth' Java package and subpackages are not available in MATLAB. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
 | [`JAPIEXT285`](rules/compatibility.md#japiext285) | 'com.jidesoft.alert' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
 | [`JAPIEXT286`](rules/compatibility.md#japiext286) | 'org.iso_relax.dispatcher' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
-| [`JAPIEXT287`](rules/compatibility.md#japiext287) | 'org.antlr.gunit' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
+| [`JAPIEXT287`](rules/compatibility.md#japiext287) | 'org.antlr.gunit' Java package and subpackages are not available in MATLAB. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
 | [`JAPIEXT288`](rules/compatibility.md#japiext288) | 'jogamp.newt.swt' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
 | [`JAPIEXT289`](rules/compatibility.md#japiext289) | 'com.jidesoft.margin' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
 | [`JAPIEXT290`](rules/compatibility.md#japiext290) | 'org.geotools.data' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
@@ -1435,7 +1459,7 @@ to refresh them whenever `data/compatibility.toml` or
 | [`JAPIEXT307`](rules/compatibility.md#japiext307) | 'com.reuters.io' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
 | [`JAPIEXT310`](rules/compatibility.md#japiext310) | 'freemarker.debug.impl' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
 | [`JAPIEXT311`](rules/compatibility.md#japiext311) | 'javax.servlet.descriptor' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
-| [`JAPIEXT313`](rules/compatibility.md#japiext313) | 'com.sun.midp' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
+| [`JAPIEXT313`](rules/compatibility.md#japiext313) | 'com.sun.midp' Java package and subpackages are not available in MATLAB. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
 | [`JAPIEXT314`](rules/compatibility.md#japiext314) | 'com.jidesoft.utils' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
 | [`JAPIEXT318`](rules/compatibility.md#japiext318) | 'javax.mail.internet' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
 | [`JAPIEXT319`](rules/compatibility.md#japiext319) | 'abbot.script.parsers' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
@@ -1456,26 +1480,26 @@ to refresh them whenever `data/compatibility.toml` or
 | [`JAPIEXT344`](rules/compatibility.md#japiext344) | 'freemarker.ext.beans' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
 | [`JAPIEXT345`](rules/compatibility.md#japiext345) | 'org.eclipse.e4' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
 | [`JAPIEXT346`](rules/compatibility.md#japiext346) | 'org.junit.runner' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
-| [`JAPIEXT347`](rules/compatibility.md#japiext347) | 'org.apache.xmlgraphics' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
+| [`JAPIEXT347`](rules/compatibility.md#japiext347) | 'org.apache.xmlgraphics' Java package and subpackages are not available in MATLAB. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
 | [`JAPIEXT349`](rules/compatibility.md#japiext349) | 'com.jidesoft.pane' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
 | [`JAPIEXT350`](rules/compatibility.md#japiext350) | 'org.hamcrest.generator' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
 | [`JAPIEXT351`](rules/compatibility.md#japiext351) | 'org.iso_relax.verifier' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
 | [`JAPIEXT354`](rules/compatibility.md#japiext354) | 'org.opengis.coverage' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
-| [`JAPIEXT355`](rules/compatibility.md#japiext355) | 'org.antlr.tool' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
+| [`JAPIEXT355`](rules/compatibility.md#japiext355) | 'org.antlr.tool' Java package and subpackages are not available in MATLAB. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
 | [`JAPIEXT356`](rules/compatibility.md#japiext356) | 'org.mortbay.thread' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
 | [`JAPIEXT357`](rules/compatibility.md#japiext357) | 'org.mortbay.naming' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
 | [`JAPIEXT359`](rules/compatibility.md#japiext359) | 'com.jidesoft.grouper' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
 | [`JAPIEXT361`](rules/compatibility.md#japiext361) | 'jogamp.opengl.windows' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
-| [`JAPIEXT362`](rules/compatibility.md#japiext362) | 'org.tmatesoft.sqljet' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
+| [`JAPIEXT362`](rules/compatibility.md#japiext362) | 'org.tmatesoft.sqljet' Java package and subpackages are not available in MATLAB. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
 | [`JAPIEXT363`](rules/compatibility.md#japiext363) | 'org.geotools.xml' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
 | [`JAPIEXT365`](rules/compatibility.md#japiext365) | 'org.cef.network' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
-| [`JAPIEXT366`](rules/compatibility.md#japiext366) | 'antlr.actions.cpp' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
+| [`JAPIEXT366`](rules/compatibility.md#japiext366) | 'antlr.actions.cpp' Java package and subpackages are not available in MATLAB. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
 | [`JAPIEXT367`](rules/compatibility.md#japiext367) | 'org.w3.x2000' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
 | [`JAPIEXT368`](rules/compatibility.md#japiext368) | 'net.bytebuddy.description' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
 | [`JAPIEXT370`](rules/compatibility.md#japiext370) | 'org.cometd.server' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
 | [`JAPIEXT371`](rules/compatibility.md#japiext371) | 'org.h2.value' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
 | [`JAPIEXT372`](rules/compatibility.md#japiext372) | 'org.opengis.referencing' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
-| [`JAPIEXT373`](rules/compatibility.md#japiext373) | 'org.antlr.analysis' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
+| [`JAPIEXT373`](rules/compatibility.md#japiext373) | 'org.antlr.analysis' Java package and subpackages are not available in MATLAB. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
 | [`JAPIEXT374`](rules/compatibility.md#japiext374) | 'org.openxml4j.util' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
 | [`JAPIEXT375`](rules/compatibility.md#japiext375) | 'com.vladium.util' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
 | [`JAPIEXT376`](rules/compatibility.md#japiext376) | 'net.jini.loader' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
@@ -1488,7 +1512,7 @@ to refresh them whenever `data/compatibility.toml` or
 | [`JAPIEXT386`](rules/compatibility.md#japiext386) | 'org.jdom.input' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
 | [`JAPIEXT387`](rules/compatibility.md#japiext387) | 'com.jidesoft.wizard' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
 | [`JAPIEXT388`](rules/compatibility.md#japiext388) | 'org.easymock.cglib' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
-| [`JAPIEXT389`](rules/compatibility.md#japiext389) | 'javax.microedition.io' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
+| [`JAPIEXT389`](rules/compatibility.md#japiext389) | 'javax.microedition.io' Java package and subpackages are not available in MATLAB. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
 | [`JAPIEXT391`](rules/compatibility.md#japiext391) | 'net.jini.jeri' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
 | [`JAPIEXT392`](rules/compatibility.md#japiext392) | 'com.graphbuilder.struc' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
 | [`JAPIEXT393`](rules/compatibility.md#japiext393) | 'net.jini.id' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
@@ -1511,8 +1535,8 @@ to refresh them whenever `data/compatibility.toml` or
 | [`JAPIEXT419`](rules/compatibility.md#japiext419) | 'org.apache.wml' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
 | [`JAPIEXT422`](rules/compatibility.md#japiext422) | 'org.geotools.catalog' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
 | [`JAPIEXT423`](rules/compatibility.md#japiext423) | 'org.mockito.runners' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
-| [`JAPIEXT424`](rules/compatibility.md#japiext424) | 'com.ibm.oti' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
-| [`JAPIEXT425`](rules/compatibility.md#japiext425) | 'antlr.collections.impl' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
+| [`JAPIEXT424`](rules/compatibility.md#japiext424) | 'com.ibm.oti' Java package and subpackages are not available in MATLAB. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
+| [`JAPIEXT425`](rules/compatibility.md#japiext425) | 'antlr.collections.impl' Java package and subpackages are not available in MATLAB. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
 | [`JAPIEXT427`](rules/compatibility.md#japiext427) | 'org.slf4j.helpers' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
 | [`JAPIEXT429`](rules/compatibility.md#japiext429) | 'org.osgi.framework' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
 | [`JAPIEXT431`](rules/compatibility.md#japiext431) | 'org.apache.xerces' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
@@ -1520,9 +1544,9 @@ to refresh them whenever `data/compatibility.toml` or
 | [`JAPIEXT433`](rules/compatibility.md#japiext433) | 'org.mockito.internal' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
 | [`JAPIEXT434`](rules/compatibility.md#japiext434) | 'org.tartarus.snowball' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
 | [`JAPIEXT435`](rules/compatibility.md#japiext435) | 'org.cometd.common' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
-| [`JAPIEXT436`](rules/compatibility.md#japiext436) | 'com.trilead.ssh2' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
+| [`JAPIEXT436`](rules/compatibility.md#japiext436) | 'com.trilead.ssh2' Java package and subpackages are not available in MATLAB. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
 | [`JAPIEXT437`](rules/compatibility.md#japiext437) | 'org.hamcrest.beans' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
-| [`JAPIEXT438`](rules/compatibility.md#japiext438) | 'de.regnis.q' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
+| [`JAPIEXT438`](rules/compatibility.md#japiext438) | 'de.regnis.q' Java package and subpackages are not available in MATLAB. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
 | [`JAPIEXT439`](rules/compatibility.md#japiext439) | 'org.h2.fulltext' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
 | [`JAPIEXT440`](rules/compatibility.md#japiext440) | 'org.h2.upgrade' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
 | [`JAPIEXT441`](rules/compatibility.md#japiext441) | 'org.easymock.asm' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
@@ -1537,7 +1561,7 @@ to refresh them whenever `data/compatibility.toml` or
 | [`JAPIEXT456`](rules/compatibility.md#japiext456) | 'jogamp.graph.curve' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
 | [`JAPIEXT457`](rules/compatibility.md#japiext457) | 'com.jidesoft.chart' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
 | [`JAPIEXT458`](rules/compatibility.md#japiext458) | 'com.jidesoft.grid' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
-| [`JAPIEXT460`](rules/compatibility.md#japiext460) | 'org.jaxen.saxpath' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
+| [`JAPIEXT460`](rules/compatibility.md#japiext460) | 'org.jaxen.saxpath' Java package and subpackages are not available in MATLAB. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
 | [`JAPIEXT461`](rules/compatibility.md#japiext461) | 'org.slf4j.spi' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
 | [`JAPIEXT462`](rules/compatibility.md#japiext462) | 'jogamp.opengl.util' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
 | [`JAPIEXT463`](rules/compatibility.md#japiext463) | 'com.jidesoft.gauge' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
@@ -1555,7 +1579,7 @@ to refresh them whenever `data/compatibility.toml` or
 | [`JAPIEXT480`](rules/compatibility.md#japiext480) | 'org.opengis.parameter' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
 | [`JAPIEXT481`](rules/compatibility.md#japiext481) | 'org.geotools.metadata' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
 | [`JAPIEXT482`](rules/compatibility.md#japiext482) | 'jogamp.common.util' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
-| [`JAPIEXT483`](rules/compatibility.md#japiext483) | 'com.googlecode.javaewah' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
+| [`JAPIEXT483`](rules/compatibility.md#japiext483) | 'com.googlecode.javaewah' Java package and subpackages are not available in MATLAB. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
 | [`JAPIEXT484`](rules/compatibility.md#japiext484) | 'org.mockito.creation' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
 | [`JAPIEXT488`](rules/compatibility.md#japiext488) | 'net.jini.config' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
 | [`JAPIEXT489`](rules/compatibility.md#japiext489) | 'net.bytebuddy.implementation' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
@@ -1565,7 +1589,7 @@ to refresh them whenever `data/compatibility.toml` or
 | [`JAPIEXT494`](rules/compatibility.md#japiext494) | 'org.cef.callback' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
 | [`JAPIEXT496`](rules/compatibility.md#japiext496) | 'abbot.editor.widgets' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
 | [`JAPIEXT497`](rules/compatibility.md#japiext497) | 'net.bytebuddy.jar' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
-| [`JAPIEXT498`](rules/compatibility.md#japiext498) | 'org.eclipse.elk' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
+| [`JAPIEXT498`](rules/compatibility.md#japiext498) | 'org.eclipse.elk' Java package and subpackages are not available in MATLAB. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
 | [`JAPIEXT499`](rules/compatibility.md#japiext499) | 'org.opengis.util' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
 | [`JAPIEXT500`](rules/compatibility.md#japiext500) | 'org.jdom.filter' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
 | [`JAPIEXT501`](rules/compatibility.md#japiext501) | 'net.jini.export' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
@@ -1595,7 +1619,7 @@ to refresh them whenever `data/compatibility.toml` or
 | [`JAPIEXT542`](rules/compatibility.md#japiext542) | 'net.jini.url' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
 | [`JAPIEXT543`](rules/compatibility.md#japiext543) | 'org.mortbay.io' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
 | [`JAPIEXT544`](rules/compatibility.md#japiext544) | 'org.geotools.filter' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
-| [`JAPIEXT545`](rules/compatibility.md#japiext545) | 'org.jaxen.jdom' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
+| [`JAPIEXT545`](rules/compatibility.md#japiext545) | 'org.jaxen.jdom' Java package and subpackages are not available in MATLAB. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
 | [`JAPIEXT546`](rules/compatibility.md#japiext546) | 'com.graphbuilder.org' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
 | [`JAPIEXT549`](rules/compatibility.md#japiext549) | 'org.h2.engine' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
 | [`JAPIEXT550`](rules/compatibility.md#japiext550) | 'org.apache.xmlbeans' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
@@ -1628,24 +1652,24 @@ to refresh them whenever `data/compatibility.toml` or
 | [`JAPIEXT582`](rules/compatibility.md#japiext582) | 'com.jidesoft.status' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
 | [`JAPIEXT583`](rules/compatibility.md#japiext583) | 'org.easymock.internal' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
 | [`JAPIEXT584`](rules/compatibility.md#japiext584) | 'com.jidesoft.swing' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
-| [`JAPIEXT585`](rules/compatibility.md#japiext585) | 'com.silveregg.wrapper' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
+| [`JAPIEXT585`](rules/compatibility.md#japiext585) | 'com.silveregg.wrapper' Java package and subpackages are not available in MATLAB. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
 | [`JAPIEXT586`](rules/compatibility.md#japiext586) | 'org.jacoco.asm' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
 | [`JAPIEXT587`](rules/compatibility.md#japiext587) | 'org.apache.pdfbox' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
 | [`JAPIEXT588`](rules/compatibility.md#japiext588) | 'jogamp.opengl.glu' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
 | [`JAPIEXT591`](rules/compatibility.md#japiext591) | 'com.jidesoft.action' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
 | [`JAPIEXT593`](rules/compatibility.md#japiext593) | 'com.reuters.ts1' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
-| [`JAPIEXT594`](rules/compatibility.md#japiext594) | 'org.jaxen.pattern' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
-| [`JAPIEXT599`](rules/compatibility.md#japiext599) | 'org.jaxen.dom4j' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
-| [`JAPIEXT600`](rules/compatibility.md#japiext600) | 'net.jpountz.lz4' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
+| [`JAPIEXT594`](rules/compatibility.md#japiext594) | 'org.jaxen.pattern' Java package and subpackages are not available in MATLAB. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
+| [`JAPIEXT599`](rules/compatibility.md#japiext599) | 'org.jaxen.dom4j' Java package and subpackages are not available in MATLAB. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
+| [`JAPIEXT600`](rules/compatibility.md#japiext600) | 'net.jpountz.lz4' Java package and subpackages are not available in MATLAB. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
 | [`JAPIEXT602`](rules/compatibility.md#japiext602) | 'org.eclipse.jetty' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
 | [`JAPIEXT606`](rules/compatibility.md#japiext606) | 'net.bytebuddy.asm' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
 | [`JAPIEXT607`](rules/compatibility.md#japiext607) | 'org.jacoco.core' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
-| [`JAPIEXT608`](rules/compatibility.md#japiext608) | 'com.jcraft.jsch' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
+| [`JAPIEXT608`](rules/compatibility.md#japiext608) | 'com.jcraft.jsch' Java package and subpackages are not available in MATLAB. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
 | [`JAPIEXT609`](rules/compatibility.md#japiext609) | 'com.jidesoft.tooltip' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
 | [`JAPIEXT612`](rules/compatibility.md#japiext612) | 'org.powermock.classloading' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
 | [`JAPIEXT613`](rules/compatibility.md#japiext613) | 'org.hamcrest.text' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
 | [`JAPIEXT615`](rules/compatibility.md#japiext615) | 'com.jidesoft.validation' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
-| [`JAPIEXT617`](rules/compatibility.md#japiext617) | 'net.jpountz.util' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
+| [`JAPIEXT617`](rules/compatibility.md#japiext617) | 'net.jpountz.util' Java package and subpackages are not available in MATLAB. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
 | [`JAPIEXT619`](rules/compatibility.md#japiext619) | 'org.hamcrest.xml' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
 | [`JAPIEXT620`](rules/compatibility.md#japiext620) | 'org.hamcrest.object' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
 | [`JAPIEXT621`](rules/compatibility.md#japiext621) | 'org.osgi.util' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
@@ -1683,9 +1707,9 @@ to refresh them whenever `data/compatibility.toml` or
 | [`JAPIEXT666`](rules/compatibility.md#japiext666) | 'com.jidesoft.document' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
 | [`JAPIEXT667`](rules/compatibility.md#japiext667) | 'org.h2.api' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
 | [`JAPIEXT668`](rules/compatibility.md#japiext668) | 'org.jdom2.transform' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
-| [`JAPIEXT669`](rules/compatibility.md#japiext669) | 'antlr.actions.java' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
+| [`JAPIEXT669`](rules/compatibility.md#japiext669) | 'antlr.actions.java' Java package and subpackages are not available in MATLAB. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
 | [`JAPIEXT673`](rules/compatibility.md#japiext673) | 'com.jidesoft.list' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
-| [`JAPIEXT674`](rules/compatibility.md#japiext674) | 'org.apache.fop' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
+| [`JAPIEXT674`](rules/compatibility.md#japiext674) | 'org.apache.fop' Java package and subpackages are not available in MATLAB. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
 | [`JAPIEXT675`](rules/compatibility.md#japiext675) | 'freemarker.template.utility' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
 | [`JAPIEXT676`](rules/compatibility.md#japiext676) | 'jogamp.opengl.es1' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
 | [`JAPIEXT677`](rules/compatibility.md#japiext677) | 'org.junit.validator' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
@@ -1700,7 +1724,7 @@ to refresh them whenever `data/compatibility.toml` or
 | [`JAPIEXT692`](rules/compatibility.md#japiext692) | 'net.bytebuddy.pool' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
 | [`JAPIEXT693`](rules/compatibility.md#japiext693) | 'com.vladium.app' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
 | [`JAPIEXT694`](rules/compatibility.md#japiext694) | 'com.jidesoft.hssf' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
-| [`JAPIEXT695`](rules/compatibility.md#japiext695) | 'com.sun.cdc' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
+| [`JAPIEXT695`](rules/compatibility.md#japiext695) | 'com.sun.cdc' Java package and subpackages are not available in MATLAB. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
 | [`JAPIEXT698`](rules/compatibility.md#japiext698) | 'com.sun.activation' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
 | [`JAPIEXT701`](rules/compatibility.md#japiext701) | 'com.googlecode.concurrentlinkedhashmap' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
 | [`JAPIEXT702`](rules/compatibility.md#japiext702) | 'com.hp.hpl' Java package and subpackages will not be available in MATLAB in a future release. To continue using this package, install its JAR file and add the JAR file to the static path in MATLAB. |
@@ -1873,6 +1897,7 @@ to refresh them whenever `data/compatibility.toml` or
 | [`LERR`](rules/suggested-improvements.md#lerr) | LASTERR and LASTERROR are not recommended. Use an identifier on the CATCH block instead. |
 | [`EVLC`](rules/suggested-improvements.md#evlc) | Using 'evalc' with two arguments is not recommended. Use try/catch statements instead to make code more clear and efficient. |
 | [`RAND`](rules/suggested-improvements.md#rand) | RAND or RANDN with the 'seed', 'state', or 'twister' inputs is not recommended. Use RNG instead. |
+| [`RAND`](rules/suggested-improvements.md#rand) | RAND or RANDN with the 'seed', 'state', or 'twister' inputs is not recommended. Use RNG instead. |
 | [`HOUGH`](rules/suggested-improvements.md#hough) | HOUGH(BW,'ThetaResolution',VAL) is not recommended. Use HOUGH(BW,'Theta',-90:VAL:(90-VAL) ) instead. |
 | [`THOUR`](rules/suggested-improvements.md#thour) | 'hour' with serial date number or text inputs is not recommended. With appropriate code changes, use 'datetime' as input instead. |
 | [`TMNTH`](rules/suggested-improvements.md#tmnth) | 'month' with serial date number or text inputs is not recommended. With appropriate code changes, use 'datetime' as input instead. |
@@ -1886,6 +1911,7 @@ to refresh them whenever `data/compatibility.toml` or
 | [`TNOW2`](rules/suggested-improvements.md#tnow2) | 'datetime(now, 'ConvertFrom', 'datenum')' is not recommended. Use 'datetime(\ |
 | [`TTDAY1`](rules/suggested-improvements.md#ttday1) | 'today' is not recommended. With appropriate code changes, use 'datetime(\ |
 | [`TTDAY2`](rules/suggested-improvements.md#ttday2) | 'datetime(today, 'ConvertFrom', 'datenum')' is not recommended. Use 'datetime(\ |
+| [`MATCH2`](rules/suggested-improvements.md#match2) | STRMATCH is not recommended. Use STRNCMP or VALIDATESTRING instead. |
 | [`MATCH2`](rules/suggested-improvements.md#match2) | STRMATCH is not recommended. Use STRNCMP or VALIDATESTRING instead. |
 | [`IMGDT`](rules/suggested-improvements.md#imgdt) | Using 'DataAugmentation' in function 'imageInputLayer' is not recommended. Use function 'augmentedImageDatastore' instead. |
 | [`MATCH3`](rules/suggested-improvements.md#match3) | STRMATCH is not recommended. Use STRCMP instead. |
@@ -2007,9 +2033,6 @@ to refresh them whenever `data/compatibility.toml` or
 | [`HDFW`](rules/suggested-improvements.md#hdfw) | 'hdf5write' is not recommended. With appropriate code changes, use 'h5write' instead. |
 | [`HDFR`](rules/suggested-improvements.md#hdfr) | 'hdf5read' is not recommended. With appropriate code changes, use 'h5read' instead. |
 | [`IM2BW`](rules/suggested-improvements.md#im2bw) | 'im2bw' is not recommended. With appropriate code changes, use 'imbinarize' instead. |
-| [`ISPIX`](rules/suggested-improvements.md#ispix) | 'pixelLabelImageSource' is not recommended. Use 'pixelLabelImageDatastore' instead, which is a direct replacement. |
-| [`ISAUG`](rules/suggested-improvements.md#isaug) | 'augmentedImageSource' is not recommended. Use 'augmentedImageDatastore' instead, which is a direct replacement. |
-| [`ISDNS`](rules/suggested-improvements.md#isdns) | 'denoisingImageSource' is not recommended. Use 'denoisingImageDatastore' instead, which is a direct replacement. |
 | [`IMFREEH`](rules/suggested-improvements.md#imfreeh) | 'imfreehand' is not recommended. With appropriate code changes, use 'drawfreehand' instead. |
 | [`IMRECT`](rules/suggested-improvements.md#imrect) | 'imrect' is not recommended. With appropriate code changes, use 'drawrectangle' instead. |
 | [`IMLINE`](rules/suggested-improvements.md#imline) | 'imline' is not recommended. With appropriate code changes, use 'drawline' instead. |
@@ -2112,6 +2135,7 @@ to refresh them whenever `data/compatibility.toml` or
 | [`MDFCHL`](rules/suggested-improvements.md#mdfchl) | 'channelList' method of 'mdf' class is not recommended. With appropriate code changes, use 'mdfChannelInfo' function instead. |
 | [`MDFSVA`](rules/suggested-improvements.md#mdfsva) | 'saveAttachment' method of 'mdf' class is not recommended. With appropriate code changes, use 'mdfSaveAttachment' function instead. |
 | [`MINELV`](rules/suggested-improvements.md#minelv) | 'MinElevationAngle' is not recommended. Use 'MaskElevationAngle' instead, which is a direct replacement when specified as scalar values. Row vector values must be transposed. |
+| [`BLCHID`](rules/suggested-improvements.md#blchid) | Specifying the channel ID as the second positional argument in 'blfread' is not recommended. With appropriate code changes, use the 'ChannelID' name-value argument instead. |
 
 ## Rule Categories
 
@@ -2140,7 +2164,12 @@ malt organizes rules into the same categories as MATLAB's Code Analyzer:
 | System Objects | `system-objects` | System object validation |
 | Unsupported | `unsupported` | Unsupported features |
 | Behavior Changes | `behavior-changes` | Behavior changes between MATLAB versions |
-| Configuration Issues | `configuration-issues` | Configuration file validation |
+
+The `configuration-issues` category has no checks: its engine was removed
+(the four configuration-file IDs `BDCFG`, `CFERR`, `BDOPT`, `CFIG` are reported
+by MATLAB only for `checkcode -config`, which malt does not read). The
+`[lint.categories]` key `configuration-issues` is still accepted, so old
+configuration files keep working; see the [migration note](migration.md).
 
 ## Severity Levels
 
@@ -2182,9 +2211,9 @@ NOSEMI = "error"    # Upgrade from info to error
 Or in a full table:
 
 ```toml
-[lint.rules.NOSEMI]
-severity = "error"
-ignore_functions = ["disp", "fprintf"]
+[lint.rules.NO4LP]
+severity = "warn"
+indent_size = 2
 ```
 
 ### Category-Level Configuration
@@ -2219,9 +2248,9 @@ behavior-changes = "off"
 ```
 
 The specialized engines `CODEGEN_ENGINE`, `DEPLOYMENT_ENGINE`,
-`SYSTEM_OBJECTS_ENGINE`, `CONFIG_ISSUES_ENGINE`, `SUGGESTED_IMPROVEMENTS`, and
-`UNSUPPORTED_ENGINE` are off by default, and the default `mathworks` preset also
-turns off `NAMING_ENGINE` and `CUSTOM_CHECKS`. Re-enable one per rule or per
+`SYSTEM_OBJECTS_ENGINE` and `UNSUPPORTED_ENGINE` are off by default, and the default `mathworks`
+preset also turns off `NAMING_ENGINE`, `CUSTOM_CHECKS` and the individual checks MATLAB's default
+Code Analyzer never reports. Re-enable one per rule or per
 category (or use `preset = "all"` to turn everything on):
 
 ```toml

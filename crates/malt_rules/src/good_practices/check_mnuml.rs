@@ -11,7 +11,8 @@ impl GoodPracticesEngine {
             Some(n) => n,
             None => return Vec::new(),
         };
-        if !["zeros", "ones", "rand", "randn", "false", "true"].contains(&func_name) {
+        // MATLAB reports `cell`, `ones`, `false` and `zeros` (probed); `eye` is not reported.
+        if !["cell", "zeros", "ones", "rand", "randn", "false", "true"].contains(&func_name) {
             return Vec::new();
         }
 
@@ -95,5 +96,23 @@ mod tests {
             .flat_map(|n| eng.check_mnuml(*n, source))
             .collect();
         assert!(diags.is_empty());
+    }
+
+    #[test]
+    fn test_mnuml_fires_on_cell_of_numel() {
+        // Probed in MATLAB: `cell(numel(x))` is reported; `eye(numel(x))` is not.
+        let source = "y = cell(numel(x));\ny2 = eye(numel(x));\n";
+        let tree = parse(source);
+        let eng = engine();
+        let nodes = all_descendants_of_kind(tree.root_node(), "function_call");
+        let diags: Vec<Diagnostic> = nodes
+            .iter()
+            .flat_map(|n| eng.check_mnuml(*n, source))
+            .collect();
+        assert_eq!(diags.len(), 1);
+        assert_eq!(diags[0].line, 1);
+        assert!(diags[0]
+            .message
+            .starts_with("To create a square matrix, use cell("));
     }
 }

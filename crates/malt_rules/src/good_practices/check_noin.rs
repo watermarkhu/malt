@@ -1,5 +1,5 @@
 use super::*;
-use crate::analysis::metadata::AttributeMeta;
+use crate::analysis::metadata::{AttributeMeta, Attributes};
 
 impl GoodPracticesEngine {
     /// NOIN: A non-static class method declares no input arguments, so it can
@@ -30,13 +30,13 @@ impl GoodPracticesEngine {
                 diagnostics.push(Diagnostic {
                     rule_id: "NOIN",
                     message: format!(
-                        "Method {} should either be a static method or have at least one input argument.",
+                        "Method '{}' should either be a static method or have at least one input argument.",
                         func.name
                     ),
-                    severity: Severity::Info,
+                    severity: Severity::Warning,
                     byte_range: func.byte_range.clone(),
                     line: func.line,
-                    column: 1,
+                    column: name_column(source, func.line, &func.name),
                     fix: None,
                 });
             }
@@ -46,12 +46,35 @@ impl GoodPracticesEngine {
     }
 }
 
-/// Whether a methods block's attributes make it `Static` (`Static`,
-/// `Static = true`, but not `~Static` or `Static = false`).
+/// The column of a method's name on its `function` line (MATLAB points at the name, as in
+/// `function r = f()`, column 22). Falls back to column 1 when the name is not found.
+fn name_column(source: &str, line: usize, name: &str) -> usize {
+    let text = source.lines().nth(line.saturating_sub(1)).unwrap_or("");
+    let bytes = text.as_bytes();
+    let is_word = |b: u8| b.is_ascii_alphanumeric() || b == b'_';
+    let mut from = text.find("function").map_or(0, |i| i + "function".len());
+    while let Some(i) = text
+        .get(from..)
+        .and_then(|t| t.find(name))
+        .map(|i| i + from)
+    {
+        let end = i + name.len();
+        let word_start = i == 0 || !is_word(bytes[i - 1]);
+        let word_end = end >= bytes.len() || !is_word(bytes[end]);
+        let rest = text[end..].trim_start();
+        if word_start && word_end && (rest.is_empty() || rest.starts_with(['(', '%'])) {
+            return i + 1;
+        }
+        from = i + 1;
+    }
+    1
+}
+
+/// Whether a methods block's attributes make it `Static`: a bare `Static,
+/// `Static = true` or `Static = 1`. MATLAB does not evaluate other values
+/// (`FALSE`, `0`, `TRUE`) and treats the block as not static (probed).
 fn is_static(attributes: &[AttributeMeta]) -> bool {
-    attributes.iter().any(|a| {
-        a.name == "Static" && !a.negated && a.value.as_deref().map(str::trim) != Some("false")
-    })
+    Attributes(attributes).is_true("Static")
 }
 
 #[cfg(test)]
@@ -100,5 +123,15 @@ mod tests {
         assert_eq!(noin_count(source), 0);
         let source = "function r = f()\nr = 1;\nend\n";
         assert_eq!(noin_count(source), 0);
+    }
+
+    #[test]
+    fn static_forms_other_than_true_and_one_are_not_static() {
+        // Probed: `Static = FALSE` and `Static = 0` are not static (NOIN: the
+        // method has no input); `Static = 1` and `Static = true` are.
+        assert_eq!(noin_count("classdef A\n    methods (Static = FALSE)\n        function r = f()\n            r = 1;\n        end\n    end\nend\n"), 1);
+        assert_eq!(noin_count("classdef A\n    methods (Static = 0)\n        function r = f()\n            r = 1;\n        end\n    end\nend\n"), 1);
+        assert_eq!(noin_count("classdef A\n    methods (Static = 1)\n        function r = f()\n            r = 1;\n        end\n    end\nend\n"), 0);
+        assert_eq!(noin_count("classdef A\n    methods (Static = true)\n        function r = f()\n            r = 1;\n        end\n    end\nend\n"), 0);
     }
 }

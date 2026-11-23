@@ -17,7 +17,7 @@
 //! many restrictions compared to general MATLAB code; this engine flags
 //! variable-size data, growing arrays, unsupported functions, cell arrays,
 //! try-catch, imports, nested functions, scripts, and similar constraints.
-//! All 15 checks share a single `CodegenEngine` that dispatches node-level
+//! All 14 checks share a single `CodegenEngine` that dispatches node-level
 //! checks on `function_call`, `command`, `try_statement`, `for_statement`,
 //! `assignment`, `cell`, and `arguments_statement` nodes, plus file-level
 //! checks for nested functions and script-mode files. Each diagnostic carries
@@ -27,21 +27,20 @@
 //!
 //! | Check ID | Severity | Fix | Description |
 //! | --- | --- | --- | --- |
-//! | EMVDF | error | no | Code generation requires that all elements of a variable are defined before indexing into the variable. |
-//! | EMGRO | error | no | For code generation, grow an array by using 'end + 1' indexing. |
-//! | EMFCN | error | no | This function is not supported in code generation. |
+//! | EMVDF | error | no | Code generation requires that all elements of a variable are defined before indexing into the variable. Fires on an indexed assignment `x(k) = ...` when `x` is not mentioned earlier in the enclosing function. |
+//! | EMGRO | error | no | For code generation, grow an array by using 'end + 1' indexing. Fires on `x(end+k) = ...` with `k` other than 1, and on `x = [x, ...]` growth inside a loop. |
+//! | EMFCN | error | no | This function is not supported in code generation. For example `eval`, `str2num`, `input`, `save`, `dir`. |
 //! | EMCEL | error | no | Fixed-point conversion does not support cell arrays. |
 //! | EMTC | error | no | TRY/CATCH is unsupported for code generation. |
 //! | EMIMP | error | no | Code generation does not support import statements. |
 //! | EMNST | error | no | Fixed-point conversion does not support nested functions. |
 //! | EMSCR | error | no | Code generation does not support scripts. |
 //! | EMPFR | error | no | HDL code generation does not support parfor statements. |
-//! | EMRIFAV | error | no | Code generation does not support repeating arguments with validation. |
-//! | EMLOAD | error | no | The output of a call to LOAD is not assigned to a variable. For code generation, assign the output of LOAD to a variable without subscripting. |
-//! | EMS2N | error | no | Code generation does not support 'str2num'. Use 'str2double' instead. |
-//! | PRMNOIN | error | no | For code generation, specify a binaryOccupancyMap object in the constructor of the mobileRobotPRM object. |
-//! | LOOPPRAGMAWITHOUTFOR | error | no | A coder.loop.Control transform must be immediately followed by a for loop. |
-//! | FPASE | error | no | Direct assignment to a possible fixed-point type is not recommended. Use the subscripted assignment syntax 'var(:) =' instead. |
+//! | EMRIFAV | error | no | Code generation does not support repeating arguments with validation. Fires on `arguments (Repeating)` blocks that declare validation. |
+//! | EMLOAD | error | no | The output of a call to LOAD is not assigned to a variable. For code generation, assign the output of LOAD to a variable without subscripting. Fires on `load` used as a statement or command, and on `x(k) = load(...)`. |
+//! | PRMNOIN | error | no | For code generation, specify a binaryOccupancyMap object in the constructor of the mobileRobotPRM object. Fires on `mobileRobotPRM()` called without arguments. |
+//! | LOOPPRAGMAWITHOUTFOR | error | no | A coder.loop.Control transform must be immediately followed by a for loop. Fires on a `coder.loop.*` call statement not followed by `for`. |
+//! | FPASE | warning | no | Direct assignment to a possible fixed-point type is not recommended. Use the subscripted assignment syntax 'var(:) =' instead. Fires on `y = ...` when `y` was earlier assigned `fi(...)`. |
 //!
 //! ## Examples
 //!
@@ -50,10 +49,10 @@
 //! ```matlab
 //! x = [];
 //! for i = 1:10
-//!     x(end+1) = i;   % EMGRO: growing array
+//!     x = [x, i];     % EMGRO: grow with end+1 indexing
 //! end
 //! y = {1, 2};         % EMCEL: cell array
-//! z = str2num('1 2'); % EMS2N: use str2double
+//! z = str2num('1 2'); % EMFCN: unsupported function
 //! ```
 //!
 //! ### Correct
@@ -83,6 +82,7 @@ mod check_for_statement;
 mod check_function_call;
 mod check_try_statement;
 
+use crate::analysis::callee::{call_path, command_path, Dotted};
 use malt_core::{Category, Config, Diagnostic, FileContext, NodeContext, Rule, Severity};
 use serde::Deserialize;
 
@@ -95,7 +95,7 @@ use serde::Deserialize;
 /// Deserialized from the `[lint.rules.CODEGEN_ENGINE]` section in `.malt.toml`.
 #[derive(Debug, Clone, Deserialize, Default)]
 pub struct CodegenEngineConfig {
-    /// Check IDs to skip (e.g., `["EMSCR", "EMWHL"]`).
+    /// Check IDs to skip (e.g., `["EMSCR", "EMFCN"]`).
     #[serde(default)]
     pub skip_checks: Vec<String>,
 }
@@ -110,7 +110,7 @@ struct CheckMeta {
     description: &'static str,
 }
 
-/// All 20 code generation check definitions.
+/// All code generation check definitions.
 const CHECKS: &[CheckMeta] = &[
     CheckMeta {
         id: "EMVDF",
@@ -119,10 +119,6 @@ const CHECKS: &[CheckMeta] = &[
     CheckMeta {
         id: "EMGRO",
         description: "For code generation, grow an array by using 'end + 1' indexing.",
-    },
-    CheckMeta {
-        id: "EMNODEF",
-        description: "Code generation requires that variables are defined before use.",
     },
     CheckMeta {
         id: "EMFCN",
@@ -149,24 +145,8 @@ const CHECKS: &[CheckMeta] = &[
         description: "Code generation does not support scripts.",
     },
     CheckMeta {
-        id: "EMBRK",
-        description: "HDL code generation does not support break statements.",
-    },
-    CheckMeta {
-        id: "EMCNT",
-        description: "HDL code generation does not support continue statements.",
-    },
-    CheckMeta {
         id: "EMPFR",
         description: "HDL code generation does not support parfor statements.",
-    },
-    CheckMeta {
-        id: "EMRTN",
-        description: "HDL code generation does not support return statements inside of loops.",
-    },
-    CheckMeta {
-        id: "EMWHL",
-        description: "HDL code generation does not support while statements.",
     },
     CheckMeta {
         id: "EMRIFAV",
@@ -175,10 +155,6 @@ const CHECKS: &[CheckMeta] = &[
     CheckMeta {
         id: "EMLOAD",
         description: "The output of a call to LOAD is not assigned to a variable. For code generation, assign the output of LOAD to a variable without subscripting.",
-    },
-    CheckMeta {
-        id: "EMS2N",
-        description: "Code generation does not support 'str2num'. Use 'str2double' instead.",
     },
     CheckMeta {
         id: "PRMNOIN",
@@ -194,12 +170,14 @@ const CHECKS: &[CheckMeta] = &[
     },
 ];
 
-/// Functions unsupported in code generation.
+/// Functions unsupported in code generation (reported as `EMFCN`).
+///
+/// Functions that code generation treats as extrinsic (`plot`, `figure`, `disp`,
+/// ...) and `load` (handled by `EMLOAD`) are deliberately absent.
 const UNSUPPORTED_FUNCTIONS: &[&str] = &[
     "eval",
     "evalc",
     "evalin",
-    "feval",
     "assignin",
     "input",
     "keyboard",
@@ -215,15 +193,8 @@ const UNSUPPORTED_FUNCTIONS: &[&str] = &[
     "clear",
     "clearvars",
     "pack",
-    "figure",
-    "plot",
-    "subplot",
-    "xlabel",
-    "ylabel",
-    "title",
     "diary",
     "save",
-    "load",
     "matfile",
     "cd",
     "ls",
@@ -233,12 +204,11 @@ const UNSUPPORTED_FUNCTIONS: &[&str] = &[
     "javaObject",
     "javaMethod",
     "javaArray",
-    "NET",
+    "str2num",
     "actxserver",
     "matlabroot",
     "tempdir",
     "tempname",
-    "script",
     "run",
 ];
 
@@ -255,7 +225,7 @@ fn check_description(id: &str) -> &'static str {
 // Rule implementation
 // ---------------------------------------------------------------------------
 
-/// Engine covering 20 code generation checks.
+/// Engine covering the code generation checks.
 ///
 /// Node-level checks fire on `function_call`, `command`, `try_statement`,
 /// `for_statement`, `assignment`, and `cell`. File-level checks detect
@@ -294,13 +264,13 @@ impl CodegenEngine {
     // ---------------------------------------------------------------------------
 
     /// File-level checks: EMNST (nested functions) and EMSCR (scripts).
-    fn check_file_level(&self, tree: &tree_sitter::Tree, _source: &str) -> Vec<Diagnostic> {
+    fn check_file_level(&self, tree: &tree_sitter::Tree, source: &str) -> Vec<Diagnostic> {
         let mut diags = Vec::new();
         let root = tree.root_node();
 
         // EMSCR: Script detection — a file whose first meaningful statement is
         // not a `function_definition` or `class_definition`.
-        if self.is_enabled("EMSCR") && is_script_file(&root) {
+        if self.is_enabled("EMSCR") && is_script_file(source) {
             let start = root.start_position();
             diags.push(Diagnostic {
                 rule_id: "EMSCR",
@@ -323,19 +293,16 @@ impl CodegenEngine {
 
     /// Recursively find nested function definitions (depth > 1).
     fn find_nested_functions(node: &tree_sitter::Node, depth: usize, diags: &mut Vec<Diagnostic>) {
-        let count = node.child_count();
-        for i in 0..count {
-            if let Some(child) = node.child(i) {
-                if child.kind() == "function_definition" {
-                    if depth >= 1 {
-                        // This is a nested function
-                        diags.push(make_diag("EMNST", child));
-                    }
-                    // Recurse into this function to find deeper nesting
-                    Self::find_nested_functions(&child, depth + 1, diags);
-                } else {
-                    Self::find_nested_functions(&child, depth, diags);
+        for child in crate::analysis::symbols::children_of(node) {
+            if child.kind() == "function_definition" {
+                if depth >= 1 {
+                    // This is a nested function
+                    diags.push(make_diag("EMNST", child));
                 }
+                // Recurse into this function to find deeper nesting
+                Self::find_nested_functions(&child, depth + 1, diags);
+            } else {
+                Self::find_nested_functions(&child, depth, diags);
             }
         }
     }
@@ -372,19 +339,28 @@ impl Rule for CodegenEngine {
     }
 
     fn check(&self, ctx: &NodeContext) -> Vec<Diagnostic> {
-        match ctx.node.kind() {
+        let diags = match ctx.node.kind() {
             "function_call" => self.check_function_call(ctx.node, ctx.source),
             "command" => self.check_command(ctx.node, ctx.source),
             "try_statement" => self.check_try_statement(ctx.node),
             "for_statement" => self.check_for_statement(ctx.node, ctx.source),
             "assignment" => self.check_assignment(ctx.node, ctx.source),
             "cell" => self.check_cell(ctx.node),
-            "arguments_statement" => self.check_arguments_statement(ctx.node),
+            "arguments_statement" => self.check_arguments_statement(ctx.node, ctx.source),
             _ => Vec::new(),
+        };
+        // Scanned only when a finding is about to be reported.
+        if diags.is_empty() || has_codegen_directive(ctx.source) {
+            diags
+        } else {
+            Vec::new()
         }
     }
 
     fn check_file(&self, ctx: &FileContext) -> Vec<Diagnostic> {
+        if !has_codegen_directive(ctx.source) {
+            return Vec::new();
+        }
         self.check_file_level(ctx.tree, ctx.source)
     }
 }
@@ -393,13 +369,26 @@ impl Rule for CodegenEngine {
 // Helper: diagnostic construction
 // ---------------------------------------------------------------------------
 
+/// Whether the file has a `%#codegen` directive. MATLAB reports the code generation
+/// messages only in such a file (probed: EMSCR, EMTC and EMIMP are silent without it).
+pub(crate) fn has_codegen_directive(source: &str) -> bool {
+    source
+        .lines()
+        .any(|line| line.trim_start().starts_with("%#codegen"))
+}
+
 /// Build a diagnostic from a check ID and node.
 pub(crate) fn make_diag(check_id: &'static str, node: tree_sitter::Node) -> Diagnostic {
     let start = node.start_position();
     Diagnostic {
         rule_id: check_id,
         message: check_description(check_id).to_string(),
-        severity: Severity::Error,
+        // Every code-generation check is an error except FPASE.
+        severity: if check_id == "FPASE" {
+            Severity::Warning
+        } else {
+            Severity::Error
+        },
         byte_range: node.start_byte()..node.end_byte(),
         line: start.row + 1,
         column: start.column + 1,
@@ -414,34 +403,6 @@ pub(crate) fn make_diag(check_id: &'static str, node: tree_sitter::Node) -> Diag
 /// Extract the raw text of a node.
 pub(crate) fn node_text<'a>(node: tree_sitter::Node<'a>, source: &'a str) -> &'a str {
     &source[node.start_byte()..node.end_byte()]
-}
-
-/// Extract function name from a `function_call` node.
-pub(crate) fn extract_func_name<'a>(
-    node: tree_sitter::Node<'a>,
-    source: &'a str,
-) -> Option<&'a str> {
-    if node.kind() != "function_call" {
-        return None;
-    }
-    let name_node = node.child_by_field_name("name")?;
-    Some(&source[name_node.start_byte()..name_node.end_byte()])
-}
-
-/// Extract command name from a `command` node.
-pub(crate) fn extract_command_name<'a>(
-    node: tree_sitter::Node<'a>,
-    source: &'a str,
-) -> Option<&'a str> {
-    if node.kind() != "command" {
-        return None;
-    }
-    let name_node = node.child(0)?;
-    if name_node.kind() == "command_name" {
-        Some(&source[name_node.start_byte()..name_node.end_byte()])
-    } else {
-        None
-    }
 }
 
 // ---------------------------------------------------------------------------
@@ -462,24 +423,14 @@ pub(crate) fn is_inside_loop(node: tree_sitter::Node) -> bool {
     false
 }
 
-/// Check if an indexing expression contains `end+1` pattern.
-pub(crate) fn contains_end_plus_pattern(node: tree_sitter::Node, source: &str) -> bool {
-    let text = node_text(node, source);
-    let normalized: String = text.chars().filter(|c| !c.is_whitespace()).collect();
-    normalized.contains("end+1")
-}
-
 /// Check if a matrix literal contains a variable name as an element.
 pub(crate) fn matrix_contains_var(node: tree_sitter::Node, source: &str, var_name: &str) -> bool {
-    let count = node.child_count();
-    for i in 0..count {
-        if let Some(child) = node.child(i) {
-            if child.kind() == "identifier" && node_text(child, source) == var_name {
-                return true;
-            }
-            if child.kind() == "row" && matrix_contains_var(child, source, var_name) {
-                return true;
-            }
+    for child in crate::analysis::symbols::children_of(node) {
+        if child.kind() == "identifier" && node_text(child, source) == var_name {
+            return true;
+        }
+        if child.kind() == "row" && matrix_contains_var(child, source, var_name) {
+            return true;
         }
     }
     false
@@ -487,20 +438,26 @@ pub(crate) fn matrix_contains_var(node: tree_sitter::Node, source: &str, var_nam
 
 /// Returns `true` if a `source_file` is a script (top-level statements that are
 /// not a `function_definition` or `class_definition`).
-fn is_script_file(root: &tree_sitter::Node) -> bool {
-    let count = root.child_count();
-    for i in 0..count {
-        let Some(child) = root.child(i) else {
-            continue;
-        };
-        match child.kind() {
-            "comment" | "line_continuation" => continue,
-            "function_definition" | "class_definition" => return false,
-            // Any other top-level statement means the file is a script.
-            _ => return true,
+fn is_script_file(source: &str) -> bool {
+    // The first statement decides: leading comments (`%`, `%{ ... %}`) and blank lines
+    // are skipped, as MATLAB does (a help comment before `function` is not a script).
+    let mut rest = source;
+    loop {
+        let trimmed = rest.trim_start();
+        if let Some(block) = trimmed.strip_prefix("%{") {
+            rest = block.find("%}").map_or("", |end| &block[end + 2..]);
+        } else if let Some(line) = trimmed.strip_prefix('%') {
+            rest = line.find('\n').map_or("", |end| &line[end + 1..]);
+        } else {
+            rest = trimmed;
+            break;
         }
     }
-    false
+    let is_keyword = |word: &str| {
+        rest.strip_prefix(word)
+            .is_some_and(|after| !after.starts_with(|c: char| c.is_alphanumeric() || c == '_'))
+    };
+    !(is_keyword("function") || is_keyword("classdef"))
 }
 
 /// Check if the next statement after a node is a for_statement.
@@ -509,11 +466,79 @@ pub(crate) fn is_followed_by_for(node: tree_sitter::Node) -> bool {
     while let Some(sib) = sibling {
         match sib.kind() {
             "for_statement" => return true,
-            ";" | "comment" | "line_continuation" => {
+            ";" | "," | "\n" | "\r\n" | "comment" | "line_continuation" => {
                 sibling = sib.next_sibling();
             }
             _ => return false,
         }
+    }
+    false
+}
+
+/// Number of arguments passed in a `function_call` node (0 for `f()`).
+pub(crate) fn call_arg_count(node: tree_sitter::Node) -> usize {
+    (0..node.child_count())
+        .filter_map(|i| node.child(i))
+        .find(|c| c.kind() == "arguments")
+        .map(|args| {
+            (0..args.named_child_count())
+                .filter_map(|i| args.named_child(i))
+                .filter(|c| c.kind() != "comment")
+                .count()
+        })
+        .unwrap_or(0)
+}
+
+/// Nearest enclosing `function_definition`, or the root node.
+pub(crate) fn enclosing_scope(node: tree_sitter::Node) -> tree_sitter::Node {
+    let mut current = node;
+    while let Some(p) = current.parent() {
+        if p.kind() == "function_definition" {
+            return p;
+        }
+        current = p;
+    }
+    current
+}
+
+/// Whether an identifier named `name` occurs inside `scope` before byte
+/// offset `before` (parameters, outputs, assignments, declarations, uses).
+pub(crate) fn has_earlier_mention(
+    scope: tree_sitter::Node,
+    source: &str,
+    name: &str,
+    before: usize,
+) -> bool {
+    if scope.start_byte() >= before {
+        return false;
+    }
+    if scope.kind() == "identifier" {
+        return scope.end_byte() <= before && node_text(scope, source) == name;
+    }
+    // Children are in source order: none after the first that starts at or past
+    // `before` can hold a mention.
+    crate::analysis::symbols::children_of(scope)
+        .into_iter()
+        .take_while(|c| c.start_byte() < before)
+        .any(|c| has_earlier_mention(c, source, name, before))
+}
+
+/// Whether the text of an indexing expression grows past the end by
+/// something other than exactly `end+1` (e.g. `end+2`, `end+n`).
+pub(crate) fn has_end_plus_other(text: &str) -> bool {
+    let norm: String = text.chars().filter(|c| !c.is_whitespace()).collect();
+    let mut rest = norm.as_str();
+    while let Some(pos) = rest.find("end+") {
+        let after = &rest[pos + 4..];
+        let is_one = after.starts_with('1')
+            && !after[1..]
+                .chars()
+                .next()
+                .is_some_and(|c| c.is_alphanumeric() || c == '_' || c == '.');
+        if !is_one {
+            return true;
+        }
+        rest = after;
     }
     false
 }
@@ -538,8 +563,8 @@ pub(crate) fn engine() -> Box<dyn Rule> {
 
 #[cfg(test)]
 mod tests {
+    use super::test_util::{has_id, lint_file, lint_nodes};
     use super::*;
-    use crate::test_util::{has_id, lint_file, lint_nodes};
     use malt_core::Config;
 
     // -- EMSCR (file-level) -----------------------------------------------------
@@ -555,6 +580,22 @@ mod tests {
     fn emscr_not_fire_on_function_file() {
         let src = "function f()\n    x = 1;\nend\n";
         let diags = lint_file(&*engine(), src);
+        assert!(!has_id(&diags, "EMSCR"), "got: {diags:?}");
+    }
+
+    #[test]
+    fn codegen_messages_need_the_directive() {
+        // MATLAB reports EMSCR only in a file with `%#codegen` (probed).
+        let raw = crate::test_util::lint_file(&*engine(), "x = 1;\n");
+        assert!(!has_id(&raw, "EMSCR"), "got: {raw:?}");
+        let with = crate::test_util::lint_file(&*engine(), "%#codegen\nx = 1;\n");
+        assert!(has_id(&with, "EMSCR"), "got: {with:?}");
+    }
+
+    #[test]
+    fn leading_help_comment_keeps_a_function_file() {
+        let src = "%#codegen\n% help text\nfunction f()\nend\n";
+        let diags = crate::test_util::lint_file(&*engine(), src);
         assert!(!has_id(&diags, "EMSCR"), "got: {diags:?}");
     }
 
@@ -608,5 +649,22 @@ skip_checks = ["EMSCR", "EMFCN"]
         let src = "try\n    x = 1;\ncatch\n    y = 2;\nend\n";
         let diags = lint_nodes(&*rule, src);
         assert!(has_id(&diags, "EMTC"), "got: {diags:?}");
+    }
+}
+
+/// Test helpers that lint with a `%#codegen` directive in front of the source: the
+/// code generation messages need it (see `has_codegen_directive`). The directive
+/// takes the first line, so reported line numbers are one more than the source's.
+#[cfg(test)]
+pub(crate) mod test_util {
+    pub(crate) use crate::test_util::has_id;
+    use malt_core::{Diagnostic, Rule};
+
+    pub(crate) fn lint_nodes(rule: &dyn Rule, source: &str) -> Vec<Diagnostic> {
+        crate::test_util::lint_nodes(rule, &format!("%#codegen\n{source}"))
+    }
+
+    pub(crate) fn lint_file(rule: &dyn Rule, source: &str) -> Vec<Diagnostic> {
+        crate::test_util::lint_file(rule, &format!("%#codegen\n{source}"))
     }
 }

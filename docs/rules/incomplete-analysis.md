@@ -9,147 +9,127 @@ icon: lucide/wrench
 **Category:** Incomplete Analysis
 **Can be disabled:** Yes
 **Enabled by default:** Yes
+**Maturity:** Mixed (1 of 10 experimental)
 
 ## What this rule does
 
-Implements the "Incomplete Analysis" checks from MATLAB's Code Analyzer.
-These diagnostics report when the analysis itself was limited or could not
-complete reliably: too many diagnostics, too many parse errors, files that
-are too large, too deeply nested, or too long. They represent linter
-internal limits and **cannot be disabled** by the user.
+Implements the "Incomplete Analysis" checks from MATLAB's Code Analyzer:
+the limits at which the analysis stops being reliable. Too many messages
+(TMMSG, reported by the linter, which sees every rule), too many parse errors
+(TMSMS), parentheses nested too deeply (MDEEP), functions nested too deeply
+(DEEPN), block comments nested too deeply (DEEPC), statements nested too
+deeply (NOSPC), and an expression with too many nested operators (MXASET).
+The thresholds are MATLAB's, measured with `checkcode` (R2026b) on generated
+files. They cannot be disabled by the user. MXASET, NOSPC, MDEEP and DEEPN
+stop the analysis: MATLAB reports only them for the file, so malt does too.
+MDEEP and DEEPN are measured before malt's own depth guard, so a file nested
+more deeply than malt walks still gets MATLAB's message.
 
-A single file-level engine (`IncompleteAnalysisEngine`) collects tree
-metrics (node count, ERROR count, nesting depths) in one pass, then applies
-each threshold check against the configured limits. Each diagnostic carries
-the specific check ID (e.g. `TMMSG`, `MDEEP`).
+Some MATLAB checks of this category were never reported in the probes, so
+malt does not emit them: MBIG (no report up to 16 MB), TEXTL (no report for
+lines or string literals of 5 MB), DEEPS (nesting beyond the NOSPC limit gives
+NOSPC only), EOFER (more than 1,000 syntax errors give TMSMS only), and EOFMI
+(a file ending in an unfinished statement gives SYNER). MDOTM and MDMCR are
+kept: `checkcode` raises an error instead of reporting them for a file that is
+not a `.m` file, so only the message text is taken from MATLAB.
 
-Three related MATLAB checks are not emitted by this engine: `QUIT`
-(analysis did not complete — the panic guard lives in the linter core),
-`NOFIL` (file not found), and `RDERR` (unable to read file) are handled by
-the CLI.
+malt's own safety limits are not MATLAB checks and are set under
+`[lint.limits]` (see the Resource limits section of the configuration page).
+Code nested beyond the depth of the parse tree (`max_tree_depth`), or with
+more nested brackets than `max_nesting`, gets a `MALT_TOO_DEEP` diagnostic;
+a file larger than `max_file_size` gets `MALT_TOO_BIG` and is not read. Neither
+is analysed (see `Linter::lint`).
 
 ## Check IDs
 
 ### TMMSG
 
-Severity: **error** · Auto-fix: **no**
+Severity: **error** · Auto-fix: **no** · Maturity: **experimental**
 
 More than 10,000 Code Analyzer messages were generated, leading to some being deleted.
 
 ### TMSMS
 
-Severity: **error** · Auto-fix: **no**
+Severity: **error** · Auto-fix: **no** · Maturity: **stable**
 
 More than 1,000 parse error messages were generated, leading to some being deleted.
 
 ### MXASET
 
-Severity: **error** · Auto-fix: **no**
+Severity: **error** · Auto-fix: **no** · Maturity: **stable**
 
 The file is too complex to analyze. Simplify the code to improve code maintainability. For example, reduce the number of operations in expressions.
 
 ### NOSPC
 
-Severity: **error** · Auto-fix: **no**
+Severity: **error** · Auto-fix: **no** · Maturity: **stable**
 
 The file is too complex to analyze. Refactor the code to improve code maintainability. For example, reduce the nesting level of conditions or functions.
 
-### MBIG
-
-Severity: **error** · Auto-fix: **no**
-
-Code analysis did not complete. File VAR_FILE is too large.
-
 ### MDOTM
 
-Severity: **error** · Auto-fix: **no**
+Severity: **error** · Auto-fix: **no** · Maturity: **stable**
 
 Unable to run code analysis. VAR_FILE has an invalid file extension.
 
 ### MDMCR
 
-Severity: **error** · Auto-fix: **no**
+Severity: **error** · Auto-fix: **no** · Maturity: **stable**
 
 Unable to run code analysis. VAR_FILE is a deployed MATLAB file.
 
-### EOFER
-
-Severity: **error** · Auto-fix: **no**
-
-Code analysis did not complete. File contains too many syntax errors.
-
-### EOFMI
-
-Severity: **error** · Auto-fix: **no**
-
-Invalid syntax at end of file. File is incomplete.
-
 ### MDEEP
 
-Severity: **error** · Auto-fix: **no**
+Severity: **error** · Auto-fix: **no** · Maturity: **stable**
 
 Parentheses, brackets, and braces are nested too deeply.
 
 ### DEEPC
 
-Severity: **error** · Auto-fix: **no**
+Severity: **error** · Auto-fix: **no** · Maturity: **stable**
 
 Block comments are nested too deeply.
 
 ### DEEPN
 
-Severity: **error** · Auto-fix: **no**
+Severity: **error** · Auto-fix: **no** · Maturity: **stable**
 
 Functions are nested too deeply.
 
-### DEEPS
+### EOFER
 
-Severity: **error** · Auto-fix: **no**
+Severity: **error** · Auto-fix: **no** · Maturity: **stable**
 
-Statements are nested too deeply.
+Code analysis did not complete. File contains too many syntax errors.
 
-### TEXTL
+## Maturity
 
-Severity: **error** · Auto-fix: **no**
+Experimental checks are off by default and run with `[lint] experimental = true`, the `all` preset, or an explicit rule setting (see [Experimental checks](../configuration.md#experimental-checks)).
 
-Text is too long for MATLAB to parse.
+`TMMSG`: Declared but never emitted: no code path (FEGLO, TMMSG), an empty denylist (RMWRN), an unreachable arm (MATLAB reports ATAS, ATUNK and ATPPP in the shapes of ATNAS, ATNPI and ATNPP), a data entry without function name or pattern (MASSO, IMSSO, the RISK checks on class methods), or a toolbox that is not installed (ROS).
 
 ## Examples
 
 ### Incorrect
 
 ```matlab
-% EOFMI: file ends mid-block without a matching `end`
-function f()
-    if x > 0
-        y = 1;
-% MDEEP: parentheses nested deeper than the configured limit
-z = ((((((((((((((((((((((((((((((((((((((((((1)))))))))))))))))))))))))))))))))))))))))))));
+% MDEEP: 33 nested parentheses (MATLAB accepts 32)
+z = ((((((((((((((((((((((((((((((((((1))))))))))))))))))))))))))))))))));
 ```
 
 ### Correct
 
 ```matlab
-function f()
-    if x > 0
-        y = 1;
-    end
-end
-z = 1;
+z = ((((((((((((((((((((((((((((((((1))))))))))))))))))))))))))))))));
 ```
 
 ## Configuration
 
 ```toml
 [lint.rules.INCOMPLETE_ANALYSIS]
-max_diagnostics = 10000
 max_parse_errors = 1000
-max_node_count = 100000
-max_file_size = 1048576
 max_paren_depth = 32
-max_function_depth = 20
-max_statement_depth = 15
-max_line_length = 4096
+max_function_depth = 17
 ```
 
 See [Configuration](../configuration.md) for the full parameter list and [rules.md](../rules.md) for the complete rule inventory.

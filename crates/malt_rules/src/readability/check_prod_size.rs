@@ -78,6 +78,15 @@ mod tests {
     }
 
     #[test]
+    fn psize_is_not_reported_after_return() {
+        let diags = lint_nodes(
+            &*engine(),
+            "function f(a)\nreturn\nx = prod(size(a));\nend\n",
+        );
+        assert!(!has_id(&diags, "PSIZE"), "got: {diags:?}");
+    }
+
+    #[test]
     fn psize_prod_without_size_does_not_fire() {
         let diags = lint_nodes(&*engine(), "x = prod(a);\n");
         assert!(!has_id(&diags, "PSIZE"), "got: {diags:?}");

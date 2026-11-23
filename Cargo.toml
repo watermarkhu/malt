@@ -3,6 +3,8 @@ resolver = "2"
 members = [
     "crates/malt_cli",
     "crates/malt_core",
+    "crates/malt_index",
+    "crates/malt_py",
     "crates/malt_rules",
     "crates/malt_wasm",
 ]
@@ -20,17 +22,27 @@ keywords = ["matlab", "linter", "lint", "static-analysis", "tree-sitter"]
 categories = ["development-tools", "command-line-utilities"]
 
 [workspace.dependencies]
-# Internal crates, published to crates.io as `malt-core`, `malt-rules` and
-# `malt-cli` (the bare `malt` crate name belongs to an unrelated project).
+# Internal crates, published to crates.io as `malt-core`, `malt-rules`,
+# `malt-index` and `malt-cli` (the bare `malt` crate name belongs to an unrelated project).
 malt-core = { path = "crates/malt_core", version = "0.0.0" }
 malt-rules = { path = "crates/malt_rules", version = "0.0.0" }
+malt-index = { path = "crates/malt_index", version = "0.0.0" }
 tree-sitter = "0.25"
 tree-sitter-language = "0.1"
-tree-sitter-matlab = "1.3"
+tree-sitter-matlab = "1.3.4"
 serde = { version = "1", features = ["derive"] }
 toml = "0.8"
 thiserror = "2"
+serde_json = "1"
 anyhow = "1"
 clap = { version = "4", features = ["derive"] }
 inventory = "0.3"
 regex = "1"
+pyo3 = { version = "0.30", features = ["abi3-py310"] }
+
+[profile.release]
+# Thin LTO: 5-9% faster linting on large files for about a second more build
+# time. Fat LTO with one codegen unit measured no faster and builds 2.5x slower.
+# `panic = "abort"` is not an option: the linter catches a panicking rule and
+# reports QUIT instead.
+lto = "thin"

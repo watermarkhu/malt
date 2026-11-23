@@ -9,6 +9,7 @@ icon: lucide/braces
 **Category:** Code Generation
 **Can be disabled:** Yes
 **Enabled by default:** No (opt in per rule or per category)
+**Maturity:** Experimental
 
 ## What this rule does
 
@@ -17,7 +18,7 @@ Coder / code generation. MATLAB code intended to be compiled to C/C++ has
 many restrictions compared to general MATLAB code; this engine flags
 variable-size data, growing arrays, unsupported functions, cell arrays,
 try-catch, imports, nested functions, scripts, and similar constraints.
-All 15 checks share a single `CodegenEngine` that dispatches node-level
+All 14 checks share a single `CodegenEngine` that dispatches node-level
 checks on `function_call`, `command`, `try_statement`, `for_statement`,
 `assignment`, `cell`, and `arguments_statement` nodes, plus file-level
 checks for nested functions and script-mode files. Each diagnostic carries
@@ -27,93 +28,93 @@ the specific check ID (e.g. `EMFCN`, `EMSCR`).
 
 ### EMVDF
 
-Severity: **error** · Auto-fix: **no**
+Severity: **error** · Auto-fix: **no** · Maturity: **experimental**
 
-Code generation requires that all elements of a variable are defined before indexing into the variable.
+Code generation requires that all elements of a variable are defined before indexing into the variable. Fires on an indexed assignment `x(k) = ...` when `x` is not mentioned earlier in the enclosing function.
 
 ### EMGRO
 
-Severity: **error** · Auto-fix: **no**
+Severity: **error** · Auto-fix: **no** · Maturity: **experimental**
 
-For code generation, grow an array by using 'end + 1' indexing.
+For code generation, grow an array by using 'end + 1' indexing. Fires on `x(end+k) = ...` with `k` other than 1, and on `x = [x, ...]` growth inside a loop.
 
 ### EMFCN
 
-Severity: **error** · Auto-fix: **no**
+Severity: **error** · Auto-fix: **no** · Maturity: **experimental**
 
-This function is not supported in code generation.
+This function is not supported in code generation. For example `eval`, `str2num`, `input`, `save`, `dir`.
 
 ### EMCEL
 
-Severity: **error** · Auto-fix: **no**
+Severity: **error** · Auto-fix: **no** · Maturity: **experimental**
 
 Fixed-point conversion does not support cell arrays.
 
 ### EMTC
 
-Severity: **error** · Auto-fix: **no**
+Severity: **error** · Auto-fix: **no** · Maturity: **experimental**
 
 TRY/CATCH is unsupported for code generation.
 
 ### EMIMP
 
-Severity: **error** · Auto-fix: **no**
+Severity: **error** · Auto-fix: **no** · Maturity: **experimental**
 
 Code generation does not support import statements.
 
 ### EMNST
 
-Severity: **error** · Auto-fix: **no**
+Severity: **error** · Auto-fix: **no** · Maturity: **experimental**
 
 Fixed-point conversion does not support nested functions.
 
 ### EMSCR
 
-Severity: **error** · Auto-fix: **no**
+Severity: **error** · Auto-fix: **no** · Maturity: **experimental**
 
 Code generation does not support scripts.
 
 ### EMPFR
 
-Severity: **error** · Auto-fix: **no**
+Severity: **error** · Auto-fix: **no** · Maturity: **experimental**
 
 HDL code generation does not support parfor statements.
 
 ### EMRIFAV
 
-Severity: **error** · Auto-fix: **no**
+Severity: **error** · Auto-fix: **no** · Maturity: **experimental**
 
-Code generation does not support repeating arguments with validation.
+Code generation does not support repeating arguments with validation. Fires on `arguments (Repeating)` blocks that declare validation.
 
 ### EMLOAD
 
-Severity: **error** · Auto-fix: **no**
+Severity: **error** · Auto-fix: **no** · Maturity: **experimental**
 
-The output of a call to LOAD is not assigned to a variable. For code generation, assign the output of LOAD to a variable without subscripting.
-
-### EMS2N
-
-Severity: **error** · Auto-fix: **no**
-
-Code generation does not support 'str2num'. Use 'str2double' instead.
+The output of a call to LOAD is not assigned to a variable. For code generation, assign the output of LOAD to a variable without subscripting. Fires on `load` used as a statement or command, and on `x(k) = load(...)`.
 
 ### PRMNOIN
 
-Severity: **error** · Auto-fix: **no**
+Severity: **error** · Auto-fix: **no** · Maturity: **experimental**
 
-For code generation, specify a binaryOccupancyMap object in the constructor of the mobileRobotPRM object.
+For code generation, specify a binaryOccupancyMap object in the constructor of the mobileRobotPRM object. Fires on `mobileRobotPRM()` called without arguments.
 
 ### LOOPPRAGMAWITHOUTFOR
 
-Severity: **error** · Auto-fix: **no**
+Severity: **error** · Auto-fix: **no** · Maturity: **experimental**
 
-A coder.loop.Control transform must be immediately followed by a for loop.
+A coder.loop.Control transform must be immediately followed by a for loop. Fires on a `coder.loop.*` call statement not followed by `for`.
 
 ### FPASE
 
-Severity: **error** · Auto-fix: **no**
+Severity: **warning** · Auto-fix: **no** · Maturity: **experimental**
 
-Direct assignment to a possible fixed-point type is not recommended. Use the subscripted assignment syntax 'var(:) =' instead.
+Direct assignment to a possible fixed-point type is not recommended. Use the subscripted assignment syntax 'var(:) =' instead. Fires on `y = ...` when `y` was earlier assigned `fi(...)`.
+
+## Maturity
+
+Experimental checks are off by default and run with `[lint] experimental = true`, the `all` preset, or an explicit rule setting (see [Experimental checks](../configuration.md#experimental-checks)).
+
+14 checks (marked in the table above): MATLAB Coder checks: checkcode never emitted one in the probes (they need MATLAB Coder and %#codegen); verified against the documentation index only. The engine is off by default.
 
 ## Examples
 
@@ -122,10 +123,10 @@ Direct assignment to a possible fixed-point type is not recommended. Use the sub
 ```matlab
 x = [];
 for i = 1:10
-    x(end+1) = i;   % EMGRO: growing array
+    x = [x, i];     % EMGRO: grow with end+1 indexing
 end
 y = {1, 2};         % EMCEL: cell array
-z = str2num('1 2'); % EMS2N: use str2double
+z = str2num('1 2'); % EMFCN: unsupported function
 ```
 
 ### Correct

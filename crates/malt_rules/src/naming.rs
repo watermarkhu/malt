@@ -29,17 +29,19 @@
 //! once to extract all named entities, then applies every enabled check to
 //! each matching entity, emitting diagnostics with the specific rule ID.
 //!
-//! Only `maxLength` (default 63, MATLAB's `namelengthmax`) and `minLength`
-//! (default 2) produce diagnostics without user configuration; the other
-//! seven check types require configuration.
+//! MATLAB's factory configuration has no naming limits, so no check reports
+//! anything until it is configured: a check without its option is silent.
+//! A variable is reported once per function (or script) at its first
+//! occurrence there, as MATLAB does, and a regular expression must match the
+//! whole name.
 //!
 //! ## Examples
 //!
 //! ### Incorrect
 //!
 //! ```matlab
-//! myvar1 = 1;       % naming.variable.casing — style configured, e.g. camelCase
-//! classdef myClass  % naming.class.casing — style configured, e.g. PascalCase
+//! myvar1 = 1;       % naming.variable.casing — style configured, e.g. lowerCamelCase
+//! classdef myClass  % naming.class.casing — style configured, e.g. UpperCamelCase
 //! end
 //! ```
 //!
@@ -58,16 +60,23 @@
 //! ```toml
 //! [lint.rules."naming.class.casing"]
 //! severity = "error"
-//! style = "PascalCase"
+//! style = "UpperCamelCase"
 //!
 //! [lint.rules."naming.function.maxLength"]
 //! severity = "warn"
 //! max = 32
 //!
 //! [lint.rules."naming.variable.disallowedPrefix"]
-//! prefix = "temp"
+//! prefix = ["temp", "tmp"]
 //! ```
+//!
+//! `style` takes MATLAB's names: `lowerCamelCase`, `UpperCamelCase`,
+//! `lowercase_with_underscores`, `UPPERCASE_WITH_UNDERSCORES`, `lowercase` and
+//! `UPPERCASE`. The older names `camelCase`, `PascalCase`, `snake_case` and
+//! `UPPER_CASE` are accepted as aliases. `prefix`, `suffix` and `phrase` take a
+//! string or an array of strings.
 
+use std::collections::HashSet;
 use std::sync::LazyLock;
 
 use malt_core::{Category, Config, Diagnostic, FileContext, Rule, Severity};
@@ -198,7 +207,7 @@ fn rule_id_for(entity: NamingEntity, check_type: NamingCheckType) -> &'static st
 }
 
 /// Iterator over all (id, entity, check_type) combinations.
-fn all_naming_combinations() -> Vec<(&'static str, NamingEntity, NamingCheckType)> {
+pub(crate) fn all_naming_combinations() -> Vec<(&'static str, NamingEntity, NamingCheckType)> {
     let mut combos = Vec::with_capacity(81);
     for &entity in NamingEntity::ALL {
         for &check_type in NamingCheckType::ALL {
@@ -212,16 +221,36 @@ fn all_naming_combinations() -> Vec<(&'static str, NamingEntity, NamingCheckType
 // Per-check configuration
 // ---------------------------------------------------------------------------
 
+/// One string, or an array of strings, as MATLAB accepts for affixes.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(untagged)]
+pub enum OneOrMany {
+    /// A single string.
+    One(String),
+    /// An array of strings: the check accepts any of them.
+    Many(Vec<String>),
+}
+
+impl OneOrMany {
+    /// The strings this value stands for.
+    fn values(&self) -> Vec<&str> {
+        match self {
+            OneOrMany::One(value) => vec![value.as_str()],
+            OneOrMany::Many(values) => values.iter().map(String::as_str).collect(),
+        }
+    }
+}
+
 /// Configuration for a single naming check, read from `.malt.toml`.
 ///
 /// Each field applies to a specific check type:
-/// - `max`: maxLength check threshold
-/// - `min`: minLength check threshold
-/// - `pattern`: regularExpression pattern
-/// - `prefix`: requiredPrefix / disallowedPrefix value
-/// - `phrase`: disallowedPhrase value
-/// - `suffix`: requiredSuffix / disallowedSuffix value
-/// - `style`: casing style ("camelCase", "PascalCase", "snake_case", "UPPER_CASE")
+/// - `max`: maxLength check threshold (inclusive); no check without it
+/// - `min`: minLength check threshold (inclusive); no check without it
+/// - `pattern`: regularExpression pattern, matched against the whole name
+/// - `prefix`: requiredPrefix / disallowedPrefix value(s)
+/// - `phrase`: disallowedPhrase value(s)
+/// - `suffix`: requiredSuffix / disallowedSuffix value(s)
+/// - `style`: casing style (see the module documentation)
 #[derive(Debug, Clone, Deserialize, Default)]
 pub struct NamingCheckConfig {
     /// Maximum allowed name length (for maxLength checks).
@@ -230,19 +259,19 @@ pub struct NamingCheckConfig {
     /// Minimum required name length (for minLength checks).
     #[serde(default)]
     pub min: Option<usize>,
-    /// Regular expression the name must match (for regularExpression checks).
+    /// Regular expression the whole name must match (for regularExpression checks).
     #[serde(default)]
     pub pattern: Option<String>,
-    /// Required or disallowed prefix string.
+    /// Required or disallowed prefix(es).
     #[serde(default)]
-    pub prefix: Option<String>,
-    /// Disallowed phrase (substring).
+    pub prefix: Option<OneOrMany>,
+    /// Disallowed phrase(s), matched as substrings.
     #[serde(default)]
-    pub phrase: Option<String>,
-    /// Required or disallowed suffix string.
+    pub phrase: Option<OneOrMany>,
+    /// Required or disallowed suffix(es).
     #[serde(default)]
-    pub suffix: Option<String>,
-    /// Casing style: "camelCase", "PascalCase", "snake_case", "UPPER_CASE".
+    pub suffix: Option<OneOrMany>,
+    /// Casing style (for casing checks).
     #[serde(default)]
     pub style: Option<String>,
 }
@@ -279,7 +308,7 @@ struct NamingRuleInstance {
     check_type: NamingCheckType,
     /// User configuration for this check.
     config: NamingCheckConfig,
-    /// Compiled regex (lazily built from config.pattern).
+    /// Compiled regex, anchored to the whole name.
     compiled_regex: Option<Regex>,
 }
 
@@ -302,10 +331,11 @@ impl NamingEngine {
         for (id, entity, check_type) in all_naming_combinations() {
             if config.is_rule_enabled(id) {
                 let check_config: NamingCheckConfig = config.rule_params(id);
+                // Anchored, so that the pattern has to match the whole name.
                 let compiled_regex = check_config
                     .pattern
                     .as_ref()
-                    .and_then(|p| Regex::new(p).ok());
+                    .and_then(|p| Regex::new(&format!("^(?:{p})$")).ok());
                 checks.push(NamingRuleInstance {
                     id,
                     entity,
@@ -374,24 +404,37 @@ impl Rule for NamingEngine {
 // Entity extraction
 // ---------------------------------------------------------------------------
 
+/// `true` for a script: the file's first statement (comments aside) is neither a
+/// function nor a class definition.
+fn is_script_file(root: tree_sitter::Node) -> bool {
+    let mut cursor = root.walk();
+    let first = root
+        .named_children(&mut cursor)
+        .find(|c| !matches!(c.kind(), "comment" | "line_continuation"));
+    first.is_some_and(|c| !matches!(c.kind(), "function_definition" | "class_definition"))
+}
+
 /// Walk the tree-sitter tree and extract all named entities.
 ///
 /// Determines entity type based on AST context:
 /// - `class_definition` → Class
 /// - `function_definition` at file level (first one) → Function
 /// - `function_definition` at file level (subsequent) → LocalFunction
-/// - `function_definition` inside `methods` block → Method
+/// - `function_definition` inside `methods` block → Method (not for the
+///   constructor, which is named after the class)
 /// - `function_definition` inside another function → NestedFunction
-/// - `property` node → Property
+/// - `property` node → Property (not inside an `arguments` block)
 /// - node inside `events` block → Event
 /// - `enum` node inside `enumeration` block → Enumeration
-/// - `assignment` LHS identifier → Variable
+/// - variables → see [`collect_scope_variables`]
 fn collect_named_entities<'a>(
     tree: &'a tree_sitter::Tree,
     source: &'a str,
 ) -> Vec<NamedEntity<'a>> {
     let mut entities = Vec::new();
-    let mut first_function_seen = false;
+    // In a script every function is a local function (probed: MATLAB gives
+    // `localFunction` to a function after a script's statements), so the flag starts set.
+    let mut first_function_seen = is_script_file(tree.root_node());
 
     collect_recursive(
         tree.root_node(),
@@ -400,6 +443,7 @@ fn collect_named_entities<'a>(
         &mut first_function_seen,
         EntityContext::TopLevel,
     );
+    collect_scope_variables(tree.root_node(), source, &mut entities);
 
     entities
 }
@@ -419,7 +463,26 @@ enum EntityContext {
     Enumeration,
 }
 
-/// Recursively collect named entities from the AST.
+/// The text of a node.
+fn node_text<'a>(node: Node<'a>, source: &'a str) -> &'a str {
+    &source[node.start_byte()..node.end_byte()]
+}
+
+/// The name of the class that encloses a node, if any.
+fn enclosing_class_name<'a>(node: Node<'a>, source: &'a str) -> Option<&'a str> {
+    let mut current = node.parent();
+    while let Some(ancestor) = current {
+        if ancestor.kind() == "class_definition" {
+            return ancestor
+                .child_by_field_name("name")
+                .map(|name| node_text(name, source));
+        }
+        current = ancestor.parent();
+    }
+    None
+}
+
+/// Recursively collect named entities from the AST (everything but variables).
 fn collect_recursive<'a>(
     node: Node<'a>,
     source: &'a str,
@@ -431,8 +494,11 @@ fn collect_recursive<'a>(
         "function_definition" => {
             // Extract function name from the "name" field.
             if let Some(name_node) = node.child_by_field_name("name") {
-                let name = &source[name_node.start_byte()..name_node.end_byte()];
+                let name = node_text(name_node, source);
                 let pos = name_node.start_position();
+                // The constructor is named after its class: it is the class, not a method.
+                let is_constructor = context == EntityContext::Methods
+                    && enclosing_class_name(node, source) == Some(name);
                 let entity_type = match context {
                     EntityContext::Methods => NamingEntity::Method,
                     EntityContext::Function => NamingEntity::NestedFunction,
@@ -446,27 +512,26 @@ fn collect_recursive<'a>(
                     }
                     _ => NamingEntity::Function,
                 };
-                entities.push(NamedEntity {
-                    entity: entity_type,
-                    name,
-                    byte_range: name_node.start_byte()..name_node.end_byte(),
-                    line: pos.row + 1,
-                    column: pos.column + 1,
-                });
+                if !is_constructor {
+                    entities.push(NamedEntity {
+                        entity: entity_type,
+                        name,
+                        byte_range: name_node.start_byte()..name_node.end_byte(),
+                        line: pos.row + 1,
+                        column: pos.column + 1,
+                    });
+                }
             }
 
             // Recurse into function body with Function context.
-            let child_count = node.child_count();
-            for i in 0..child_count {
-                if let Some(child) = node.child(i) {
-                    collect_recursive(
-                        child,
-                        source,
-                        entities,
-                        first_function_seen,
-                        EntityContext::Function,
-                    );
-                }
+            for child in crate::analysis::symbols::children_of(node) {
+                collect_recursive(
+                    child,
+                    source,
+                    entities,
+                    first_function_seen,
+                    EntityContext::Function,
+                );
             }
             return; // Don't recurse again below.
         }
@@ -474,7 +539,7 @@ fn collect_recursive<'a>(
         "class_definition" => {
             // Extract class name from the "name" field.
             if let Some(name_node) = node.child_by_field_name("name") {
-                let name = &source[name_node.start_byte()..name_node.end_byte()];
+                let name = node_text(name_node, source);
                 let pos = name_node.start_position();
                 entities.push(NamedEntity {
                     entity: NamingEntity::Class,
@@ -486,70 +551,64 @@ fn collect_recursive<'a>(
             }
 
             // Recurse into class children (methods, properties, events, enumeration).
-            let child_count = node.child_count();
-            for i in 0..child_count {
-                if let Some(child) = node.child(i) {
-                    collect_recursive(child, source, entities, first_function_seen, context);
-                }
+            for child in crate::analysis::symbols::children_of(node) {
+                collect_recursive(child, source, entities, first_function_seen, context);
             }
             return;
         }
 
         "methods" => {
             // Children are function_definitions → Method.
-            let child_count = node.child_count();
-            for i in 0..child_count {
-                if let Some(child) = node.child(i) {
-                    collect_recursive(
-                        child,
-                        source,
-                        entities,
-                        first_function_seen,
-                        EntityContext::Methods,
-                    );
-                }
+            for child in crate::analysis::symbols::children_of(node) {
+                collect_recursive(
+                    child,
+                    source,
+                    entities,
+                    first_function_seen,
+                    EntityContext::Methods,
+                );
             }
             return;
         }
 
         "events" => {
             // Children are event identifiers.
-            let child_count = node.child_count();
-            for i in 0..child_count {
-                if let Some(child) = node.child(i) {
-                    collect_recursive(
-                        child,
-                        source,
-                        entities,
-                        first_function_seen,
-                        EntityContext::Events,
-                    );
-                }
+            for child in crate::analysis::symbols::children_of(node) {
+                collect_recursive(
+                    child,
+                    source,
+                    entities,
+                    first_function_seen,
+                    EntityContext::Events,
+                );
             }
             return;
         }
 
         "enumeration" => {
             // Children are enum nodes.
-            let child_count = node.child_count();
-            for i in 0..child_count {
-                if let Some(child) = node.child(i) {
-                    collect_recursive(
-                        child,
-                        source,
-                        entities,
-                        first_function_seen,
-                        EntityContext::Enumeration,
-                    );
-                }
+            for child in crate::analysis::symbols::children_of(node) {
+                collect_recursive(
+                    child,
+                    source,
+                    entities,
+                    first_function_seen,
+                    EntityContext::Enumeration,
+                );
             }
+            return;
+        }
+
+        "arguments_statement" => {
+            // Names in an arguments block are the function's inputs and outputs:
+            // they are variables, reported by the scope pass, not properties.
             return;
         }
 
         "property" => {
             // Extract property name (first identifier child or "name" field).
             if let Some(name_node) = node.child_by_field_name("name") {
-                let name = &source[name_node.start_byte()..name_node.end_byte()];
+                let name = node_text(name_node, source);
                 let pos = name_node.start_position();
                 entities.push(NamedEntity {
                     entity: NamingEntity::Property,
@@ -560,14 +619,44 @@ fn collect_recursive<'a>(
                 });
             } else {
                 // Fallback: find the first identifier child.
-                let child_count = node.child_count();
-                for i in 0..child_count {
-                    if let Some(child) = node.child(i) {
+                for child in crate::analysis::symbols::children_of(node) {
+                    if child.kind() == "identifier" {
+                        let name = node_text(child, source);
+                        let pos = child.start_position();
+                        entities.push(NamedEntity {
+                            entity: NamingEntity::Property,
+                            name,
+                            byte_range: child.start_byte()..child.end_byte(),
+                            line: pos.row + 1,
+                            column: pos.column + 1,
+                        });
+                        break;
+                    }
+                }
+            }
+            return;
+        }
+
+        "enum" => {
+            if context == EntityContext::Enumeration {
+                // Extract enum member name (first identifier child or "name" field).
+                if let Some(name_node) = node.child_by_field_name("name") {
+                    let name = node_text(name_node, source);
+                    let pos = name_node.start_position();
+                    entities.push(NamedEntity {
+                        entity: NamingEntity::Enumeration,
+                        name,
+                        byte_range: name_node.start_byte()..name_node.end_byte(),
+                        line: pos.row + 1,
+                        column: pos.column + 1,
+                    });
+                } else {
+                    for child in crate::analysis::symbols::children_of(node) {
                         if child.kind() == "identifier" {
-                            let name = &source[child.start_byte()..child.end_byte()];
+                            let name = node_text(child, source);
                             let pos = child.start_position();
                             entities.push(NamedEntity {
-                                entity: NamingEntity::Property,
+                                entity: NamingEntity::Enumeration,
                                 name,
                                 byte_range: child.start_byte()..child.end_byte(),
                                 line: pos.row + 1,
@@ -581,45 +670,9 @@ fn collect_recursive<'a>(
             return;
         }
 
-        "enum" => {
-            if context == EntityContext::Enumeration {
-                // Extract enum member name (first identifier child or "name" field).
-                if let Some(name_node) = node.child_by_field_name("name") {
-                    let name = &source[name_node.start_byte()..name_node.end_byte()];
-                    let pos = name_node.start_position();
-                    entities.push(NamedEntity {
-                        entity: NamingEntity::Enumeration,
-                        name,
-                        byte_range: name_node.start_byte()..name_node.end_byte(),
-                        line: pos.row + 1,
-                        column: pos.column + 1,
-                    });
-                } else {
-                    let child_count = node.child_count();
-                    for i in 0..child_count {
-                        if let Some(child) = node.child(i) {
-                            if child.kind() == "identifier" {
-                                let name = &source[child.start_byte()..child.end_byte()];
-                                let pos = child.start_position();
-                                entities.push(NamedEntity {
-                                    entity: NamingEntity::Enumeration,
-                                    name,
-                                    byte_range: child.start_byte()..child.end_byte(),
-                                    line: pos.row + 1,
-                                    column: pos.column + 1,
-                                });
-                                break;
-                            }
-                        }
-                    }
-                }
-            }
-            return;
-        }
-
         "identifier" if context == EntityContext::Events => {
             // Identifier inside events block is an event name.
-            let name = &source[node.start_byte()..node.end_byte()];
+            let name = node_text(node, source);
             let pos = node.start_position();
             entities.push(NamedEntity {
                 entity: NamingEntity::Event,
@@ -631,52 +684,182 @@ fn collect_recursive<'a>(
             return;
         }
 
-        "assignment" => {
-            // Extract LHS variable name. Only simple identifiers, not field
-            // expressions or indexed assignments.
-            if let Some(lhs) = node.child_by_field_name("left") {
-                if lhs.kind() == "identifier" {
-                    let name = &source[lhs.start_byte()..lhs.end_byte()];
-                    let pos = lhs.start_position();
-                    entities.push(NamedEntity {
-                        entity: NamingEntity::Variable,
-                        name,
-                        byte_range: lhs.start_byte()..lhs.end_byte(),
-                        line: pos.row + 1,
-                        column: pos.column + 1,
-                    });
-                } else if lhs.kind() == "multioutput_variable" {
-                    // Handle [a, b] = ... — extract each identifier.
-                    let lhs_count = lhs.child_count();
-                    for i in 0..lhs_count {
-                        if let Some(child) = lhs.child(i) {
-                            if child.kind() == "identifier" {
-                                let name = &source[child.start_byte()..child.end_byte()];
-                                let pos = child.start_position();
-                                entities.push(NamedEntity {
-                                    entity: NamingEntity::Variable,
-                                    name,
-                                    byte_range: child.start_byte()..child.end_byte(),
-                                    line: pos.row + 1,
-                                    column: pos.column + 1,
-                                });
-                            }
-                        }
-                    }
-                }
-            }
-            // Don't return — recurse into RHS for nested assignments.
-        }
-
         _ => {}
     }
 
     // Default: recurse into children with the same context.
-    let child_count = node.child_count();
-    for i in 0..child_count {
-        if let Some(child) = node.child(i) {
-            collect_recursive(child, source, entities, first_function_seen, context);
+    for child in crate::analysis::symbols::children_of(node) {
+        collect_recursive(child, source, entities, first_function_seen, context);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Variable extraction
+// ---------------------------------------------------------------------------
+
+/// Report the variables of every scope: the top level of the file and each
+/// function, including nested functions and methods.
+///
+/// A name is a variable of a scope when the scope declares it: an input or
+/// output, an assignment target (including the base of `s.f = …` and `c{i} = …`),
+/// a `for` loop variable, a `catch` identifier, a `global` or `persistent`
+/// name, or a lambda parameter. MATLAB reports such a name once per scope, at
+/// its first occurrence there, which may be a read before the assignment.
+fn collect_scope_variables<'a>(
+    root: Node<'a>,
+    source: &'a str,
+    entities: &mut Vec<NamedEntity<'a>>,
+) {
+    let mut scopes = vec![root];
+    find_function_scopes(root, &mut scopes);
+    for scope in scopes {
+        variables_of_scope(scope, source, entities);
+    }
+}
+
+/// Collect every function definition below `node`, nested ones included.
+fn find_function_scopes<'a>(node: Node<'a>, scopes: &mut Vec<Node<'a>>) {
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        if child.kind() == "function_definition" {
+            scopes.push(child);
         }
+        find_function_scopes(child, scopes);
+    }
+}
+
+/// The variables of one scope, each at its first occurrence.
+fn variables_of_scope<'a>(scope: Node<'a>, source: &'a str, entities: &mut Vec<NamedEntity<'a>>) {
+    let mut occurrences = Vec::new();
+    let mut declared = HashSet::new();
+    walk_scope(scope, scope, source, &mut occurrences, &mut declared);
+
+    let mut reported = HashSet::new();
+    for node in occurrences {
+        let name = node_text(node, source);
+        if declared.contains(name) && reported.insert(name) {
+            let pos = node.start_position();
+            entities.push(NamedEntity {
+                entity: NamingEntity::Variable,
+                name,
+                byte_range: node.start_byte()..node.end_byte(),
+                line: pos.row + 1,
+                column: pos.column + 1,
+            });
+        }
+    }
+}
+
+/// Walk one scope in source order: record its identifier occurrences and the
+/// names it declares. Nested functions and classes are skipped (they are scopes
+/// of their own).
+fn walk_scope<'a>(
+    node: Node<'a>,
+    scope: Node<'a>,
+    source: &'a str,
+    occurrences: &mut Vec<Node<'a>>,
+    declared: &mut HashSet<&'a str>,
+) {
+    if matches!(node.kind(), "function_definition" | "class_definition") && node.id() != scope.id()
+    {
+        return;
+    }
+
+    match node.kind() {
+        "identifier" => {
+            // Field names (s.name) are not variables, nor is the scope's own name.
+            let is_field = node.parent().is_some_and(|parent| {
+                parent.kind() == "field_expression"
+                    && parent
+                        .child_by_field_name("field")
+                        .is_some_and(|field| field.id() == node.id())
+            });
+            let is_scope_name = scope.kind() == "function_definition"
+                && scope
+                    .child_by_field_name("name")
+                    .is_some_and(|name| name.id() == node.id());
+            if !is_field && !is_scope_name {
+                occurrences.push(node);
+            }
+            return;
+        }
+        "assignment" => {
+            if let Some(left) = node.child_by_field_name("left") {
+                declare_target(left, source, declared);
+            }
+        }
+        "function_arguments"
+        | "function_output"
+        | "global_operator"
+        | "persistent_operator"
+        | "catch_clause" => {
+            declare_identifiers(node, source, declared);
+        }
+        "lambda" => {
+            let mut cursor = node.walk();
+            for child in node.children(&mut cursor) {
+                if child.kind() == "arguments" {
+                    declare_identifiers(child, source, declared);
+                }
+            }
+        }
+        "for_statement" => {
+            let mut cursor = node.walk();
+            for child in node.children(&mut cursor) {
+                if child.kind() == "iterator" {
+                    let mut inner = child.walk();
+                    let variable = child
+                        .children(&mut inner)
+                        .find(|grandchild| grandchild.kind() == "identifier");
+                    if let Some(variable) = variable {
+                        declared.insert(node_text(variable, source));
+                    }
+                }
+            }
+        }
+        _ => {}
+    }
+
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        walk_scope(child, scope, source, occurrences, declared);
+    }
+}
+
+/// Declare the identifiers that are direct children of `node`, and those in its
+/// multi-output groups (`[a, b]`).
+fn declare_identifiers<'a>(node: Node<'a>, source: &'a str, declared: &mut HashSet<&'a str>) {
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        match child.kind() {
+            "identifier" => {
+                declared.insert(node_text(child, source));
+            }
+            "multioutput_variable" => declare_identifiers(child, source, declared),
+            _ => {}
+        }
+    }
+}
+
+/// Declare the variable assigned by an assignment target: a name, an entry of a
+/// multi-output group, or the base of an indexed or field target.
+fn declare_target<'a>(target: Node<'a>, source: &'a str, declared: &mut HashSet<&'a str>) {
+    match target.kind() {
+        "identifier" => {
+            declared.insert(node_text(target, source));
+        }
+        "multioutput_variable" => declare_identifiers(target, source, declared),
+        "field_expression" => {
+            if let Some(object) = target.child_by_field_name("object") {
+                declare_target(object, source, declared);
+            }
+        }
+        "function_call" => {
+            if let Some(name) = target.child_by_field_name("name") {
+                declare_target(name, source, declared);
+            }
+        }
+        _ => {}
     }
 }
 
@@ -715,43 +898,38 @@ fn run_check(check: &NamingRuleInstance, entity: &NamedEntity) -> Option<Diagnos
 // Individual check implementations
 // ---------------------------------------------------------------------------
 
-/// Check if name exceeds maximum length.
+/// Check if name is longer than the configured maximum (inclusive).
 fn check_max_length(name: &str, config: &NamingCheckConfig) -> Option<String> {
-    let max = config.max.unwrap_or(63); // MATLAB default namelengthmax
-    if name.len() > max {
+    let max = config.max?;
+    let length = name.chars().count();
+    if length > max {
         Some(format!(
-            "Name '{}' exceeds maximum length of {} (has {} characters)",
-            name,
-            max,
-            name.len()
+            "Name '{name}' should contain less than or equal to {max} character(s)"
         ))
     } else {
         None
     }
 }
 
-/// Check if name is shorter than minimum length.
+/// Check if name is shorter than the configured minimum (inclusive).
 fn check_min_length(name: &str, config: &NamingCheckConfig) -> Option<String> {
-    let min = config.min.unwrap_or(2);
-    // Don't flag single-char loop vars like i, j, k by default unless min > 1.
-    if name.len() < min {
+    let min = config.min?;
+    let length = name.chars().count();
+    if length < min {
         Some(format!(
-            "Name '{}' is shorter than minimum length of {} (has {} characters)",
-            name,
-            min,
-            name.len()
+            "Name '{name}' should contain more than or equal to {min} character(s)"
         ))
     } else {
         None
     }
 }
 
-/// Check if name matches the required regular expression pattern.
+/// Check if name matches the configured regular expression, over the whole name.
 fn check_regex(name: &str, check: &NamingRuleInstance) -> Option<String> {
     let re = check.compiled_regex.as_ref()?;
     if !re.is_match(name) {
         Some(format!(
-            "Name '{}' does not match required pattern '{}'",
+            "Name '{}' should conform to the regular expression: '{}'",
             name,
             check.config.pattern.as_deref().unwrap_or("")
         ))
@@ -760,143 +938,146 @@ fn check_regex(name: &str, check: &NamingRuleInstance) -> Option<String> {
     }
 }
 
-/// Check if name has the required prefix.
+/// Check if name starts with one of the required prefixes (case-sensitive).
 fn check_required_prefix(name: &str, config: &NamingCheckConfig) -> Option<String> {
-    let prefix = config.prefix.as_deref()?;
-    if !name.starts_with(prefix) {
-        Some(format!(
-            "Name '{}' does not have the required prefix '{}'",
-            name, prefix
-        ))
-    } else {
+    let prefixes = config.prefix.as_ref()?.values();
+    if prefixes
+        .iter()
+        .copied()
+        .any(|prefix| name.starts_with(prefix))
+    {
         None
+    } else {
+        Some(format!(
+            "Name '{}' should start with one of the required prefix(es): {}",
+            name,
+            prefixes.join(", ")
+        ))
     }
 }
 
-/// Check if name has a disallowed prefix.
+/// Check if name starts with a disallowed prefix (case-sensitive).
 fn check_disallowed_prefix(name: &str, config: &NamingCheckConfig) -> Option<String> {
-    let prefix = config.prefix.as_deref()?;
-    if name.starts_with(prefix) {
+    let prefixes = config.prefix.as_ref()?.values();
+    if prefixes
+        .iter()
+        .copied()
+        .any(|prefix| name.starts_with(prefix))
+    {
         Some(format!(
-            "Name '{}' has the disallowed prefix '{}'",
-            name, prefix
+            "Name '{}' should not start with any of the disallowed prefix(es): {}",
+            name,
+            prefixes.join(", ")
         ))
     } else {
         None
     }
 }
 
-/// Check if name contains a disallowed phrase.
+/// Check if name contains a disallowed phrase (case-sensitive).
 fn check_disallowed_phrase(name: &str, config: &NamingCheckConfig) -> Option<String> {
-    let phrase = config.phrase.as_deref()?;
-    if name.contains(phrase) {
+    let phrases = config.phrase.as_ref()?.values();
+    if phrases.iter().copied().any(|phrase| name.contains(phrase)) {
         Some(format!(
-            "Name '{}' contains the disallowed phrase '{}'",
-            name, phrase
+            "Name '{}' should not contain any of the disallowed phrase(s): {}",
+            name,
+            phrases.join(", ")
         ))
     } else {
         None
     }
 }
 
-/// Check if name has the required suffix.
+/// Check if name ends with one of the required suffixes (case-sensitive).
 fn check_required_suffix(name: &str, config: &NamingCheckConfig) -> Option<String> {
-    let suffix = config.suffix.as_deref()?;
-    if !name.ends_with(suffix) {
-        Some(format!(
-            "Name '{}' does not have the required suffix '{}'",
-            name, suffix
-        ))
-    } else {
+    let suffixes = config.suffix.as_ref()?.values();
+    if suffixes
+        .iter()
+        .copied()
+        .any(|suffix| name.ends_with(suffix))
+    {
         None
+    } else {
+        Some(format!(
+            "Name '{}' should end with one of the required suffix(es): {}",
+            name,
+            suffixes.join(", ")
+        ))
     }
 }
 
-/// Check if name has a disallowed suffix.
+/// Check if name ends with a disallowed suffix (case-sensitive).
 fn check_disallowed_suffix(name: &str, config: &NamingCheckConfig) -> Option<String> {
-    let suffix = config.suffix.as_deref()?;
-    if name.ends_with(suffix) {
+    let suffixes = config.suffix.as_ref()?.values();
+    if suffixes
+        .iter()
+        .copied()
+        .any(|suffix| name.ends_with(suffix))
+    {
         Some(format!(
-            "Name '{}' has the disallowed suffix '{}'",
-            name, suffix
+            "Name '{}' should not end with any of the disallowed suffix(es): {}",
+            name,
+            suffixes.join(", ")
         ))
     } else {
         None
     }
 }
 
-/// Check if name follows the required casing style.
-///
-/// Supported styles:
-/// - `"camelCase"`: starts with lowercase, no underscores (except leading `_`), contains uppercase
-/// - `"PascalCase"`: starts with uppercase, no underscores
-/// - `"snake_case"`: all lowercase with underscores
-/// - `"UPPER_CASE"` / `"CONSTANT_CASE"`: all uppercase with underscores
+/// Check if name follows the configured casing style.
 fn check_casing(name: &str, config: &NamingCheckConfig) -> Option<String> {
     let style = config.style.as_deref()?;
-
-    // Strip leading underscores for style checking (preserving convention for private members).
-    let stripped = name.trim_start_matches('_');
-    if stripped.is_empty() {
-        return None; // All underscores — skip.
-    }
-
-    let violation = match style {
-        "camelCase" => !is_camel_case(stripped),
-        "PascalCase" => !is_pascal_case(stripped),
-        "snake_case" => !is_snake_case(stripped),
-        "UPPER_CASE" | "CONSTANT_CASE" => !is_upper_case(stripped),
-        _ => false, // Unknown style — don't flag.
-    };
-
-    if violation {
-        Some(format!(
-            "Name '{}' does not follow {} naming convention",
-            name, style
-        ))
-    } else {
+    let casing = parse_casing(style)?;
+    if follows_casing(name, casing) {
         None
+    } else {
+        Some(format!("Name '{name}' does not follow the {style} casing"))
     }
 }
 
-// ---------------------------------------------------------------------------
-// Casing helpers
-// ---------------------------------------------------------------------------
-
-/// Check if a name follows camelCase: starts lowercase, no underscores, has uppercase after first char.
-fn is_camel_case(name: &str) -> bool {
-    let mut chars = name.chars();
-    match chars.next() {
-        Some(c) if c.is_ascii_lowercase() => {}
-        _ => return false,
-    }
-    // Must not contain underscores (except it's acceptable if single-word lowercase).
-    if name.contains('_') {
-        return false;
-    }
-    true
+/// A casing style that a name can be checked against.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Casing {
+    LowerCamel,
+    UpperCamel,
+    LowerWithUnderscores,
+    UpperWithUnderscores,
+    Lower,
+    Upper,
 }
 
-/// Check if a name follows PascalCase: starts uppercase, no underscores.
-fn is_pascal_case(name: &str) -> bool {
-    let mut chars = name.chars();
-    match chars.next() {
-        Some(c) if c.is_ascii_uppercase() => {}
-        _ => return false,
+/// The casing style for a `style` value: MATLAB's names, or an older alias.
+fn parse_casing(style: &str) -> Option<Casing> {
+    match style {
+        "lowerCamelCase" | "camelCase" => Some(Casing::LowerCamel),
+        "UpperCamelCase" | "PascalCase" => Some(Casing::UpperCamel),
+        "lowercase_with_underscores" | "snake_case" => Some(Casing::LowerWithUnderscores),
+        "UPPERCASE_WITH_UNDERSCORES" | "UPPER_CASE" | "CONSTANT_CASE" => {
+            Some(Casing::UpperWithUnderscores)
+        }
+        "lowercase" => Some(Casing::Lower),
+        "UPPERCASE" => Some(Casing::Upper),
+        _ => None,
     }
-    !name.contains('_')
 }
 
-/// Check if a name follows snake_case: all lowercase and underscores, no uppercase.
-fn is_snake_case(name: &str) -> bool {
-    name.chars()
-        .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_')
-}
-
-/// Check if a name follows UPPER_CASE: all uppercase and underscores, no lowercase.
-fn is_upper_case(name: &str) -> bool {
-    name.chars()
-        .all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == '_')
+/// Whether a name follows a casing style, as MATLAB defines them: letters and
+/// digits only, with underscores allowed only where the style says so.
+fn follows_casing(name: &str, casing: Casing) -> bool {
+    let first = name.chars().next();
+    let starts_lower = first.is_some_and(|c| c.is_ascii_lowercase());
+    let starts_upper = first.is_some_and(|c| c.is_ascii_uppercase());
+    let has_lower = name.chars().any(|c| c.is_ascii_lowercase());
+    let has_upper = name.chars().any(|c| c.is_ascii_uppercase());
+    let has_underscore = name.contains('_');
+    match casing {
+        Casing::LowerCamel => starts_lower && !has_underscore,
+        Casing::UpperCamel => starts_upper && !has_underscore,
+        Casing::LowerWithUnderscores => !has_upper,
+        Casing::UpperWithUnderscores => !has_lower,
+        Casing::Lower => !has_upper && !has_underscore,
+        Casing::Upper => !has_lower && !has_underscore,
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -928,108 +1109,28 @@ mod tests {
         NamingEngine::from_config(&config)
     }
 
-    // -- minLength (default) --------------------------------------------------
+    fn count(diags: &[Diagnostic], rule_id: &str) -> usize {
+        diags.iter().filter(|d| d.rule_id == rule_id).count()
+    }
+
+    // -- No configuration: MATLAB's factory setting reports nothing ----------
 
     #[test]
-    fn variable_min_length_fires_on_single_char() {
-        let diags = lint_file(&*engine(), "a = 1;\n");
+    fn unconfigured_engine_reports_no_naming_check() {
+        let source = "a = 1;\naVeryLongVariableNameThatIsLong = 2;\nfunction f()\nend\n";
+        let diags = lint_file(&*engine(), source);
         assert!(
-            has_id(&diags, "naming.variable.minLength"),
+            diags.iter().all(|d| !d.rule_id.starts_with("naming.")),
             "got: {diags:?}"
         );
     }
 
-    #[test]
-    fn variable_min_length_ok_on_two_chars() {
-        let diags = lint_file(&*engine(), "ab = 1;\n");
-        assert!(
-            !has_id(&diags, "naming.variable.minLength"),
-            "got: {diags:?}"
-        );
-    }
+    // -- maxLength / minLength (inclusive bounds) -----------------------------
 
     #[test]
-    fn function_min_length_fires_on_single_char() {
-        let diags = lint_file(&*engine(), "function f()\nend\n");
-        assert!(
-            has_id(&diags, "naming.function.minLength"),
-            "got: {diags:?}"
-        );
-    }
-
-    #[test]
-    fn function_min_length_ok_on_two_chars() {
-        let diags = lint_file(&*engine(), "function fo()\nend\n");
-        assert!(
-            !has_id(&diags, "naming.function.minLength"),
-            "got: {diags:?}"
-        );
-    }
-
-    #[test]
-    fn multioutput_assignment_extracts_each_variable() {
-        let diags = lint_file(&*engine(), "[a, b] = deal(1, 2);\n");
-        assert!(
-            has_id(&diags, "naming.variable.minLength"),
-            "got: {diags:?}"
-        );
-    }
-
-    // -- maxLength (default 63) ------------------------------------------------
-
-    #[test]
-    fn variable_max_length_fires_on_long_name() {
-        let long_name = "a".repeat(64);
-        let source = format!("{long_name} = 1;\n");
-        let diags = lint_file(&*engine(), &source);
-        assert!(
-            has_id(&diags, "naming.variable.maxLength"),
-            "got: {diags:?}"
-        );
-    }
-
-    #[test]
-    fn variable_max_length_ok_at_exactly_63_chars() {
-        let name = "b".repeat(63);
-        let source = format!("{name} = 1;\n");
-        let diags = lint_file(&*engine(), &source);
-        assert!(
-            !has_id(&diags, "naming.variable.maxLength"),
-            "got: {diags:?}"
-        );
-    }
-
-    #[test]
-    fn variable_max_length_ok_on_short_name() {
-        let diags = lint_file(&*engine(), "someVariable = 1;\n");
-        assert!(
-            !has_id(&diags, "naming.variable.maxLength"),
-            "got: {diags:?}"
-        );
-    }
-
-    #[test]
-    fn default_config_no_diagnostics_for_normal_names() {
-        let diags = lint_file(&*engine(), "someVariable = 1;\nanotherVariable = 2;\n");
-        assert!(diags.is_empty(), "got: {diags:?}");
-    }
-
-    // -- Configured thresholds ------------------------------------------------
-
-    #[test]
-    fn max_length_fires_with_lowered_threshold() {
+    fn max_length_accepts_name_at_the_limit() {
         let engine = engine_with("naming.variable.maxLength", "max = 5");
-        let diags = lint_file(&*engine, "myVariable = 1;\n");
-        assert!(
-            has_id(&diags, "naming.variable.maxLength"),
-            "got: {diags:?}"
-        );
-    }
-
-    #[test]
-    fn max_length_ok_with_lowered_threshold() {
-        let engine = engine_with("naming.variable.maxLength", "max = 5");
-        let diags = lint_file(&*engine, "myVar = 1;\n");
+        let diags = lint_file(&*engine, "abcde = 1;\n");
         assert!(
             !has_id(&diags, "naming.variable.maxLength"),
             "got: {diags:?}"
@@ -1037,144 +1138,51 @@ mod tests {
     }
 
     #[test]
-    fn min_length_fires_with_raised_threshold() {
-        let engine = engine_with("naming.variable.minLength", "min = 5");
-        let diags = lint_file(&*engine, "ab = 1;\n");
-        assert!(
-            has_id(&diags, "naming.variable.minLength"),
-            "got: {diags:?}"
-        );
-    }
-
-    #[test]
-    fn min_length_ok_with_raised_threshold() {
-        let engine = engine_with("naming.variable.minLength", "min = 5");
+    fn max_length_flags_name_over_the_limit() {
+        let engine = engine_with("naming.variable.maxLength", "max = 5");
         let diags = lint_file(&*engine, "abcdef = 1;\n");
         assert!(
+            has_id(&diags, "naming.variable.maxLength"),
+            "got: {diags:?}"
+        );
+    }
+
+    #[test]
+    fn min_length_accepts_name_at_the_limit() {
+        let engine = engine_with("naming.variable.minLength", "min = 2");
+        let diags = lint_file(&*engine, "ab = 1;\n");
+        assert!(
             !has_id(&diags, "naming.variable.minLength"),
             "got: {diags:?}"
         );
     }
 
-    // -- requiredPrefix --------------------------------------------------------
-
     #[test]
-    fn required_prefix_fires_when_configured() {
-        let engine = engine_with("naming.variable.requiredPrefix", "prefix = \"temp\"");
-        let diags = lint_file(&*engine, "myVar = 1;\n");
+    fn min_length_flags_name_under_the_limit() {
+        let engine = engine_with("naming.variable.minLength", "min = 2");
+        let diags = lint_file(&*engine, "a = 1;\n");
         assert!(
-            has_id(&diags, "naming.variable.requiredPrefix"),
+            has_id(&diags, "naming.variable.minLength"),
             "got: {diags:?}"
         );
     }
 
     #[test]
-    fn required_prefix_ok_when_satisfied() {
-        let engine = engine_with("naming.variable.requiredPrefix", "prefix = \"temp\"");
-        let diags = lint_file(&*engine, "tempVar = 1;\n");
+    fn function_max_length_flags_long_function_name() {
+        let engine = engine_with("naming.function.maxLength", "max = 4");
+        let diags = lint_file(&*engine, "function longName()\nend\n");
         assert!(
-            !has_id(&diags, "naming.variable.requiredPrefix"),
+            has_id(&diags, "naming.function.maxLength"),
             "got: {diags:?}"
         );
     }
 
-    // -- disallowedPrefix ------------------------------------------------------
+    // -- regularExpression: the whole name must match -------------------------
 
     #[test]
-    fn disallowed_prefix_fires_when_configured() {
-        let engine = engine_with("naming.variable.disallowedPrefix", "prefix = \"tmp\"");
-        let diags = lint_file(&*engine, "tmpVar = 1;\n");
-        assert!(
-            has_id(&diags, "naming.variable.disallowedPrefix"),
-            "got: {diags:?}"
-        );
-    }
-
-    #[test]
-    fn disallowed_prefix_ok_when_not_matching() {
-        let engine = engine_with("naming.variable.disallowedPrefix", "prefix = \"tmp\"");
-        let diags = lint_file(&*engine, "myVar = 1;\n");
-        assert!(
-            !has_id(&diags, "naming.variable.disallowedPrefix"),
-            "got: {diags:?}"
-        );
-    }
-
-    // -- requiredSuffix --------------------------------------------------------
-
-    #[test]
-    fn required_suffix_fires_when_configured() {
-        let engine = engine_with("naming.function.requiredSuffix", "suffix = \"_fn\"");
-        let diags = lint_file(&*engine, "function doStuff()\nend\n");
-        assert!(
-            has_id(&diags, "naming.function.requiredSuffix"),
-            "got: {diags:?}"
-        );
-    }
-
-    #[test]
-    fn required_suffix_ok_when_satisfied() {
-        let engine = engine_with("naming.function.requiredSuffix", "suffix = \"_fn\"");
-        let diags = lint_file(&*engine, "function doStuff_fn()\nend\n");
-        assert!(
-            !has_id(&diags, "naming.function.requiredSuffix"),
-            "got: {diags:?}"
-        );
-    }
-
-    // -- disallowedSuffix ------------------------------------------------------
-
-    #[test]
-    fn disallowed_suffix_fires_when_configured() {
-        let engine = engine_with("naming.variable.disallowedSuffix", "suffix = \"_count\"");
-        let diags = lint_file(&*engine, "loop_count = 0;\n");
-        assert!(
-            has_id(&diags, "naming.variable.disallowedSuffix"),
-            "got: {diags:?}"
-        );
-    }
-
-    #[test]
-    fn disallowed_suffix_ok_when_not_matching() {
-        let engine = engine_with("naming.variable.disallowedSuffix", "suffix = \"_count\"");
-        let diags = lint_file(&*engine, "loopTotal = 0;\n");
-        assert!(
-            !has_id(&diags, "naming.variable.disallowedSuffix"),
-            "got: {diags:?}"
-        );
-    }
-
-    // -- disallowedPhrase ------------------------------------------------------
-
-    #[test]
-    fn disallowed_phrase_fires_when_configured() {
-        let engine = engine_with("naming.variable.disallowedPhrase", "phrase = \"old\"");
-        let diags = lint_file(&*engine, "oldValue = 1;\n");
-        assert!(
-            has_id(&diags, "naming.variable.disallowedPhrase"),
-            "got: {diags:?}"
-        );
-    }
-
-    #[test]
-    fn disallowed_phrase_ok_when_not_matching() {
-        let engine = engine_with("naming.variable.disallowedPhrase", "phrase = \"old\"");
-        let diags = lint_file(&*engine, "freshValue = 1;\n");
-        assert!(
-            !has_id(&diags, "naming.variable.disallowedPhrase"),
-            "got: {diags:?}"
-        );
-    }
-
-    // -- regularExpression -----------------------------------------------------
-
-    #[test]
-    fn regular_expression_fires_when_pattern_not_matched() {
-        let engine = engine_with(
-            "naming.variable.regularExpression",
-            "pattern = \"^[a-z]+[A-Z][a-z]+$\"",
-        );
-        let diags = lint_file(&*engine, "my_var = 1;\n");
+    fn regex_must_match_the_whole_name() {
+        let engine = engine_with("naming.variable.regularExpression", "pattern = \"a\"");
+        let diags = lint_file(&*engine, "abc = 1;\n");
         assert!(
             has_id(&diags, "naming.variable.regularExpression"),
             "got: {diags:?}"
@@ -1182,139 +1190,326 @@ mod tests {
     }
 
     #[test]
-    fn regular_expression_ok_when_pattern_matched() {
-        let engine = engine_with(
-            "naming.variable.regularExpression",
-            "pattern = \"^[a-z]+[A-Z][a-z]+$\"",
-        );
-        let diags = lint_file(&*engine, "myVar = 1;\n");
+    fn regex_accepts_a_name_matching_the_whole_pattern() {
+        let engine = engine_with("naming.variable.regularExpression", "pattern = \"a\"");
+        let diags = lint_file(&*engine, "a = 1;\n");
         assert!(
             !has_id(&diags, "naming.variable.regularExpression"),
             "got: {diags:?}"
         );
     }
 
-    // -- casing ----------------------------------------------------------------
+    // -- prefix / suffix / phrase: case-sensitive, one of a list ---------------
 
     #[test]
-    fn casing_camel_fires_when_configured() {
-        let engine = engine_with("naming.variable.casing", "style = \"camelCase\"");
-        let diags = lint_file(&*engine, "MyVar = 1;\n");
-        assert!(has_id(&diags, "naming.variable.casing"), "got: {diags:?}");
+    fn required_prefix_accepts_any_listed_prefix() {
+        let engine = engine_with(
+            "naming.variable.requiredPrefix",
+            "prefix = [\"ab\", \"cd\"]",
+        );
+        let ok = lint_file(&*engine, "cdx = 1;\n");
+        let bad = lint_file(&*engine, "xyz = 1;\n");
+        assert!(
+            !has_id(&ok, "naming.variable.requiredPrefix"),
+            "got: {ok:?}"
+        );
+        assert!(
+            has_id(&bad, "naming.variable.requiredPrefix"),
+            "got: {bad:?}"
+        );
     }
 
     #[test]
-    fn casing_camel_ok_when_satisfied() {
-        let engine = engine_with("naming.variable.casing", "style = \"camelCase\"");
-        let diags = lint_file(&*engine, "myVar = 1;\n");
-        assert!(!has_id(&diags, "naming.variable.casing"), "got: {diags:?}");
+    fn required_prefix_is_case_sensitive() {
+        let engine = engine_with("naming.variable.requiredPrefix", "prefix = \"Ab\"");
+        let diags = lint_file(&*engine, "ab1 = 1;\n");
+        assert!(
+            has_id(&diags, "naming.variable.requiredPrefix"),
+            "got: {diags:?}"
+        );
     }
 
     #[test]
-    fn casing_pascal_fires_when_configured() {
+    fn disallowed_prefix_is_case_sensitive() {
+        let engine = engine_with("naming.variable.disallowedPrefix", "prefix = \"my\"");
+        let flagged = lint_file(&*engine, "myVar = 1;\n");
+        let allowed = lint_file(&*engine, "MyVar = 1;\n");
+        assert!(
+            has_id(&flagged, "naming.variable.disallowedPrefix"),
+            "got: {flagged:?}"
+        );
+        assert!(
+            !has_id(&allowed, "naming.variable.disallowedPrefix"),
+            "got: {allowed:?}"
+        );
+    }
+
+    #[test]
+    fn disallowed_prefix_accepts_a_list() {
+        let engine = engine_with(
+            "naming.variable.disallowedPrefix",
+            "prefix = [\"zz\", \"x\"]",
+        );
+        let flagged = lint_file(&*engine, "xyz = 1;\n");
+        let allowed = lint_file(&*engine, "abc = 1;\n");
+        assert!(
+            has_id(&flagged, "naming.variable.disallowedPrefix"),
+            "got: {flagged:?}"
+        );
+        assert!(
+            !has_id(&allowed, "naming.variable.disallowedPrefix"),
+            "got: {allowed:?}"
+        );
+    }
+
+    #[test]
+    fn disallowed_phrase_is_case_sensitive() {
+        let engine = engine_with("naming.variable.disallowedPhrase", "phrase = \"ab\"");
+        let flagged = lint_file(&*engine, "xab = 1;\n");
+        let allowed = lint_file(&*engine, "xAB = 1;\n");
+        assert!(
+            has_id(&flagged, "naming.variable.disallowedPhrase"),
+            "got: {flagged:?}"
+        );
+        assert!(
+            !has_id(&allowed, "naming.variable.disallowedPhrase"),
+            "got: {allowed:?}"
+        );
+    }
+
+    #[test]
+    fn required_suffix_is_case_sensitive() {
+        let engine = engine_with("naming.variable.requiredSuffix", "suffix = \"ar\"");
+        let ok = lint_file(&*engine, "myVar = 1;\n");
+        let bad = lint_file(&*engine, "myVAR = 1;\n");
+        assert!(
+            !has_id(&ok, "naming.variable.requiredSuffix"),
+            "got: {ok:?}"
+        );
+        assert!(
+            has_id(&bad, "naming.variable.requiredSuffix"),
+            "got: {bad:?}"
+        );
+    }
+
+    #[test]
+    fn disallowed_suffix_is_case_sensitive() {
+        let engine = engine_with("naming.variable.disallowedSuffix", "suffix = \"ar\"");
+        let flagged = lint_file(&*engine, "myVar = 1;\n");
+        let allowed = lint_file(&*engine, "myVAR = 1;\n");
+        assert!(
+            has_id(&flagged, "naming.variable.disallowedSuffix"),
+            "got: {flagged:?}"
+        );
+        assert!(
+            !has_id(&allowed, "naming.variable.disallowedSuffix"),
+            "got: {allowed:?}"
+        );
+    }
+
+    // -- casing: MATLAB's six styles ------------------------------------------
+
+    #[test]
+    fn casing_styles_match_matlab() {
+        let cases = [
+            ("lowerCamelCase", "myVar", false),
+            ("lowerCamelCase", "x1", false),
+            ("lowerCamelCase", "MyVar", true),
+            ("lowerCamelCase", "my_var", true),
+            ("UpperCamelCase", "MyVar", false),
+            ("UpperCamelCase", "V", false),
+            ("UpperCamelCase", "myVar", true),
+            ("UpperCamelCase", "MY_VAR", true),
+            ("lowercase_with_underscores", "my_var2", false),
+            ("lowercase_with_underscores", "my2Var", true),
+            ("UPPERCASE_WITH_UNDERSCORES", "MY_VAR", false),
+            ("UPPERCASE_WITH_UNDERSCORES", "x1", true),
+            ("lowercase", "my2var", false),
+            ("lowercase", "my_var", true),
+            ("UPPERCASE", "MYVAR", false),
+            ("UPPERCASE", "MY_VAR", true),
+        ];
+        for (style, name, violation) in cases {
+            let engine = engine_with("naming.variable.casing", &format!("style = \"{style}\""));
+            let diags = lint_file(&*engine, &format!("{name} = 1;\n"));
+            assert_eq!(
+                has_id(&diags, "naming.variable.casing"),
+                violation,
+                "{name} with {style}: {diags:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn older_casing_names_are_aliases() {
         let engine = engine_with("naming.variable.casing", "style = \"PascalCase\"");
         let diags = lint_file(&*engine, "myVar = 1;\n");
         assert!(has_id(&diags, "naming.variable.casing"), "got: {diags:?}");
     }
 
-    #[test]
-    fn casing_snake_fires_when_configured() {
-        let engine = engine_with("naming.variable.casing", "style = \"snake_case\"");
-        let diags = lint_file(&*engine, "MyVar = 1;\n");
-        assert!(has_id(&diags, "naming.variable.casing"), "got: {diags:?}");
-    }
+    // -- variables: one report per scope, at the first occurrence -------------
 
     #[test]
-    fn casing_upper_fires_when_configured() {
-        let engine = engine_with("naming.variable.casing", "style = \"UPPER_CASE\"");
-        let diags = lint_file(&*engine, "myVar = 1;\n");
-        assert!(has_id(&diags, "naming.variable.casing"), "got: {diags:?}");
-    }
-
-    // -- Entity extraction -----------------------------------------------------
-
-    #[test]
-    fn class_entity_detected() {
-        let engine = engine_with("naming.class.requiredPrefix", "prefix = \"Cls\"");
-        let diags = lint_file(&*engine, "classdef MyClass\nend\n");
+    fn variable_is_reported_once_per_scope_at_its_first_occurrence() {
+        let engine = engine_with("naming.variable.maxLength", "max = 2");
+        let source = "function out = fn(in_arg)\nout = 1;\nout = 2;\nend\n";
+        let diags = lint_file(&*engine, source);
+        assert_eq!(
+            count(&diags, "naming.variable.maxLength"),
+            2,
+            "got: {diags:?}"
+        );
         assert!(
-            has_id(&diags, "naming.class.requiredPrefix"),
+            diags.iter().any(|d| d.line == 1 && d.column == 10),
             "got: {diags:?}"
         );
     }
 
     #[test]
-    fn local_function_entity_detected() {
-        let engine = engine_with("naming.localFunction.requiredPrefix", "prefix = \"lf_\"");
-        let diags = lint_file(&*engine, "function main()\nend\nfunction helper()\nend\n");
+    fn variable_read_before_assignment_is_reported_at_the_read() {
+        let engine = engine_with("naming.variable.maxLength", "max = 2");
+        let diags = lint_file(&*engine, "function f()\ndisp(zzz)\nzzz = 1;\nend\n");
+        let zzz: Vec<_> = diags
+            .iter()
+            .filter(|d| d.rule_id == "naming.variable.maxLength")
+            .collect();
+        assert_eq!(zzz.len(), 1, "got: {diags:?}");
+        assert_eq!((zzz[0].line, zzz[0].column), (2, 6), "got: {diags:?}");
+    }
+
+    #[test]
+    fn for_loop_variable_is_a_variable() {
+        let engine = engine_with("naming.variable.maxLength", "max = 3");
+        let diags = lint_file(&*engine, "for loopVar = 1:2\nend\n");
         assert!(
-            has_id(&diags, "naming.localFunction.requiredPrefix"),
+            has_id(&diags, "naming.variable.maxLength"),
             "got: {diags:?}"
         );
     }
 
     #[test]
-    fn nested_function_entity_detected() {
-        let engine = engine_with("naming.nestedFunction.requiredPrefix", "prefix = \"nf_\"");
-        let diags = lint_file(
-            &*engine,
-            "function main()\n    function helper()\n    end\nend\n",
-        );
+    fn catch_identifier_is_a_variable() {
+        let engine = engine_with("naming.variable.maxLength", "max = 3");
+        let diags = lint_file(&*engine, "try\nerror('x')\ncatch errObj\nend\n");
         assert!(
-            has_id(&diags, "naming.nestedFunction.requiredPrefix"),
+            has_id(&diags, "naming.variable.maxLength"),
             "got: {diags:?}"
         );
     }
 
     #[test]
-    fn method_entity_detected() {
-        let engine = engine_with("naming.method.requiredPrefix", "prefix = \"m_\"");
-        let diags = lint_file(
-            &*engine,
-            "classdef MyClass\n    methods\n        function helper()\n        end\n    end\nend\n",
+    fn function_after_script_statements_is_a_local_function() {
+        // MATLAB probe (casing config): `Bad_helper` after a script's statements is
+        // reported as naming.localFunction.casing, in a function file too after the main one.
+        let script = "x = 1;\ndisp(x)\nBad_helper();\nfunction Bad_helper()\ndisp(1)\nend\n";
+        let local = engine_with("naming.localFunction.casing", "style = \"lowerCamelCase\"");
+        assert!(has_id(
+            &lint_file(&*local, script),
+            "naming.localFunction.casing"
+        ));
+        let function = engine_with("naming.function.casing", "style = \"lowerCamelCase\"");
+        assert!(!has_id(
+            &lint_file(&*function, script),
+            "naming.function.casing"
+        ));
+
+        let file = "function mainF()\ndisp(1)\nend\nfunction Bad_helper()\ndisp(2)\nend\n";
+        assert!(has_id(
+            &lint_file(&*local, file),
+            "naming.localFunction.casing"
+        ));
+        assert!(!has_id(
+            &lint_file(&*function, file),
+            "naming.function.casing"
+        ));
+    }
+
+    #[test]
+    fn required_prefix_array_is_any_of() {
+        // MATLAB probe (requiredPrefix ["ab", "xy"]): `abVal` and `xyVal` pass, `zzVal` is
+        // reported. The suffix array ["Max", "Min"] works the same way (valMax passes).
+        let source = "function p()\nabVal = 1;\nxyVal = 2;\nzzVal = 3;\nvalMax = 4;\n\
+                      disp(abVal + xyVal + zzVal + valMax)\nend\n";
+        let engine = engine_with(
+            "naming.variable.requiredPrefix",
+            "prefix = [\"ab\", \"xy\"]",
+        );
+        let diags = lint_file(&*engine, source);
+        let reported: Vec<&str> = diags
+            .iter()
+            .filter(|d| d.rule_id == "naming.variable.requiredPrefix")
+            .map(|d| d.message.as_str())
+            .collect();
+        assert_eq!(reported.len(), 2, "got: {diags:?}");
+        assert!(reported[0].contains("'zzVal'") && reported[1].contains("'valMax'"));
+
+        let engine = engine_with(
+            "naming.variable.requiredSuffix",
+            "suffix = [\"Max\", \"Min\"]",
+        );
+        let diags = lint_file(&*engine, source);
+        assert!(
+            diags.iter().all(|d| !d.message.contains("'valMax'")),
+            "got: {diags:?}"
         );
         assert!(
-            has_id(&diags, "naming.method.requiredPrefix"),
+            diags.iter().any(|d| d.message.contains("'abVal'")),
             "got: {diags:?}"
         );
     }
 
     #[test]
-    fn property_entity_detected() {
-        let engine = engine_with("naming.property.requiredPrefix", "prefix = \"prop_\"");
-        let diags = lint_file(
-            &*engine,
-            "classdef MyClass\n    properties\n        Value\n    end\nend\n",
-        );
+    fn global_declaration_is_a_variable() {
+        let engine = engine_with("naming.variable.maxLength", "max = 3");
+        let diags = lint_file(&*engine, "function f()\nglobal gVar\nend\n");
         assert!(
-            has_id(&diags, "naming.property.requiredPrefix"),
+            has_id(&diags, "naming.variable.maxLength"),
             "got: {diags:?}"
         );
     }
 
     #[test]
-    fn event_entity_detected() {
-        let engine = engine_with("naming.event.requiredPrefix", "prefix = \"ev_\"");
-        let diags = lint_file(
-            &*engine,
-            "classdef MyClass\n    events\n        ValueChanged\n    end\nend\n",
-        );
+    fn lambda_parameter_is_a_variable() {
+        let engine = engine_with("naming.variable.maxLength", "max = 3");
+        let diags = lint_file(&*engine, "f = @(lamArg) lamArg + 1;\n");
         assert!(
-            has_id(&diags, "naming.event.requiredPrefix"),
+            has_id(&diags, "naming.variable.maxLength"),
             "got: {diags:?}"
         );
     }
 
     #[test]
-    fn enumeration_entity_detected() {
-        let engine = engine_with("naming.enumeration.requiredPrefix", "prefix = \"ENUM_\"");
-        let diags = lint_file(
-            &*engine,
-            "classdef MyClass\n    enumeration\n        Red\n        Green\n    end\nend\n",
-        );
-        assert!(
-            has_id(&diags, "naming.enumeration.requiredPrefix"),
+    fn struct_field_is_not_a_variable() {
+        let engine = engine_with("naming.variable.minLength", "min = 2");
+        let diags = lint_file(&*engine, "s.fieldName = 1;\n");
+        assert_eq!(
+            count(&diags, "naming.variable.minLength"),
+            1,
             "got: {diags:?}"
         );
+    }
+
+    #[test]
+    fn arguments_block_names_are_variables_not_properties() {
+        let engine = engine_with("naming.property.requiredPrefix", "prefix = \"p_\"");
+        let source = "function r = f(a)\narguments\n  a (1,1) double\nend\nr = a;\nend\n";
+        let diags = lint_file(&*engine, source);
+        assert!(
+            !has_id(&diags, "naming.property.requiredPrefix"),
+            "got: {diags:?}"
+        );
+    }
+
+    #[test]
+    fn constructor_is_not_a_method() {
+        let engine = engine_with("naming.method.maxLength", "max = 3");
+        let source = "classdef Thing < handle\n  methods\n    function obj = Thing()\n    end\n    function r = longName(obj)\n      r = obj;\n    end\n  end\nend\n";
+        let diags = lint_file(&*engine, source);
+        let methods: Vec<_> = diags
+            .iter()
+            .filter(|d| d.rule_id == "naming.method.maxLength")
+            .collect();
+        assert_eq!(methods.len(), 1, "got: {diags:?}");
+        assert!(methods[0].message.contains("longName"), "got: {diags:?}");
     }
 }

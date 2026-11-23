@@ -37,6 +37,10 @@ const IDISVARLOW_MSG: &str = "To avoid a potential conflict with functions on th
 /// IDISVARHIGH: a variable must be explicitly defined before its first use.
 const IDISVARHIGH_MSG: &str = "Variable must be explicitly defined before first use. In some cases, the definition was not required in previous releases, but it is now required.";
 
+/// Whether SHVAI is emitted. MATLAB reported no SHVAI in the nested-function probes
+/// (r7_U, six shapes), so it is off until a trigger is found.
+const SHVAI_REPORTED: bool = false;
+
 /// SHVAI: shared variables must be initialized before the nested function runs.
 const SHVAI_MSG: &str = "Explicitly define shared variables in the parent function before calling the nested function. MATLAB does not share uninitialized variables between a nested function and the parent function.";
 
@@ -88,7 +92,7 @@ pub(crate) fn collect_file_checks(
     source: &str,
     diagnostics: &mut Vec<Diagnostic>,
 ) {
-    let symbol_table = SymbolTable::build(tree, source);
+    let symbol_table = SymbolTable::shared(|| tree.root_node(), source);
     let use_classes = classify_identifier_uses(tree.root_node());
     let known_functions = collect_known_functions(tree.root_node(), source);
 
@@ -117,6 +121,7 @@ impl CompatibilityEngine {
                 if !has_variable_def(scope, name) {
                     continue;
                 }
+                let first_def = first_def_start(scope, name);
                 for use_ in uses_in_order(scope, name) {
                     if !matches!(
                         use_classes.get(&use_.byte_range.start),
@@ -124,7 +129,7 @@ impl CompatibilityEngine {
                     ) {
                         continue;
                     }
-                    if !has_def_before_or_at(scope, name, use_.byte_range.start) {
+                    if first_def.is_none_or(|start| start > use_.byte_range.start) {
                         push_use_diag(
                             "IDISVARLOW",
                             IDISVARLOW_MSG,
@@ -152,6 +157,15 @@ impl CompatibilityEngine {
                 if is_builtin(name) || known_functions.contains(name) {
                     continue;
                 }
+                // A name defined nowhere is a function (`p = inputParser;`), and a
+                // name defined in an enclosing scope is shared, not unset: neither
+                // gets a use reported. Both are decided once per name.
+                let defined_somewhere = has_variable_def(scope, name)
+                    || has_def_in_ancestors(symbol_table, scope_idx, name);
+                if !defined_somewhere || has_def_in_ancestors(symbol_table, scope_idx, name) {
+                    continue;
+                }
+                let first_def = first_def_start(scope, name);
                 for use_ in uses_in_order(scope, name) {
                     // Indexing/call positions are IDISVARLOW's domain.
                     if !matches!(
@@ -160,9 +174,7 @@ impl CompatibilityEngine {
                     ) {
                         continue;
                     }
-                    if !has_def_before_or_at(scope, name, use_.byte_range.start)
-                        && !has_def_in_ancestors(symbol_table, scope_idx, name)
-                    {
+                    if first_def.is_none_or(|start| start > use_.byte_range.start) {
                         push_use_diag(
                             "IDISVARHIGH",
                             IDISVARHIGH_MSG,
@@ -211,9 +223,11 @@ impl CompatibilityEngine {
                     continue;
                 }
                 // All definitions must occur after the nested function starts.
-                if variable_defs
-                    .iter()
-                    .all(|d| d.byte_range.start >= nested_start)
+                // Not emitted: MATLAB reported no SHVAI in the nested-function probes (r7_U).
+                if SHVAI_REPORTED
+                    && variable_defs
+                        .iter()
+                        .all(|d| d.byte_range.start >= nested_start)
                 {
                     push_def_diag(
                         "SHVAI",
@@ -253,12 +267,10 @@ fn has_variable_def(scope: &Scope, name: &str) -> bool {
         .any(|d| d.kind != DefKind::NestedFunction)
 }
 
-/// True when `scope` defines `name` at or before the given use offset.
-fn has_def_before_or_at(scope: &Scope, name: &str, use_start: usize) -> bool {
-    scope
-        .defs_of(name)
-        .iter()
-        .any(|d| d.byte_range.start <= use_start)
+/// Where the earliest definition of `name` in `scope` starts, whatever its kind.
+/// A use at or after it has a definition at or before it.
+fn first_def_start(scope: &Scope, name: &str) -> Option<usize> {
+    scope.defs_of(name).iter().map(|d| d.byte_range.start).min()
 }
 
 /// True when any ancestor scope (shared-workspace scopes such as nested
@@ -409,8 +421,9 @@ mod tests {
     use crate::test_util::{has_id, lint_file};
     use malt_core::Config;
 
+    /// The engine with the low-reliability messages on (the `all` preset).
     fn engine() -> Box<dyn malt_core::Rule> {
-        CompatibilityEngine::from_config(&Config::default())
+        CompatibilityEngine::from_config(&Config::from_toml("[lint]\npreset = \"all\"\n").unwrap())
     }
 
     // -- IDISVARLOW: indexing before definition -----------------------------
@@ -489,21 +502,36 @@ mod tests {
     // -- IDISVARHIGH: plain read before definition --------------------------
 
     #[test]
-    fn idisvarhigh_plain_read_undefined_fires() {
+    fn idisvarhigh_plain_read_of_unknown_name_is_a_function() {
         let d = lint_file(&*engine(), "function f()\n y = x + 1;\nend\n");
-        assert!(has_id(&d, "IDISVARHIGH"), "got: {d:?}");
+        assert!(!has_id(&d, "IDISVARHIGH"), "got: {d:?}");
     }
 
     #[test]
     fn idisvarhigh_read_before_later_assignment_fires() {
-        let d = lint_file(&*engine(), "function f()\n y = x + 1;\n x = 5;\nend\n");
+        // MATLAB's default checkcode never emits IDISVARHIGH (probed), so it is
+        // only reported under the `all` preset.
+        let all = CompatibilityEngine::from_config(
+            &Config::from_toml("[lint]\npreset = \"all\"\n").unwrap(),
+        );
+        let d = lint_file(&*all, "function f()\n y = x + 1;\n x = 5;\nend\n");
         assert!(has_id(&d, "IDISVARHIGH"), "got: {d:?}");
     }
 
     #[test]
-    fn idisvarhigh_call_argument_undefined_fires() {
+    fn idisvarhigh_off_under_mathworks() {
+        let default = CompatibilityEngine::from_config(&Config::default());
+        let d = lint_file(
+            default.as_ref(),
+            "function f()\n y = x + 1;\n x = 5;\nend\n",
+        );
+        assert!(!has_id(&d, "IDISVARHIGH"), "got: {d:?}");
+    }
+
+    #[test]
+    fn idisvarhigh_call_argument_of_unknown_name_is_a_function() {
         let d = lint_file(&*engine(), "function f()\n disp(x);\nend\n");
-        assert!(has_id(&d, "IDISVARHIGH"), "got: {d:?}");
+        assert!(!has_id(&d, "IDISVARHIGH"), "got: {d:?}");
     }
 
     #[test]
@@ -552,6 +580,7 @@ mod tests {
     // -- SHVAI: shared variable defined after the nested function -----------
 
     #[test]
+    #[ignore = "MATLAB reports no SHVAI for this shape (probes r7_U); not emitted"]
     fn shvai_shared_var_defined_after_nested_fires() {
         let d = lint_file(
             &*engine(),

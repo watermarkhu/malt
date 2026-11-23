@@ -10,7 +10,7 @@ impl LanguageSpecEngine {
                 diagnostics.push(Diagnostic {
                     rule_id: "MHERIT",
                     message: format!(
-                        "Deriving from the built-in MATLAB {sc} class is not supported."
+                        "Deriving from the built-in MATLAB '{sc}' class is not supported."
                     ),
                     severity: Severity::Error,
                     byte_range: class.byte_range.clone(),
@@ -31,14 +31,14 @@ mod tests {
     #[test]
     fn test_mherit_fires_builtin_superclass() {
         let source = "\
-classdef Foo < double
+classdef Foo < char
 end
 ";
         let diags = check_source(source, "Foo.m");
         let mherit = filter_by_id(&diags, "MHERIT");
         assert!(
             !mherit.is_empty(),
-            "MHERIT should fire for 'classdef Foo < double'"
+            "MHERIT should fire for 'classdef Foo < char'"
         );
     }
 
@@ -57,5 +57,12 @@ end
             mherit.is_empty(),
             "MHERIT should NOT fire for handle or user superclass"
         );
+    }
+
+    #[test]
+    fn test_mherit_no_fire_numeric_superclass() {
+        let source = "classdef Foo < double\nend\n";
+        let diags = crate::language_spec::tests::check_source(source, "Foo.m");
+        assert!(crate::language_spec::tests::filter_by_id(&diags, "MHERIT").is_empty());
     }
 }

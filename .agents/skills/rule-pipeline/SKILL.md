@@ -29,17 +29,14 @@ mode, model, and permissions are registered in the root `opencode.json`.
 
 ## Rule context lookup (main session only)
 
-Before planning, the rule's official context (description, severity, examples) MUST be
-looked up at:
-`https://www.mathworks.com/help/matlab/matlab_env/index-of-code-analyzer-checks.html`
-using Playwright (`playwright_browser_navigate` → `playwright_browser_find` →
-`playwright_browser_snapshot`). MathWorks returns HTTP 403 to plain `webfetch`, so
-Playwright is required. Fallback archive:
-`~/.local/share/opencode/tool-output/tool_fe291ac62001Qy9pI2rEjqHVAK`.
+Before planning, look the rule up in MATLAB's own list and probe the real Code Analyzer: the
+local copy is `~/.local/share/malt-reference/matlab-checks.csv` (ID, category, severity, message;
+regenerate it with `docs/scripts/make-allmsg-csv.ts` from the output of `checkcode('-allmsg')`),
+and the `matlab` MCP server runs `checkcode` on small probe files (see `docs/VERIFY.md`).
+MathWorks returns HTTP 403 to `webfetch`, so do not browse the documentation.
+The list has no code examples: derive MUST/MUST NOT examples from probes of the real analyzer.
 
-**IMPORTANT:** there is a single Playwright MCP instance. Only the main session may
-drive it. Subagents must never call Playwright tools — they must not contend for or
-mutate browser state. Rule context is passed to them as plan text in the prompt.
+Subagents must not browse; pass the rule context to them as plan text.
 
 ## Orchestration
 
@@ -82,3 +79,18 @@ Do not serialize steps 2 and 3. Each is a batch of parallel tasks.
 - Do not commit changes unless the user explicitly asks.
 - If the tree-sitter grammar cannot represent the pattern (e.g. `function_call` also
   covers indexing), the plan/review must address the ambiguity explicitly.
+
+## Running audits at scale (engine-wide remaps)
+
+When a whole engine is audited rather than one new rule:
+
+- One agent per engine directory (split large engines by file group), in batches of
+  **at most three** at a time, so a usage limit cannot strand half-edited files.
+- Each agent edits only its own files, never commits, and runs rustfmt on its files
+  only (not `cargo fmt --all`). A build error in someone else's file means wait and retry.
+- Agents must leave the tree compiling. Verify the combined tree yourself
+  (`cargo test --workspace --locked`, clippy, docs check) before committing.
+- Commit once per coherent chunk: hooks check the whole tree, so per-engine commits fail
+  while other engines are mid-edit.
+- Tell each agent which IDs other engines own, so a duplicate is deleted in one place
+  only (the audits of readability and performance both deleted PSIZE).

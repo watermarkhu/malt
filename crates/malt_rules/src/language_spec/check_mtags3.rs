@@ -16,32 +16,21 @@ impl LanguageSpecEngine {
                         .to_string(),
                     severity: Severity::Error,
                     byte_range: class.byte_range.clone(),
-                    line: class.line,
+                    line: pb.line,
                     column: 1,
                     fix: None,
                 });
             }
         }
-        for mb in &class.methods_blocks {
-            if Self::block_has_access_conflict(&mb.attributes) {
-                diagnostics.push(Diagnostic {
-                    rule_id: "MTAGS3",
-                    message: "Cannot use the Access attribute when using the SetAccess or GetAccess attribute."
-                        .to_string(),
-                    severity: Severity::Error,
-                    byte_range: class.byte_range.clone(),
-                    line: class.line,
-                    column: 1,
-                    fix: None,
-                });
-            }
-        }
+        // Methods blocks have no SetAccess/GetAccess: MATLAB reports ATUNK there, not MTAGS3
+        // (probed: `methods (Access = public, SetAccess = private)` gives ATUNK at SetAccess).
     }
 
     /// Whether an attribute list contains Access together with SetAccess or GetAccess.
     pub(crate) fn block_has_access_conflict(attrs: &[AttributeMeta]) -> bool {
-        let has = |name: &str| attrs.iter().any(|a| a.name == name && !a.negated);
-        has("Access") && (has("SetAccess") || has("GetAccess"))
+        let attrs = Attributes(attrs);
+        attrs.is_present("Access")
+            && (attrs.is_present("SetAccess") || attrs.is_present("GetAccess"))
     }
 }
 
@@ -79,5 +68,14 @@ end
         let diags = check_source(source, "Foo.m");
         let hits = filter_by_id(&diags, "MTAGS3");
         assert!(hits.is_empty(), "MTAGS3 should NOT fire for Access alone");
+    }
+
+    #[test]
+    fn test_mtags3_reports_at_properties_line() {
+        let source = "classdef Foo < handle\n    properties (Access = private, SetAccess = public)\n        p = 1\n    end\nend\n";
+        let diags = crate::language_spec::tests::check_source(source, "Foo.m");
+        let hits = crate::language_spec::tests::filter_by_id(&diags, "MTAGS3");
+        assert!(!hits.is_empty());
+        assert!(hits.iter().all(|d| d.line == 2));
     }
 }

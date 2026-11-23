@@ -12,7 +12,7 @@
 //!
 //! ## Rule
 //!
-//! Suggests formatting improvements for MATLAB code. All 7 checks share a
+//! Suggests formatting improvements for MATLAB code. All 6 checks share a
 //! single `FormattingEngine` that runs as a file-level rule, walking the whole
 //! tree once and applying every enabled check per node. Each diagnostic
 //! carries the specific check ID (e.g. `NOCOMMA`, `NO4LP`). Individual checks
@@ -28,26 +28,29 @@
 //! | ALIGN | info | yes | This keyword might not be aligned with its matching END on line VAR_NUMBER. |
 //! | NOPTS | info | yes | Add a semicolon after the statement to hide the output (in a script). |
 //! | NOPRT | info | yes | Add a semicolon after the statement to hide the output (in a function). |
-//! | PRTCAL | info | yes | Add a semicolon after the function call to hide the output. |
 //! | NCOMMA | info | yes | Best practice is to separate output variables with commas. |
 //!
 //! ## Fix
 //!
 //! Each check rewrites the flagged construct directly:
 //!
-//! - NOCOMMA inserts a comma between space-separated row elements (`[1 2 3]` → `[1, 2, 3]`).
-//! - NCOMMA inserts a comma between space-separated function arguments.
-//! - NO4LP rewrites the indentation prefix of misindented statements.
-//! - ALIGN re-indents `elseif`/`else` clauses to the column of their `if`.
-//! - NOPTS and NOPRT strip unnecessary parentheses (`(x)` → `x`).
-//! - PRTCAL rewrites a string-only call to command syntax (`disp('hello')` → `disp hello`).
+//! - NOCOMMA removes a comma that repeats a separator (`x = 1;,` → `x = 1;`).
+//! - NCOMMA inserts a comma between space-separated output variables (`[a b]` → `[a, b]`).
+//! - NO4LP removes the parentheses around the `for` header (`for (i = 1:n)` → `for i = 1:n`).
+//! - ALIGN re-indents the `end` to the column of its keyword (only when the keyword starts its line).
+//! - NOPTS and NOPRT add the missing semicolon as MATLAB's own fix does: a
+//!   comma separating the statement from the next is replaced
+//!   (`x = 1, y = 2` → `x = 1; y = 2;`), otherwise the semicolon is inserted
+//!   after the statement (`x = 5` → `x = 5;`). Inserting in front of a comma
+//!   would produce `x = 1;, y = 2`, which the Code Analyzer reports as
+//!   NOCOMMA (probed).
 //!
 //! ## Examples
 //!
 //! ### Incorrect
 //!
 //! ```matlab
-//! x = [1, 2,];          % NOCOMMA: extra comma
+//! x = 1;,                % NOCOMMA: extra comma
 //! [a b] = f();          % NCOMMA: separate outputs with commas
 //! function g()
 //!     y = compute()     % NOPRT: semicolon to hide output (in a function)
@@ -85,10 +88,6 @@
 //!
 //! [lint.rules.NO4LP]
 //! severity = "info"
-//! indent_size = 4
-//!
-//! [lint.rules.PRTCAL]
-//! severity = "off"
 //! ```
 
 mod check_align;
@@ -97,45 +96,22 @@ mod check_no4lp;
 mod check_nocomma;
 mod check_noprt;
 mod check_nopts;
-mod check_prtcal;
 
 use malt_core::{Category, Config, Diagnostic, FileContext, Fix, Rule, Severity};
-use serde::Deserialize;
 use tree_sitter::Node;
+
+use check_nopts::ScopeCache;
 
 // ---------------------------------------------------------------------------
 // Check IDs
 // ---------------------------------------------------------------------------
 
 /// All formatting check IDs handled by this engine.
-pub(crate) const CHECK_IDS: &[&str] = &[
-    "NOCOMMA", "NO4LP", "ALIGN", "NOPTS", "NOPRT", "PRTCAL", "NCOMMA",
-];
+pub(crate) const CHECK_IDS: &[&str] = &["NOCOMMA", "NO4LP", "ALIGN", "NOPTS", "NOPRT", "NCOMMA"];
 
 // ---------------------------------------------------------------------------
 // Per-check configuration
 // ---------------------------------------------------------------------------
-
-/// Configuration for the NO4LP indentation check.
-#[derive(Debug, Clone, Deserialize)]
-pub struct No4lpConfig {
-    /// Expected indentation size in spaces.
-    #[serde(default = "default_indent_size")]
-    pub indent_size: usize,
-}
-
-impl Default for No4lpConfig {
-    fn default() -> Self {
-        Self {
-            indent_size: default_indent_size(),
-        }
-    }
-}
-
-/// Default indentation size (4 spaces).
-pub(crate) fn default_indent_size() -> usize {
-    4
-}
 
 /// Parent node types that indicate statement-level context.
 pub(crate) const STATEMENT_PARENTS: &[&str] = &["source_file", "block"];
@@ -151,17 +127,15 @@ struct EnabledChecks {
     align: bool,
     nopts: bool,
     noprt: bool,
-    prtcal: bool,
     ncomma: bool,
 }
 
-/// The formatting suggestions engine that handles all 7 formatting checks.
+/// The formatting suggestions engine that handles all 6 formatting checks.
 ///
 /// Registered as `"FORMATTING_ENGINE"` with inventory. Uses file-level
 /// analysis to walk the tree once and apply all enabled formatting checks.
 pub struct FormattingEngine {
     enabled: EnabledChecks,
-    no4lp_config: No4lpConfig,
 }
 
 impl FormattingEngine {
@@ -173,14 +147,9 @@ impl FormattingEngine {
             align: config.is_rule_enabled("ALIGN"),
             nopts: config.is_rule_enabled("NOPTS"),
             noprt: config.is_rule_enabled("NOPRT"),
-            prtcal: config.is_rule_enabled("PRTCAL"),
             ncomma: config.is_rule_enabled("NCOMMA"),
         };
-        let no4lp_config: No4lpConfig = config.rule_params("NO4LP");
-        Box::new(Self {
-            enabled,
-            no4lp_config,
-        })
+        Box::new(Self { enabled })
     }
 
     /// Returns true if any sub-check is enabled.
@@ -190,7 +159,6 @@ impl FormattingEngine {
             || self.enabled.align
             || self.enabled.nopts
             || self.enabled.noprt
-            || self.enabled.prtcal
             || self.enabled.ncomma
     }
 }
@@ -201,7 +169,7 @@ impl Rule for FormattingEngine {
     }
 
     fn description(&self) -> &'static str {
-        "Formatting suggestion checks (NOCOMMA, NO4LP, ALIGN, NOPTS, NOPRT, PRTCAL, NCOMMA)"
+        "Formatting suggestion checks (NOCOMMA, NO4LP, ALIGN, NOPTS, NOPRT, NCOMMA)"
     }
 
     fn severity(&self) -> Severity {
@@ -232,7 +200,15 @@ impl Rule for FormattingEngine {
 
         let mut diagnostics = Vec::new();
         let root = ctx.tree.root_node();
-        self.visit_recursive(root, ctx.source, &mut diagnostics);
+        let frame = Frame {
+            statement_level: false,
+            following: &[],
+            scope: root,
+            in_function: false,
+            in_parfor: false,
+        };
+        let mut names = ScopeCache::new();
+        self.visit_recursive(root, frame, ctx.source, &mut names, &mut diagnostics);
         diagnostics
     }
 }
@@ -241,45 +217,74 @@ impl Rule for FormattingEngine {
 // Recursive tree traversal
 // ---------------------------------------------------------------------------
 
+/// What the walk knows about the surroundings of the node it visits, so the
+/// checks need not ask tree-sitter: `Node::parent` and `Node::next_sibling`
+/// walk down from the root, which costs as much as the statements before the
+/// node and makes a file of many statements quadratic.
+#[derive(Clone, Copy)]
+pub(crate) struct Frame<'t, 'a> {
+    /// Whether the parent is a `source_file` or a `block` ([`STATEMENT_PARENTS`]).
+    pub(crate) statement_level: bool,
+    /// The siblings after the node, in order.
+    pub(crate) following: &'a [Node<'t>],
+    /// The nearest enclosing `function_definition`, else the root.
+    pub(crate) scope: Node<'t>,
+    /// Whether an ancestor is a `function_definition`.
+    pub(crate) in_function: bool,
+    /// Whether an ancestor is a `parfor` loop: a `for_statement` whose first
+    /// token is `parfor`. Probed: MATLAB gives no NOPTS or NOPRT for statements there.
+    pub(crate) in_parfor: bool,
+}
+
 impl FormattingEngine {
     /// Walk the tree recursively, applying enabled checks to each node.
-    fn visit_recursive(&self, node: Node, source: &str, diagnostics: &mut Vec<Diagnostic>) {
+    fn visit_recursive<'t>(
+        &self,
+        node: Node<'t>,
+        frame: Frame<'t, '_>,
+        source: &str,
+        names: &mut ScopeCache,
+        diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let kind = node.kind();
         // Note: multiple checks can apply to the same node type, so dispatch
         // each independently rather than using mutually-exclusive match arms.
 
-        // NOCOMMA: extra/trailing comma in matrix/cell rows
-        if (kind == "matrix" || kind == "cell") && self.enabled.nocomma {
-            self.check_nocomma(node, diagnostics);
+        // NOCOMMA: a comma that repeats a statement separator
+        if kind == "," && self.enabled.nocomma {
+            self.check_nocomma(node, source, diagnostics);
         }
 
-        // NO4LP: indentation in loop/conditional bodies
-        if matches!(
-            kind,
-            "for_statement" | "while_statement" | "if_statement" | "switch_statement"
-        ) && self.enabled.no4lp
-        {
+        // NO4LP: parentheses around a `for` header
+        if kind == "for_statement" && self.enabled.no4lp {
             self.check_no4lp(node, source, diagnostics);
         }
 
-        // ALIGN: elseif/else alignment with parent if
-        if kind == "if_statement" && self.enabled.align {
+        // ALIGN: a block keyword whose matching END is indented differently
+        if matches!(
+            kind,
+            "if_statement"
+                | "for_statement"
+                | "while_statement"
+                | "switch_statement"
+                | "try_statement"
+        ) && self.enabled.align
+        {
             self.check_align(node, source, diagnostics);
         }
 
-        // NOPTS: statement in a script that produces output without a semicolon
-        if kind == "assignment" && self.enabled.nopts {
-            self.check_nopts(node, source, diagnostics);
-        }
-
-        // NOPRT: statement in a function that produces output without a semicolon
-        if kind == "assignment" && self.enabled.noprt {
-            self.check_noprt(node, source, diagnostics);
-        }
-
-        // PRTCAL: bare function call statement without a semicolon
-        if kind == "function_call" && self.enabled.prtcal {
-            self.check_prtcal(node, source, diagnostics);
+        // NOPTS / NOPRT: a statement that produces output without a semicolon,
+        // in a script or in a function.
+        if (self.enabled.nopts || self.enabled.noprt)
+            && (kind == "assignment"
+                || check_nopts::is_expression_statement(node, &frame, names, source))
+        {
+            if self.enabled.nopts {
+                self.check_nopts(node, &frame, source, diagnostics);
+            }
+            if self.enabled.noprt {
+                self.check_noprt(node, &frame, source, diagnostics);
+            }
         }
 
         // NCOMMA: output variables not separated by commas
@@ -288,11 +293,25 @@ impl FormattingEngine {
         }
 
         // Recurse into children.
-        let child_count = node.child_count();
-        for i in 0..child_count {
-            if let Some(child) = node.child(i) {
-                self.visit_recursive(child, source, diagnostics);
-            }
+        let children = crate::analysis::symbols::children_of(node);
+        let statement_level = STATEMENT_PARENTS.contains(&kind);
+        let scope = if kind == "function_definition" {
+            node
+        } else {
+            frame.scope
+        };
+        let in_function = frame.in_function || kind == "function_definition";
+        let in_parfor = frame.in_parfor
+            || (kind == "for_statement" && node.child(0).map(|c| c.kind()) == Some("parfor"));
+        for (i, &child) in children.iter().enumerate() {
+            let child_frame = Frame {
+                statement_level,
+                following: &children[i + 1..],
+                scope,
+                in_function,
+                in_parfor,
+            };
+            self.visit_recursive(child, child_frame, source, names, diagnostics);
         }
     }
 }
@@ -300,24 +319,6 @@ impl FormattingEngine {
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-/// Returns `true` if the node kind is bracket/punctuation that should be skipped.
-pub(crate) fn is_punctuation(kind: &str) -> bool {
-    matches!(kind, "[" | "]" | "{" | "}" | "(" | ")" | ";" | "," | "...")
-}
-
-/// Returns `true` if a node is inside a `function_definition` (i.e., in a
-/// function/method body) as opposed to at script level.
-pub(crate) fn is_in_function(node: Node) -> bool {
-    let mut current = node.parent();
-    while let Some(p) = current {
-        if p.kind() == "function_definition" {
-            return true;
-        }
-        current = p.parent();
-    }
-    false
-}
 
 /// Get the byte offset of the start of the line containing `byte_offset`.
 pub(crate) fn line_start_byte(source: &str, byte_offset: usize) -> usize {
@@ -334,12 +335,20 @@ pub(crate) fn line_start_byte(source: &str, byte_offset: usize) -> usize {
 /// source text immediately following the node for a `;` (skipping whitespace
 /// on the same line).
 pub(crate) fn has_trailing_semicolon(node: Node, source: &str) -> bool {
+    let following = std::iter::successors(node.next_sibling(), |sib| sib.next_sibling());
+    semicolon_follows(node, following, source)
+}
+
+/// [`has_trailing_semicolon`] given the siblings after `node`, in order.
+pub(crate) fn semicolon_follows<'t>(
+    node: Node<'t>,
+    following: impl IntoIterator<Item = Node<'t>>,
+    source: &str,
+) -> bool {
     // Strategy 1: Check next siblings for ";".
-    let mut sibling = node.next_sibling();
-    while let Some(sib) = sibling {
+    for sib in following {
         let kind = sib.kind();
         if kind == "comment" || kind == "line_continuation" {
-            sibling = sib.next_sibling();
             continue;
         }
         if kind == ";" {
@@ -397,6 +406,7 @@ mod tests {
         parser
             .set_language(&tree_sitter_matlab::LANGUAGE.into())
             .expect("failed to load tree-sitter-matlab");
+        malt_core::note_parse();
         parser.parse(source, None).expect("parse failed")
     }
 
@@ -409,6 +419,7 @@ mod tests {
             tree: &tree,
             source,
             file_path: std::path::Path::new("test.m"),
+            project: None,
         };
         rule.check_file(&ctx)
     }

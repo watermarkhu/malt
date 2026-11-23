@@ -2,9 +2,26 @@
 
 use super::*;
 
+/// Calls that reach functions by name at run time. `localfunctions` returns a
+/// handle to every local function of the file (probed: a test file with
+/// `functiontests(localfunctions)` gets no DEFNU for its test or helper functions).
+const DYNAMIC_CALLS: &[&str] = &[
+    "eval",
+    "evalin",
+    "evalc",
+    "feval",
+    "str2func",
+    "localfunctions",
+];
+
 impl UnusedEngine {
     /// Run DEFNU check: local function defined but never called.
-    pub(crate) fn check_defnu(&self, table: &SymbolTable, diagnostics: &mut Vec<Diagnostic>) {
+    pub(crate) fn check_defnu(
+        &self,
+        table: &SymbolTable,
+        file_stem: &str,
+        diagnostics: &mut Vec<Diagnostic>,
+    ) {
         if self.is_check_disabled("DEFNU") {
             return;
         }
@@ -16,8 +33,31 @@ impl UnusedEngine {
             .flat_map(|s| s.uses.iter().map(|u| u.name.as_str()))
             .collect();
 
-        for scope in &table.scopes {
-            if scope.kind != ScopeKind::LocalFunction {
+        // Probe: once the file calls eval, feval or str2func, MATLAB cannot tell
+        // which local function is reached, and reports no DEFNU in the file.
+        if DYNAMIC_CALLS.iter().any(|c| all_uses.contains(c)) {
+            return;
+        }
+
+        // Probe: in a script every function is a local function, including the
+        // first one, which the symbol table classifies as `Function`. Nested
+        // functions are checked too (probes p5, p20, p18).
+        let in_script = table
+            .scopes
+            .first()
+            .is_some_and(|s| s.kind == ScopeKind::Script);
+        // Probes (r10_D a1-a7, c1-c5, d1-d5): with a `function` line inside the
+        // primary function's `arguments` block, MATLAB checks the primary function
+        // like a local function: DEFNU at its name (line 1, column 14) when no call
+        // reaches it, and the file name does not shadow it (probe c2).
+        let open_arguments = table.arguments_unclosed;
+        for (position, scope) in table.scopes.iter().enumerate() {
+            let local = match scope.kind {
+                ScopeKind::LocalFunction | ScopeKind::NestedFunction => true,
+                ScopeKind::Function => in_script || open_arguments,
+                _ => false,
+            };
+            if !local {
                 continue;
             }
             let name = &scope.name;
@@ -27,7 +67,25 @@ impl UnusedEngine {
             if self.should_ignore_name(name) {
                 continue;
             }
-            if !all_uses.contains(name.as_str()) {
+            // Probes: MATLAB reports no DEFNU for a script function whose name the
+            // script assigned first (`scr = 1; function scr()`, with FCONF and
+            // REDEF), nor for a local function named like its function file.
+            // Probe ls-b__t6: a second `function t6()` is REDEF, not DEFNU. Probes s10f,
+            // s12f and d_dup_script: MATLAB reports neither definition of a name defined twice.
+            let duplicate = table.scopes[..position].iter().any(|s| {
+                matches!(s.kind, ScopeKind::Function | ScopeKind::LocalFunction) && s.name == *name
+            }) || (name != file_stem
+                && table.scopes[position + 1..].iter().any(|s| {
+                    matches!(s.kind, ScopeKind::Function | ScopeKind::LocalFunction)
+                        && s.name == *name
+                }));
+            let shadowed = duplicate
+                || if in_script {
+                    !table.root_scope().defs_of(name).is_empty()
+                } else {
+                    !open_arguments && name == file_stem
+                };
+            if !all_uses.contains(name.as_str()) && !shadowed {
                 diagnostics.push(Diagnostic {
                     rule_id: "DEFNU",
                     message: "Function might be unused.".to_string(),
@@ -63,6 +121,83 @@ mod tests {
         assert!(has_id(&diags, "DEFNU"), "got: {diags:?}");
     }
 
+    // Probe c4_B k/k_block_comments.m: MATLAB reports no DEFNU for the file's
+    // function when help comments or blank lines come before the `function` line.
+    // MSNU needs the IDs this engine reports: NASGU and DEFNU are active, and a
+    // check listed in `disabled_checks` is not.
+    #[test]
+    fn active_check_ids_follow_disabled_checks() {
+        let active = engine().active_check_ids();
+        assert!(
+            active.contains(&"NASGU") && active.contains(&"DEFNU"),
+            "got: {active:?}"
+        );
+        let engine = UnusedEngine {
+            config: UnusedConfig {
+                disabled_checks: vec!["nasgu".to_string()],
+                ..Default::default()
+            },
+        };
+        let active = engine.active_check_ids();
+        assert!(
+            !active.contains(&"NASGU") && active.contains(&"DEFNU"),
+            "got: {active:?}"
+        );
+    }
+
+    #[test]
+    fn defnu_silent_on_primary_after_help_comment_or_blank_line() {
+        for src in [
+            "% help\nfunction out = f(in)\nout = in;\nend\n",
+            "% help\n\n%% more help\nfunction out = f(in)\nout = in;\nend\n",
+            "\nfunction out = f(in)\nout = in;\nend\n",
+        ] {
+            let diags = lint_file(&*engine(), src);
+            assert!(!has_id(&diags, "DEFNU"), "{src:?} got: {diags:?}");
+        }
+    }
+
+    #[test]
+    fn defnu_silent_on_duplicate_function_name() {
+        // Probe ls-b__t6: the second `function t6()` is REDEF, not DEFNU.
+        let diags = lint_file(&*engine(), "function t6()\nend\nfunction t6()\nend\n");
+        assert!(!has_id(&diags, "DEFNU"), "got: {diags:?}");
+    }
+
+    #[test]
+    fn defnu_silent_when_localfunctions_references_every_local_function() {
+        // Probe d1 (a_tests_calc): `functiontests(localfunctions)` reaches the test
+        // and the helper function; MATLAB reports neither.
+        let source = "function tests = t_tests\ntests = functiontests(localfunctions);\nend\n\nfunction testA(testCase)\nend\n\nfunction helperX()\nend\n";
+        let diags = lint_file(&*engine(), source);
+        assert!(!has_id(&diags, "DEFNU"), "got: {diags:?}");
+    }
+
+    #[test]
+    fn defnu_fires_on_test_convention_names_without_localfunctions() {
+        // Probe d3: MATLAB gives no exemption to `setup` or `testX` by name in a
+        // function-based test file; an unreferenced one is DEFNU.
+        let source = "function tests = t_tests\ntests = 1;\nend\n\nfunction setup(testCase)\nend\n\nfunction testA(testCase)\nend\n";
+        let diags = lint_file(&*engine(), source);
+        assert!(has_id(&diags, "DEFNU"), "got: {diags:?}");
+    }
+
+    #[test]
+    fn defnu_silent_on_a_bare_validator_name_in_arguments() {
+        // Probe d5 (c_args_block:38): `{mustBeSquare}` calls the local validator.
+        let source = "function y = f(M)\narguments\n    M (:,:) double {mustBeSquare}\nend\ny = numel(M);\nend\n\nfunction mustBeSquare(M)\nend\n";
+        let diags = lint_file(&*engine(), source);
+        assert!(!has_id(&diags, "DEFNU"), "got: {diags:?}");
+    }
+
+    #[test]
+    fn defnu_fires_on_an_unused_local_validator() {
+        // Probe d8: a local function that no validator or call names is DEFNU.
+        let source = "function y = f(M)\narguments\n    M (1,1) double\nend\ny = M;\nend\n\nfunction isPos(M)\nend\n";
+        let diags = lint_file(&*engine(), source);
+        assert!(has_id(&diags, "DEFNU"), "got: {diags:?}");
+    }
+
     #[test]
     fn defnu_ok_when_local_function_called() {
         let diags = lint_file(
@@ -70,5 +205,261 @@ mod tests {
             "function main()\n    helper();\nend\n\nfunction helper()\n    disp(2);\nend\n",
         );
         assert!(!has_id(&diags, "DEFNU"), "got: {diags:?}");
+    }
+
+    #[test]
+    fn defnu_ok_when_function_handle_taken() {
+        // Probe: a function handle counts as a use.
+        let diags = lint_file(
+            &*engine(),
+            "function main()\n    h = @helper;\n    h();\nend\n\nfunction helper()\n    disp(2);\nend\n",
+        );
+        assert!(!has_id(&diags, "DEFNU"), "got: {diags:?}");
+    }
+
+    #[test]
+    fn defnu_silent_when_file_calls_feval() {
+        // Probe: `dead` is not reported once the file calls feval, even though
+        // the feval argument is a handle or a variable.
+        let diags = lint_file(
+            &*engine(),
+            "function r = main(name)\n    r = feval(name);\nend\n\nfunction r = dead()\n    r = 2;\nend\n",
+        );
+        assert!(!has_id(&diags, "DEFNU"), "got: {diags:?}");
+    }
+
+    #[test]
+    fn defnu_silent_when_file_calls_eval_or_str2func() {
+        // Probe: the same holds for eval and str2func.
+        for call in ["eval('x = 1;');", "g = str2func('helper');"] {
+            let src =
+                format!("function main()\n    {call}\nend\n\nfunction dead()\n    disp(3);\nend\n");
+            let diags = lint_file(&*engine(), &src);
+            assert!(!has_id(&diags, "DEFNU"), "{call}: got: {diags:?}");
+        }
+    }
+
+    #[test]
+    fn defnu_silent_when_file_calls_evalin_or_evalc() {
+        // Probes p6 and p7: MATLAB reports no DEFNU for `sub` after evalin or evalc.
+        for call in ["evalin('base', 'x');", "s = evalc('disp(1)');"] {
+            let src = format!("function p()\n{call}\nend\n\nfunction s = sub()\ns = 1;\nend\n");
+            let diags = lint_file(&*engine(), &src);
+            assert!(!has_id(&diags, "DEFNU"), "{call}: got: {diags:?}");
+        }
+    }
+
+    #[test]
+    fn defnu_not_silenced_by_run() {
+        // Probe p8: `run` does not reach local functions, so `sub` is reported.
+        let diags = lint_file(
+            &*engine(),
+            "function p()\nrun('foo.m');\nend\n\nfunction s = sub()\ns = 1;\nend\n",
+        );
+        assert!(has_id(&diags, "DEFNU"), "got: {diags:?}");
+    }
+
+    #[test]
+    fn defnu_silent_when_eval_is_in_arguments_validator() {
+        // Probe p10: an eval inside an arguments validator counts as a dynamic call.
+        let diags = lint_file(
+            &*engine(),
+            "function r = p(a)\narguments\n  a {mustBeNumeric, eval('1')}\nend\nr = a;\nend\n\nfunction s = sub()\ns = 1;\nend\n",
+        );
+        assert!(!has_id(&diags, "DEFNU"), "got: {diags:?}");
+    }
+
+    #[test]
+    fn defnu_silent_when_script_assigns_function_name() {
+        // Probe scr2 (fixture ls-c__scr2): `scr2 = 1;` before `function scr2()`.
+        let diags = lint_file(&*engine(), "scr2 = 1;\nfunction scr2()\nend\n");
+        assert!(!has_id(&diags, "DEFNU"), "got: {diags:?}");
+    }
+
+    #[test]
+    fn defnu_silent_when_function_file_has_local_function_named_as_file() {
+        // Probe fconfB: a subfunction named like its function file is not reported.
+        let source = "function r = fconfB(x)\nr = x;\nend\nfunction fconfB()\nend\n";
+        let tree = crate::test_util::parse(source);
+        let ctx = FileContext {
+            tree: &tree,
+            source,
+            file_path: std::path::Path::new("fconfB.m"),
+            project: None,
+        };
+        let diags = engine().check_file(&ctx);
+        assert!(!has_id(&diags, "DEFNU"), "got: {diags:?}");
+    }
+
+    #[test]
+    fn defnu_fires_on_uncalled_nested_function() {
+        // Probes p5 and p20: a nested function nobody calls is reported.
+        let diags = lint_file(
+            &*engine(),
+            "function r = p(x)\nr = x;\nfunction q = inner()\nq = 1;\nend\nend\n",
+        );
+        assert!(has_id(&diags, "DEFNU"), "got: {diags:?}");
+    }
+
+    #[test]
+    fn defnu_ok_when_parent_calls_nested_function() {
+        // Probe p15: the parent calls the nested function.
+        let diags = lint_file(
+            &*engine(),
+            "function r = p(x)\nr = inner(x);\nfunction q = inner(y)\nq = y;\nend\nend\n",
+        );
+        assert!(!has_id(&diags, "DEFNU"), "got: {diags:?}");
+    }
+
+    #[test]
+    fn defnu_fires_in_script_on_uncalled_function() {
+        // Probes p1 and p2: in a script the first function is a local function too.
+        let diags = lint_file(&*engine(), "x = 1;\nfunction h()\n  disp(1)\nend\n");
+        assert!(has_id(&diags, "DEFNU"), "got: {diags:?}");
+    }
+
+    #[test]
+    fn defnu_ok_in_script_when_called_from_script() {
+        // Probe p12: `a` is called from the script, `b` from `a`.
+        let diags = lint_file(
+            &*engine(),
+            "a();\nfunction a()\n  b();\nend\nfunction b()\nend\n",
+        );
+        assert!(!has_id(&diags, "DEFNU"), "got: {diags:?}");
+    }
+
+    #[test]
+    fn defnu_not_suppressed_by_field_store_of_same_name() {
+        // Probe (performance__t1): `s.f(end+1) = i` stores into a field `f`, which
+        // is not a call to the local function `f`.
+        let diags = lint_file(
+            &*engine(),
+            "function main()\n  s.f(end+1) = 1;\nend\nfunction f()\nend\n",
+        );
+        assert!(has_id(&diags, "DEFNU"), "got: {diags:?}");
+    }
+
+    #[test]
+    fn defnu_for_function_after_classdef() {
+        // Probe (naming__e): a function after a classdef `end` is a local function.
+        let diags = lint_file(&*engine(), "classdef Cl\nend\nfunction helper()\nend\n");
+        assert!(has_id(&diags, "DEFNU"), "got: {diags:?}");
+    }
+
+    fn defnu_lines(src: &str) -> Vec<usize> {
+        lint_file(&*engine(), src)
+            .iter()
+            .filter(|d| d.rule_id == "DEFNU")
+            .map(|d| d.line)
+            .collect()
+    }
+
+    #[test]
+    fn defnu_fires_on_primary_when_arguments_block_is_open() {
+        // Fixture t__fv4: a `function` line inside the arguments block. MATLAB
+        // reports the primary function at line 1 (uncalled) and the nested one at 5.
+        let src = "function r = fvA(n, m)\n    arguments\n        n (1,1) {mustBeNumeric} = nargin\n        m = max(nargin, 2)\n        function q = inner(), q = 1; end\n    end\n    r = 1;\nend\n";
+        assert_eq!(defnu_lines(src), vec![1, 5]);
+    }
+
+    #[test]
+    fn defnu_primary_silent_when_called_with_open_arguments_block() {
+        // Probe a2: a later function calls the primary function, so only the
+        // uncalled caller (line 9) and the nested function (line 4) are reported.
+        let src = "function r = fvA(n)\n    arguments\n        n (1,1) double\n        function q = inner(), q = 1; end\n    end\n    r = 1;\nend\n\nfunction z = caller()\n    z = fvA(1);\nend\n";
+        assert_eq!(defnu_lines(src), vec![4, 9]);
+    }
+
+    #[test]
+    fn defnu_primary_silent_without_parse_error() {
+        // Probe a4: the arguments block is left open, but the file has no
+        // parse error. MATLAB keeps the primary function a file function (FNDEF,
+        // no DEFNU at line 1); the nested function is reported at line 4.
+        let src = "function r = fvC(n)\n    arguments\n        n (1,1) double\n        function q = inner()\n    end\n    r = 1;\nend\n";
+        assert_eq!(defnu_lines(src), vec![4]);
+    }
+
+    #[test]
+    fn defnu_primary_not_shadowed_by_file_name_with_open_arguments_block() {
+        // Probe c2: the primary function named like its file is still DEFNU.
+        let src = "function r = c2(n)\n    arguments\n        n (1,1) double\n        function q = inner(), q = 1; end\n    end\n    r = 1;\nend\n";
+        assert_eq!(defnu_lines(src), vec![1, 4]);
+    }
+
+    // -- DEFNU: GUIDE and App Designer callback names (plan 5.2) ------------
+
+    #[test]
+    fn defnu_fires_on_uncalled_callback_named_subfunctions() {
+        // Probes p52 a01, a03-a09, e08, b01, d01: MATLAB has no exemption for
+        // GUIDE or App Designer callback names. An uncalled local function is
+        // DEFNU whatever suffix it carries: `pushbutton1_Callback`,
+        // `figure1_CreateFcn`, `<gui>_OpeningFcn`, `figure1_ResizeFcn`,
+        // `startupFcn`, `appButtonPushed`, `slider1ValueChanged`,
+        // `table1CellEditCallback`, the lowercase `pushbutton1_callback`, a
+        // script's local function and a nested function alike.
+        for header in [
+            "pushbutton1_Callback(hObject, eventdata, handles)",
+            "figure1_CreateFcn(hObject, eventdata, handles)",
+            "p_OpeningFcn(hObject, eventdata, handles, varargin)",
+            "figure1_ResizeFcn(hObject, eventdata, handles)",
+            "figure1_CloseRequestFcn(hObject, eventdata, handles)",
+            "figure1_DeleteFcn(hObject, eventdata, handles)",
+            "startupFcn()",
+            "appButtonPushed(src, event)",
+            "slider1ValueChanged(src, event)",
+            "table1CellEditCallback(src, event)",
+            "pushbutton1_callback(hObject, eventdata, handles)",
+        ] {
+            let src = format!("function p()\nend\n\nfunction {header}\nend\n");
+            let diags = lint_file(&*engine(), &src);
+            assert!(has_id(&diags, "DEFNU"), "{header}: got: {diags:?}");
+        }
+        // Probe b01: a script's uncalled callback-named local function.
+        let script = "disp(1);\nfunction pushbutton1_Callback(hObject, eventdata, handles)\nend\n";
+        assert!(has_id(&lint_file(&*engine(), script), "DEFNU"));
+        // Probe d01: an uncalled callback-named nested function.
+        let nested =
+            "function p()\nfunction pushbutton1_Callback(hObject, eventdata, handles)\nend\nend\n";
+        assert!(has_id(&lint_file(&*engine(), nested), "DEFNU"));
+    }
+
+    #[test]
+    fn defnu_fires_under_a_callbacks_header_comment() {
+        // Probe p52 e03 (and classdefs c01, c07): neither a `%%` nor a
+        // `% Callbacks that handle component events` header silences DEFNU.
+        let src = "function p()\nend\n\n%% Callbacks that handle component events\nfunction pushbutton1_Callback(hObject, eventdata, handles)\nend\n";
+        let diags = lint_file(&*engine(), src);
+        assert!(has_id(&diags, "DEFNU"), "got: {diags:?}");
+    }
+
+    #[test]
+    fn defnu_not_silenced_by_callback_string_registration() {
+        // Probes p52 a12, a13, a16: registering the name as a callback STRING
+        // (`uicontrol('Callback', 'name')`, `set(h, 'WindowKeyPressFcn', 'name')`,
+        // `uibutton(f, 'push', 'ButtonPushedFcn', 'name')`) is not a call:
+        // MATLAB still reports DEFNU for the unreferenced function.
+        for src in [
+            "function p()\nuicontrol('Callback', 'mycb_Callback');\nend\n\nfunction mycb_Callback(src, event)\nend\n",
+            "function p()\nh = figure;\nset(h, 'WindowKeyPressFcn', 'fig_KeyPressFcn');\nend\n\nfunction fig_KeyPressFcn(src, event)\nend\n",
+            "function p()\nf = uifigure;\nuibutton(f, 'push', 'ButtonPushedFcn', 'btnPushed');\nend\n\nfunction btnPushed(src, event)\nend\n",
+        ] {
+            let diags = lint_file(&*engine(), src);
+            assert!(has_id(&diags, "DEFNU"), "{src:?}: got: {diags:?}");
+        }
+    }
+
+    #[test]
+    fn defnu_silent_when_callback_registered_as_handle_or_anonymous_call() {
+        // Probes p52 a14, a15: a handle (`uicontrol('Callback', @pushed)`) or an
+        // anonymous function that calls the local function
+        // (`@(src, evt) mycb(src, evt)`) is a use, so no DEFNU. The arguments
+        // the body never reads are still INUSD, as in MATLAB.
+        for src in [
+            "function p()\nuicontrol('Callback', @pushed);\nend\n\nfunction pushed(src, event)\nend\n",
+            "function p()\nuicontrol('Callback', @(src, evt) mycb(src, evt));\nend\n\nfunction mycb(src, evt)\nend\n",
+        ] {
+            let diags = lint_file(&*engine(), src);
+            assert!(!has_id(&diags, "DEFNU"), "{src:?}: got: {diags:?}");
+        }
     }
 }

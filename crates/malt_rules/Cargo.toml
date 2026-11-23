@@ -19,5 +19,8 @@ toml.workspace = true
 inventory.workspace = true
 regex.workspace = true
 
+[build-dependencies]
+toml.workspace = true
+
 [dev-dependencies]
 tree-sitter-matlab.workspace = true

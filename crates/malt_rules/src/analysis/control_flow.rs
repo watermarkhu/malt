@@ -54,8 +54,13 @@
 //! let da = analyze_definite_assignment(func_node, source);
 //! ```
 
-use std::collections::HashSet;
+use std::cell::RefCell;
+use std::collections::{HashMap, HashSet};
+use std::ops::Range;
+
 use tree_sitter::{Node, Tree};
+
+use super::reaching::resolved_values;
 
 // ---------------------------------------------------------------------------
 // Unreachable code types
@@ -107,11 +112,20 @@ pub struct PossiblyUnsetVar {
 // ---------------------------------------------------------------------------
 
 /// Extract the source text covered by a node.
-fn node_text<'a>(node: Node, source: &'a str) -> &'a str {
+pub(crate) fn node_text<'a>(node: Node, source: &'a str) -> &'a str {
     &source[node.start_byte()..node.end_byte()]
 }
 
 /// Returns the termination cause string for a terminating statement node kind.
+/// The name of a command that is only a name (`q;`), if `node` is one.
+pub(crate) fn bare_command_name(node: Node) -> Option<Node> {
+    if node.kind() != "command" || node.named_child_count() != 1 {
+        return None;
+    }
+    node.named_child(0)
+        .filter(|child| child.kind() == "command_name")
+}
+
 fn termination_cause(kind: &str) -> Option<&'static str> {
     match kind {
         "return_statement" => Some("return"),
@@ -121,8 +135,32 @@ fn termination_cause(kind: &str) -> Option<&'static str> {
     }
 }
 
+/// Whether a block ends control flow for good: it contains a `return`,
+/// `break` or `continue`, or a call that never returns (`error`, `throw`,
+/// `rethrow`, `exit`, `quit`).
+fn block_never_falls_through(block: Node, source: &str) -> bool {
+    let mut cursor = block.walk();
+    let found = block.named_children(&mut cursor).any(|stmt| {
+        if termination_cause(stmt.kind()).is_some() {
+            return true;
+        }
+        let callee = match stmt.kind() {
+            "function_call" => stmt.child_by_field_name("name"),
+            "command" => stmt.named_child(0),
+            _ => None,
+        };
+        callee.is_some_and(|c| {
+            matches!(
+                node_text(c, source),
+                "error" | "throw" | "rethrow" | "exit" | "quit"
+            )
+        })
+    });
+    found
+}
+
 /// Iterate the named children of a node.
-fn named_children(node: Node) -> Vec<Node> {
+pub(crate) fn named_children(node: Node) -> Vec<Node> {
     let mut children = Vec::new();
     let mut cursor = node.walk();
     for child in node.named_children(&mut cursor) {
@@ -150,7 +188,7 @@ pub fn find_unreachable(tree: &Tree, source: &str) -> Vec<UnreachableSpan> {
 /// DFS helper that visits every node and, for `block` nodes, checks for
 /// unreachable code after terminating statements.
 fn collect_unreachable_dfs(node: Node, source: &str, spans: &mut Vec<UnreachableSpan>) {
-    if node.kind() == "block" {
+    if node.kind() == "block" || is_flow_root(node) {
         check_block_unreachable(node, source, spans);
     }
 
@@ -162,6 +200,279 @@ fn collect_unreachable_dfs(node: Node, source: &str, spans: &mut Vec<Unreachable
     }
 }
 
+/// `true` for a script's body: a file with no function definitions and no
+/// syntax errors, whose top-level statements are direct children of the file.
+/// Probes: MATLAB flags statements after `return`, `break`, `continue` and `error`
+/// at script level (a top-level `break` is a syntax error, BRKFOR, but still ends the flow).
+pub fn is_script_body(node: Node) -> bool {
+    if node.kind() != "source_file" || node.has_error() {
+        return false;
+    }
+    !named_children(node)
+        .iter()
+        .any(|c| c.kind() == "function_definition")
+}
+
+/// `true` for a file without function definitions, syntax errors allowed: its
+/// top-level statements are a flow that a `break` or `return` ends (probed: t__t1,
+/// whose statement after a top-level `break` is UNRCH though the file has an error).
+fn is_flow_root(node: Node) -> bool {
+    node.kind() == "source_file"
+        && !named_children(node)
+            .iter()
+            .any(|c| c.kind() == "function_definition")
+}
+
+/// `true` for a statement-level unary `+x` or `-x` (not `++x`/`--x`) that
+/// follows a completed statement. MATLAB reads the line break before it as the
+/// end of the previous statement, which is then reported by NOPRC.
+pub fn is_split_statement_continuation(node: Node, source: &str) -> bool {
+    // `-x + 2` is a binary operation whose left operand is the unary: the grammar
+    // groups it that way, MATLAB starts the statement at the sign.
+    let unary = match node.kind() {
+        "unary_operator" => node,
+        "binary_operator" => match node.child_by_field_name("left") {
+            Some(left)
+                if left.kind() == "unary_operator" && left.start_byte() == node.start_byte() =>
+            {
+                left
+            }
+            _ => return false,
+        },
+        _ => return false,
+    };
+    if !node
+        .parent()
+        .is_some_and(|p| matches!(p.kind(), "source_file" | "block"))
+    {
+        return false;
+    }
+    let op = node_text(unary, source).trim();
+    let is_incr_decr = unary
+        .child_by_field_name("operand")
+        .and_then(|o| {
+            (o.kind() == "unary_operator")
+                .then(|| o.child_by_field_name("operand"))
+                .flatten()
+        })
+        .is_some_and(|o| o.kind() == "identifier");
+    // A comment that trails the previous statement (`x = 1 %c`) does not end the line:
+    // the line break after it still ends that statement. A comment line does.
+    let follows_statement = match node.prev_named_sibling() {
+        Some(p) if p.kind() == "comment" => p.prev_named_sibling().is_some_and(|q| {
+            q.kind() != "comment" && q.end_position().row == p.start_position().row
+        }),
+        Some(_) => true,
+        None => false,
+    };
+    (op.starts_with('+') || op.starts_with('-')) && !is_incr_decr && follows_statement
+}
+
+/// `true` for `while true ... end` without a `break` that leaves that loop:
+/// the statements after it can never run.
+pub(crate) fn is_endless_loop(node: Node, source: &str) -> bool {
+    node.kind() == "while_statement"
+        && node
+            .child_by_field_name("condition")
+            .is_some_and(|c| node_text(c, source) == "true")
+        && !contains_loop_break(node)
+}
+
+/// `true` when `node` holds a `break` that belongs to it (nested loops own their breaks).
+fn contains_loop_break(node: Node) -> bool {
+    let mut cursor = node.walk();
+    let children: Vec<Node> = node.named_children(&mut cursor).collect();
+    children.into_iter().any(|child| match child.kind() {
+        "break_statement" => true,
+        "for_statement" | "while_statement" => false,
+        _ => contains_loop_break(child),
+    })
+}
+
+/// `true` when the statement holding `node` follows a `return`, `break`,
+/// `continue`, `error(...)` or an endless `while true` loop in the same block.
+/// MATLAB's style checks skip such statements (only UNRCH reports them).
+///
+/// Every check calls this for its nodes, so the first terminating statement of
+/// each block is memoised (see [`first_terminator`]). A block of n statements
+/// costs one scan, not one scan per statement.
+pub fn in_unreachable_code(node: Node, source: &str) -> bool {
+    if in_dead_constant_region(node, source) {
+        return true;
+    }
+    let mut statement = node;
+    while let Some(parent) = statement.parent() {
+        if matches!(parent.kind(), "block" | "source_file") {
+            break;
+        }
+        statement = parent;
+    }
+    let Some(block) = statement.parent() else {
+        return false;
+    };
+    // A statement is unreachable when a terminating statement comes before it.
+    first_terminator(block, source)
+        .is_some_and(|at| at < statement.start_byte() - block.start_byte())
+}
+
+/// Whether `node` lies in a dead clause of a constant condition (`c = true; if c ...
+/// else ... end` makes the `else` dead). MATLAB does not analyse such code, so the
+/// checks that use [`in_unreachable_code`] stay silent there.
+fn in_dead_constant_region(node: Node, source: &str) -> bool {
+    let mut root = node;
+    while let Some(parent) = root.parent() {
+        root = parent;
+    }
+    let epoch = malt_core::parse_epoch();
+    let stale = DEAD_REGIONS.with(|memo| memo.borrow().epoch != Some(epoch));
+    if stale {
+        let mut regions = crate::unused::dead_constant_regions(root, source);
+        regions.sort_by_key(|r| r.start);
+        let mut reach = 0;
+        let max_end = regions
+            .iter()
+            .map(|r| {
+                reach = reach.max(r.end);
+                reach
+            })
+            .collect();
+        DEAD_REGIONS.with(|memo| {
+            *memo.borrow_mut() = DeadRegions {
+                epoch: Some(epoch),
+                regions,
+                max_end,
+            }
+        });
+    }
+    let offset = node.start_byte();
+    DEAD_REGIONS.with(|memo| {
+        let memo = memo.borrow();
+        let found = memo.regions.partition_point(|r| r.start <= offset);
+        found > 0 && memo.max_end[found - 1] > offset
+    })
+}
+
+thread_local! {
+    /// Dead clauses of the current parse, see [`in_dead_constant_region`].
+    static DEAD_REGIONS: RefCell<DeadRegions> = RefCell::new(DeadRegions::default());
+}
+
+/// The dead clauses of one parse, sorted by start, with the furthest end among those
+/// that start at or before each one (so a containing region is found by search).
+#[derive(Default)]
+struct DeadRegions {
+    epoch: Option<u64>,
+    regions: Vec<Range<usize>>,
+    max_end: Vec<usize>,
+}
+
+thread_local! {
+    /// Memo of [`first_terminator`] for the current parse epoch.
+    static TERMINATORS: RefCell<TerminatorMemo> = RefCell::new(TerminatorMemo::default());
+}
+
+/// [`first_terminator`]'s memo: valid for one parse epoch (see
+/// `malt_core::parse_epoch`), because node ids are addresses that a later parse
+/// can reuse.
+#[derive(Default)]
+struct TerminatorMemo {
+    epoch: u64,
+    /// Block id to the offset, from the block start, of its first terminating
+    /// statement. Offsets are relative to the block, so a subtree that occurs at
+    /// two places gives the same answer at both.
+    blocks: HashMap<usize, Option<usize>>,
+}
+
+/// Offset (from the start of `block`) of the first named statement of `block`
+/// that ends control flow for the statements after it, if there is one.
+fn first_terminator(block: Node, source: &str) -> Option<usize> {
+    TERMINATORS.with(|memo| {
+        let mut memo = memo.borrow_mut();
+        let epoch = malt_core::parse_epoch();
+        if memo.epoch != epoch {
+            memo.blocks.clear();
+            memo.epoch = epoch;
+        }
+        if let Some(found) = memo.blocks.get(&block.id()) {
+            return *found;
+        }
+        let mut cursor = block.walk();
+        let found = block
+            .named_children(&mut cursor)
+            .find(|child| child.kind() != "comment" && ends_control_flow(*child, source))
+            .map(|child| child.start_byte() - block.start_byte());
+        memo.blocks.insert(block.id(), found);
+        found
+    })
+}
+
+/// `true` when `statement` ends control flow for the statements after it in
+/// its block: a `return`, `break`, `continue`, an `if` whose every branch
+/// terminates, an endless `while true` loop, or an `error(...)` call.
+fn ends_control_flow(statement: Node, source: &str) -> bool {
+    if termination_cause(statement.kind()).is_some()
+        || (statement.kind() == "if_statement" && if_terminates(statement, source))
+        || (statement.kind() == "switch_statement" && switch_terminates(statement, source))
+        || is_endless_loop(statement, source)
+    {
+        return true;
+    }
+    let callee = match statement.kind() {
+        "function_call" => statement.child_by_field_name("name"),
+        "command" => statement.named_child(0),
+        _ => None,
+    };
+    callee.is_some_and(|c| node_text(c, source) == "error")
+        && error_call_always_throws(statement, source)
+}
+
+/// Whether an `error` call always throws. Its first argument is not a variable, or
+/// the call has one argument whose every value is certain text (a non-empty literal or
+/// `sprintf`). An unknown message may be empty, and `error` then does nothing (probed:
+/// `msg = 'abc'; error(msg)` leaves the next statement unreached, a parameter `msg`
+/// does not).
+pub fn error_call_always_throws(call: Node, source: &str) -> bool {
+    let args = call_argument_nodes(call);
+    let Some(first) = args.first() else {
+        return true;
+    };
+    if first.kind() != "identifier" {
+        return true;
+    }
+    args.len() == 1
+        && resolved_values(*first, source)
+            .is_some_and(|values| values.iter().all(|v| certain_text(*v, source)))
+}
+
+/// The argument nodes of a `function_call` or a `command`, without comments.
+pub(crate) fn call_argument_nodes(call: Node) -> Vec<Node> {
+    if call.kind() == "command" {
+        return named_children(call)
+            .into_iter()
+            .skip(1)
+            .filter(|c| c.kind() != "comment")
+            .collect();
+    }
+    let arguments = named_children(call)
+        .into_iter()
+        .find(|c| c.kind() == "arguments");
+    arguments.map(named_children).unwrap_or_default()
+}
+
+/// Text that `error` always throws with: a non-empty single-quoted literal or `sprintf`.
+fn certain_text(node: Node, source: &str) -> bool {
+    match node.kind() {
+        "string" => {
+            let text = node_text(node, source);
+            text.len() > 2 && text.starts_with('\'')
+        }
+        "function_call" => node
+            .child_by_field_name("name")
+            .is_some_and(|name| node_text(name, source) == "sprintf"),
+        _ => false,
+    }
+}
+
 /// For a single `block` node, find the first terminating statement and mark
 /// all subsequent named siblings as unreachable.
 fn check_block_unreachable(block: Node, source: &str, spans: &mut Vec<UnreachableSpan>) {
@@ -170,10 +481,13 @@ fn check_block_unreachable(block: Node, source: &str, spans: &mut Vec<Unreachabl
 
     for child in &children {
         if let Some(cause) = terminator_found {
-            // Skip comment nodes — they are not "code".
-            if child.kind() == "comment" {
+            // Skip comment nodes — they are not "code". A nested function is not
+            // code of this flow either (probed: `return` then `function g()` in f).
+            if matches!(child.kind(), "comment" | "function_definition") {
                 continue;
             }
+            // MATLAB reports only the first statement of an unreachable run:
+            // its message reads "this statement (and possibly following ones)".
             let pos = child.start_position();
             spans.push(UnreachableSpan {
                 byte_range: child.start_byte()..child.end_byte(),
@@ -181,8 +495,15 @@ fn check_block_unreachable(block: Node, source: &str, spans: &mut Vec<Unreachabl
                 column: pos.column + 1,
                 cause,
             });
+            break;
         } else if let Some(cause) = termination_cause(child.kind()) {
             terminator_found = Some(cause);
+        } else if (child.kind() == "if_statement" && if_terminates(*child, source))
+            || (child.kind() == "switch_statement" && switch_terminates(*child, source))
+        {
+            // Probed (plan 6.2): a `switch` with an `otherwise` whose every branch
+            // returns ends the flow like an `if` with an `else`.
+            terminator_found = Some("return");
         }
     }
 
@@ -203,7 +524,7 @@ fn check_block_unreachable(block: Node, source: &str, spans: &mut Vec<Unreachabl
 ///   and ALL branches (if, elseif*, else) terminate, OR
 /// - Its last named statement is a `switch_statement` that has an
 ///   `otherwise_clause` and ALL cases plus otherwise terminate.
-pub fn block_terminates(block_node: Node) -> bool {
+pub fn block_terminates(block_node: Node, source: &str) -> bool {
     let children = named_children(block_node);
 
     for child in &children {
@@ -216,8 +537,8 @@ pub fn block_terminates(block_node: Node) -> bool {
     // Check the last named statement for compound termination.
     if let Some(last) = children.last() {
         match last.kind() {
-            "if_statement" => return if_terminates(*last),
-            "switch_statement" => return switch_terminates(*last),
+            "if_statement" => return if_terminates(*last, source),
+            "switch_statement" => return switch_terminates(*last, source),
             _ => {}
         }
     }
@@ -227,59 +548,70 @@ pub fn block_terminates(block_node: Node) -> bool {
 
 /// Check if an `if_statement` unconditionally terminates.
 ///
-/// Requires an `else_clause`, and every branch body must terminate.
-fn if_terminates(if_node: Node) -> bool {
-    let mut has_else = false;
-    let children = named_children(if_node);
-
-    // The if body is the `block` child directly under the if_statement.
-    // elseif_clause and else_clause are also named children.
-
-    // Find the main if-body block.
-    let mut if_body_terminates = false;
-    for child in &children {
-        if child.kind() == "block" {
-            if_body_terminates = block_terminates(*child);
-            break;
-        }
-    }
-
-    if !if_body_terminates {
-        return false;
-    }
-
-    for child in &children {
+/// Every clause that can run must terminate, and some clause must always run: an
+/// `else_clause`, or a clause whose condition is a literal true. Probed: `if 1,
+/// return, end` makes the code after it unreachable. A clause whose condition is a
+/// literal false never runs.
+fn if_terminates(if_node: Node, source: &str) -> bool {
+    let mut clauses: Vec<(Option<bool>, Node)> = Vec::new();
+    for child in named_children(if_node) {
         match child.kind() {
-            "elseif_clause" => {
-                // Each elseif has a block child.
-                let elseif_children = named_children(*child);
-                let body = elseif_children.iter().find(|c| c.kind() == "block");
-                match body {
-                    Some(b) if block_terminates(*b) => {}
-                    _ => return false,
-                }
-            }
-            "else_clause" => {
-                has_else = true;
-                let else_children = named_children(*child);
-                let body = else_children.iter().find(|c| c.kind() == "block");
-                match body {
-                    Some(b) if block_terminates(*b) => {}
-                    _ => return false,
+            "block" => clauses.push((literal_condition(if_node, source), child)),
+            "elseif_clause" | "else_clause" => {
+                let truth = if child.kind() == "else_clause" {
+                    Some(true)
+                } else {
+                    literal_condition(child, source)
+                };
+                match named_children(child)
+                    .into_iter()
+                    .find(|c| c.kind() == "block")
+                {
+                    Some(body) => clauses.push((truth, body)),
+                    None => return false,
                 }
             }
             _ => {}
         }
     }
+    for (truth, body) in clauses {
+        match truth {
+            Some(false) => {}
+            Some(true) => return block_terminates(body, source),
+            None if !block_terminates(body, source) => return false,
+            None => {}
+        }
+    }
+    false
+}
 
-    // Must have an else clause for complete coverage.
-    has_else
+/// The truth of an `if` or `elseif` clause whose condition is a literal.
+pub(crate) fn literal_condition(clause: Node, source: &str) -> Option<bool> {
+    clause
+        .child_by_field_name("condition")
+        .and_then(|condition| literal_text_truth(node_text(condition, source).trim()))
+}
+
+/// The truth of a literal: `true`, `false`, a number, or one of those negated with
+/// `~`. Variables are not folded here.
+fn literal_text_truth(text: &str) -> Option<bool> {
+    if let Some(rest) = text.strip_prefix('~') {
+        return literal_text_truth(rest.trim_start()).map(|truth| !truth);
+    }
+    match text {
+        "true" => Some(true),
+        "false" => Some(false),
+        _ if text.starts_with(|c: char| c.is_ascii_digit()) => {
+            text.parse::<f64>().ok().map(|value| value != 0.0)
+        }
+        _ => None,
+    }
 }
 
 /// Check if a `switch_statement` unconditionally terminates.
 ///
 /// Requires an `otherwise_clause`, and every case plus otherwise must terminate.
-fn switch_terminates(switch_node: Node) -> bool {
+fn switch_terminates(switch_node: Node, source: &str) -> bool {
     let mut has_otherwise = false;
     let children = named_children(switch_node);
 
@@ -289,7 +621,7 @@ fn switch_terminates(switch_node: Node) -> bool {
                 let case_children = named_children(*child);
                 let body = case_children.iter().find(|c| c.kind() == "block");
                 match body {
-                    Some(b) if block_terminates(*b) => {}
+                    Some(b) if block_terminates(*b, source) => {}
                     _ => return false,
                 }
             }
@@ -298,7 +630,7 @@ fn switch_terminates(switch_node: Node) -> bool {
                 let ow_children = named_children(*child);
                 let body = ow_children.iter().find(|c| c.kind() == "block");
                 match body {
-                    Some(b) if block_terminates(*b) => {}
+                    Some(b) if block_terminates(*b, source) => {}
                     _ => return false,
                 }
             }
@@ -344,7 +676,7 @@ pub fn analyze_definite_assignment(func_node: Node, source: &str) -> DefiniteAss
 
 /// Collect input and output argument names from a `function_definition` node
 /// into the `assigned` set.
-fn collect_function_args(func_node: Node, source: &str, assigned: &mut HashSet<String>) {
+pub(crate) fn collect_function_args(func_node: Node, source: &str, assigned: &mut HashSet<String>) {
     let mut cursor = func_node.walk();
     for child in func_node.children(&mut cursor) {
         match child.kind() {
@@ -457,6 +789,29 @@ fn walk_statement(
             // "possibly unset" entries because the variables they reference
             // would also be unreachable. This is acceptable for now.
         }
+        "command" if super::liveness::clear_names(node_text(node, source)).is_some() => {
+            // `clear x` leaves x unset again (probed: `x = 1; clear x; disp(x)`
+            // reports NODEF). The name itself is not a use.
+            for name in super::liveness::clear_names(node_text(node, source)).unwrap_or_default() {
+                assigned.remove(&name);
+            }
+        }
+        "command" if node.named_child_count() == 1 && bare_command_name(node).is_some() => {
+            // `q;` parses as a command whose only child is its name: a read of `q`
+            // (probed: `q;` before `q = 2` reports NODEF).
+            if let Some(name_node) = bare_command_name(node) {
+                let name = node_text(name_node, source);
+                if !assigned.contains(name) {
+                    let pos = name_node.start_position();
+                    uses.push(PossiblyUnsetVar {
+                        name: name.to_string(),
+                        use_byte_range: name_node.start_byte()..name_node.end_byte(),
+                        use_line: pos.row + 1,
+                        use_column: pos.column + 1,
+                    });
+                }
+            }
+        }
         "function_call" | "command" => {
             // Check all arguments for uses of unset variables.
             collect_uses_in_expr(node, source, assigned, uses);
@@ -480,12 +835,9 @@ fn walk_if_statement(
 ) {
     let children = named_children(node);
 
-    // Check the condition for uses.
-    for child in &children {
-        if child.kind() == "condition" {
-            collect_uses_in_expr(*child, source, assigned, uses);
-            break;
-        }
+    // Check the condition for uses (`condition` is a field, not a node kind).
+    if let Some(condition) = node.child_by_field_name("condition") {
+        collect_uses_in_expr(condition, source, assigned, uses);
     }
 
     let mut branch_sets: Vec<HashSet<String>> = Vec::new();
@@ -496,7 +848,11 @@ fn walk_if_statement(
         if child.kind() == "block" {
             let mut branch_assigned = assigned.clone();
             walk_block(*child, source, &mut branch_assigned, uses);
-            branch_sets.push(branch_assigned);
+            // A branch that never falls through (return, error, ...) does not
+            // limit what is assigned after the statement.
+            if !block_never_falls_through(*child, source) {
+                branch_sets.push(branch_assigned);
+            }
             break;
         }
     }
@@ -507,11 +863,8 @@ fn walk_if_statement(
             let elseif_children = named_children(*child);
 
             // Check elseif condition for uses.
-            for ec in &elseif_children {
-                if ec.kind() == "condition" {
-                    collect_uses_in_expr(*ec, source, assigned, uses);
-                    break;
-                }
+            if let Some(condition) = child.child_by_field_name("condition") {
+                collect_uses_in_expr(condition, source, assigned, uses);
             }
 
             // Walk elseif body.
@@ -519,7 +872,11 @@ fn walk_if_statement(
                 if ec.kind() == "block" {
                     let mut branch_assigned = assigned.clone();
                     walk_block(*ec, source, &mut branch_assigned, uses);
-                    branch_sets.push(branch_assigned);
+                    // A branch that never falls through (return, error, ...) does not
+                    // limit what is assigned after the statement.
+                    if !block_never_falls_through(*ec, source) {
+                        branch_sets.push(branch_assigned);
+                    }
                     break;
                 }
             }
@@ -535,7 +892,11 @@ fn walk_if_statement(
                 if ec.kind() == "block" {
                     let mut branch_assigned = assigned.clone();
                     walk_block(*ec, source, &mut branch_assigned, uses);
-                    branch_sets.push(branch_assigned);
+                    // A branch that never falls through (return, error, ...) does not
+                    // limit what is assigned after the statement.
+                    if !block_never_falls_through(*ec, source) {
+                        branch_sets.push(branch_assigned);
+                    }
                     break;
                 }
             }
@@ -566,12 +927,10 @@ fn walk_switch_statement(
 ) {
     let children = named_children(node);
 
-    // Check the switch expression for uses.
-    for child in &children {
-        if child.kind() == "condition" {
-            collect_uses_in_expr(*child, source, assigned, uses);
-            break;
-        }
+    // Check the switch expression for uses. The grammar names it by the field
+    // `condition`, not by a node kind.
+    if let Some(subject) = node.child_by_field_name("condition") {
+        collect_uses_in_expr(subject, source, assigned, uses);
     }
 
     let mut branch_sets: Vec<HashSet<String>> = Vec::new();
@@ -582,12 +941,10 @@ fn walk_switch_statement(
             "case_clause" => {
                 let case_children = named_children(*child);
 
-                // Check case expression for uses.
-                for cc in &case_children {
-                    if cc.kind() == "condition" {
-                        collect_uses_in_expr(*cc, source, assigned, uses);
-                        break;
-                    }
+                // Check the case expression for uses. The grammar names it by the field
+                // `condition`, not by a node kind.
+                if let Some(expr) = child.child_by_field_name("condition") {
+                    collect_uses_in_expr(expr, source, assigned, uses);
                 }
 
                 // Walk case body.
@@ -595,7 +952,11 @@ fn walk_switch_statement(
                     if cc.kind() == "block" {
                         let mut branch_assigned = assigned.clone();
                         walk_block(*cc, source, &mut branch_assigned, uses);
-                        branch_sets.push(branch_assigned);
+                        // A branch that never falls through (return, error, ...) does not
+                        // limit what is assigned after the statement.
+                        if !block_never_falls_through(*cc, source) {
+                            branch_sets.push(branch_assigned);
+                        }
                         break;
                     }
                 }
@@ -607,7 +968,11 @@ fn walk_switch_statement(
                     if oc.kind() == "block" {
                         let mut branch_assigned = assigned.clone();
                         walk_block(*oc, source, &mut branch_assigned, uses);
-                        branch_sets.push(branch_assigned);
+                        // A branch that never falls through (return, error, ...) does not
+                        // limit what is assigned after the statement.
+                        if !block_never_falls_through(*oc, source) {
+                            branch_sets.push(branch_assigned);
+                        }
                         break;
                     }
                 }
@@ -683,12 +1048,9 @@ fn walk_while_statement(
 ) {
     let children = named_children(node);
 
-    // Check the condition for uses.
-    for child in &children {
-        if child.kind() == "condition" {
-            collect_uses_in_expr(*child, source, assigned, uses);
-            break;
-        }
+    // Check the condition for uses (`condition` is a field, not a node kind).
+    if let Some(condition) = node.child_by_field_name("condition") {
+        collect_uses_in_expr(condition, source, assigned, uses);
     }
 
     // Walk the body with a clone — do not merge back.
@@ -772,7 +1134,7 @@ fn walk_try_statement(
 /// Skips identifiers that appear in non-use positions:
 /// - Function name in `function_call` (could be a built-in or an external function).
 /// - Field name in `field_expression` (not a standalone variable).
-fn collect_uses_in_expr(
+pub(crate) fn collect_uses_in_expr(
     node: Node,
     source: &str,
     assigned: &HashSet<String>,
@@ -789,6 +1151,29 @@ fn collect_uses_in_expr(
                     use_line: pos.row + 1,
                     use_column: pos.column + 1,
                 });
+            }
+        }
+        return;
+    }
+
+    // A lambda binds its parameters inside its body.
+    if node.kind() == "lambda" {
+        let mut inner = assigned.clone();
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            if child.kind() == "arguments" {
+                let mut c = child.walk();
+                for p in child.children(&mut c) {
+                    if p.kind() == "identifier" {
+                        inner.insert(node_text(p, source).to_string());
+                    }
+                }
+            }
+        }
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            if child.kind() != "arguments" {
+                collect_uses_in_expr(child, source, &inner, uses);
             }
         }
         return;
@@ -831,14 +1216,11 @@ fn is_variable_use(node: Node) -> bool {
             }
             true
         }
-        "field_expression" => {
-            // The field part (second identifier) is not a variable use.
-            parent
-                .child_by_field_name("field")
-                .map(|f| f.id() != node.id())
-                .unwrap_or(true)
-        }
+        "field_expression" => !super::symbols::is_field_name(node),
         "function_arguments" | "function_output" | "function_definition" => false,
+        // The name of a `Name = value` call argument is not a read (probed: MATLAB
+        // reports no NODEF on `NumClasses` in `struct(NumClasses = NaN)`).
+        "arguments" => node.next_sibling().is_none_or(|next| next.kind() != "="),
         _ => true,
     }
 }
@@ -850,7 +1232,7 @@ fn is_variable_use(node: Node) -> bool {
 /// For indexed assignment (`function_call` or `field_expression`), checks
 /// the expression for uses but does NOT add new variables (the base
 /// variable must already exist).
-fn collect_assignment_targets(
+pub(crate) fn collect_assignment_targets(
     lhs: Node,
     source: &str,
     assigned: &mut HashSet<String>,
@@ -869,13 +1251,56 @@ fn collect_assignment_targets(
             }
         }
         "function_call" | "field_expression" | "cell_index" => {
-            // Indexed assignment: `A(i) = ...` or `obj.field = ...`
-            // The base variable is a use, not a new definition.
-            collect_uses_in_expr(lhs, source, assigned, uses);
+            // Partial assignment: `A(i) = ...`, `s.f = ...`. It reads the
+            // old value only when there is one, and it creates the variable
+            // otherwise.
+            let root = partial_root(lhs);
+            let root_name = root.map(|r| node_text(r, source).to_string());
+            let existed = root_name.as_ref().is_some_and(|n| assigned.contains(n));
+            if existed {
+                collect_uses_in_expr(lhs, source, assigned, uses);
+            } else {
+                // Index expressions are still reads; the root itself is not.
+                let before = uses.len();
+                collect_uses_in_expr(lhs, source, assigned, uses);
+                if let (Some(name), Some(r)) = (&root_name, root) {
+                    let at = r.start_position().row + 1;
+                    let col = r.start_position().column + 1;
+                    let mut i = before;
+                    while i < uses.len() {
+                        if uses[i].name == *name
+                            && uses[i].use_line == at
+                            && uses[i].use_column == col
+                        {
+                            uses.remove(i);
+                        } else {
+                            i += 1;
+                        }
+                    }
+                }
+            }
+            if let Some(name) = root_name {
+                assigned.insert(name);
+            }
         }
         _ => {
             collect_uses_in_expr(lhs, source, assigned, uses);
         }
+    }
+}
+
+/// The variable a partial assignment target is rooted at (`x` in `x.y(3).z`).
+pub(crate) fn partial_root(mut node: Node) -> Option<Node> {
+    loop {
+        node = match node.kind() {
+            "identifier" => return Some(node),
+            "function_call" => node.child_by_field_name("name")?,
+            "field_expression" => node.child_by_field_name("object")?,
+            "cell_index" => node
+                .child_by_field_name("name")
+                .or_else(|| node.named_child(0))?,
+            _ => return None,
+        };
     }
 }
 
@@ -906,12 +1331,77 @@ mod tests {
     use super::*;
     use tree_sitter::Parser;
 
+    /// The assignment statement whose text starts with `prefix`, at the top level of the file.
+    fn statement_starting_with<'t>(tree: &'t Tree, source: &str, prefix: &str) -> Node<'t> {
+        named_children(tree.root_node())
+            .into_iter()
+            .find(|n| source[n.byte_range()].starts_with(prefix))
+            .expect("statement not found")
+    }
+
+    #[test]
+    fn in_unreachable_code_memo_matches_scan_on_long_block() {
+        // 3,000 statements, then a return: every statement after it is unreachable.
+        let body: String = (0..3000).map(|i| format!("x{i} = {i};\n")).collect();
+        let source = format!("{body}return;\ny = 1;\nz = 2;\n");
+        let tree = crate::test_util::parse(&source);
+        assert!(!in_unreachable_code(
+            statement_starting_with(&tree, &source, "x0 "),
+            &source
+        ));
+        assert!(!in_unreachable_code(
+            statement_starting_with(&tree, &source, "x2999 "),
+            &source
+        ));
+        assert!(in_unreachable_code(
+            statement_starting_with(&tree, &source, "y "),
+            &source
+        ));
+        assert!(in_unreachable_code(
+            statement_starting_with(&tree, &source, "z "),
+            &source
+        ));
+
+        // A later parse must not see the memo of this one: same block shape, no return.
+        let plain: String = (0..3000).map(|i| format!("x{i} = {i};\n")).collect();
+        let source = format!("{plain}y = 1;\n");
+        let tree = crate::test_util::parse(&source);
+        assert!(!in_unreachable_code(
+            statement_starting_with(&tree, &source, "y "),
+            &source
+        ));
+    }
+
+    #[test]
+    fn in_unreachable_code_respects_error_and_endless_loop_terminators() {
+        // `error(...)` ends the flow; so does an endless `while true` without a break.
+        let source = "x = 1;\nerror('boom');\na = 1;\nwhile true\n    x = x + 1;\nend\nb = 2;\n";
+        let tree = crate::test_util::parse(source);
+        assert!(!in_unreachable_code(
+            statement_starting_with(&tree, source, "x = 1"),
+            source
+        ));
+        assert!(!in_unreachable_code(
+            statement_starting_with(&tree, source, "error"),
+            source
+        ));
+        assert!(in_unreachable_code(
+            statement_starting_with(&tree, source, "a "),
+            source
+        ));
+        assert!(in_unreachable_code(
+            statement_starting_with(&tree, source, "b "),
+            source
+        ));
+    }
+
     /// Parse MATLAB source and return the tree.
     fn parse(source: &str) -> Tree {
         let mut parser = Parser::new();
         parser
             .set_language(&tree_sitter_matlab::LANGUAGE.into())
             .expect("failed to load tree-sitter-matlab");
+        malt_core::note_parse();
         parser.parse(source, None).expect("parse failed")
     }
 
@@ -932,6 +1422,18 @@ mod tests {
     // ======================================================================
 
     #[test]
+    fn unreachable_after_switch_whose_branches_all_return() {
+        // Probed (plan 6.2): with an `otherwise` the statement after it is UNRCH;
+        // without one it is reachable.
+        let with_otherwise = "function f(s)\nswitch s\n    case 1\n        return;\n    otherwise\n        return;\nend\ndisp(1);\nend\n";
+        let spans = find_unreachable(&parse(with_otherwise), with_otherwise);
+        assert_eq!(spans.len(), 1);
+        assert_eq!(spans[0].line, 8);
+        let without = "function f(s)\nswitch s\n    case 1\n        return;\n    case 2\n        return;\nend\ndisp(1);\nend\n";
+        assert!(find_unreachable(&parse(without), without).is_empty());
+    }
+
+    #[test]
     fn unreachable_after_return() {
         let source = "\
 function foo()
@@ -944,15 +1446,16 @@ end
         let tree = parse(source);
         let spans = find_unreachable(&tree, source);
 
-        // Two unreachable statements: `y = 2;` and `disp(y);`
+        // MATLAB reports only the first statement of an unreachable run (`y = 2;`),
+        // not each statement after it (checked against checkcode in R2026b).
         assert_eq!(
             spans.len(),
-            2,
-            "expected 2 unreachable spans, got {:?}",
+            1,
+            "expected 1 unreachable span, got {:?}",
             spans
         );
         assert_eq!(spans[0].cause, "return");
-        assert_eq!(spans[1].cause, "return");
+        assert_eq!(spans[0].line, 4);
 
         // Verify they point to the right code.
         let first_text = &source[spans[0].byte_range.clone()];
@@ -1071,7 +1574,7 @@ end
         let func = first_function(&tree);
         let children = named_children(func);
         let block = children.iter().find(|c| c.kind() == "block").unwrap();
-        assert!(block_terminates(*block));
+        assert!(block_terminates(*block, source));
     }
 
     #[test]
@@ -1085,7 +1588,7 @@ end
         let func = first_function(&tree);
         let children = named_children(func);
         let block = children.iter().find(|c| c.kind() == "block").unwrap();
-        assert!(!block_terminates(*block));
+        assert!(!block_terminates(*block, source));
     }
 
     #[test]
@@ -1103,7 +1606,7 @@ end
         let func = first_function(&tree);
         let children = named_children(func);
         let block = children.iter().find(|c| c.kind() == "block").unwrap();
-        assert!(block_terminates(*block));
+        assert!(block_terminates(*block, source));
     }
 
     #[test]
@@ -1119,7 +1622,7 @@ end
         let func = first_function(&tree);
         let children = named_children(func);
         let block = children.iter().find(|c| c.kind() == "block").unwrap();
-        assert!(!block_terminates(*block));
+        assert!(!block_terminates(*block, source));
     }
 
     // ======================================================================

@@ -33,7 +33,9 @@
 //! }
 //! ```
 
+use malt_core::ProjectIndex;
 use std::ops::Range;
+use std::path::Path;
 use tree_sitter::{Node, Tree};
 
 // ---------------------------------------------------------------------------
@@ -108,6 +110,64 @@ pub struct AttributeMeta {
     pub value: Option<String>,
     /// Whether the attribute is negated (e.g., `~Hidden`).
     pub negated: bool,
+    /// Byte range of the entry: the `attribute` node, or the bare name it is.
+    pub byte_range: Range<usize>,
+    /// 1-indexed line of the entry.
+    pub line: usize,
+    /// 1-indexed column of the entry.
+    pub column: usize,
+}
+
+impl AttributeMeta {
+    /// Whether the attribute is set: not negated (`~Name`) and not assigned `false`.
+    pub fn is_set(&self) -> bool {
+        !self.negated && self.value.as_deref() != Some("false")
+    }
+
+    /// Whether the attribute is set by a literal: a bare name, `true` or `1`. MATLAB
+    /// cannot evaluate other values (`TRUE`, `~true`) and reports them as ATTF instead.
+    pub fn is_literal_set(&self) -> bool {
+        !self.negated && matches!(self.value.as_deref(), None | Some("true") | Some("1"))
+    }
+}
+
+/// Queries over one attribute list: the entries of one `attributes` node.
+#[derive(Debug, Clone, Copy)]
+pub struct Attributes<'a>(pub &'a [AttributeMeta]);
+
+impl<'a> Attributes<'a> {
+    /// The first entry named `name` (case-sensitive).
+    pub fn get(&self, name: &str) -> Option<&'a AttributeMeta> {
+        self.0.iter().find(|a| a.name == name)
+    }
+
+    /// Whether an entry is named `name`, whatever its value.
+    pub fn has(&self, name: &str) -> bool {
+        self.get(name).is_some()
+    }
+
+    /// Whether an entry named `name` is set (see [`AttributeMeta::is_set`]).
+    pub fn is_set(&self, name: &str) -> bool {
+        self.0.iter().any(|a| a.name == name && a.is_set())
+    }
+
+    /// Whether an entry named `name` is present and not negated, whatever its
+    /// value: `Name` and `Name = false` both count (MTAGS3 and the MCPO-family gates
+    /// read it this way).
+    pub fn is_present(&self, name: &str) -> bool {
+        self.0.iter().any(|a| a.name == name && !a.negated)
+    }
+
+    /// Whether an entry named `name` is set by a literal (see
+    /// [`AttributeMeta::is_literal_set`]): `Name`, `Name = true` or `Name = 1`.
+    pub fn is_true(&self, name: &str) -> bool {
+        self.0.iter().any(|a| a.name == name && a.is_literal_set())
+    }
+
+    /// The value text of the first entry named `name`, if it has one.
+    pub fn value_text(&self, name: &str) -> Option<&'a str> {
+        self.get(name).and_then(|a| a.value.as_deref())
+    }
 }
 
 /// Metadata about a class property.
@@ -138,6 +198,8 @@ pub struct PropertiesBlockMeta {
     pub attributes: Vec<AttributeMeta>,
     /// Properties defined in this block.
     pub properties: Vec<PropertyMeta>,
+    /// 1-indexed line of the `properties` keyword.
+    pub line: usize,
 }
 
 /// Metadata about a `methods ... end` block.
@@ -147,6 +209,8 @@ pub struct MethodsBlockMeta {
     pub attributes: Vec<AttributeMeta>,
     /// Functions (methods) defined in this block.
     pub methods: Vec<FunctionMeta>,
+    /// 1-indexed line of the `methods` keyword.
+    pub line: usize,
 }
 
 /// Metadata about an `events ... end` block.
@@ -156,6 +220,8 @@ pub struct EventsBlockMeta {
     pub attributes: Vec<AttributeMeta>,
     /// Event names.
     pub events: Vec<String>,
+    /// 1-indexed line of the `events` keyword.
+    pub line: usize,
 }
 
 /// Metadata about an `enumeration ... end` block.
@@ -163,6 +229,11 @@ pub struct EventsBlockMeta {
 pub struct EnumerationBlockMeta {
     /// Enumeration member names.
     pub members: Vec<String>,
+    /// Attributes of the block, as written: `enumeration (Foo)` has `Foo`. MATLAB
+    /// knows none for an enumeration block, so each one is ATUNK.
+    pub attributes: Vec<AttributeMeta>,
+    /// 1-indexed line of the `enumeration` keyword.
+    pub line: usize,
 }
 
 /// Metadata about a class definition.
@@ -212,47 +283,111 @@ fn node_text<'a>(node: Node, source: &'a str) -> &'a str {
     &source[node.start_byte()..node.end_byte()]
 }
 
-/// Extract attributes from an `attributes` node.
+/// Which entries of an `attributes` node a check reads.
 ///
-/// Each `attribute` child represents a single attribute entry.
-/// Attributes can be:
-/// - Bare: `Sealed` (value is `None`, treated as `true`)
-/// - Valued: `Access = private`
-/// - Negated: `~Hidden` (negated flag set)
-fn extract_attributes(attrs_node: Node, source: &str) -> Vec<AttributeMeta> {
+/// The grammar gives three shapes, and the checks read different ones on purpose
+/// (their diagnostics depend on it), so a check names the form it means:
+///
+/// | Source | `Named` | `Bare` | `Written` |
+/// |--------|---------|--------|-----------|
+/// | `Sealed`, `Access = private` | yes | no | yes |
+/// | `~Sealed` (`attribute` wrapping `not_operator`) | no | no | yes, negated |
+/// | `Input`, `Repeating` (direct identifiers) | no | yes | yes |
+/// | `~Output` (direct `not_operator`) | no | no | yes, negated |
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AttrForms {
+    /// `attribute` children with a name identifier: `Sealed`, `Access = private`. A
+    /// bare `~Name` is not one (the grammar wraps it in `not_operator`).
+    Named,
+    /// Bare identifier children, as in an arguments block: `Input`, `Repeating`.
+    Bare,
+    /// Every entry: `Named`, the `~Name` forms (negated), and bare identifiers.
+    Written,
+}
+
+/// Parse the entries of an `attributes` node that `forms` selects.
+pub fn attribute_entries(attrs_node: Node, source: &str, forms: AttrForms) -> Vec<AttributeMeta> {
     let mut attrs = Vec::new();
     let mut cursor = attrs_node.walk();
 
     for child in attrs_node.children(&mut cursor) {
-        if child.kind() != "attribute" {
-            continue;
-        }
-
-        let text = node_text(child, source).trim();
-        let negated = text.starts_with('~');
-
-        // Find the attribute name — first identifier child.
-        let name = find_first_child_of_kind(child, "identifier")
-            .map(|n| node_text(n, source).to_string())
-            .unwrap_or_default();
-
-        if name.is_empty() {
-            continue;
-        }
-
-        // Look for `= value` portion.  The value is everything after the `=`.
-        // In the grammar an attribute with a value has the identifier, then `=`, then
-        // one or more value children (which may be identifiers, strings, etc.).
-        let value = extract_attribute_value(child, source);
-
-        attrs.push(AttributeMeta {
-            name,
-            value,
-            negated,
-        });
+        let entry = match child.kind() {
+            "attribute" if forms != AttrForms::Bare => attribute_entry(child, source, forms),
+            "identifier" if forms != AttrForms::Named => bare_entry(child, source),
+            "not_operator" if forms == AttrForms::Written => negated_entry(child, source),
+            _ => None,
+        };
+        attrs.extend(entry);
     }
 
     attrs
+}
+
+/// The entries of the first `attributes` child of `parent`, read with `forms`.
+pub fn attributes_of(parent: Node, source: &str, forms: AttrForms) -> Vec<AttributeMeta> {
+    find_first_child_of_kind(parent, "attributes")
+        .map(|a| attribute_entries(a, source, forms))
+        .unwrap_or_default()
+}
+
+/// Whether an `attributes` child of `parent` contains `needle` anywhere in its source
+/// text.
+///
+/// This is a substring match, not an entry-name match, and it stays a separate
+/// function on purpose: it changes what is reported on inputs such as
+/// `arguments (Input = "Output")` (FVINR) and `methods (Access = Static)` (the
+/// static-method exemption of the property checks). Use [`Attributes`] for name matches.
+pub fn attributes_text_contains(parent: Node, source: &str, needle: &str) -> bool {
+    crate::analysis::symbols::children_of(parent)
+        .into_iter()
+        .any(|child| child.kind() == "attributes" && node_text(child, source).contains(needle))
+}
+
+/// Build the entry for a node: its name, value, negation and position.
+fn entry(name: String, value: Option<String>, negated: bool, node: Node) -> AttributeMeta {
+    let pos = node.start_position();
+    AttributeMeta {
+        name,
+        value,
+        negated,
+        byte_range: node.start_byte()..node.end_byte(),
+        line: pos.row + 1,
+        column: pos.column + 1,
+    }
+}
+
+/// The entry for one `attribute` node: `Name`, `Name = value`, or (for `Written`)
+/// `~Name`. `None` when the node has no name identifier.
+pub fn attribute_entry(child: Node, source: &str, forms: AttrForms) -> Option<AttributeMeta> {
+    let text = node_text(child, source).trim();
+    let negated = text.starts_with('~');
+
+    // The name is the first identifier child; `~Name` keeps it inside `not_operator`.
+    let name_node = find_first_child_of_kind(child, "identifier").or_else(|| {
+        let wrapped = (forms == AttrForms::Written && negated)
+            .then(|| find_first_child_of_kind(child, "not_operator"))
+            .flatten()?;
+        find_first_child_of_kind(wrapped, "identifier")
+    })?;
+    let name = node_text(name_node, source).to_string();
+
+    // The value is the first token after `=`, if any.
+    let value = extract_attribute_value(child, source);
+
+    Some(entry(name, value, negated, child))
+}
+
+/// A bare identifier entry, `Input` in `arguments (Input)`.
+fn bare_entry(child: Node, source: &str) -> Option<AttributeMeta> {
+    let name = node_text(child, source).to_string();
+    Some(entry(name, None, false, child))
+}
+
+/// A direct `not_operator` entry, `~Output` in `arguments (~Output)`.
+fn negated_entry(child: Node, source: &str) -> Option<AttributeMeta> {
+    let name_node = find_first_child_of_kind(child, "identifier")?;
+    let name = node_text(name_node, source).to_string();
+    Some(entry(name, None, true, child))
 }
 
 /// Extract the value portion of an `attribute` node (everything after `=`).
@@ -282,15 +417,9 @@ fn extract_attribute_value(attr_node: Node, source: &str) -> Option<String> {
 
 /// Find the first child of a node with the given kind.
 fn find_first_child_of_kind<'a>(node: Node<'a>, kind: &str) -> Option<Node<'a>> {
-    let child_count = node.child_count();
-    for i in 0..child_count {
-        if let Some(child) = node.child(i) {
-            if child.kind() == kind {
-                return Some(child);
-            }
-        }
-    }
-    None
+    crate::analysis::symbols::children_of(node)
+        .into_iter()
+        .find(|child| child.kind() == kind)
 }
 
 // ---------------------------------------------------------------------------
@@ -309,13 +438,10 @@ fn build_function_name(func_node: Node, source: &str) -> Option<String> {
     let base_name = node_text(name_node, source);
 
     // Check for `set.` or `get.` prefix child.
-    let child_count = func_node.child_count();
-    for i in 0..child_count {
-        if let Some(child) = func_node.child(i) {
-            let kind = child.kind();
-            if kind == "set." || kind == "get." {
-                return Some(format!("{}{}", kind, base_name));
-            }
+    for child in crate::analysis::symbols::children_of(func_node) {
+        let kind = child.kind();
+        if kind == "set." || kind == "get." {
+            return Some(format!("{}{}", kind, base_name));
         }
     }
 
@@ -659,7 +785,7 @@ fn extract_class_meta(class_node: Node, source: &str) -> Option<ClassMeta> {
 
     // Class-level attributes.
     let attributes = find_first_child_of_kind(class_node, "attributes")
-        .map(|a| extract_attributes(a, source))
+        .map(|a| attribute_entries(a, source, AttrForms::Named))
         .unwrap_or_default();
 
     // Collect section blocks.
@@ -703,7 +829,7 @@ fn extract_class_meta(class_node: Node, source: &str) -> Option<ClassMeta> {
 /// Extract a `properties ... end` block.
 fn extract_properties_block(props_node: Node, source: &str) -> PropertiesBlockMeta {
     let attributes = find_first_child_of_kind(props_node, "attributes")
-        .map(|a| extract_attributes(a, source))
+        .map(|a| attribute_entries(a, source, AttrForms::Named))
         .unwrap_or_default();
 
     let mut properties = Vec::new();
@@ -719,13 +845,14 @@ fn extract_properties_block(props_node: Node, source: &str) -> PropertiesBlockMe
     PropertiesBlockMeta {
         attributes,
         properties,
+        line: props_node.start_position().row + 1,
     }
 }
 
 /// Extract a `methods ... end` block.
 fn extract_methods_block(methods_node: Node, source: &str, class_name: &str) -> MethodsBlockMeta {
     let block_attributes = find_first_child_of_kind(methods_node, "attributes")
-        .map(|a| extract_attributes(a, source))
+        .map(|a| attribute_entries(a, source, AttrForms::Named))
         .unwrap_or_default();
 
     let mut methods = Vec::new();
@@ -758,13 +885,14 @@ fn extract_methods_block(methods_node: Node, source: &str, class_name: &str) -> 
     MethodsBlockMeta {
         attributes: block_attributes,
         methods,
+        line: methods_node.start_position().row + 1,
     }
 }
 
 /// Extract an `events ... end` block.
 fn extract_events_block(events_node: Node, source: &str) -> EventsBlockMeta {
     let attributes = find_first_child_of_kind(events_node, "attributes")
-        .map(|a| extract_attributes(a, source))
+        .map(|a| attribute_entries(a, source, AttrForms::Named))
         .unwrap_or_default();
 
     let mut events = Vec::new();
@@ -775,7 +903,11 @@ fn extract_events_block(events_node: Node, source: &str) -> EventsBlockMeta {
         }
     }
 
-    EventsBlockMeta { attributes, events }
+    EventsBlockMeta {
+        attributes,
+        events,
+        line: events_node.start_position().row + 1,
+    }
 }
 
 /// Extract an `enumeration ... end` block.
@@ -795,7 +927,14 @@ fn extract_enumeration_block(enum_node: Node, source: &str) -> EnumerationBlockM
         }
     }
 
-    EnumerationBlockMeta { members }
+    let attributes = find_first_child_of_kind(enum_node, "attributes")
+        .map(|a| attribute_entries(a, source, AttrForms::Named))
+        .unwrap_or_default();
+    EnumerationBlockMeta {
+        members,
+        attributes,
+        line: enum_node.start_position().row + 1,
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -818,8 +957,9 @@ impl FileMeta {
         for child in root.children(&mut cursor) {
             let kind = child.kind();
 
-            // Skip comments, line continuations, and whitespace nodes.
-            if kind == "comment" || kind == "line_continuation" {
+            // Skip comments, line continuations, and the unnamed newline tokens that
+            // a leading blank line or a help comment leaves before `function`.
+            if !child.is_named() || kind == "comment" || kind == "line_continuation" {
                 continue;
             }
 
@@ -980,7 +1120,7 @@ impl ClassMeta {
     pub fn is_sealed(&self) -> bool {
         self.attributes
             .iter()
-            .any(|a| a.name == "Sealed" && !a.negated)
+            .any(|a| a.name == "Sealed" && a.is_set())
     }
 
     /// Check if the class is `Abstract`.
@@ -996,6 +1136,21 @@ impl ClassMeta {
     pub fn is_handle(&self) -> bool {
         self.superclasses.iter().any(|s| s == "handle")
     }
+
+    /// Whether every superclass is a value class on the search path: the host's
+    /// path index (`project`, see [`ProjectIndex`]) knows each one, and none is a
+    /// handle class. Always `false` without an index, and for a class with no
+    /// superclass (its handle-ness is then known from the file alone).
+    pub fn has_only_value_bases(&self, project: Option<&dyn ProjectIndex>, file: &Path) -> bool {
+        let Some(project) = project else {
+            return false;
+        };
+        !self.superclasses.is_empty()
+            && self
+                .superclasses
+                .iter()
+                .all(|base| project.is_handle_class(base, file) == Some(false))
+    }
 }
 
 #[cfg(test)]
@@ -1010,6 +1165,7 @@ mod tests {
         parser
             .set_language(&language.into())
             .expect("failed to set MATLAB language");
+        malt_core::note_parse();
         parser.parse(source, None).expect("failed to parse")
     }
 
@@ -1297,5 +1453,97 @@ end
         let tree2 = parse_matlab(script);
         let meta2 = FileMeta::build(&tree2, script);
         assert_eq!(meta2.class_name(), None);
+    }
+
+    // ---- Attribute forms ---------------------------------------------------
+
+    /// The first `attributes` node of `source`, read with `forms`.
+    fn first_attributes(source: &str, forms: AttrForms) -> Vec<AttributeMeta> {
+        let tree = parse_matlab(source);
+        let mut stack = vec![tree.root_node()];
+        while let Some(node) = stack.pop() {
+            if node.kind() == "attributes" {
+                return attribute_entries(node, source, forms);
+            }
+            let mut cursor = node.walk();
+            stack.extend(node.children(&mut cursor));
+        }
+        panic!("no attributes node in {source:?}");
+    }
+
+    #[test]
+    fn named_form_keeps_attribute_nodes_with_a_name() {
+        let source = "classdef (Sealed, ~Hidden, Access = private) C\nend\n";
+        let names: Vec<String> = first_attributes(source, AttrForms::Named)
+            .into_iter()
+            .map(|a| a.name)
+            .collect();
+        // `~Hidden` is not named: the grammar wraps it in `not_operator`.
+        assert_eq!(names, vec!["Sealed", "Access"]);
+    }
+
+    #[test]
+    fn written_form_keeps_negated_entries() {
+        let source = "classdef (Sealed, ~Hidden, Access = private) C\nend\n";
+        let attrs = first_attributes(source, AttrForms::Written);
+        let hidden = attrs.iter().find(|a| a.name == "Hidden").unwrap();
+        assert!(hidden.negated);
+        assert_eq!(hidden.value, None);
+        assert!(!attrs.iter().find(|a| a.name == "Sealed").unwrap().negated);
+        assert_eq!(
+            attrs
+                .iter()
+                .find(|a| a.name == "Access")
+                .unwrap()
+                .value
+                .as_deref(),
+            Some("private")
+        );
+    }
+
+    #[test]
+    fn bare_form_keeps_arguments_block_identifiers() {
+        let source = "function f(x)\narguments (Input, ~Output, Repeating = true)\n x\nend\nend\n";
+        let names: Vec<String> = first_attributes(source, AttrForms::Bare)
+            .into_iter()
+            .map(|a| a.name)
+            .collect();
+        assert_eq!(names, vec!["Input"]);
+    }
+
+    #[test]
+    fn written_form_reads_arguments_block_negation() {
+        let source = "function f(x)\narguments (Input = true, ~Output, Repeating)\n x\nend\nend\n";
+        let attrs = first_attributes(source, AttrForms::Written);
+        let names: Vec<(&str, bool)> = attrs.iter().map(|a| (a.name.as_str(), a.negated)).collect();
+        assert_eq!(
+            names,
+            vec![("Input", false), ("Output", true), ("Repeating", false)]
+        );
+        assert_eq!(attrs[0].value.as_deref(), Some("true"));
+    }
+
+    #[test]
+    fn entries_carry_their_span() {
+        let source = "classdef C\nproperties (Constant, Access = protected)\n P\nend\nend\n";
+        let attrs = first_attributes(source, AttrForms::Named);
+        let access = attrs.iter().find(|a| a.name == "Access").unwrap();
+        assert_eq!(&source[access.byte_range.clone()], "Access = protected");
+        assert_eq!((access.line, access.column), (2, 23));
+    }
+
+    #[test]
+    fn is_true_follows_the_literal_rules() {
+        let source = "classdef (Static = true, Dependent = ~true, Hidden, Sealed = 0) C\nend\n";
+        let attrs = first_attributes(source, AttrForms::Named);
+        let view = Attributes(&attrs);
+        assert!(view.is_true("Static"));
+        assert!(view.is_true("Hidden"));
+        assert!(view.has("Dependent"));
+        assert!(!view.is_true("Dependent"), "`~true` is not a literal");
+        assert!(!view.is_true("Sealed"), "`0` is not a literal true");
+        assert!(!view.is_true("Missing"));
+        assert_eq!(view.value_text("Dependent"), Some("~true"));
+        assert_eq!(view.value_text("Hidden"), None);
     }
 }

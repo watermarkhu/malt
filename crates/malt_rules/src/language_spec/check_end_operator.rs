@@ -44,33 +44,46 @@ impl LanguageSpecEngine {
                 // Only flag if this looks like an end used as a value expression,
                 // not a block-closing end keyword
                 let parent = node.parent();
-                let is_block_end = parent
-                    .map(|p| {
-                        matches!(
-                            p.kind(),
-                            "function_definition"
-                                | "if_statement"
-                                | "for_statement"
-                                | "while_statement"
-                                | "switch_statement"
-                                | "try_statement"
-                                | "class_definition"
-                                | "properties"
-                                | "methods"
-                                | "events"
-                                | "enumeration"
-                                | "parfor"
-                                | "spmd_statement"
-                                | "elseif_clause"
-                                | "else_clause"
-                                | "case_clause"
-                                | "otherwise_clause"
-                                | "catch_clause"
-                        )
-                    })
-                    .unwrap_or(false);
+                // A bare `end` token directly under an ERROR node closes a
+                // broken block (`elseif ... else ... end` at statement level,
+                // bugs__f1.m:28). A value `end` is wrapped in `end_keyword`.
+                let stray_block_end =
+                    node.kind() == "end" && parent.is_some_and(|p| p.kind() == "ERROR");
+                let is_block_end = stray_block_end
+                    || parent
+                        .map(|p| {
+                            matches!(
+                                p.kind(),
+                                "function_definition"
+                                    | "if_statement"
+                                    | "for_statement"
+                                    | "while_statement"
+                                    | "switch_statement"
+                                    | "try_statement"
+                                    | "class_definition"
+                                    | "properties"
+                                    | "methods"
+                                    | "events"
+                                    | "enumeration"
+                                    | "arguments_statement"
+                                    | "parfor"
+                                    | "spmd_statement"
+                                    | "elseif_clause"
+                                    | "else_clause"
+                                    | "case_clause"
+                                    | "otherwise_clause"
+                                    | "catch_clause"
+                            )
+                        })
+                        .unwrap_or(false);
 
-                if !is_block_end {
+                // `[end]`, `{end}` and `[end + 1]` are RESWD in MATLAB, not IDXCOLND. In a
+                // property default (`e = [1 2 3](end)`) MATLAB reports MCPLD only.
+                if !is_block_end
+                    && !in_control_header(node)
+                    && !in_brackets(node)
+                    && !in_property_block(node)
+                {
                     diagnostics.push(Diagnostic {
                         rule_id: "IDXCOLND",
                         message: "The END operator must be used within an array index expression."
@@ -90,5 +103,123 @@ impl LanguageSpecEngine {
         for child in node.children(&mut cursor) {
             Self::check_end_dfs(child, in_index, diagnostics);
         }
+    }
+}
+
+/// Whether an `end` sits in the header of an `if`, `elseif`, `while`, `for` or `switch`
+/// statement, where the parse fails. MATLAB reports that as SYNER, not as IDXCOLND
+/// (probed: `if end > 1`).
+/// True for an `end` inside a property block (a property default value).
+fn in_property_block(node: tree_sitter::Node) -> bool {
+    let mut ancestor = node.parent();
+    while let Some(a) = ancestor {
+        if matches!(a.kind(), "property" | "properties") {
+            return true;
+        }
+        ancestor = a.parent();
+    }
+    false
+}
+
+/// True for an `end` inside `[ ]` or `{ }` with no index around it: MATLAB gives RESWD
+/// there, not IDXCOLND (probed: `z = [end]`, `z = {end}`, `y = [end + 1]`). Stops at the
+/// statement, so an index around the brackets does not count.
+fn in_brackets(node: tree_sitter::Node) -> bool {
+    // The grammar leaves the bracket as a sibling of `end` in a broken statement, so the
+    // siblings before it are read too; a literal before `(end)` (`[1 2 3](end)`) counts.
+    let mut current = node;
+    loop {
+        let mut sibling = current.prev_sibling();
+        while let Some(s) = sibling {
+            if matches!(s.kind(), "[" | "{" | "matrix" | "cell") {
+                return true;
+            }
+            sibling = s.prev_sibling();
+        }
+        let Some(parent) = current.parent() else {
+            return false;
+        };
+        match parent.kind() {
+            "matrix" | "cell" => return true,
+            "assignment" | "source_file" | "block" | "function_definition" => return false,
+            _ => current = parent,
+        }
+    }
+}
+
+pub(crate) fn in_control_header(node: tree_sitter::Node) -> bool {
+    let mut child = node;
+    while let Some(parent) = child.parent() {
+        match parent.kind() {
+            "if_statement" | "elseif_clause" | "while_statement" => {
+                return parent
+                    .child_by_field_name("condition")
+                    .is_some_and(|c| c.id() == child.id());
+            }
+            "for_statement" | "switch_statement" => return child.kind() != "block",
+            "block"
+            | "source_file"
+            | "function_definition"
+            | "class_definition"
+            | "function_call"
+            | "cell_index"
+            | "arguments" => return false,
+            _ => child = parent,
+        }
+    }
+    false
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::language_spec::LanguageSpecEngine;
+
+    fn idxcolnd_lines(source: &str) -> Vec<usize> {
+        let tree = crate::language_spec::tests::parse_matlab(source);
+        let mut diags = Vec::new();
+        LanguageSpecEngine::check_end_dfs(tree.root_node(), false, &mut diags);
+        diags.iter().map(|d| d.line).collect()
+    }
+
+    #[test]
+    fn test_idxcolnd_fires_end_value_in_if_body() {
+        // Probed (e23): `y = end;` inside an `if` body is IDXCOLND at line 3.
+        let source = "function e23(x)\nif x\ny = end;\nend\nend\n";
+        assert_eq!(idxcolnd_lines(source), vec![3]);
+    }
+
+    #[test]
+    fn test_idxcolnd_silent_end_in_if_header() {
+        // Probed (e07): `if end > 1` is a parse error (SYNER), not IDXCOLND.
+        let source = "function e07(x)\nif end > 1\ndisp(1)\nend\nend\n";
+        assert!(idxcolnd_lines(source).is_empty());
+    }
+
+    #[test]
+    fn test_idxcolnd_silent_end_inside_brackets() {
+        // MATLAB probes: `y = [end + 1];`, `z = {end};` and `w = [end 1];` give RESWD
+        // and no IDXCOLND (an `end` that indexes, `x(end)`, stays valid).
+        let source = "x = [1 2 3];\ny = [end + 1];\nz = {end};\nw = [end 1];\nv = x(end);\n";
+        assert!(idxcolnd_lines(source).is_empty());
+    }
+
+    #[test]
+    fn test_idxcolnd_fires_end_value_in_broken_statement() {
+        // MATLAB: `g = end;` is IDXCOLND (t__t1.m:14); the value `end` is
+        // wrapped in `end_keyword` by the grammar.
+        let source = "function t1(x)\ng = end;\nend\n";
+        assert_eq!(idxcolnd_lines(source), vec![2]);
+    }
+
+    #[test]
+    fn test_idxcolnd_silent_on_stray_block_end() {
+        // MATLAB: the stray `end` closing a broken `elseif ... else ... end`
+        // line is SYNER only (bugs__f1.m:28).
+        let source = "\
+function t1(x, y)
+a = 1;
+elseif y, a=1; else a=1; end
+";
+        assert!(idxcolnd_lines(source).is_empty());
     }
 }

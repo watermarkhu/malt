@@ -18,7 +18,7 @@ impl LanguageSpecEngine {
             Self::check_duplicate_attributes(
                 &pb.attributes,
                 class.byte_range.clone(),
-                class.line,
+                pb.line,
                 diagnostics,
             );
         }
@@ -26,7 +26,7 @@ impl LanguageSpecEngine {
             Self::check_duplicate_attributes(
                 &mb.attributes,
                 class.byte_range.clone(),
-                class.line,
+                mb.line,
                 diagnostics,
             );
         }
@@ -93,5 +93,42 @@ end
             hits.is_empty(),
             "MTMAT should NOT fire for distinct attributes"
         );
+    }
+
+    #[test]
+    fn test_mtmat_reports_at_properties_block_line() {
+        // MATLAB reports on the `properties` line (ls-c__V1.m:8), not the class line.
+        let source = "\
+classdef Foo
+    properties (Constant, Constant = false)
+        k2 = 1
+    end
+end
+";
+        let diags = check_source(source, "Foo.m");
+        let lines: Vec<usize> = filter_by_id(&diags, "MTMAT")
+            .iter()
+            .map(|d| d.line)
+            .collect();
+        assert_eq!(lines, vec![2]);
+    }
+
+    #[test]
+    fn test_mtmat_reports_at_methods_block_line() {
+        let source = "\
+classdef Foo
+    methods (Access = protected, Access = private)
+        function r = f(obj)
+            r = 1;
+        end
+    end
+end
+";
+        let diags = check_source(source, "Foo.m");
+        let lines: Vec<usize> = filter_by_id(&diags, "MTMAT")
+            .iter()
+            .map(|d| d.line)
+            .collect();
+        assert_eq!(lines, vec![2]);
     }
 }

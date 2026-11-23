@@ -1,26 +1,27 @@
-//! # VTP* property validation function checks
+//! # VTP* / VTFIN validator checks
 //!
-//! These checks validate property-validation functions: `function validate*`
-//! definitions inside a class `methods` block.
+//! These checks read the validators of a property (`{validator(...)}` after its
+//! name, in a `properties` block of a class or in an `arguments` block). Probed
+//! against `checkcode` in R2026b:
 //!
-//! - **VTPEAL** — the validator declares no input arguments.
-//! - **VTPIN** — the validator accepts inputs but never uses any of them.
-//! - **VTPCON** — the validator body references a variable other than the
-//!   property being validated or a literal (function-call callees and known
-//!   constants are allowed).
+//! - **VTPEAL** — a validator called with no arguments, `{mustBeNumeric()}`, in a
+//!   class property or an argument. A bare name, `{mustBeNumeric}`, is not one.
+//! - **VTPIN** — (class properties) the validator does not use the property.
+//! - **VTPCON** — (class properties) the validator uses a name other than the
+//!   property, or a variable, in place of a literal.
+//! - **VTFIN** — the property is an argument of the validator but not the first.
 //!
-//! Detection is deliberately heuristic and conservative: only functions whose
-//! name starts with `validate` inside a `methods` block are considered.
-//!
-//! See the parent module `super` for the shared engine and helpers.
+//! Only the validator calls are checked; the value of the default (`= expr`) is
+//! FVNIV's business.
 
 use super::*;
+use crate::readability::find_arguments;
 
-/// Identifiers treated as literal constants inside a validator body (VTPCON).
+/// Identifiers treated as literal constants inside a validator (VTPCON).
 const VALIDATOR_CONSTANTS: &[&str] = &["true", "false", "inf", "nan", "pi", "eps"];
 
 impl LanguageSpecEngine {
-    /// VTP* checks for property-validation functions in a class file.
+    /// VTPEAL / VTPIN / VTPCON / VTFIN for every property validator in the file.
     pub(crate) fn check_property_validation_functions(
         &self,
         ctx: &FileContext,
@@ -28,14 +29,8 @@ impl LanguageSpecEngine {
     ) {
         let mut stack = vec![ctx.tree.root_node()];
         while let Some(node) = stack.pop() {
-            if node.kind() == "methods" {
-                let mut cursor = node.walk();
-                for child in node.children(&mut cursor) {
-                    if child.kind() == "function_definition" {
-                        self.check_validator_function(child, ctx.source, diagnostics);
-                    }
-                }
-                continue;
+            if node.kind() == "property" {
+                self.check_property_validators(node, ctx.source, diagnostics);
             }
             let mut cursor = node.walk();
             for child in node.children(&mut cursor) {
@@ -44,338 +39,178 @@ impl LanguageSpecEngine {
         }
     }
 
-    /// Validate a single candidate validator function (VTPEAL / VTPIN / VTPCON).
-    fn check_validator_function(
+    fn check_property_validators(
         &self,
-        func_node: tree_sitter::Node,
+        property: tree_sitter::Node,
         source: &str,
         diagnostics: &mut Vec<Diagnostic>,
     ) {
-        let Some(name_node) = func_node.child_by_field_name("name") else {
+        let Some(validation) = find_child_kind(property, "validation_functions") else {
+            return;
+        };
+        let Some(name_node) = property.child_by_field_name("name") else {
             return;
         };
         let name = node_text(name_node, source);
-        if !name.starts_with("validate") {
-            return;
-        }
-
-        // Collect input argument names from the function signature.
-        let mut inputs = Vec::new();
-        let mut cursor = func_node.walk();
-        for child in func_node.children(&mut cursor) {
-            if child.kind() == "function_arguments" {
-                let mut inner = child.walk();
-                for arg in child.children(&mut inner) {
-                    if arg.kind() == "identifier" {
-                        inputs.push(node_text(arg, source).to_string());
-                    }
-                }
-            }
-        }
-
-        // Find the function body block.
-        let mut body = None;
-        let mut c2 = func_node.walk();
-        for child in func_node.children(&mut c2) {
-            if child.kind() == "block" {
-                body = Some(child);
-            }
-        }
-        let Some(body_node) = body else {
-            // Abstract function signatures have no body; not a validator.
-            return;
-        };
-
-        // VTPEAL: the validator must declare at least one input argument.
-        if inputs.is_empty() {
-            if self.is_check_enabled("VTPEAL") {
-                self.push_diag(
-                    func_node,
-                    "VTPEAL",
-                    "Specify at least one input argument for validator.",
-                    diagnostics,
-                );
-            }
-            return;
-        }
-
-        // VTPIN: the validator body must use at least one of its inputs.
-        let uses_input = inputs
-            .iter()
-            .any(|input| Self::body_references_identifier(body_node, source, input));
-        if !uses_input {
-            if self.is_check_enabled("VTPIN") {
-                self.push_diag(
-                    func_node,
-                    "VTPIN",
-                    "Validation function must use the property as an input.",
-                    diagnostics,
-                );
-            }
-            return;
-        }
-
-        // VTPCON: the body must only reference the property (its inputs) or
-        // literals — no other variables.
-        if self.is_check_enabled("VTPCON") {
-            let mut cursor = body_node.walk();
-            for child in body_node.children(&mut cursor) {
-                Self::check_validator_body_identifier(child, source, &inputs, diagnostics);
+        let in_class = property
+            .parent()
+            .is_some_and(|parent| parent.kind() == "properties");
+        let mut cursor = validation.walk();
+        for validator in validation.named_children(&mut cursor) {
+            if validator.kind() == "function_call" {
+                self.check_validator(validator, name, in_class, source, diagnostics);
             }
         }
     }
 
-    /// Whether the body of a function references the given identifier name.
-    fn body_references_identifier(body: tree_sitter::Node, source: &str, name: &str) -> bool {
-        if body.kind() == "identifier" {
-            return node_text(body, source) == name;
-        }
-        let mut cursor = body.walk();
-        for child in body.children(&mut cursor) {
-            if Self::body_references_identifier(child, source, name) {
-                return true;
-            }
-        }
-        false
-    }
-
-    /// Walk one node of a validator body and fire VTPCON for any variable
-    /// reference that is not an input, a function-call callee, a field name,
-    /// or a known constant.
-    fn check_validator_body_identifier(
-        node: tree_sitter::Node,
+    fn check_validator(
+        &self,
+        validator: tree_sitter::Node,
+        name: &str,
+        in_class: bool,
         source: &str,
-        inputs: &[String],
         diagnostics: &mut Vec<Diagnostic>,
     ) {
-        if node.kind() == "identifier" {
-            let name = node_text(node, source);
-            let is_input = inputs.iter().any(|i| i == name);
-            let is_callee = node
-                .parent()
-                .map(|p| {
-                    p.kind() == "function_call"
-                        && p.child_by_field_name("name")
-                            .map(|n| n.id() == node.id())
-                            .unwrap_or(false)
-                })
-                .unwrap_or(false);
-            let is_field = node
-                .parent()
-                .map(|p| {
-                    p.kind() == "field_expression"
-                        && p.child_by_field_name("field")
-                            .map(|f| f.id() == node.id())
-                            .unwrap_or(false)
-                })
-                .unwrap_or(false);
-            let is_constant = VALIDATOR_CONSTANTS.contains(&name);
-            if !is_input && !is_callee && !is_field && !is_constant {
-                diagnostics.push(Diagnostic {
-                    rule_id: "VTPCON",
-                    message: "For properties, validation functions must only use the property being validated or literals."
-                        .to_string(),
-                    severity: Severity::Error,
-                    byte_range: node.start_byte()..node.end_byte(),
-                    line: node.start_position().row + 1,
-                    column: node.start_position().column + 1,
-                    fix: None,
-                });
+        let callee = validator
+            .child_by_field_name("name")
+            .map(|node| node_text(node, source))
+            .unwrap_or_default();
+        let args: Vec<tree_sitter::Node> = match find_arguments(validator) {
+            Some(arguments) => {
+                let mut cursor = arguments.walk();
+                arguments.named_children(&mut cursor).collect()
             }
+            None => Vec::new(),
+        };
+        if args.is_empty() {
+            self.push_diag(
+                validator,
+                "VTPEAL",
+                "Specify at least one input argument for validator.",
+                diagnostics,
+            );
             return;
         }
-        let mut cursor = node.walk();
-        for child in node.children(&mut cursor) {
-            Self::check_validator_body_identifier(child, source, inputs, diagnostics);
+
+        let uses_property = args
+            .iter()
+            .any(|arg| value_identifiers(*arg, source).iter().any(|id| id == name));
+        let first_is_property =
+            args[0].kind() == "identifier" && node_text(args[0], source) == name;
+
+        if in_class && !uses_property {
+            self.push_diag(
+                validator,
+                "VTPIN",
+                "Validation function must use the property as an input.",
+                diagnostics,
+            );
         }
+        if uses_property && !first_is_property {
+            let message =
+                format!("'{name}' should be the first input argument to the '{callee}' function.");
+            self.push_diag(validator, "VTFIN", &message, diagnostics);
+        }
+        if in_class
+            && args.iter().any(|arg| {
+                value_identifiers(*arg, source)
+                    .iter()
+                    .any(|id| id != name && !VALIDATOR_CONSTANTS.contains(&id.as_str()))
+            })
+        {
+            self.push_diag(
+                validator,
+                "VTPCON",
+                "For properties, validation functions must only use the property being validated or literals.",
+                diagnostics,
+            );
+        }
+    }
+}
+
+/// Identifiers in a validator argument: variable references, not call names, field
+/// names or the constants of `VALIDATOR_CONSTANTS` (which VTPCON still needs to skip).
+fn value_identifiers(node: tree_sitter::Node, source: &str) -> Vec<String> {
+    let mut names = Vec::new();
+    collect_value_identifiers(node, source, &mut names);
+    names
+}
+
+fn collect_value_identifiers(node: tree_sitter::Node, source: &str, names: &mut Vec<String>) {
+    if node.kind() == "identifier" {
+        let parent = node.parent();
+        let is_callee = parent.is_some_and(|p| {
+            p.kind() == "function_call"
+                && p.child_by_field_name("name")
+                    .is_some_and(|n| n.id() == node.id())
+        });
+        let is_field = parent.is_some_and(|p| {
+            p.kind() == "field_expression"
+                && p.child_by_field_name("field")
+                    .is_some_and(|f| f.id() == node.id())
+        });
+        if !is_callee && !is_field {
+            names.push(node_text(node, source).to_string());
+        }
+        return;
+    }
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        collect_value_identifiers(child, source, names);
     }
 }
 
 #[cfg(test)]
 mod tests {
-
     use crate::language_spec::tests::{check_source, filter_by_id};
-    use malt_core::Rule;
 
-    // -- VTPEAL --------------------------------------------------------------
-
-    #[test]
-    fn test_vtpeal_fires_validator_without_inputs() {
-        let source = "\
-classdef Foo
-    methods (Static)
-        function validate()
-            error('bad');
-        end
-    end
-end
-";
-        let diags = check_source(source, "Foo.m");
-        assert!(
-            !filter_by_id(&diags, "VTPEAL").is_empty(),
-            "VTPEAL should fire for a validator with no inputs"
-        );
+    fn class_with_property(property: &str) -> String {
+        format!("classdef vtp\n    properties\n        {property}\n    end\nend\n")
     }
 
     #[test]
-    fn test_vtpeal_no_fire_validator_with_input() {
-        let source = "\
-classdef Foo
-    methods (Static)
-        function validate(value)
-            if value < 0
-                error('bad');
-            end
-        end
-    end
-end
-";
-        let diags = check_source(source, "Foo.m");
-        assert!(
-            filter_by_id(&diags, "VTPEAL").is_empty(),
-            "VTPEAL should NOT fire for a validator with an input"
-        );
-    }
-
-    // -- VTPIN ---------------------------------------------------------------
-
-    #[test]
-    fn test_vtpin_fires_unused_input() {
-        let source = "\
-classdef Foo
-    methods (Static)
-        function validate(value)
-            y = 1;
-            z = y + 1;
-        end
-    end
-end
-";
-        let diags = check_source(source, "Foo.m");
-        assert!(
-            !filter_by_id(&diags, "VTPIN").is_empty(),
-            "VTPIN should fire when the validator never uses its input"
-        );
+    fn test_vtp_checks_fire_on_class_property_validators() {
+        for (property, id) in [
+            ("x double {mustBeInRange(1, 2, 3)} = 1", "VTPIN"),
+            ("x double {mustBeLessThan(y, 3)} = 1", "VTPCON"),
+            ("x double {mustBeGreaterThan(5, x)} = 6", "VTFIN"),
+            ("x double {mustBeNumeric()} = 1", "VTPEAL"),
+        ] {
+            let diags = check_source(&class_with_property(property), "vtp.m");
+            assert!(
+                !filter_by_id(&diags, id).is_empty(),
+                "{property}: {diags:?}"
+            );
+        }
     }
 
     #[test]
-    fn test_vtpin_no_fire_used_input() {
-        let source = "\
-classdef Foo
-    methods (Static)
-        function validate(value)
-            if ~isa(value, 'double')
-                error('bad');
-            end
-        end
-    end
-end
-";
-        let diags = check_source(source, "Foo.m");
-        assert!(
-            filter_by_id(&diags, "VTPIN").is_empty(),
-            "VTPIN should NOT fire when the validator uses its input"
-        );
-    }
-
-    // -- VTPCON --------------------------------------------------------------
-
-    #[test]
-    fn test_vtpcon_fires_other_variable_reference() {
-        let source = "\
-classdef Foo
-    methods (Static)
-        function validate(value)
-            y = value * 2;
-            if y < 0
-                error('bad');
-            end
-        end
-    end
-end
-";
-        let diags = check_source(source, "Foo.m");
-        assert!(
-            !filter_by_id(&diags, "VTPCON").is_empty(),
-            "VTPCON should fire when the validator references a variable other than the property"
-        );
+    fn test_vtp_checks_silent_on_valid_validators() {
+        for property in [
+            "x double {mustBeGreaterThan(x, 5)} = 6",
+            "x double {mustBeNumeric(x, 'extra')} = 1",
+            "x double {mustBeNumeric} = 1",
+        ] {
+            let diags = check_source(&class_with_property(property), "vtp.m");
+            for id in ["VTPEAL", "VTPIN", "VTPCON", "VTFIN"] {
+                assert!(filter_by_id(&diags, id).is_empty(), "{property}: {diags:?}");
+            }
+        }
     }
 
     #[test]
-    fn test_vtpcon_no_fire_input_and_callees_only() {
-        let source = "\
-classdef Foo
-    methods (Static)
-        function validate(value)
-            if ~isa(value, 'double')
-                error('bad');
-            end
-        end
-    end
-end
-";
-        let diags = check_source(source, "Foo.m");
-        assert!(
-            filter_by_id(&diags, "VTPCON").is_empty(),
-            "VTPCON should NOT fire when only the input and function calls are used"
-        );
+    fn test_vtpeal_in_arguments_block() {
+        let source = "function f(a)\narguments\n    a {mustBeText()}\nend\nend\n";
+        let diags = check_source(source, "f.m");
+        assert_eq!(filter_by_id(&diags, "VTPEAL").len(), 1, "{diags:?}");
     }
 
     #[test]
-    fn test_vtp_checks_no_fire_non_validator_function() {
-        let source = "\
-classdef Foo
-    methods
-        function y = compute(self, x)
-            y = x + 1;
-        end
-    end
-end
-";
-        let diags = check_source(source, "Foo.m");
-        assert!(
-            filter_by_id(&diags, "VTPCON").is_empty(),
-            "VTPCON should NOT fire for a non-validator method"
-        );
-        assert!(
-            filter_by_id(&diags, "VTPEAL").is_empty(),
-            "VTPEAL should NOT fire for a non-validator method"
-        );
-        assert!(
-            filter_by_id(&diags, "VTPIN").is_empty(),
-            "VTPIN should NOT fire for a non-validator method"
-        );
-    }
-
-    // -- Config respect ------------------------------------------------------
-
-    #[test]
-    fn test_vtp_checks_respect_disabled_config() {
-        let mut rule_config = crate::language_spec::LanguageSpecConfig::default();
-        rule_config.disabled_checks.push("VTPEAL".to_string());
-        let engine = crate::language_spec::LanguageSpecEngine {
-            config: rule_config,
-        };
-        let source = "\
-classdef Foo
-    methods (Static)
-        function validate()
-            error('bad');
-        end
-    end
-end
-";
-        let tree = crate::language_spec::tests::parse_matlab(source);
-        let path = std::path::Path::new("Foo.m");
-        let ctx = malt_core::FileContext {
-            tree: &tree,
-            source,
-            file_path: path,
-        };
-        let diags = engine.check_file(&ctx);
-        assert!(
-            filter_by_id(&diags, "VTPEAL").is_empty(),
-            "VTPEAL should be disabled via config disabled_checks"
-        );
+    fn test_vtfin_in_arguments_block_and_no_vtpin() {
+        let source = "function f(a, b)\narguments\n    a double {mustBeGreaterThan(5, a)}\n    b double {mustBeLessThan(3, a)}\nend\nend\n";
+        let diags = check_source(source, "f.m");
+        assert_eq!(filter_by_id(&diags, "VTFIN").len(), 1, "{diags:?}");
+        assert!(filter_by_id(&diags, "VTPIN").is_empty(), "{diags:?}");
+        assert!(filter_by_id(&diags, "VTPCON").is_empty(), "{diags:?}");
     }
 }
