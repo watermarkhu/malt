@@ -4,9 +4,9 @@ icon: lucide/package
 
 # WebAssembly & npm
 
-malt compiles to WebAssembly and is published to npm as **`malt-wasm`**, so you
-can lint MATLAB code in the browser, in Node.js, or embed the linter in your own
-tooling. The same engine powers the [Playground](../playground.md) and the CLI.
+malt compiles to WebAssembly and is published to npm as `malt-wasm`. You can
+lint MATLAB code in the browser or in Node.js, or embed the linter in your own
+tooling. The [Playground](../playground.md) and the CLI use the same engine.
 
 ## Installing
 
@@ -25,7 +25,7 @@ const linter = new Linter({
   disable: ['NOSEMI'],
 });
 
-// Lint MATLAB content — returns a JSON array of warnings.
+// Lint MATLAB content. Returns a JSON array of warnings.
 const warnings = JSON.parse(linter.check('x = 1'));
 
 // Apply all auto-fixes.
@@ -51,7 +51,7 @@ mise run build-wasm   # produce crates/malt_wasm/pkg (the npm package contents)
 mise run test-wasm    # run the host-side binding tests
 ```
 
-> **Why the WASI SDK?** The `tree-sitter-matlab` grammar ships a C parser that
+> Why the WASI SDK? The `tree-sitter-matlab` grammar ships a C parser that
 > must be cross-compiled to `wasm32-unknown-unknown`. malt uses the WASI SDK's
 > `clang` and sysroot headers, with `__wasi__` defined to skip the host-only
 > `dup` path in tree-sitter's C runtime. The resulting module is a standard
@@ -59,7 +59,7 @@ mise run test-wasm    # run the host-side binding tests
 
 The built package lands in `crates/malt_wasm/pkg/`. Releases are published
 automatically: when a pull request into `main` is merged, `release.yml` stamps the
-version, builds the package, and publishes it with `npm publish` through
+version, builds the package and publishes it with `npm publish` through
 [npm trusted publishing](https://docs.npmjs.com/trusted-publishers) (OIDC, no
 long-lived token; provenance is attached automatically). See
 [CONTRIBUTING](https://github.com/watermarkhu/malt/blob/main/.github/CONTRIBUTING.md).

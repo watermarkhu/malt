@@ -25,9 +25,9 @@
 //! multiple check IDs (e.g. `tcpip` → TCPC + TCPS); every matching entry is
 //! emitted. The entries span three category groups:
 //!
-//! - **compatibility** — deprecated or removed functions (1,012 entries)
-//! - **behavior-changes** — behavior changes between releases (905 entries)
-//! - **forward-compatibility** — constructs that will break in a future
+//! - compatibility: deprecated or removed functions (1,012 entries)
+//! - behavior-changes: behavior changes between releases (905 entries)
+//! - forward-compatibility: constructs that will break in a future
 //!   release (7 entries)
 //!
 //! Entries with an empty `function_name` are "generic" checks that cannot be

@@ -83,7 +83,7 @@
 //!   comments and spacing as they are (NBRAK2, MATLAB's fix is the same);
 //!   `disp(sprintf(...))` → `fprintf(...)`.
 //! - `isempty(strfind(s, p))` → `~contains(s, p)`, and the negated form
-//!   rewrites as a whole — `~isempty(strfind(s, p))` → `contains(s, p)` —
+//!   rewrites as a whole (`~isempty(strfind(s, p))` → `contains(s, p)`),
 //!   with the arguments reprinted verbatim, both as MATLAB's fix does;
 //!   `cellfun(@isempty, strfind(s, p))` → `~contains(s, p)`;
 //!   `if strfind(s, p)` → `if contains(s, p)`.

@@ -25,11 +25,11 @@ an old corpus (a measured corpus is no longer fresh).
 
 ## Adding a fixture
 
-1. **Write the file yourself.** Its content must be your own: no code copied from a
+1. Write the file yourself. Its content must be your own: no code copied from a
    third-party project, from MathWorks documentation or examples, or from the external
    toolkit. Do not quote MathWorks message text in a file or its comments. Toolkit facts go
    only in `tests/toolkit_expected.tsv`.
-2. **List it.** Regenerate the list (sorted, relative to this folder; it is the command that
+2. List it. Regenerate the list (sorted, relative to this folder; it is the command that
    made the committed list):
 
    ```sh
@@ -38,7 +38,7 @@ an old corpus (a measured corpus is no longer fresh).
 
    `matlab_conformance.rs` (`fixture_list_names_every_fixture_file`) fails when a `.m` file is
    missing from the list or the list names a file that does not exist.
-3. **Ask MATLAB.** Run the generator over every fixture, in one `matlab -batch` session (about
+3. Ask MATLAB. Run the generator over every fixture, in one `matlab -batch` session (about
    5 seconds, from the repository root):
 
    ```sh
@@ -50,7 +50,7 @@ an old corpus (a measured corpus is no longer fresh).
    `checkcode_files.txt` (every file it checked). To look at one file's message text with the
    probe script instead, run `matlab -batch "addpath('docs/scripts'); matlab_probe(list, out)"`
    where `list` is a file of absolute paths; keep its output outside the repository.
-4. **Record its rows.** Append the new file's findings to `matlab_expected.tsv`: path, line and
+4. Record its rows. Append the new file's findings to `matlab_expected.tsv`: path, line and
    check ID, one row per distinct finding. A finding on line 0 is written on line 1 (the
    generator already does this). The order of the rows does not matter; keep a file's rows
    together.
@@ -61,12 +61,12 @@ an old corpus (a measured corpus is no longer fresh).
    ```
 
    A file MATLAB reports nothing on gets no rows (see below).
-5. **Check malt.** Run the conformance test (below). A difference is a malt bug, or a fixture
+5. Check malt. Run the conformance test (below). A difference is a malt bug, or a fixture
    that does not show what you meant. Fix malt or the fixture; never edit the expectations to
    match malt.
-6. **Record it for the all-checks run too** (a second expectation file, see 'matlab_expected_all.tsv'
+6. Record it for the all-checks run too (a second expectation file, see 'matlab_expected_all.tsv'
    below). Every new fixture needs rows in both files.
-7. **Check the recordings against live MATLAB** (below).
+7. Check the recordings against live MATLAB (below).
 
 ## Files MATLAB reports nothing on
 
@@ -79,13 +79,13 @@ was not checked fails the live test. 171 of the 1,133 files have no rows at the 
 
 From the repository root.
 
-- **Conformance** (malt against the recording; no MATLAB needed):
+- Conformance (malt against the recording; no MATLAB needed):
 
   ```sh
   cargo test -p malt-cli --locked --test matlab_conformance -- --nocapture
   ```
 
-- **Live check** (the recording against live MATLAB, and the message text). It starts MATLAB
+- Live check (the recording against live MATLAB, and the message text). It starts MATLAB
   itself, or reads files the generator wrote:
 
   ```sh
@@ -106,7 +106,7 @@ From the repository root.
   text. Message differences that are accepted (each with a reason) are in
   `tests/matlab/message_allowlist.tsv`.
 
-- **Path index against MATLAB** (`matlab_namespace.rs`) does not read these fixtures; it reads
+- Path index against MATLAB (`matlab_namespace.rs`) does not read these fixtures; it reads
   `tests/matlab/project`. Run it when the index changes:
 
   ```sh

@@ -4,9 +4,7 @@ icon: lucide/play
 
 # Quick Start
 
-Get up and running with malt in minutes.
-
-## Basic Usage
+## Basic usage
 
 ### Lint MATLAB files
 
@@ -25,9 +23,9 @@ malt src/compute.m src/utils.m lib/helpers.m
 malt --fix src/compute.m
 ```
 
-## Create a Configuration File
+## Create a configuration file
 
-Create a `.malt.toml` file in your project root to customize behavior:
+Put a `.malt.toml` file in your project root to change malt's behavior:
 
 ```toml title=".malt.toml"
 [lint]
@@ -37,13 +35,13 @@ exclude = ["vendor/**", "test/fixtures/**"]
 NOPTS = "warn"
 ```
 
-malt automatically discovers `.malt.toml` in the current working directory. You can also specify a config file explicitly:
+malt looks for `.malt.toml` in the current working directory. To use another file, pass it explicitly:
 
 ```bash
 malt --config path/to/.malt.toml src/compute.m
 ```
 
-## Example Configuration
+## Example configuration
 
 ```toml title=".malt.toml"
 [lint]
@@ -60,9 +58,9 @@ severity = "warn"
 max_variable_name_length = 32
 ```
 
-## Understanding Output
+## Reading the output
 
-malt outputs diagnostics in a clear, grep-friendly format:
+Each diagnostic is one grep-friendly line:
 
 ```text
 src/compute.m:2:5 [I] NOPTS: Add a semicolon after the statement to hide the output (in a script).
@@ -73,12 +71,12 @@ Found 2 issues in 1 file.
 
 Each line shows:
 
-- **File path** and **line:column** position
-- **Severity** in brackets (`[E]` error, `[W]` warning, `[I]` info)
-- **Rule ID** (e.g., NOPTS)
-- **Description** of the issue
+- the file path and the line:column position
+- the severity in brackets (`[E]` error, `[W]` warning, `[I]` info)
+- the rule ID, such as NOPTS
+- a description of the issue
 
-## Exit Codes
+## Exit codes
 
 | Code | Meaning                     |
 | ---- | --------------------------- |
@@ -86,8 +84,8 @@ Each line shows:
 | `1`  | Diagnostics found           |
 | `2`  | Configuration or runtime error |
 
-## Next Steps
+## Next steps
 
-- [CLI Reference](../usage/cli.md) — Full command-line options
-- [Configuration](../configuration.md) — Detailed config file reference
-- [Rules Reference](../rules.md) — Explore all available rules
+- [CLI Reference](../usage/cli.md)
+- [Configuration](../configuration.md)
+- [Rules Reference](../rules.md)

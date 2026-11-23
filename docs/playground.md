@@ -5,8 +5,8 @@ outline: false
 
 # Playground
 
-Try malt directly in your browser — no installation needed. Powered by [malt-wasm](https://github.com/watermarkhu/malt), the same linting engine compiled to WebAssembly.
+Try malt in your browser without installing anything. The playground runs [malt-wasm](https://github.com/watermarkhu/malt), the same linting engine compiled to WebAssembly.
 
-Expand the **.malt.toml configuration** panel to tweak rules with a live TOML editor; both editors use Monaco with Shiki highlighting.
+Expand the `.malt.toml` configuration panel to edit rules in a live TOML editor. Both editors use Monaco with Shiki highlighting.
 
 <Playground />

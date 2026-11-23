@@ -78,15 +78,15 @@ something was fixed. What cannot be fixed automatically is reported afterwards.
 
 Fixes come in two kinds:
 
-- **Safe** fixes keep the meaning of the code, and `--fix` applies them.
-- **Unsafe** fixes are right in the common case but can change behaviour in
+- Safe fixes keep the meaning of the code, and `--fix` applies them.
+- Unsafe fixes are right in the common case but can change behaviour in
   another (`str2num` → `str2double` returns `NaN` where `str2num` evaluated an
   expression; `a & b` → `a && b` errors on array operands). They are reported
   as fixable only with `--fix --unsafe-fixes`. Review the result before you commit it.
 
 A Safe fix is curated against MATLAB itself: for every check that MATLAB's own
 Code Analyzer fix (`codeIssues(...).fix(ID)`) rewrites, malt's fix produces the
-same text, byte for byte, on the conformance fixtures — a committed regression
+same text, byte for byte, on the conformance fixtures. A committed regression
 set (`tests/fixtures/fix_matlab/`) pins that. The Safe fixes by check ID:
 
 | Check | Rewrite | MATLAB's fix agrees |
@@ -109,11 +109,11 @@ set (`tests/fixtures/fix_matlab/`) pins that. The Safe fixes by check ID:
 | FORMATNOI | `format` → `format("default")` | yes |
 | DLABINDEX, DNUMLABS, DGOP, CAXIS, ISDIR, MLNT, DEGTORAD, RADTODEG, WRITEFIS, GCAT, GPLUS, LAB* and the other direct-replacement renames | the callee token is renamed (`labindex` → `spmdIndex`, `caxis` → `clim`, ...), nothing else | yes |
 
-Two Safe fixes have no MATLAB counterpart (MATLAB offers no fix for them): SEPEX
+MATLAB offers no fix for two Safe fixes: SEPEX
 inserts the separator a one-line header is missing (`if x y = 1 end` →
 `if x, y = 1, end`), and NO4LP and ALIGN drop the parentheses around a `for`
 header and re-indent an `end` to its keyword. Both are mechanical and
-meaning-preserving, and they stay Safe for that reason, not by MATLAB parity.
+preserve meaning, which is why they are Safe.
 
 The Unsafe ones (reported, applied only with `--fix --unsafe-fixes`):
 ISMT, ISCL (`length(x) == 0` → `isempty(x)`, `numel(x) == 1` → `isscalar(x)`: a class can overload
@@ -209,7 +209,7 @@ malt --color always src/*.m | less -R   # keep the colours through a pager
 NO_COLOR=1 malt src/*.m                 # plain text, even in a terminal
 ```
 
-## Exit Codes
+## Exit codes
 
 | Code | Meaning                              |
 | ---- | ------------------------------------ |
@@ -217,12 +217,12 @@ NO_COLOR=1 malt src/*.m                 # plain text, even in a terminal
 | `1`  | One or more diagnostics found (with `--fix`: some could not be fixed) |
 | `2`  | Runtime error (file not found, parse failure, bad config; with `--strict-config`, also any unknown rule ID or parameter in the config) |
 
-## Shell Glob Expansion
+## Shell glob expansion
 
 malt does not perform its own glob expansion. Use your shell's globbing:
 
 ```bash
-# Bash/Zsh — lint all .m files recursively
+# Bash/Zsh: lint all .m files recursively
 malt **/*.m
 
 # Or use find

@@ -2,43 +2,35 @@
 icon: lucide/code
 ---
 
-# Editor Integration
+# Editor integration
 
 ::: info Coming Soon
 
-Editor integration is planned for a future release. This page will be updated with instructions as support is added.
+Editor integration is planned for a future release.
 
 :::
 
-## Planned Integrations
+## Planned integrations
 
 ### Language Server Protocol (LSP)
 
-An LSP server for malt is on the roadmap. Once available, it will provide:
-
-- Real-time diagnostics as you type
-- Quick-fix code actions
-- Integration with any LSP-compatible editor
+An LSP server for malt is on the roadmap. It will report diagnostics as you type, offer quick-fix code actions, and work with any LSP-compatible editor.
 
 ### VS Code
 
-A VS Code extension is planned that will wrap the malt LSP server and provide:
-
-- Inline diagnostic highlighting
-- One-click auto-fix via code actions
-- Configuration snippets for `.malt.toml`
+A VS Code extension is planned. It will wrap the LSP server, highlight diagnostics inline, apply fixes through code actions and offer snippets for `.malt.toml`.
 
 ### Neovim
 
-Once the LSP server is available, Neovim users can configure it via `nvim-lspconfig` or similar plugins.
+Once the LSP server exists, Neovim users can set it up with `nvim-lspconfig` or a similar plugin.
 
 ### MATLAB Editor
 
-Integration with the built-in MATLAB editor is being explored.
+The built-in MATLAB editor is being explored.
 
-## Current Workaround
+## Current workaround
 
-Until native editor integration is available, you can use malt as an external tool:
+Until then, run malt as an external tool:
 
 1. Configure your editor to run `malt <current-file>` on save
 2. Parse the output format (`file:line:column [severity] rule: message`) for diagnostics
@@ -50,4 +42,4 @@ malt refuses files over `max_file_size` (5 MiB by default; 2 MiB in the browser 
 
 ## Contributing
 
-If you'd like to help build editor integrations, see the [repository](https://github.com/watermarkhu/malt) for contribution guidelines.
+To help build editor integrations, see the contribution guidelines in the [repository](https://github.com/watermarkhu/malt).

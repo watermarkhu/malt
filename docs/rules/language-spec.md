@@ -1003,7 +1003,7 @@ Experimental checks are off by default and run with `[lint] experimental = true`
 ## Automatic fixes
 
 MCFIL renames the `classdef` and every constructor method to the file
-name, in one edit — as MATLAB's own fix does (`classdef Cls` in
+name in one edit, as MATLAB's own fix does (`classdef Cls` in
 `t__Cls.m` becomes `classdef t__Cls`, and the constructor follows). The
 rewrite is UNSAFE: a method that was never the constructor (its name did
 not match the class the runtime uses, which is the file name) becomes
@@ -1011,21 +1011,21 @@ one, so constructing the object starts running it; it is applied only
 with `--fix --unsafe-fixes`. Every other check of this engine reports
 without a fix.
 
-The checks are grouped into families:
+The checks fall into these families:
 
-- **PF\*** — parfor restrictions, banned functions, and sliced-variable /
+- PF\*: parfor restrictions, banned functions, and sliced-variable /
   reduction classification.
-- **SP\*** — spmd block restrictions (`SPNST`, `SPRET`, `SPGP`, and the
+- SP\*: spmd block restrictions (`SPNST`, `SPRET`, `SPGP`, and the
   transparency group `SPDEC`, `SPEVC`, `SPLD`, `SPNF`, `SPSV`, `SPWHOS`,
   `SPBFN`).
-- **AT\*** — class, events, property, and method attribute validation.
-- **CLS\* / NOPRV** — class-file structure checks.
-- **VTP\*** — property validation function checks.
-- **MC\*** — class/OOP rules: naming, set/get signatures, constructor and
+- AT\*: class, events, property, and method attribute validation.
+- CLS\* and NOPRV: class-file structure checks.
+- VTP\*: property validation function checks.
+- MC\*: class/OOP rules: naming, set/get signatures, constructor and
   superclass calls, Constant/WeakHandle properties.
-- **FV\*** — `arguments` block validation (plus `TINVALDIM`,
+- FV\*: `arguments` block validation (plus `TINVALDIM`,
   `TTOOFEWDIMS`).
-- **Miscellaneous** — `FCONV`, `FCONF`, `GPFST`, `GPNES`, `NPERS`,
+- Miscellaneous: `FCONV`, `FCONF`, `GPFST`, `GPNES`, `NPERS`,
   `ROWLN`, `FCNANS`, `CLANS`, `BRKFOR`, `CONTFOR`, `IDXCOLND`, `ERTXT`,
   `WTXT`, `MHERIT`, `NCHKOS`, `CTOINE`, `CTORO`, `USESWNS`.
 
