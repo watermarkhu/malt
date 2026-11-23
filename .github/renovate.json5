@@ -2,6 +2,8 @@
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": ["config:recommended"],
   "enabledManagers": ["bun", "cargo", "mise", "npm"],
+  // Pull requests go to dev, never main (see .github/CONTRIBUTING.md).
+  "baseBranches": ["dev"],
   "packageRules": [
     {
       "matchManagers": ["mise"],
