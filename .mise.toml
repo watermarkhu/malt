@@ -6,7 +6,7 @@
 # 0.15.0 requires rustc >= 1.91 and the pinned toolchain (rust-toolchain.toml) is 1.100;
 # 0.13.1 is kept until the wasm build is re-verified with 0.15: `mise install` of 0.15.1 failed
 # locally on 2026-11-18 (it compiled with rustc 1.90: cargo-platform requires 1.91).
-"cargo:wasm-pack" = "0.13.1"
+"cargo:wasm-pack" = "0.15.1"
 # Node.js used for npm publishing and local tooling (pinned; Renovate updates).
 node = "24.22.3"
 # Bun for the VitePress docs project (install, `bun run docs:*` scripts).
