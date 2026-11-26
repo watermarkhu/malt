@@ -36,9 +36,6 @@ unused_dependencies = "allow"
 default = []
 wasm = ["wasm-bindgen", "console_error_panic_hook", "serde-wasm-bindgen"]
 
-[build-dependencies]
-cc = "1.2"
-
 [dev-dependencies]
 tree-sitter.workspace = true
 tree-sitter-matlab.workspace = true

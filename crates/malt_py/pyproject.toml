@@ -13,7 +13,7 @@ readme = "README.md"
 requires-python = ">=3.10"
 # The version comes from the Cargo workspace (stamped by the release workflow).
 dynamic = ["version"]
-keywords = ["matlab", "path", "index", "maxx", "documentation"]
+keywords = ["matlab", "path", "index", "documentation"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",

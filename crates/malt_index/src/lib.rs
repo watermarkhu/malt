@@ -1,16 +1,17 @@
 //! A native index of the MATLAB path: the functions, classes, scripts, live scripts,
 //! packages (`+pkg`), class folders (`@cls`), plain folders and `private` folders that
-//! MATLAB resolves names against. It is the Rust core of the replacement for the Python
-//! library maxx; it has no linter dependency.
+//! MATLAB resolves names against. It is the Rust core of malt's path index, and it has no
+//! linter dependency.
 //!
 //! - [`Index`] lists a search path up front and parses files lazily.
 //! - [`parse_file`] and [`parse_source`] turn one file into an [`Entity`].
 //! - [`parse_live_file`], [`parse_live_text_file`] and [`parse_live_bytes`] read live
 //!   scripts (`.mlx` and plain-text live code).
 //! - [`Sources`] reads the source lines of files, cached by path.
-//! - [`dump::dump`] writes the index in the schema of `maxx_dump.py`.
+//! - [`dump::dump`] writes the index as JSON.
 //!
-//! The behaviour, the schema and the differences from maxx are in the crate's README.
+//! How MATLAB is read, the entities and the JSON schema are in the documentation at
+//! <https://watermarkhu.nl/malt/api/>.
 
 pub mod comments;
 pub mod config;

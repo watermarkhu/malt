@@ -1,5 +1,7 @@
 # malt-wasm
 
+<img src="https://raw.githubusercontent.com/watermarkhu/malt/main/img/malt-pixel.svg" alt="malt logo, created by Mark Shui Hu" width="100" align="right">
+
 Fast MATLAB linter with 2,680+ Code Analyzer checks, compiled to WebAssembly.
 
 ## Installation

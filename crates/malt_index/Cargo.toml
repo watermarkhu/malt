@@ -9,7 +9,7 @@ homepage.workspace = true
 keywords.workspace = true
 categories.workspace = true
 readme = "README.md"
-description = "Native index of the MATLAB path (functions, classes, packages, class folders): the Rust core that replaces maxx"
+description = "Native index of the MATLAB path (functions, classes, packages, class folders): the Rust core of malt"
 
 [lib]
 name = "malt_index"
@@ -21,6 +21,6 @@ serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
 toml.workspace = true
-zip = { version = "2", default-features = false, features = ["deflate"] }
+zip = { version = "9", default-features = false, features = ["deflate"] }
 quick-xml = "0.42"
 log = "0.4"

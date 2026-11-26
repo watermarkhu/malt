@@ -4,6 +4,9 @@ layout: home
 hero:
   name: malt
   text: An ultra-fast, extensible linter for MATLAB, written in Rust
+  image:
+    src: /logo.png
+    alt: malt
   tagline: Single-pass AST traversal powered by tree-sitter. Under its default configuration it reports what MATLAB R2026b's Code Analyzer reports. It has 2692 checks, each verified against fixtures, and lints thousands of files in milliseconds.
   actions:
     - theme: brand
