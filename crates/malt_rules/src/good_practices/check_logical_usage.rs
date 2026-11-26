@@ -257,7 +257,7 @@ impl FlowWalker<'_> {
             }
             "catch_clause" => {
                 for i in 0..node.named_child_count() {
-                    let Some(child) = node.named_child(i) else {
+                    let Some(child) = node.named_child(i as u32) else {
                         continue;
                     };
                     if child.kind() == "identifier" {
@@ -295,7 +295,7 @@ impl FlowWalker<'_> {
                 };
                 let mut tried = pre.clone();
                 for i in 0..node.named_child_count() {
-                    let Some(child) = node.named_child(i) else {
+                    let Some(child) = node.named_child(i as u32) else {
                         continue;
                     };
                     match child.kind() {
@@ -317,7 +317,7 @@ impl FlowWalker<'_> {
 
     fn visit_children(&mut self, node: Node, flow: &mut Flow) {
         for i in 0..node.named_child_count() {
-            if let Some(child) = node.named_child(i) {
+            if let Some(child) = node.named_child(i as u32) {
                 self.visit(child, flow);
             }
         }
@@ -334,7 +334,7 @@ impl FlowWalker<'_> {
         let mut out = Flow::default();
         let mut has_else = false;
         for i in 0..node.named_child_count() {
-            let Some(child) = node.named_child(i) else {
+            let Some(child) = node.named_child(i as u32) else {
                 continue;
             };
             match child.kind() {
@@ -373,7 +373,7 @@ impl FlowWalker<'_> {
         let mut out = Flow::default();
         let mut has_otherwise = false;
         for i in 0..node.named_child_count() {
-            let Some(child) = node.named_child(i) else {
+            let Some(child) = node.named_child(i as u32) else {
                 continue;
             };
             match child.kind() {
@@ -616,7 +616,7 @@ fn collect_operand_vars<'a>(node: Node<'a>, out: &mut Vec<Node<'a>>) {
         | "comparison_operator"
         | "boolean_operator" => {
             for i in 0..node.named_child_count() {
-                if let Some(child) = node.named_child(i) {
+                if let Some(child) = node.named_child(i as u32) {
                     collect_operand_vars(child, out);
                 }
             }
@@ -627,7 +627,7 @@ fn collect_operand_vars<'a>(node: Node<'a>, out: &mut Vec<Node<'a>>) {
 
 fn child_of_kind<'a>(node: Node<'a>, kind: &str) -> Option<Node<'a>> {
     (0..node.named_child_count())
-        .filter_map(|i| node.named_child(i))
+        .filter_map(|i| node.named_child(i as u32))
         .find(|c| c.kind() == kind)
 }
 
@@ -635,7 +635,7 @@ fn child_of_kind<'a>(node: Node<'a>, kind: &str) -> Option<Node<'a>> {
 /// block, a comment or a clause.
 fn condition_of(node: Node) -> Option<Node> {
     (0..node.named_child_count())
-        .filter_map(|i| node.named_child(i))
+        .filter_map(|i| node.named_child(i as u32))
         .find(|c| !matches!(c.kind(), "block" | "comment"))
 }
 
@@ -699,7 +699,7 @@ fn subtree_has_kind(node: Node, kinds: &[&str]) -> bool {
         return true;
     }
     (0..node.named_child_count())
-        .filter_map(|i| node.named_child(i))
+        .filter_map(|i| node.named_child(i as u32))
         .any(|c| subtree_has_kind(c, kinds))
 }
 

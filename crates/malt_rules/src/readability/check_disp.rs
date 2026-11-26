@@ -23,7 +23,7 @@ impl ReadabilityEngine {
         };
 
         let named_children: Vec<_> = (0..args.named_child_count())
-            .filter_map(|i| args.named_child(i))
+            .filter_map(|i| args.named_child(i as u32))
             .collect();
 
         if named_children.len() != 1 {

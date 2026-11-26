@@ -18,7 +18,7 @@ impl GoodPracticesEngine {
         // Probed: an `elseif` condition is reported like an `if` condition.
         let condition = if node.kind() == "elseif_clause" {
             (0..node.named_child_count())
-                .filter_map(|i| node.named_child(i))
+                .filter_map(|i| node.named_child(i as u32))
                 .find(|c| !matches!(c.kind(), "block" | "comment"))
         } else {
             condition_of(node)

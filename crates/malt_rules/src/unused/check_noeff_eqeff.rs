@@ -109,7 +109,9 @@ pub(crate) fn walk_for_no_effect(
 fn is_method_call(node: Node) -> bool {
     let mut current = node;
     while current.kind() == "field_expression" {
-        let Some(last) = current.named_child(current.named_child_count().saturating_sub(1)) else {
+        let Some(last) =
+            current.named_child((current.named_child_count().saturating_sub(1)) as u32)
+        else {
             return false;
         };
         if matches!(last.kind(), "function_call" | "cell_index") {

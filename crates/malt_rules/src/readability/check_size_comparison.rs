@@ -45,7 +45,7 @@ impl ReadabilityEngine {
         let mut other_side = None;
 
         for i in 0..node.named_child_count() {
-            if let Some(child) = node.named_child(i) {
+            if let Some(child) = node.named_child(i as u32) {
                 if child.kind() == "function_call" {
                     if let Some(name_node) = child.child_by_field_name("name") {
                         let name = &source[name_node.start_byte()..name_node.end_byte()];
@@ -81,7 +81,7 @@ impl ReadabilityEngine {
         };
 
         let named_children: Vec<_> = (0..args.named_child_count())
-            .filter_map(|i| args.named_child(i))
+            .filter_map(|i| args.named_child(i as u32))
             .collect();
 
         if named_children.len() != 2 {

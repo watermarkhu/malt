@@ -379,14 +379,28 @@
       "returns": []
     },
     "Broken": {
+      "arguments": [],
       "attributes": [],
       "docstring": null,
-      "endlineno": null,
-      "kind": "script",
-      "lineno": null,
+      "endlineno": 6,
+      "is_getter": false,
+      "is_setter": false,
+      "kind": "function",
+      "lineno": 1,
       "members": {},
       "name": "Broken",
-      "path": "Broken.m"
+      "path": "Broken.m",
+      "returns": [
+        {
+          "default": null,
+          "dimensions": null,
+          "docstring": null,
+          "kind": "positional-only",
+          "name": "r",
+          "type": null,
+          "validators": null
+        }
+      ]
     },
     "ScriptFile": {
       "attributes": [],
