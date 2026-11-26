@@ -47,7 +47,7 @@ fn function_input_node<'a>(
 ) -> Option<tree_sitter::Node<'a>> {
     let function = blocks.first()?.node.parent()?;
     let function_arguments = find_child_kind(function, "function_arguments")?;
-    function_arguments.named_child(index)
+    function_arguments.named_child(index as u32)
 }
 
 impl LanguageSpecEngine {

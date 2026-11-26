@@ -482,7 +482,7 @@ pub(crate) fn call_arg_count(node: tree_sitter::Node) -> usize {
         .find(|c| c.kind() == "arguments")
         .map(|args| {
             (0..args.named_child_count())
-                .filter_map(|i| args.named_child(i))
+                .filter_map(|i| args.named_child(i as u32))
                 .filter(|c| c.kind() != "comment")
                 .count()
         })

@@ -21,6 +21,14 @@ impl FormattingEngine {
         if frame.in_function || frame.in_parfor {
             return;
         }
+        // A parse error right after the statement on its line (`x = 1 != 2;`): MATLAB reports
+        // the error and no NOPTS. Where the parser cuts the statement short, the semicolon is
+        // inside the error.
+        if frame.following.first().is_some_and(|next| {
+            next.kind() == "ERROR" && next.start_position().row == node.end_position().row
+        }) {
+            return;
+        }
         if semicolon_follows(node, frame.following.iter().copied(), source)
             && !crate::syntax_errors::has_end_value_in_literal(node, source)
         {

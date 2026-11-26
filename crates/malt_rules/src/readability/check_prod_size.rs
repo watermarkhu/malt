@@ -22,7 +22,7 @@ impl ReadabilityEngine {
         };
 
         let named_children: Vec<_> = (0..args.named_child_count())
-            .filter_map(|i| args.named_child(i))
+            .filter_map(|i| args.named_child(i as u32))
             .collect();
 
         if named_children.len() != 1 {
@@ -37,7 +37,7 @@ impl ReadabilityEngine {
                     // Extract the variable passed to size
                     if let Some(inner_args) = find_arguments(inner) {
                         let inner_named: Vec<_> = (0..inner_args.named_child_count())
-                            .filter_map(|i| inner_args.named_child(i))
+                            .filter_map(|i| inner_args.named_child(i as u32))
                             .collect();
                         if inner_named.len() == 1 {
                             let var_text =

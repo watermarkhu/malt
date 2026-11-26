@@ -466,7 +466,7 @@ impl SyntaxErrorsEngine {
             let error = node.children(&mut cursor).find(|c| c.is_error());
             let has_dotted_argument = node.children(&mut node.walk()).any(|c| {
                 c.kind() == "arguments"
-                    && c.named_child(c.named_child_count().saturating_sub(1))
+                    && c.named_child((c.named_child_count().saturating_sub(1)) as u32)
                         .is_some_and(|a| !matches!(a.kind(), "identifier" | "string"))
             });
             if let (Some(name), Some(error), true) = (name, error, has_dotted_argument) {

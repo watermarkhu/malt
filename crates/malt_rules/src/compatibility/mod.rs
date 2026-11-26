@@ -512,7 +512,7 @@ fn call_args(node: tree_sitter::Node) -> Vec<tree_sitter::Node> {
             .find(|c| c.kind() == "arguments")
             .map(|args| {
                 (0..args.named_child_count())
-                    .filter_map(|i| args.named_child(i))
+                    .filter_map(|i| args.named_child(i as u32))
                     .filter(|c| c.kind() != "comment")
                     .collect()
             })

@@ -433,7 +433,7 @@ fn is_char_literal_cell(cell: tree_sitter::Node, source: &str) -> bool {
 /// literal, descending into its rows; false at any other element.
 fn char_literals_only(node: tree_sitter::Node, source: &str, count: &mut usize) -> bool {
     for i in 0..node.named_child_count() {
-        let Some(child) = node.named_child(i) else {
+        let Some(child) = node.named_child(i as u32) else {
             continue;
         };
         match child.kind() {
@@ -493,7 +493,7 @@ fn is_number_expr(node: tree_sitter::Node) -> bool {
         "range" | "matrix" | "row" => {
             let mut any = false;
             for i in 0..node.named_child_count() {
-                let Some(child) = node.named_child(i) else {
+                let Some(child) = node.named_child(i as u32) else {
                     continue;
                 };
                 if child.kind() == "comment" {
@@ -566,7 +566,7 @@ fn collect_assigned_values<'a>(
             }
             "for_statement" => {
                 let var = (0..child.named_child_count())
-                    .filter_map(|j| child.named_child(j))
+                    .filter_map(|j| child.named_child(j as u32))
                     .find(|c| c.kind() == "identifier");
                 if var.is_some_and(|v| &source[v.byte_range()] == name) {
                     return false;
@@ -628,7 +628,7 @@ fn collect_assigned_kinds(
             }
             "for_statement" => {
                 let var = (0..child.named_child_count())
-                    .filter_map(|j| child.named_child(j))
+                    .filter_map(|j| child.named_child(j as u32))
                     .find(|c| c.kind() == "identifier");
                 if var.is_some_and(|v| &source[v.byte_range()] == name) {
                     return false;
@@ -649,7 +649,7 @@ fn mentions(node: tree_sitter::Node, name: &str, source: &str) -> bool {
         return true;
     }
     (0..node.named_child_count())
-        .filter_map(|i| node.named_child(i))
+        .filter_map(|i| node.named_child(i as u32))
         .any(|c| mentions(c, name, source))
 }
 
@@ -731,7 +731,7 @@ fn call_args(node: tree_sitter::Node) -> Vec<tree_sitter::Node> {
             .find(|c| c.kind() == "arguments")
             .map(|args| {
                 (0..args.named_child_count())
-                    .filter_map(|i| args.named_child(i))
+                    .filter_map(|i| args.named_child(i as u32))
                     .filter(|c| c.kind() != "comment")
                     .collect()
             })

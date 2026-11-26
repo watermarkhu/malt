@@ -3,10 +3,9 @@
 //!
 //! This layer only converts types, raises errors and forwards log records. The index, the
 //! parser, the path rules, the live-script readers and the class hierarchy are all in
-//! `malt-index`. The names follow maxx's where the first API has them (`PathsCollection`,
-//! `LinesCollection`, `Object`, `Class`, `Folder`, `Namespace`, `Script`, `LiveScript`,
-//! `Function`, `Property`, `Enumeration`, `Expr`, `ParserConfig`, the exceptions); the
-//! README lists what differs.
+//! `malt-index`. The API (`PathsCollection`, `LinesCollection`, `Object`, `Class`, `Folder`,
+//! `Namespace`, `Script`, `LiveScript`, `Function`, `Property`, `Enumeration`, `Expr`,
+//! `ParserConfig`, the exceptions) is documented at <https://watermarkhu.nl/malt/api/python>.
 
 mod collection;
 mod config;
@@ -128,7 +127,7 @@ fn parse_live_script(py: Python<'_>, path: PathBuf, plaintext: bool) -> PyResult
     standalone(py, entity, &path, config)
 }
 
-/// An enumeration of strings (`str`-valued, as maxx's enums are), in the module.
+/// An enumeration of strings (`str`-valued), in the module.
 fn str_enum<'py>(
     py: Python<'py>,
     name: &str,

@@ -81,7 +81,7 @@ impl PerformanceEngine {
             return Vec::new();
         }
         let condition = (0..node.named_child_count())
-            .filter_map(|i| node.named_child(i))
+            .filter_map(|i| node.named_child(i as u32))
             .find(|c| {
                 !matches!(
                     c.kind(),
