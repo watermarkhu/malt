@@ -329,7 +329,7 @@ checksum = "5d15f86d12da44cd8d4ec3c73984537eb7f4cadcb9776a575a0a8a05ca11005c"
 
 [[package]]
 name = "malt-cli"
-version = "0.0.0"
+version = "0.3.1"
 dependencies = [
  "anstyle",
  "anstyle-query",
@@ -347,7 +347,7 @@ dependencies = [
 
 [[package]]
 name = "malt-core"
-version = "0.0.0"
+version = "0.3.1"
 dependencies = [
  "regex",
  "serde",
@@ -361,7 +361,7 @@ dependencies = [
 
 [[package]]
 name = "malt-index"
-version = "0.0.0"
+version = "0.3.1"
 dependencies = [
  "log",
  "quick-xml",
@@ -376,7 +376,7 @@ dependencies = [
 
 [[package]]
 name = "malt-py"
-version = "0.0.0"
+version = "0.3.1"
 dependencies = [
  "log",
  "malt-index",
@@ -386,7 +386,7 @@ dependencies = [
 
 [[package]]
 name = "malt-rules"
-version = "0.0.0"
+version = "0.3.1"
 dependencies = [
  "inventory",
  "malt-core",
@@ -399,7 +399,7 @@ dependencies = [
 
 [[package]]
 name = "malt_wasm"
-version = "0.0.0"
+version = "0.3.1"
 dependencies = [
  "console_error_panic_hook",
  "malt-core",
