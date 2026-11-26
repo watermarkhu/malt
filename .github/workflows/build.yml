@@ -136,7 +136,7 @@ jobs:
         shell: bash
         run: |
           uv venv --python 3.13
-          uv pip install --no-index --find-links dist malt
+          uv pip install --no-cache --no-index --find-links dist malt
           uv pip install pytest
           uv run --no-project pytest python/tests -v
 
@@ -267,9 +267,11 @@ jobs:
         env:
           PYTHONS: ${{ matrix.platform.pythons || '3.10 3.13' }}
         run: |
+          # Every build is version 0.0.0: without --no-cache uv reuses the wheel an earlier run
+          # left in its cache, and the tests run against stale code.
           for py in ${PYTHONS}; do
             uv venv --python "${py}" --clear
-            uv pip install --no-index --find-links dist malt-index
+            uv pip install --no-cache --no-index --find-links dist malt-index
             uv pip install pytest
             uv run --no-project pytest crates/malt_py/python/tests -v
           done
