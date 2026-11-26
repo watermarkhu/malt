@@ -9,7 +9,7 @@ homepage.workspace = true
 keywords.workspace = true
 categories.workspace = true
 readme = "README.md"
-description = "Native index of the MATLAB path (functions, classes, packages, class folders): the Rust core that replaces maxx"
+description = "Native index of the MATLAB path (functions, classes, packages, class folders): the Rust core of malt"
 
 [lib]
 name = "malt_index"
