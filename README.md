@@ -1,5 +1,7 @@
 # malt
 
+<img src="https://raw.githubusercontent.com/watermarkhu/malt/main/img/malt-pixel.svg" alt="malt logo, created by Mark Shui Hu" width="100" align="right">
+
 An ultra-fast, extensible linter for MATLAB, written in Rust.
 
 `malt` parses MATLAB with tree-sitter and runs every rule in a

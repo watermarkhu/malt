@@ -13,7 +13,7 @@ export default defineConfig({
   base: '/malt/',
   lastUpdated: true,
 
-  head: [['link', { rel: 'icon', type: 'image/svg+xml', href: '/malt/favicon.svg' }]],
+  head: [['link', { rel: 'icon', type: 'image/png', href: '/malt/favicon.png' }]],
 
   markdown: {
     config: (md) => {
@@ -28,12 +28,14 @@ export default defineConfig({
   },
 
   themeConfig: {
+    logo: '/logo.png',
     siteTitle: 'malt',
     nav: [
       { text: 'Getting Started', link: '/getting-started/installation', activeMatch: '/getting-started/' },
       { text: 'Usage', link: '/usage/cli', activeMatch: '/usage/' },
       { text: 'Playground', link: '/playground', activeMatch: '/playground' },
       { text: 'Configuration', link: '/configuration', activeMatch: '/configuration' },
+      { text: 'Path index', link: '/api/', activeMatch: '/api/' },
       { text: 'Rules', link: '/rules', activeMatch: '/rules' },
       { text: 'Conformance', link: '/verification', activeMatch: '/verification|/migration' },
     ],
@@ -59,6 +61,18 @@ export default defineConfig({
         },
         { text: 'Playground', link: '/playground' },
         { text: 'Configuration', link: '/configuration' },
+        {
+          text: 'Path index',
+          collapsed: false,
+          items: [
+            { text: 'Overview', link: '/api/' },
+            { text: 'Python API', link: '/api/python' },
+            { text: 'Rust API', link: '/api/rust' },
+            { text: 'How MATLAB is read', link: '/api/behaviour' },
+            { text: 'Coming from maxx', link: '/api/maxx' },
+            { text: 'Development', link: '/api/development' },
+          ],
+        },
         {
           text: 'Conformance',
           collapsed: false,
