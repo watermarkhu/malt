@@ -313,7 +313,9 @@ def test_golden_facts_by_identifier() -> None:
 
 def test_canonical_path_and_internal(tmp_path: Path) -> None:
     (tmp_path / "+internal").mkdir()
-    (tmp_path / "+internal" / "helper.m").write_text("function helper()\nend\n", encoding="utf-8")
+    (tmp_path / "+internal" / "helper.m").write_text(
+        "function helper()\nend\n", encoding="utf-8"
+    )
     collection = PathsCollection([tmp_path])
     top = collection[str(tmp_path)]
     assert top.canonical_path == top.path
