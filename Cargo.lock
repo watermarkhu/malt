@@ -417,7 +417,6 @@ dependencies = [
 name = "malt_wasm"
 version = "0.0.0"
 dependencies = [
- "cc",
  "console_error_panic_hook",
  "malt-core",
  "malt-rules",
