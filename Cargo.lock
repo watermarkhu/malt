@@ -397,6 +397,7 @@ dependencies = [
  "log",
  "malt-index",
  "pyo3",
+ "serde_json",
 ]
 
 [[package]]
