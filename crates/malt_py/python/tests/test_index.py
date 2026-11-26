@@ -309,3 +309,40 @@ def test_golden_facts_by_identifier() -> None:
     ]
     circle = collection["geo.shape.Circle"]
     assert circle.mro == ["Circle", "geo.Point", "handle"]
+
+
+def test_canonical_path_and_internal(tmp_path: Path) -> None:
+    (tmp_path / "+internal").mkdir()
+    (tmp_path / "+internal" / "helper.m").write_text(
+        "function helper()\nend\n", encoding="utf-8"
+    )
+    collection = PathsCollection([tmp_path])
+    top = collection[str(tmp_path)]
+    assert top.canonical_path == top.path
+    member = top.members["internal"]
+    assert member.is_internal is True
+    assert member.members["helper"].is_internal is True
+
+
+def test_member_views_and_constructor(paths: PathsCollection) -> None:
+    square = paths["shapes.Square"]
+    assert set(square.functions) >= {"Square", "area"}
+    assert "Side" in square.properties
+    # The views include the inherited members.
+    assert "Name" in square.properties
+    assert square.constructor is not None
+    assert square.constructor.is_constructor_method is True
+    assert square.constructor.is_method is True
+    assert square.functions["area"].is_constructor_method is False
+    assert [a.name for a in square.arguments] == ["side"]
+    assert [b.name for b in square.resolved_bases] == ["Shape"]
+    assert paths["scale"].is_method is False
+
+
+def test_expr_tokens_and_builtin_doc(paths: PathsCollection) -> None:
+    side = paths["shapes.Square"].members["Side"]
+    assert side.type_expr is not None
+    assert list(side.type_expr) == ["double"]
+    assert side.type_expr.doc == "https://www.mathworks.com/help/matlab/ref/double.html"
+    assert side.default_expr is not None
+    assert side.default_expr.doc == ""

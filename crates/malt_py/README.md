@@ -68,15 +68,15 @@ obj = parse_source(text, "src/x.m")       # the same, from text (the file is not
 | `parse_file(path, parser_config=None)` | The object of one file (its parent is `None`). Raises `FilePathError`, or `ValueError` for a `.mlx` that is not one. |
 | `parse_source(source, path, parser_config=None)` | The object of MATLAB text, named after `path`. The file is not read. |
 | `parse_live_script(path, plaintext=False)` | A `LiveScript`: a `.mlx` by its contents, or a plain-text live `.m` with `plaintext=True`. |
-| `Object` | `kind`, `name`, `path` (dotted identifier; a folder's `/name`), `filepath`, `lineno`, `endlineno`, `docstring`, `docstring_raw`, `docstring_lineno`, `docstring_endlineno`, `attributes`, `access`, `is_private`, `is_hidden`, `is_alias`, `target`, `members`, `parent`, `lines`, `source`, `lines_collection`, `is_folder`, `is_namespace`, `is_class`, `is_function`, `is_script`, `is_live_script`, `is_property`, `is_enumeration`. |
+| `Object` | `kind`, `name`, `path` (dotted identifier; a folder's `/name`), `filepath`, `lineno`, `endlineno`, `docstring`, `docstring_raw`, `docstring_lineno`, `docstring_endlineno`, `attributes`, `access`, `is_private`, `is_hidden`, `is_internal` (the file is in a `+internal` package, the package itself included), `canonical_path` (the dotted name without the folder it was found in), `is_alias`, `target`, `members`, `parent`, `lines`, `source`, `lines_collection`, `is_folder`, `is_namespace`, `is_class`, `is_function`, `is_script`, `is_live_script`, `is_property`, `is_enumeration`, and the member views `all_members` (the inherited members of a class first), `folders`, `namespaces`, `scripts`, `classes`, `functions`, `properties`, `enumerations`. |
 | `Folder(Object)`, `Namespace(Object)`, `Script(Object)` | A plain folder, a package, a script. |
 | `LiveScript(Object)` | `sections`: a list of `LiveScriptSection` (`kind`, `content`, `lineno`, `endlineno`). |
-| `Class(Object)` | `bases` (text), `bases_expr` (`Expr`s), `events` (the names of the `events` entries, sorted), `declares_constructor` (a method named as the class is declared), `mro`, `inherited_members`. |
-| `Function(Object)` | `arguments`, `returns`, `is_getter`, `is_setter`. |
+| `Class(Object)` | `bases` (text), `bases_expr` (`Expr`s), `events` (the names of the `events` entries, sorted), `declares_constructor` (a method named as the class is declared), `mro`, `inherited_members`, `constructor`, `arguments` (those of the constructor), `resolved_bases` (the superclasses found on the path). |
+| `Function(Object)` | `arguments`, `returns`, `is_method`, `is_constructor_method`, `is_getter`, `is_setter`. |
 | `Property(Object)` | `type`, `dimensions`, `validators`, `default`, and `type_expr`, `validators_expr`, `default_expr`; `getter` and `setter` (`Function`, with `parent` the property). |
 | `Enumeration(Object)` | `value`, `value_expr`. |
 | `Argument` | `name`, `kind`, `required`, `type`, `dimensions`, `validators`, `default`, `docstring`, `docstring_raw`, and the `*_expr` versions of the type, validators and default. |
-| `Expr` | `text`, `lineno`, `column`, `endlineno`, `endcolumn`. `str(expr)` is the text; `expr == "double"` compares the text (and `==` another `Expr` compares the text); hashes as its text. |
+| `Expr` | `text`, `lineno`, `column`, `endlineno`, `endcolumn`, `doc` (the MathWorks documentation URL of the first builtin name, or `""`). Iterating gives the text in tokens: identifiers, blanks and single characters. `str(expr)` is the text; `expr == "double"` compares the text (and `==` another `Expr` compares the text); hashes as its text. |
 | `ParserConfig(docstring_before_properties, docstring_before_arguments, docstring_before_enumerations, parse_live_scripts)` | Which comment block documents a declaration (default: the one after, as maxx does), and whether `.mlx` files are live scripts. |
 | `Kind`, `ArgumentKind`, `AccessKind`, `SectionKind` | `str` enums. `Kind` has `folder`, `namespace`, `class`, `enumeration`, `function`, `script`, `live_script`, `property` (the values of `Object.kind`). |
 | `FilePathError`, `NameResolutionError`, `CyclicAliasError` | Exceptions. `CyclicAliasError` is raised when the superclasses of a class lead back to it (from `mro` and `inherited_members`). |
@@ -132,8 +132,8 @@ installed when the module is imported; it is not installed if another Rust logge
 Compared with maxx's surface, these are missing: `Alias` (inherited members carry
 `is_alias` and `target` instead; imports are not modelled), `FileParser` and
 `LiveScriptParser` as classes (the functions above replace them), `PathsCollection.get_path`, `get_member`,
-`as_local_collection`, `Object.resolve`, `canonical_path`, `has_docstring`, `is_kind`, the
-maxx `logger.configure` function, the iteration of an `Expr` over its tokens, and the
+`as_local_collection`, `Object.resolve`, `has_docstring`, `is_kind`, and the
+maxx `logger.configure` function, and the
 `Kind.ENUMERATION == "class"` alias (malt says `enumeration`). Enumeration members are
 `Enumeration` objects with kind `enumeration` (maxx reports `class`).
 

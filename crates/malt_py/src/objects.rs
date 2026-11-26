@@ -127,12 +127,7 @@ impl Object {
     /// `Hidden` attribute.
     #[getter]
     fn is_hidden(&self) -> bool {
-        let internal = self
-            .entity
-            .path
-            .as_deref()
-            .is_some_and(|p| path_has_part(p, "+internal"));
-        internal || self.entity.attributes.contains("Hidden")
+        self.is_internal() || self.entity.attributes.contains("Hidden")
     }
 
     /// Whether this object is an alias: a member inherited from a base class.
@@ -252,6 +247,95 @@ impl Object {
     fn parent(&self, py: Python<'_>) -> Option<Py<PyAny>> {
         self.parent.as_ref().map(|p| p.clone_ref(py))
     }
+
+    /// The dotted name without the folder it was found in: `path` of a file in a folder
+    /// is `/folder/name`, `canonical_path` is `name`. Equal to `path` for a folder.
+    #[getter]
+    fn canonical_path(&self) -> &str {
+        if self.entity.kind == Kind::Folder {
+            &self.path
+        } else {
+            self.path.rsplit('/').next().unwrap_or(&self.path)
+        }
+    }
+
+    /// Whether the file is in a `+internal` package.
+    #[getter]
+    fn is_internal(&self) -> bool {
+        self.entity
+            .path
+            .as_deref()
+            .is_some_and(|p| path_has_part(p, "+internal"))
+    }
+
+    /// The members and, for a class, the inherited members before them, by name.
+    #[getter]
+    fn all_members<'py>(slf: &Bound<'py, Self>) -> PyResult<Bound<'py, PyDict>> {
+        let py = slf.py();
+        let all = PyDict::new(py);
+        if matches!(slf.borrow().entity.kind, Kind::Class | Kind::ClassFolder) {
+            all.update(
+                slf.getattr("inherited_members")?
+                    .cast::<PyDict>()?
+                    .as_mapping(),
+            )?;
+        }
+        all.update(slf.getattr("members")?.cast::<PyDict>()?.as_mapping())?;
+        Ok(all)
+    }
+
+    /// The folders among `all_members`.
+    #[getter]
+    fn folders<'py>(slf: &Bound<'py, Self>) -> PyResult<Bound<'py, PyDict>> {
+        members_of_kind(slf, "folder")
+    }
+
+    /// The packages among `all_members`.
+    #[getter]
+    fn namespaces<'py>(slf: &Bound<'py, Self>) -> PyResult<Bound<'py, PyDict>> {
+        members_of_kind(slf, "namespace")
+    }
+
+    /// The scripts among `all_members`.
+    #[getter]
+    fn scripts<'py>(slf: &Bound<'py, Self>) -> PyResult<Bound<'py, PyDict>> {
+        members_of_kind(slf, "script")
+    }
+
+    /// The classes among `all_members`.
+    #[getter]
+    fn classes<'py>(slf: &Bound<'py, Self>) -> PyResult<Bound<'py, PyDict>> {
+        members_of_kind(slf, "class")
+    }
+
+    /// The functions (methods too) among `all_members`.
+    #[getter]
+    fn functions<'py>(slf: &Bound<'py, Self>) -> PyResult<Bound<'py, PyDict>> {
+        members_of_kind(slf, "function")
+    }
+
+    /// The properties among `all_members`.
+    #[getter]
+    fn properties<'py>(slf: &Bound<'py, Self>) -> PyResult<Bound<'py, PyDict>> {
+        members_of_kind(slf, "property")
+    }
+
+    /// The enumeration members among `all_members`.
+    #[getter]
+    fn enumerations<'py>(slf: &Bound<'py, Self>) -> PyResult<Bound<'py, PyDict>> {
+        members_of_kind(slf, "enumeration")
+    }
+}
+
+/// The entries of `all_members` whose kind is `kind`.
+fn members_of_kind<'py>(slf: &Bound<'py, Object>, kind: &str) -> PyResult<Bound<'py, PyDict>> {
+    let filtered = PyDict::new(slf.py());
+    for (name, member) in slf.getattr("all_members")?.cast::<PyDict>()?.iter() {
+        if member.getattr("kind")?.extract::<String>()? == kind {
+            filtered.set_item(name, member)?;
+        }
+    }
+    Ok(filtered)
 }
 
 impl Object {
@@ -350,6 +434,52 @@ impl Class {
             dict.set_item(item.name, member)?;
         }
         Ok(dict)
+    }
+
+    /// The constructor: the member named as the class, when it is a function.
+    #[getter]
+    fn constructor(slf: &Bound<'_, Self>) -> PyResult<Option<Py<PyAny>>> {
+        let name = slf.borrow().as_super().entity.name.clone();
+        let members = slf.getattr("members")?;
+        let Some(member) = members.cast::<PyDict>()?.get_item(&name)? else {
+            return Ok(None);
+        };
+        let is_function = member.getattr("kind")?.extract::<String>()? == "function";
+        Ok(is_function.then(|| member.unbind()))
+    }
+
+    /// The inputs of the constructor, or an empty list without one.
+    #[getter]
+    fn arguments(slf: &Bound<'_, Self>) -> PyResult<Py<PyAny>> {
+        let py = slf.py();
+        match Self::constructor(slf)? {
+            Some(constructor) => Ok(constructor.bind(py).getattr("arguments")?.unbind()),
+            None => Ok(pyo3::types::PyList::empty(py).into_any().unbind()),
+        }
+    }
+
+    /// The superclasses found on the search path, in the order written; a base that is not
+    /// on it is left out.
+    #[getter]
+    fn resolved_bases(slf: &Bound<'_, Self>) -> PyResult<Vec<Py<PyAny>>> {
+        let py = slf.py();
+        let bases = slf
+            .borrow()
+            .as_super()
+            .entity
+            .bases()
+            .iter()
+            .map(|b| b.text.clone())
+            .collect::<Vec<_>>();
+        let collection = slf.borrow().as_super().collection.clone_ref(py);
+        let mut found = Vec::new();
+        for base in bases {
+            let object = collection.bind(py).call_method1("get", (base,))?;
+            if !object.is_none() {
+                found.push(object.unbind());
+            }
+        }
+        Ok(found)
     }
 }
 
@@ -456,6 +586,31 @@ impl Function {
             .function()
             .map(|f| f.returns.iter().cloned().map(Argument::new).collect())
             .unwrap_or_default()
+    }
+
+    /// Whether the function is a method: a member of a class.
+    #[getter]
+    fn is_method(slf: &Bound<'_, Self>) -> PyResult<bool> {
+        let py = slf.py();
+        match &slf.borrow().as_super().parent {
+            Some(parent) => parent.bind(py).getattr("is_class")?.extract(),
+            None => Ok(false),
+        }
+    }
+
+    /// Whether the function is the constructor of its class: a method named as the class.
+    #[getter]
+    fn is_constructor_method(slf: &Bound<'_, Self>) -> PyResult<bool> {
+        let py = slf.py();
+        if !Self::is_method(slf)? {
+            return Ok(false);
+        }
+        let this = slf.borrow();
+        let Some(parent) = &this.as_super().parent else {
+            return Ok(false);
+        };
+        let name: String = parent.bind(py).getattr("name")?.extract()?;
+        Ok(this.as_super().entity.name == name)
     }
 
     /// Whether the function is a property getter (`get.Name`).
@@ -745,6 +900,23 @@ impl Expr {
         &self.inner.text
     }
 
+    /// The text in pieces: identifiers, runs of blanks and single other characters, so a
+    /// renderer can link each name on its own.
+    fn __iter__<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, pyo3::types::PyIterator>> {
+        pyo3::types::PyList::new(py, tokens(&self.inner.text))?.try_iter()
+    }
+
+    /// The URL of the MathWorks documentation of the first builtin name in the expression,
+    /// or an empty string.
+    #[getter]
+    fn doc(&self) -> String {
+        let builtins = builtins();
+        tokens(&self.inner.text)
+            .into_iter()
+            .find_map(|token| builtins.get(token).map(|page| format!("{DOC_URL}/{page}")))
+            .unwrap_or_default()
+    }
+
     fn __repr__(&self) -> String {
         format!("Expr({:?})", self.inner.text)
     }
@@ -795,6 +967,43 @@ pub(crate) fn wrap(
         Kind::Enumeration => Py::new(py, (Enumeration, object))?.into_any(),
         Kind::Function => Py::new(py, object)?.into_any(),
     })
+}
+
+/// The MATLAB help the builtin pages are relative to.
+const DOC_URL: &str = "https://www.mathworks.com/help/matlab";
+
+/// Builtin name to its documentation page (the table is `matlab_builtins.json`).
+fn builtins() -> &'static std::collections::HashMap<String, String> {
+    static TABLE: std::sync::OnceLock<std::collections::HashMap<String, String>> =
+        std::sync::OnceLock::new();
+    TABLE.get_or_init(|| {
+        serde_json::from_str(include_str!("matlab_builtins.json")).unwrap_or_default()
+    })
+}
+
+/// Split text into identifiers, runs of whitespace and single other characters.
+fn tokens(text: &str) -> Vec<&str> {
+    let mut out = Vec::new();
+    let mut chars = text.char_indices().peekable();
+    while let Some((start, c)) = chars.next() {
+        let mut end = start + c.len_utf8();
+        let same = |d: char| {
+            if c.is_ascii_alphabetic() || c == '_' {
+                d.is_ascii_alphanumeric() || d == '_'
+            } else {
+                c.is_whitespace() && d.is_whitespace()
+            }
+        };
+        while let Some(&(i, d)) = chars.peek() {
+            if !same(d) {
+                break;
+            }
+            end = i + d.len_utf8();
+            chars.next();
+        }
+        out.push(&text[start..end]);
+    }
+    out
 }
 
 /// Whether the file is directly in a `private` folder. Only the folder that holds the file

@@ -21,7 +21,7 @@ clang = "22.1.8"
 pinact = "latest"
 # Git hooks via hk (pinned; Renovate updates). Runs through `mise x` so every
 # contributor gets the pinned tools on PATH without activating mise.
-hk = "2.13.0"
+hk = "2.14.0"
 # Markdown linter for the docs (VitePress flavor) and GitHub Actions linter
 # (jactionlint, a security-aware fork of actionlint), used by the hk pre-commit
 # hooks. jactionlint runs shellcheck on the `run:` scripts of the workflows.
