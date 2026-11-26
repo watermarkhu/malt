@@ -154,13 +154,13 @@ Invalid text character(s).
 
 ### BADSP
 
-Severity: **error** · Auto-fix: **no** · Maturity: **stable**
+Severity: **error** · Auto-fix: **yes** · Maturity: **stable**
 
 Invalid text character(s). The text contains an unsupported non-ASCII whitespace character.
 
 ### BADCT
 
-Severity: **error** · Auto-fix: **no** · Maturity: **stable**
+Severity: **error** · Auto-fix: **yes** · Maturity: **stable**
 
 Unicode explicit directional formatting characters are not supported.
 
@@ -328,7 +328,7 @@ Binary literal has too many digits.
 
 ## Automatic fixes
 
-Three checks carry automatic fixes:
+Five checks carry automatic fixes:
 
 - `BADNE` rewrites `!=` to `~=`, the MATLAB not-equal operator.
 - `SEPEXR` inserts a `;` between two statements that share a line with no
@@ -336,6 +336,10 @@ Three checks carry automatic fixes:
 - `TWOCM` deletes the second comma of `,,` (`[1,,2]` → `[1,2]`, as MATLAB's
   fix does). `[1,,2]` is a syntax error in MATLAB, so no running code
   changes meaning.
+- `BADSP` replaces a non-ASCII blank in code (a no-break space, an em space)
+  with an ASCII space. A line or paragraph separator gets no fix.
+- `BADCT` deletes a directional formatting character from a comment. In a
+  string it changes the value, so that fix is unsafe.
 
 ## Examples
 

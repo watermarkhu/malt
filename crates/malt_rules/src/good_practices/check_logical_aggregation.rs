@@ -51,7 +51,10 @@ impl GoodPracticesEngine {
             byte_range: node.start_byte()..node.end_byte(),
             line: pos.row + 1,
             column: pos.column + 1,
-            fix: None,
+            // `max(a > b)` becomes `any(a > b)`, `prod` and `min` become `all`. Unsafe: the
+            // reduction of logical values returns a double for `prod`, and the empty
+            // input gives `[]` for `max` and `min` where `any`/`all` give a logical.
+            fix: Some(crate::performance::fix_rename_func(node, source, replacement).unsafe_fix()),
         }]
     }
 }
@@ -73,6 +76,32 @@ fn has_logical_connective(node: Node, source: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_util::{fix_of, lint_all, reported_without_fix};
+
+    #[test]
+    fn logical_aggregation_fix_renames_the_reduction() {
+        for (src, want, id) in [
+            ("t = max(a > b);\n", "t = any(a > b);\n", "LOGMAX"),
+            ("t = min(a.x == 3);\n", "t = all(a.x == 3);\n", "LOGMIN"),
+            ("if prod(x ~= y)\nend\n", "if all(x ~= y)\nend\n", "LOGPROD"),
+        ] {
+            let (safe, fixed) = fix_of(&engine(), src, id).unwrap();
+            assert!(!safe, "{src}");
+            assert_eq!(fixed, want);
+            let still = lint_all(&engine(), &fixed);
+            assert!(still.iter().all(|d| d.rule_id != id), "{still:?}");
+        }
+    }
+
+    #[test]
+    fn logical_aggregation_silent_cases_have_no_diagnostic_to_fix() {
+        assert!(fix_of(&engine(), "t = max(a > b, [], 2);\n", "LOGMAX").is_none());
+        assert!(!reported_without_fix(
+            &engine(),
+            "t = max(a > b);\n",
+            "LOGMAX"
+        ));
+    }
 
     /// Run the check on the first function call in `source`.
     fn count(source: &str) -> Vec<&'static str> {

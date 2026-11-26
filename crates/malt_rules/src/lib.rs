@@ -28,6 +28,7 @@ pub mod compatibility;
 pub mod config_check;
 pub mod custom_checks;
 pub mod deployment;
+pub(crate) mod fix_util;
 pub mod formatting;
 pub mod good_practices;
 pub mod incomplete_analysis;

@@ -47,7 +47,7 @@ impl GoodPracticesEngine {
             byte_range: node.start_byte()..node.end_byte(),
             line: pos.row + 1,
             column: pos.column + 1,
-            fix: None,
+            fix: super::check_stcmp::strcmp_fix(node, source),
         }]
     }
 }
@@ -69,6 +69,28 @@ fn in_condition(node: Node) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_util::{fix_of, lint_all, reported_without_fix};
+
+    #[test]
+    fn strsz_fix_rewrites_to_strcmp_and_is_unsafe() {
+        let (safe, fixed) = fix_of(&engine(), "x = 'abc' == 'abcd';\n", "STRSZ").unwrap();
+        assert!(!safe);
+        assert_eq!(fixed, "x = strcmp('abc', 'abcd');\n");
+        let (_, fixed) = fix_of(&engine(), "x = 'abc' ~= 'abcd';\n", "STRSZ").unwrap();
+        assert_eq!(fixed, "x = ~strcmp('abc', 'abcd');\n");
+        let still = lint_all(&engine(), &fixed);
+        assert!(still.iter().all(|d| d.rule_id != "STRSZ"), "{still:?}");
+    }
+
+    #[test]
+    fn strsz_no_fix_in_other_contexts() {
+        // The `~` would bind to the argument list, not to the comparison.
+        assert!(reported_without_fix(
+            &engine(),
+            "disp('ab' ~= 'abc');\n",
+            "STRSZ"
+        ));
+    }
 
     #[test]
     fn test_strsz_silent_in_if_condition() {

@@ -61,6 +61,7 @@ const COMPAT_FIELDS: &[Field] = &[
     ("number_arg_at", Usize, false),
     ("pairs_from", Usize, false),
     ("function_prefix", Bool, false),
+    ("renames_to", Str, false),
 ];
 
 const SUGGESTED_FIELDS: &[Field] = &[

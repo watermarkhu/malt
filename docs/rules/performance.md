@@ -55,13 +55,13 @@ When both arguments are numeric scalars, consider replacing \| with \|\| for per
 
 ### MINV
 
-Severity: **info** · Auto-fix: **no** · Maturity: **stable**
+Severity: **info** · Auto-fix: **yes** · Maturity: **stable**
 
 INV(A)*b can be slower and less accurate than A\b. Consider using A\b for INV(A)*b or b/A for b*INV(A).
 
 ### GFLD
 
-Severity: **info** · Auto-fix: **no** · Maturity: **stable**
+Severity: **info** · Auto-fix: **yes** · Maturity: **stable**
 
 Use dynamic fieldnames with structures instead of GETFIELD.
 
@@ -121,7 +121,7 @@ For better performance in some cases, use SORT with the 'descend' option.
 
 ### MXFND
 
-Severity: **info** · Auto-fix: **no** · Maturity: **stable**
+Severity: **info** · Auto-fix: **yes** · Maturity: **stable**
 
 Use FIND with the 'first' or 'last' option.
 
@@ -300,6 +300,11 @@ All rewrites are unsafe fixes (they can change behaviour):
 - `x(find(L))` → `x(L)` and `idx = find(L); x(idx)` → `idx = L; x(idx)`
   (FNDSB). Unsafe: `L` has to be logical at runtime, and the two forms
   do not fail alike when `x` is shorter than `L`.
+- `inv(A) * b` → `A \ b` and `b * inv(A)` → `b / A` (MINV), when exactly one
+  operand is an `inv` call with one argument. The answer agrees up to rounding.
+- `getfield(s, 'a')` → `s.a` and `getfield(s, f)` → `s.(f)` (GFLD).
+- `min(find(x))` → `find(x, 1)` and `max(find(x))` → `find(x, 1, 'last')`
+  (MXFND); an empty result differs in its shape.
 - `strncmp(lower(a), b, n)` → `strncmpi(a, b, n)` (STNCI); only the first
   conversion goes, as MATLAB's fix leaves the other. Unsafe: case folding
   differs for some non-ASCII text.

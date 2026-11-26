@@ -48,8 +48,8 @@
 //! | ENDCT4 | error | no | A METHODS block or END might be missing before the function definition. This might be causing additional error messages. |
 //! | NOLHS | error | no | Left side of an assignment is empty. |
 //! | BADCH | error | no | Invalid text character(s). |
-//! | BADSP | error | no | Invalid text character(s). The text contains an unsupported non-ASCII whitespace character. |
-//! | BADCT | error | no | Unicode explicit directional formatting characters are not supported. |
+//! | BADSP | error | yes | Invalid text character(s). The text contains an unsupported non-ASCII whitespace character. |
+//! | BADCT | error | yes | Unicode explicit directional formatting characters are not supported. |
 //! | REDEF | error | no | The current use of VAR_NAME is inconsistent with its previous use or definition (line VAR_NUMBER). |
 //! | SEPEXR | error | yes | Use a newline, semicolon, or comma before this statement. |
 //! | SEPEXC | error | no | Use comma to separate between input arguments. |
@@ -80,7 +80,7 @@
 //!
 //! ## Fix
 //!
-//! Three checks carry automatic fixes:
+//! Five checks carry automatic fixes:
 //!
 //! - `BADNE` rewrites `!=` to `~=`, the MATLAB not-equal operator.
 //! - `SEPEXR` inserts a `;` between two statements that share a line with no
@@ -88,6 +88,10 @@
 //! - `TWOCM` deletes the second comma of `,,` (`[1,,2]` → `[1,2]`, as MATLAB's
 //!   fix does). `[1,,2]` is a syntax error in MATLAB, so no running code
 //!   changes meaning.
+//! - `BADSP` replaces a non-ASCII blank in code (a no-break space, an em space)
+//!   with an ASCII space. A line or paragraph separator gets no fix.
+//! - `BADCT` deletes a directional formatting character from a comment. In a
+//!   string it changes the value, so that fix is unsafe.
 //!
 //! ## Examples
 //!

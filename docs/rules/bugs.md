@@ -66,7 +66,7 @@ The &lt;name&gt; operator is unexpected because &lt;name&gt;(A &lt;name&gt; B) a
 
 ### DEBUGFUN
 
-Severity: **error** · Auto-fix: **no** · Maturity: **stable**
+Severity: **error** · Auto-fix: **yes** · Maturity: **stable**
 
 Debug functions are intended to be used at the command line. At runtime, they will generate an error. Remove the debug function.
 
@@ -126,7 +126,7 @@ Since both operands are identical, the second operand has no effect on the &lt;r
 
 ### FUNFUN
 
-Severity: **error** · Auto-fix: **no** · Maturity: **experimental**
+Severity: **error** · Auto-fix: **yes** · Maturity: **experimental**
 
 The first input argument must be a function handle. Did you mean '@&lt;name&gt;'?
 
@@ -242,7 +242,14 @@ Rewrites the flagged construct into the safe equivalent. For example:
 - `x == NaN` → `isnan(x)` (and `x ~= NaN` → `~isnan(x)`); with an
   elementwise operator behind it the rest is kept, as MATLAB's fix does
   (`if n == NaN | n > 3` → `if isnan(n) | n > 3`).
-- `isempty(cond)` on a logical expression → `~any(cond, "all")`.
+- `cellfun('name', c)` → `cellfun(@name, c)` when the first argument is a
+  literal that is a plain name (FUNFUN). Unsafe: a name that is a variable
+  stops working.
+- A debug call such as `dbstep();` that has its line to itself is deleted
+  (DEBUGFUN). Unsafe: it is code the author wrote.
+
+`isempty(cond)` on a logical expression (LOGEMP) has no fix: `~any(cond, "all")`
+is true when no element is set, `isempty` only when there are no elements.
 
 ## Examples
 

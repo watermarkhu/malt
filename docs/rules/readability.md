@@ -37,13 +37,13 @@ Newline following comma acts as a row separator. Replace the comma with a semico
 
 ### SPERR
 
-Severity: **info** · Auto-fix: **no** · Maturity: **stable**
+Severity: **info** · Auto-fix: **yes** · Maturity: **stable**
 
 ERROR takes SPRINTF-like arguments directly.
 
 ### SPWRN
 
-Severity: **info** · Auto-fix: **no** · Maturity: **stable**
+Severity: **info** · Auto-fix: **yes** · Maturity: **stable**
 
 WARNING takes SPRINTF-like arguments directly.
 
@@ -61,7 +61,7 @@ Severity: **info** · Auto-fix: **yes** · Maturity: **stable**
 
 ### DSPSY
 
-Severity: **info** · Auto-fix: **no** · Maturity: **stable**
+Severity: **info** · Auto-fix: **yes** · Maturity: **stable**
 
 'display(sprintf(...))' can usually be replaced by 'fprintf(...\n)'.
 
@@ -269,6 +269,11 @@ Rewrites the flagged construct into the clearer equivalent:
   `cellfun(@isempty, strfind(s, p))` → `~contains(s, p)`;
   `if strfind(s, p)` → `if contains(s, p)`.
 - `strcmpi(lower(x), y)` → `strcmpi(x, y)` (STLOW).
+- `error(sprintf(f, a))` → `error(f, a)`, `error('a:b', sprintf(f, a))` →
+  `error('a:b', f, a)` and the same for `warning` (SPERR, SPWRN).
+  Unsafe: a message passed on its own is not formatted, one with arguments is.
+- `display(sprintf('f', a))` → `fprintf('f\n', a)` for a literal format (DSPSY).
+  Unsafe: `display` prints the value's name too.
 - `i`/`j` as the imaginary unit → `1i` (IJCL; MATLAB's fix writes `1i`
   for `j` too, and `1i` and `1j` are the same constant).
 - A trailing comma before a newline in a matrix becomes a semicolon (COMNL).
@@ -276,7 +281,7 @@ Rewrites the flagged construct into the clearer equivalent:
   blocks (FVINR).
 
 Fixes that can change behaviour (STLOW, STREMP, STRCL1, STRCLFH, STRIFCND,
-ISROW, ISCOL, IJCL) are unsafe and need `--unsafe-fixes`.
+ISROW, ISCOL, IJCL, SPERR, SPWRN, DSPSY) are unsafe and need `--unsafe-fixes`.
 
 ## Examples
 

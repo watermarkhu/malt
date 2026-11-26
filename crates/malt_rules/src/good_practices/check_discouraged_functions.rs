@@ -11,6 +11,12 @@ fn assigns_name(node: Node, name: &str, source: &str) -> bool {
         .any(|(assigned, _)| assigned == name)
 }
 
+/// Whether a call or command has arguments.
+fn has_arguments(node: Node) -> bool {
+    find_child_of_kind(node, "arguments").is_some_and(|args| args.named_child_count() > 0)
+        || find_child_of_kind(node, "command_argument").is_some()
+}
+
 impl GoodPracticesEngine {
     /// ADAPPREF: Avoid `addpref` (use settings API).
     /// KEYBOARDFUN: `keyboard` left in production code.
@@ -66,6 +72,12 @@ impl GoodPracticesEngine {
             _ => return Vec::new(),
         };
 
+        // `keyboard` on a line of its own is removed (unsafe: it is code, not a
+        // rewrite, and a user may have left it on purpose).
+        let fix = (check_id == "KEYBOARDFUN" && !has_arguments(node))
+            .then(|| crate::fix_util::delete_statement_line(node, source))
+            .flatten()
+            .map(malt_core::Fix::unsafe_fix);
         let pos = node.start_position();
         vec![Diagnostic {
             rule_id: check_id,
@@ -74,7 +86,7 @@ impl GoodPracticesEngine {
             byte_range: node.start_byte()..node.end_byte(),
             line: pos.row + 1,
             column: pos.column + 1,
-            fix: None,
+            fix,
         }]
     }
 }
@@ -82,6 +94,37 @@ impl GoodPracticesEngine {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_util::{fix_of, reported_without_fix};
+
+    #[test]
+    fn keyboardfun_fix_deletes_the_line() {
+        let (safe, fixed) =
+            fix_of(&engine(), "x = 1;\n    keyboard;\ny = 2;\n", "KEYBOARDFUN").unwrap();
+        assert!(!safe);
+        assert_eq!(fixed, "x = 1;\ny = 2;\n");
+        let (_, fixed) = fix_of(&engine(), "if a\n    keyboard\nend\n", "KEYBOARDFUN").unwrap();
+        assert_eq!(fixed, "if a\nend\n");
+        let still = crate::test_util::lint_all(&engine(), &fixed);
+        assert!(
+            still.iter().all(|d| d.rule_id != "KEYBOARDFUN"),
+            "{still:?}"
+        );
+    }
+
+    #[test]
+    fn keyboardfun_no_fix_when_sharing_a_line_or_in_an_expression() {
+        for source in [
+            "x = 1; keyboard;\n",
+            "keyboard; x = 1;\n",
+            "if a, keyboard, end\n",
+            "h = @() keyboard;\n",
+        ] {
+            assert!(
+                reported_without_fix(&engine(), source, "KEYBOARDFUN"),
+                "{source}"
+            );
+        }
+    }
 
     #[test]
     fn keyboardfun_fires_in_anonymous_function_body() {
