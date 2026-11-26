@@ -203,7 +203,7 @@ fn loop_binds(lp: tree_sitter::Node, source: &str, name: &str) -> bool {
     while let Some(n) = stack.pop() {
         let is_iterator = n.kind() == "for_statement"
             && (0..n.named_child_count()).any(|i| {
-                n.named_child(i).is_some_and(|c| {
+                n.named_child(i as u32).is_some_and(|c| {
                     let it = if c.kind() == "iterator" {
                         c.named_child(0)
                     } else {

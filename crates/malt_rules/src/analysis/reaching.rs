@@ -329,7 +329,9 @@ impl ScopeIndex {
                 "for_statement" => {
                     let mut seen = HashSet::new();
                     for i in 0..n.named_child_count() {
-                        let Some(c) = n.named_child(i) else { continue };
+                        let Some(c) = n.named_child(i as u32) else {
+                            continue;
+                        };
                         let iterator = if c.kind() == "iterator" {
                             c.named_child(0)
                         } else {
@@ -444,7 +446,7 @@ fn call_arguments(call: Node) -> Vec<Node> {
         return Vec::new();
     };
     (0..args.named_child_count())
-        .filter_map(|i| args.named_child(i))
+        .filter_map(|i| args.named_child(i as u32))
         .collect()
 }
 

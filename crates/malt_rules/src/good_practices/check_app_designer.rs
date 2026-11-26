@@ -124,7 +124,7 @@ fn is_bare_value(node: Node) -> bool {
     };
     match parent.kind() {
         "lambda" => parent
-            .named_child(parent.named_child_count().saturating_sub(1))
+            .named_child((parent.named_child_count().saturating_sub(1)) as u32)
             .is_some_and(|last| last.id() == node.id()),
         "assignment" => parent
             .child_by_field_name("right")

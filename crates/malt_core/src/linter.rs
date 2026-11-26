@@ -410,11 +410,15 @@ impl Linter {
                 file_path,
                 project: self.project.as_deref(),
             };
-            let threads = self
-                .file_check_threads
-                .min(self.registry.file_check_rules().len());
-            if threads > 1 && tree.root_node().descendant_count() >= PARALLEL_MIN_NODES {
-                return self.check_in_parallel(&file_ctx, threads);
+            // WebAssembly has no threads, and tree-sitter's tree is not `Sync` there.
+            #[cfg(not(target_family = "wasm"))]
+            {
+                let threads = self
+                    .file_check_threads
+                    .min(self.registry.file_check_rules().len());
+                if threads > 1 && tree.root_node().descendant_count() >= PARALLEL_MIN_NODES {
+                    return self.check_in_parallel(&file_ctx, threads);
+                }
             }
             let mut diagnostics = self.traverse(&tree, source, file_path);
             for &idx in self.registry.file_check_rules() {
@@ -502,6 +506,7 @@ impl Linter {
     ///
     /// Each thread keeps its own memos (symbol table, dead stores...), so some
     /// analyses run more than once; that costs CPU time, not wall time.
+    #[cfg(not(target_family = "wasm"))]
     fn check_in_parallel(&self, ctx: &FileContext, threads: usize) -> Vec<Diagnostic> {
         let rules = self.registry.file_check_rules();
         let next = AtomicUsize::new(0);

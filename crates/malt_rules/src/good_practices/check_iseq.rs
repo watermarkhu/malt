@@ -15,7 +15,7 @@ pub(crate) fn condition_of(stmt: Node) -> Option<Node> {
         return None;
     }
     (0..stmt.named_child_count())
-        .filter_map(|i| stmt.named_child(i))
+        .filter_map(|i| stmt.named_child(i as u32))
         .find(|c| {
             !matches!(
                 c.kind(),
@@ -36,7 +36,7 @@ pub(crate) fn single_row_len(matrix: Node) -> Option<usize> {
         [] => Some(0),
         [row] if row.kind() == "row" => Some(
             (0..row.named_child_count())
-                .filter_map(|i| row.named_child(i))
+                .filter_map(|i| row.named_child(i as u32))
                 .filter(|c| c.kind() != "comment")
                 .count(),
         ),
@@ -75,7 +75,7 @@ impl GoodPracticesEngine {
             return Vec::new();
         };
         let has_nonscalar_literal = (0..condition.named_child_count())
-            .filter_map(|i| condition.named_child(i))
+            .filter_map(|i| condition.named_child(i as u32))
             .any(|operand| match operand.kind() {
                 "range" => true,
                 "matrix" => single_row_len(operand).is_some_and(|n| n != 1),

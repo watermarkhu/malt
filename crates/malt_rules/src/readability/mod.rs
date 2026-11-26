@@ -423,7 +423,7 @@ pub(crate) fn call_args<'t>(node: tree_sitter::Node<'t>) -> Vec<tree_sitter::Nod
     find_arguments(node)
         .map(|args| {
             (0..args.named_child_count())
-                .filter_map(|i| args.named_child(i))
+                .filter_map(|i| args.named_child(i as u32))
                 .collect()
         })
         .unwrap_or_default()

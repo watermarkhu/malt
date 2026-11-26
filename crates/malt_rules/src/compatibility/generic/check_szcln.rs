@@ -69,7 +69,7 @@ fn is_single_arg_size_call(node: Node, source: &str) -> bool {
         return false;
     };
     (0..args.named_child_count())
-        .filter_map(|i| args.named_child(i))
+        .filter_map(|i| args.named_child(i as u32))
         .filter(|c| c.kind() != "comment")
         .count()
         == 1
