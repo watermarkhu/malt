@@ -96,8 +96,9 @@ fn sections_of_mlx(path: &Path, bytes: &[u8]) -> Result<Vec<LiveSection>, IndexE
         .map_err(|_| format("not a valid .mlx (zip) file"))?;
     let name = archive
         .file_names()
+        .filter_map(Result::ok)
         .find(|n| n.ends_with("document.xml"))
-        .map(str::to_string)
+        .map(|n| n.into_owned())
         .ok_or_else(|| format("no document.xml inside the .mlx archive"))?;
     let entry = archive
         .by_name(&name)
