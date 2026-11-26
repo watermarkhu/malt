@@ -1,8 +1,9 @@
 //! Integration tests for the NOFIL and RDERR CLI-level guards.
 //!
 //! NOFIL fires when the input file does not exist; RDERR fires when the input
-//! path exists but cannot be read (directory, permission denied, etc.). Both
-//! are emitted by `malt_cli` before linting and are not registered rules.
+//! path exists but cannot be read (permission denied, etc.). A folder is not an
+//! unreadable file: it is searched for MATLAB files. Both are emitted by
+//! `malt_cli` before linting and are not registered rules.
 
 use std::process::Command;
 
@@ -49,12 +50,23 @@ fn nofil_does_not_fire_on_existing_file() {
     );
 }
 
+#[cfg(unix)]
 #[test]
-fn rderr_fires_on_directory() {
+fn rderr_fires_on_an_unreadable_file() {
+    use std::os::unix::fs::PermissionsExt;
+
     let dir = tempfile::tempdir().expect("failed to create temp dir");
+    let path = dir.path().join("locked.m");
+    std::fs::write(&path, "x = 1;\n").expect("failed to write test file");
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o000))
+        .expect("failed to set permissions");
+    // Root reads anything: the case cannot be set up.
+    if std::fs::read(&path).is_ok() {
+        return;
+    }
 
     let output = Command::new(malt_bin())
-        .arg(dir.path())
+        .arg(&path)
         .output()
         .expect("failed to run malt");
 
@@ -64,6 +76,23 @@ fn rderr_fires_on_directory() {
         "expected RDERR in output:\n{stdout}"
     );
     assert!(!output.status.success(), "expected non-zero exit status");
+}
+
+#[test]
+fn a_directory_is_searched_not_reported() {
+    let dir = tempfile::tempdir().expect("failed to create temp dir");
+
+    let output = Command::new(malt_bin())
+        .arg(dir.path())
+        .output()
+        .expect("failed to run malt");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(!stdout.contains("RDERR"), "{stdout}");
+    assert!(
+        output.status.success(),
+        "an empty folder has nothing to report"
+    );
 }
 
 /// A file that is not valid UTF-8 is read as Latin-1, as MATLAB reads it, and analyzed: no
