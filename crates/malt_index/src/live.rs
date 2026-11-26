@@ -140,50 +140,57 @@ fn paragraphs_of_xml(xml: &[u8]) -> Result<Vec<(SectionKind, String)>, quick_xml
                 depth += 1;
                 let name = e.local_name();
                 match name.as_ref() {
-                    b"body" => body_depth += 1,
-                    b"p" if body_depth > 0 && current.is_none() => {
+                    "body" => body_depth += 1,
+                    "p" if body_depth > 0 && current.is_none() => {
                         current = Some((SectionKind::Text, String::new()));
                         para_depth = depth;
                     }
-                    b"pStyle" if current.is_some() => {
+                    "pStyle" if current.is_some() => {
                         if style_is_code(&e) {
                             if let Some(paragraph) = current.as_mut() {
                                 paragraph.0 = SectionKind::Code;
                             }
                         }
                     }
-                    b"r" if current.is_some() => run_depth += 1,
-                    b"t" if current.is_some() && run_depth > 0 => in_text = true,
+                    "r" if current.is_some() => run_depth += 1,
+                    "t" if current.is_some() && run_depth > 0 => in_text = true,
                     _ => {}
                 }
             }
             Event::Empty(e) => {
-                if e.local_name().as_ref() == b"pStyle" && current.is_some() && style_is_code(&e) {
+                if e.local_name().as_ref() == "pStyle" && current.is_some() && style_is_code(&e) {
                     if let Some(paragraph) = current.as_mut() {
                         paragraph.0 = SectionKind::Code;
                     }
                 }
             }
             Event::Text(t) if in_text => {
-                let text = t.unescape()?;
                 if let Some(paragraph) = current.as_mut() {
-                    paragraph.1.push_str(&text);
+                    paragraph.1.push_str(&t.xml10_content());
+                }
+            }
+            // Entity and character references arrive as events of their own.
+            Event::GeneralRef(r) if in_text => {
+                if let Some(paragraph) = current.as_mut() {
+                    if let Some(c) = r.resolve_char_ref()? {
+                        paragraph.1.push(c);
+                    } else if let Some(s) = quick_xml::escape::resolve_predefined_entity(&r) {
+                        paragraph.1.push_str(s);
+                    }
                 }
             }
             Event::CData(c) if in_text => {
                 if let Some(paragraph) = current.as_mut() {
-                    paragraph
-                        .1
-                        .push_str(&String::from_utf8_lossy(&c.into_inner()));
+                    paragraph.1.push_str(&c.into_inner());
                 }
             }
             Event::End(e) => {
                 let name = e.local_name();
                 match name.as_ref() {
-                    b"body" => body_depth = body_depth.saturating_sub(1),
-                    b"t" => in_text = false,
-                    b"r" => run_depth = run_depth.saturating_sub(1),
-                    b"p" if current.is_some() && depth == para_depth => {
+                    "body" => body_depth = body_depth.saturating_sub(1),
+                    "t" => in_text = false,
+                    "r" => run_depth = run_depth.saturating_sub(1),
+                    "p" if current.is_some() && depth == para_depth => {
                         paragraphs.extend(current.take());
                     }
                     _ => {}
@@ -201,8 +208,7 @@ fn paragraphs_of_xml(xml: &[u8]) -> Result<Vec<(SectionKind, String)>, quick_xml
 /// `matlab-Code`.
 fn style_is_code(e: &quick_xml::events::BytesStart) -> bool {
     e.attributes().flatten().any(|a| {
-        a.key.local_name().as_ref() == b"val"
-            && matches!(a.value.as_ref(), b"code" | b"matlab-Code")
+        a.key.local_name().as_ref() == "val" && matches!(a.value.as_ref(), "code" | "matlab-Code")
     })
 }
 
@@ -393,5 +399,13 @@ mod tests {
         assert!(!is_cell_marker("%[text] %%"));
         assert_eq!(text_content("{\"align\":\"center\"} $ x $"), "$ x $");
         assert_eq!(text_content(" # Title "), "# Title");
+    }
+
+    #[test]
+    fn entities_and_cdata_are_part_of_the_text() {
+        let xml = br#"<w:document><w:body><w:p><w:r><w:t>a &amp; b &lt; &#65;</w:t></w:r><w:r><w:t><![CDATA[<c>]]></w:t></w:r></w:p></w:body></w:document>"#;
+        let paragraphs = paragraphs_of_xml(xml).unwrap();
+        assert_eq!(paragraphs.len(), 1);
+        assert_eq!(paragraphs[0].1, "a & b < A<c>");
     }
 }
