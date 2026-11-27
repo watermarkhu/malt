@@ -1,0 +1,24 @@
+# Hooks of malt for pre-commit (https://pre-commit.com) and prek (https://prek.j178.dev).
+# See https://watermarkhu.nl/malt/usage/pre-commit for how to use them.
+#
+# `language: python` installs this repository, which builds the `malt` binary with maturin,
+# so the first run needs a Rust toolchain. Without one, use a local hook that installs the
+# wheel from PyPI instead; the page above shows both.
+
+- id: malt
+  name: malt
+  description: Lint MATLAB code with malt
+  entry: malt
+  language: python
+  types: [file]
+  files: '\.m$'
+  minimum_pre_commit_version: '3.0.0'
+
+- id: malt-fix
+  name: malt (fix)
+  description: Lint MATLAB code with malt and apply its safe fixes
+  entry: malt --fix
+  language: python
+  types: [file]
+  files: '\.m$'
+  minimum_pre_commit_version: '3.0.0'

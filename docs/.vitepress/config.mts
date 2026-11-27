@@ -57,6 +57,7 @@ export default defineConfig({
             { text: 'Editor Integration', link: '/usage/editors' },
             { text: 'CI/CD', link: '/usage/ci-cd' },
             { text: 'GitHub Action', link: '/usage/github-action' },
+            { text: 'pre-commit and prek', link: '/usage/pre-commit' },
             { text: 'WebAssembly & npm', link: '/usage/wasm' },
           ],
         },

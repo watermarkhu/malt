@@ -79,19 +79,9 @@ malt's exit codes map directly onto a pass or fail build:
 | `1`  | Diagnostics found | Build fails |
 | `2`  | Runtime error | Build fails |
 
-## Pre-commit hook (planned)
+## Pre-commit hook
 
-A pre-commit hook configuration is planned:
-
-```yaml title=".pre-commit-config.yaml"
-repos:
-  - repo: https://github.com/watermarkhu/malt
-    rev: v0.1.0  # use latest version
-    hooks:
-      - id: malt
-        types: [file]
-        files: '\.m$'
-```
+To lint the staged files before each commit, use the hooks for pre-commit and prek. They are set up on [their own page](pre-commit.md).
 
 ## Contributing
 
