@@ -49,11 +49,13 @@ impl PresetDef {
 ///
 /// To add a preset, add a row here. Presets must be listed in
 /// [`PRESETS`] to be resolvable by name.
-pub static PRESETS: &[PresetDef] = &[ALL, MATHWORKS, RECOMMENDED];
+pub static PRESETS: &[PresetDef] = &[ALL, MATHWORKS, RECOMMENDED, MONKEYPROOF];
 
+/// Every check of MATLAB's Code Analyzer, and malt's own. The MonkeyProof standard is a
+/// separate set (see [`MONKEYPROOF`]), so it stays off here.
 const ALL: PresetDef = PresetDef {
     name: "all",
-    disabled_categories: &[],
+    disabled_categories: &[Category::MonkeyProof],
     enables_default_off: true,
 };
 
@@ -61,6 +63,19 @@ const ALL: PresetDef = PresetDef {
 /// complexity metrics and "Naming" conventions are opt-in.
 const MATHWORKS: PresetDef = PresetDef {
     name: "mathworks",
+    disabled_categories: &[
+        Category::CustomChecks,
+        Category::Naming,
+        Category::MonkeyProof,
+    ],
+    enables_default_off: false,
+};
+
+/// The `mathworks` defaults plus the MonkeyProof Coding Standard for MATLAB. A style
+/// standard of another vendor, not MATLAB's: it is on only in this preset, or with
+/// `[lint.categories] monkeyproof = "warn"`.
+const MONKEYPROOF: PresetDef = PresetDef {
+    name: "monkeyproof",
     disabled_categories: &[Category::CustomChecks, Category::Naming],
     enables_default_off: false,
 };
@@ -75,6 +90,7 @@ const RECOMMENDED: PresetDef = PresetDef {
         Category::SuggestedImprovements,
         Category::Naming,
         Category::CustomChecks,
+        Category::MonkeyProof,
     ],
     enables_default_off: false,
 };
@@ -109,6 +125,7 @@ static EXPERIMENTAL_PRESETS: &[PresetDef] = &[
     ALL.experimental(),
     MATHWORKS.experimental(),
     RECOMMENDED.experimental(),
+    MONKEYPROOF.experimental(),
 ];
 
 /// Resolve a preset by name.
@@ -158,11 +175,27 @@ mod tests {
     }
 
     #[test]
-    fn all_disables_nothing() {
+    fn all_keeps_the_monkeyproof_standard_off() {
         let all = resolve("all").unwrap();
         assert!(!all.disables(Category::CustomChecks));
         assert!(!all.disables(Category::Naming));
         assert!(!all.disables(Category::Performance));
+        assert!(all.disables(Category::MonkeyProof));
+    }
+
+    #[test]
+    fn monkeyproof_preset_adds_the_standard_to_the_mathworks_defaults() {
+        let mp = resolve("monkeyproof").unwrap();
+        assert!(!mp.disables(Category::MonkeyProof));
+        assert!(mp.disables(Category::Naming));
+        assert!(mp.disables(Category::CustomChecks));
+        assert!(mp.default_enabled(Category::MonkeyProof, true));
+        for name in ["mathworks", "recommended", "all"] {
+            assert!(
+                resolve(name).unwrap().disables(Category::MonkeyProof),
+                "{name}"
+            );
+        }
     }
 
     #[test]

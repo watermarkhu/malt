@@ -33,6 +33,7 @@ pub mod good_practices;
 pub mod incomplete_analysis;
 pub mod language_spec;
 pub mod maturity;
+pub mod monkeyproof;
 pub mod naming;
 pub mod nosemi;
 pub mod performance;
@@ -106,6 +107,11 @@ const RULE_ORDER: &[&str] = &[
     "UNUSED_ENGINE",
     "GOOD_PRACTICES_ENGINE",
     "LANGUAGE_SPEC_ENGINE",
+    "MP_NAMING_ENGINE",
+    "MP_LAYOUT_ENGINE",
+    "MP_STATEMENTS_ENGINE",
+    "MP_FUNCTIONS_ENGINE",
+    "MP_SECURITY_ENGINE",
 ];
 
 /// Every registered rule, in [`RULE_ORDER`].
