@@ -5,7 +5,7 @@ icon: lucide/trash-2
 # Unused Constructions
 
 **Default severity:** Warning
-**Auto-fix:** No
+**Auto-fix:** Yes
 **Category:** Unused Constructions
 **Can be disabled:** Yes
 **Enabled by default:** Yes
@@ -42,13 +42,13 @@ The operation or expression VAR_OPERATOR has no evident effect. Not emitted: MAT
 
 ### EQEFF
 
-Severity: **warning** · Auto-fix: **no** · Maturity: **stable**
+Severity: **warning** · Auto-fix: **yes** · Maturity: **stable**
 
 To assign values to variables, use =. The == operator compares equality of values.
 
 ### ASGLU
 
-Severity: **warning** · Auto-fix: **no** · Maturity: **stable**
+Severity: **warning** · Auto-fix: **yes** · Maturity: **stable**
 
 Value assigned to variable might be unused. Consider replacing the variable with ~ instead.
 
@@ -78,7 +78,7 @@ Input argument might be unused after the function arguments block(s).
 
 ### INUSD
 
-Severity: **warning** · Auto-fix: **no** · Maturity: **stable**
+Severity: **warning** · Auto-fix: **yes** · Maturity: **stable**
 
 Input argument might be unused. Consider replacing the argument with ~ instead.
 
@@ -118,6 +118,18 @@ Experimental checks are off by default and run with `[lint] experimental = true`
 
 `NOEFF`, `VANUS`: On the mathworks off-list: MATLAB's default analysis reported none of them in 4 or more probe shapes each, so their on-side (the --preset all behaviour) is not compared with MATLAB.
 
+## Automatic fixes
+
+Three checks carry a fix:
+
+- `ASGLU` replaces the unused output of a multi-output call with `~`
+  (`[a, b] = f()` → `[~, b] = f()`).
+- `INUSD` replaces an unused input argument with `~`. Unsafe: `eval`, `evalin`
+  or `inputname` can still look the name up.
+- `EQEFF` turns the comparison statement `x == 1;` into the assignment
+  `x = 1;`, for a variable or a field path on the left. Unsafe: it may be a
+  comparison someone meant to show.
+
 ## Examples
 
 ### Incorrect
@@ -140,6 +152,13 @@ function f()
     s.field = x;
     disp(s.field);
 end
+```
+
+### Fixed
+
+```diff
+- x == 1;
++ x = 1;
 ```
 
 ## Configuration

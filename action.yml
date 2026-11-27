@@ -1,0 +1,52 @@
+name: malt MATLAB linter
+description: Lint MATLAB code with malt, a fast linter that reports what MATLAB's Code Analyzer reports. Findings become annotations and a step summary.
+author: Mark Shui Hu
+branding:
+  icon: check-circle
+  color: orange
+
+inputs:
+  paths:
+    description: Files and folders to lint, separated by spaces or newlines. A folder is searched for MATLAB files, below it too. Relative to the workspace.
+    required: false
+    default: '.'
+  preset:
+    description: >-
+      Preset to use: all, mathworks, recommended or monkeyproof. Overrules the preset
+      of .malt.toml; empty keeps the file's (or the default, mathworks).
+    required: false
+    default: ''
+  level:
+    description: The least severe findings to report (annotations, summary and counts), one of error, warning or info.
+    required: false
+    default: info
+  fail-on:
+    description: The least severe finding that fails the step, one of error, warning, info or never.
+    required: false
+    default: error
+  annotations:
+    description: Write one annotation per finding.
+    required: false
+    default: 'true'
+  summary:
+    description: Write the findings to the job summary.
+    required: false
+    default: 'true'
+  output-json:
+    description: Path of a JSON results file with the malt version, the configuration used and the findings. Not written when empty.
+    required: false
+    default: ''
+
+outputs:
+  findings:
+    description: The number of findings reported.
+  errors:
+    description: The number of errors.
+  warnings:
+    description: The number of warnings.
+  results-file:
+    description: The absolute path of the JSON results file, empty without output-json.
+
+runs:
+  using: node24
+  main: action/dist/index.mjs

@@ -56,6 +56,8 @@ export default defineConfig({
             { text: 'CLI Reference', link: '/usage/cli' },
             { text: 'Editor Integration', link: '/usage/editors' },
             { text: 'CI/CD', link: '/usage/ci-cd' },
+            { text: 'GitHub Action', link: '/usage/github-action' },
+            { text: 'pre-commit and prek', link: '/usage/pre-commit' },
             { text: 'WebAssembly & npm', link: '/usage/wasm' },
           ],
         },
@@ -117,6 +119,18 @@ export default defineConfig({
               items: [
                 { text: 'Compatibility Considerations', link: '/rules/compatibility' },
                 { text: 'Suggested Improvements', link: '/rules/suggested-improvements' },
+              ],
+            },
+            {
+              text: 'MonkeyProof standard',
+              collapsed: true,
+              items: [
+                { text: 'Overview', link: '/monkeyproof' },
+                { text: 'Naming conventions', link: '/rules/monkeyproof-naming' },
+                { text: 'Layout & comments', link: '/rules/monkeyproof-layout' },
+                { text: 'Statements & expressions', link: '/rules/monkeyproof-statements' },
+                { text: 'Higher level rules', link: '/rules/monkeyproof-functions' },
+                { text: 'Security', link: '/rules/monkeyproof-security' },
               ],
             },
             {

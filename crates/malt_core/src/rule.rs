@@ -57,6 +57,10 @@ pub enum Category {
     BehaviorChanges,
     /// Configuration file validation.
     ConfigurationIssues,
+    /// The MonkeyProof Coding Standard for MATLAB, a standard of its own and not part of
+    /// MATLAB's Code Analyzer. Off unless the `monkeyproof` preset or the category is
+    /// switched on.
+    MonkeyProof,
 }
 
 impl Category {
@@ -85,6 +89,7 @@ impl Category {
             Self::Unsupported => "unsupported",
             Self::BehaviorChanges => "behavior-changes",
             Self::ConfigurationIssues => "configuration-issues",
+            Self::MonkeyProof => "monkeyproof",
         }
     }
 }
@@ -116,6 +121,7 @@ impl std::str::FromStr for Category {
             "unsupported" => Ok(Self::Unsupported),
             "behavior-changes" => Ok(Self::BehaviorChanges),
             "configuration-issues" => Ok(Self::ConfigurationIssues),
+            "monkeyproof" => Ok(Self::MonkeyProof),
             _ => Err(format!("unknown category: {s}")),
         }
     }

@@ -53,3 +53,7 @@ dist/
 __pycache__/
 .pytest_cache/
 .ruff_cache/
+
+# GitHub Action build output: committed to the release tags only, never to main
+action/dist/
+action/src/vendor/

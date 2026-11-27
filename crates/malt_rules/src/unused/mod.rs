@@ -5,7 +5,7 @@
 //! title = "Unused Constructions"
 //! category = "unused-constructions"
 //! severity = "warning"
-//! fix = false
+//! fix = true
 //! icon = "lucide/trash-2"
 //! slug = "unused"
 //! ```
@@ -26,18 +26,30 @@
 //! | NASGU | warning | no | Value assigned to variable might be unused. |
 //! | NUSED | warning | no | Global or persistent variable might be unused or unset in this function or script. |
 //! | NOEFF | warning | no | The operation or expression VAR_OPERATOR has no evident effect. Not emitted: MATLAB reported none in its probes. |
-//! | EQEFF | warning | no | To assign values to variables, use =. The == operator compares equality of values. |
-//! | ASGLU | warning | no | Value assigned to variable might be unused. Consider replacing the variable with ~ instead. |
+//! | EQEFF | warning | yes (unsafe) | To assign values to variables, use =. The == operator compares equality of values. |
+//! | ASGLU | warning | yes | Value assigned to variable might be unused. Consider replacing the variable with ~ instead. |
 //! | SETNU | warning | no | Variable is set, but might be unused. |
 //! | PUSE | warning | no | Persistent variable might be unused. |
 //! | PREALL | warning | no | The preallocated value assigned to variable might be unused. |
 //! | INUSA | warning | no | Input argument might be unused after the function arguments block(s). |
-//! | INUSD | warning | no | Input argument might be unused. Consider replacing the argument with ~ instead. |
+//! | INUSD | warning | yes (unsafe) | Input argument might be unused. Consider replacing the argument with ~ instead. |
 //! | VANUS | warning | no | Input argument 'varargin' might be unused. Reported only when enabled (off under `mathworks`): MATLAB reports it with every check on. |
 //! | VUNUS | warning | no | <operator> produces a value that might be unused. |
 //! | DEFNU | warning | no | Function might be unused. |
 //! | UNRCH | warning | no | This statement (and possibly following ones) cannot be reached. |
 //! | MANU | warning | no | Input argument might be unused. Consider replacing the argument with ~, or make this method Static instead. |
+//!
+//! ## Fix
+//!
+//! Three checks carry a fix:
+//!
+//! - `ASGLU` replaces the unused output of a multi-output call with `~`
+//!   (`[a, b] = f()` → `[~, b] = f()`).
+//! - `INUSD` replaces an unused input argument with `~`. Unsafe: `eval`, `evalin`
+//!   or `inputname` can still look the name up.
+//! - `EQEFF` turns the comparison statement `x == 1;` into the assignment
+//!   `x = 1;`, for a variable or a field path on the left. Unsafe: it may be a
+//!   comparison someone meant to show.
 //!
 //! ## Examples
 //!
@@ -61,6 +73,13 @@
 //!     s.field = x;
 //!     disp(s.field);
 //! end
+//! ```
+//!
+//! ### Fixed
+//!
+//! ```diff
+//! - x == 1;
+//! + x = 1;
 //! ```
 //!
 //! ## Configuration

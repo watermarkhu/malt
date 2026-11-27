@@ -11,13 +11,18 @@ icon: lucide/list-checks
 | ------- | -------- | ----------- | ---------------- | -------- | -------- |
 | [`BUGS_ENGINE`](rules/bugs.md) | Bugs | Bug detection checks for likely bugs and logic errors | Error | Yes | Mixed (7 of 33 experimental) |
 | [`CODEGEN_ENGINE`](rules/codegen.md) | Code Generation | MATLAB code generation constraint checks | Error | No | Experimental |
-| [`COMPAT`](rules/compatibility.md) | Compatibility | Deprecated or removed function usage | Warning | No | Mixed (1123 of 1832 experimental) |
+| [`COMPAT`](rules/compatibility.md) | Compatibility | Deprecated or removed function usage | Warning | Yes | Mixed (1123 of 1832 experimental) |
 | [`CUSTOM_CHECKS`](rules/custom-checks.md) | Custom Checks | Code complexity and style metrics | Warning | No | Mixed (20 of 25 experimental) |
 | [`DEPLOYMENT_ENGINE`](rules/deployment.md) | Deployment | MATLAB Compiler deployment constraint checks | Warning | No | Experimental |
 | [`FORMATTING_ENGINE`](rules/formatting.md) | Formatting | Formatting suggestion checks (NOCOMMA, NO4LP, ALIGN, NOPTS, NOPRT, NCOMMA) | Info | Yes | Stable |
 | [`GOOD_PRACTICES_ENGINE`](rules/good-practices.md) | Good Practices | Common best-practice checks for MATLAB code | Warning | Yes | Mixed (15 of 106 experimental) |
 | [`INCOMPLETE_ANALYSIS`](rules/incomplete-analysis.md) | Incomplete Analysis | Internal linter limits and analysis integrity checks | Error | No | Mixed (1 of 10 experimental) |
 | [`LANGUAGE_SPEC_ENGINE`](rules/language-spec.md) | Language Specification | Language specification constraint violation | Error | Yes | Mixed (13 of 161 experimental) |
+| [`MP_FUNCTIONS_ENGINE`](rules/monkeyproof-functions.md) | MonkeyProof Coding Standard | Emits 15 check IDs (see the rule page for details). | Info | No | Stable |
+| [`MP_LAYOUT_ENGINE`](rules/monkeyproof-layout.md) | MonkeyProof Coding Standard | Emits 13 check IDs (see the rule page for details). | Info | No | Stable |
+| [`MP_NAMING_ENGINE`](rules/monkeyproof-naming.md) | MonkeyProof Coding Standard | Emits 7 check IDs (see the rule page for details). | Info | No | Stable |
+| [`MP_SECURITY_ENGINE`](rules/monkeyproof-security.md) | MonkeyProof Coding Standard | Emits 6 check IDs (see the rule page for details). | Info | No | Stable |
+| [`MP_STATEMENTS_ENGINE`](rules/monkeyproof-statements.md) | MonkeyProof Coding Standard | Emits 22 check IDs (see the rule page for details). | Info | No | Stable |
 | [`NAMING_ENGINE`](rules/naming.md) | Naming | Naming convention checks (81 sub-rules for 9 entity types x 9 check types) | Info | No | Mixed (77 of 81 experimental) |
 | [`NOSEMI`](rules/nosemi.md) | Formatting | Extra semicolon is unnecessary | Info | Yes | Stable |
 | [`PERFORMANCE_ENGINE`](rules/performance.md) | Performance | Performance improvement suggestions | Info | Yes | Mixed (2 of 40 experimental) |
@@ -27,13 +32,13 @@ icon: lucide/list-checks
 | [`SYSTEM_OBJECTS_ENGINE`](rules/system-objects.md) | System Objects | System object validation checks | Warning | No | Experimental |
 | [`UNSET_VARIABLES_ENGINE`](rules/unset-variables.md) | Unset Variables | Detects variables that might not be defined before use | Warning | No | Mixed (2 of 5 experimental) |
 | [`UNSUPPORTED_ENGINE`](rules/unsupported.md) | Unsupported | Unsupported or deprecated feature checks | Warning | No | Experimental |
-| [`UNUSED_ENGINE`](rules/unused.md) | Unused Constructions | Detect unused variables, functions, and dead code | Warning | No | Mixed (2 of 15 experimental) |
+| [`UNUSED_ENGINE`](rules/unused.md) | Unused Constructions | Detect unused variables, functions, and dead code | Warning | Yes | Mixed (2 of 15 experimental) |
 
 These rows are generated from the rule docstrings by `docs/scripts/gen_rules_docs.ts`. Rebuild the docs (`bun run docs:gen`) to refresh them.
 
 <!-- GENERATED: Check Counts -->
 
-**How many checks malt implements.** 2693 unique check IDs, counted from the rule sources whenever these pages are generated: 532 in the engine tables above, 81 `naming.<entity>.<check>` IDs, 1 single-check rule (`NOSEMI`), 1832 compatibility entries (920 compatibility, 7 forward-compatibility, 905 behavior-changes; 914 of them are low-reliability and off by default), 243 suggested-improvement entries (241 unique IDs), and 6 emitted outside the rule engines (`MSNE`, `MSNU`, `QUIT`, `NOFIL`, `RDERR`, `SZCLN`). 1344 of them are experimental (verified against the documentation only, or low-reliability: off by default, see [Experimental checks](configuration.md#experimental-checks)). Which of them are on by default, and which engines are verified against MATLAB, is on the [How malt is verified](verification.md) page.
+**How many checks malt implements.** 2756 unique check IDs, counted from the rule sources whenever these pages are generated: 595 in the engine tables above, 81 `naming.<entity>.<check>` IDs, 1 single-check rule (`NOSEMI`), 1832 compatibility entries (920 compatibility, 7 forward-compatibility, 905 behavior-changes; 914 of them are low-reliability and off by default), 243 suggested-improvement entries (241 unique IDs), and 6 emitted outside the rule engines (`MSNE`, `MSNU`, `QUIT`, `NOFIL`, `RDERR`, `SZCLN`). 1344 of them are experimental (verified against the documentation only, or low-reliability: off by default, see [Experimental checks](configuration.md#experimental-checks)). Which of them are on by default, and which engines are verified against MATLAB, is on the [How malt is verified](verification.md) page.
 
 ## Data-Driven Check IDs
 

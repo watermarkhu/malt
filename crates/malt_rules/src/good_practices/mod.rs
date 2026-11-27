@@ -36,14 +36,14 @@
 //! | --- | --- | --- | --- |
 //! | TRYNC | warning | no | TRY statement should have a CATCH statement to check for unexpected errors. |
 //! | CTCH | warning | no | Best practice is for CATCH to be followed by an identifier that gets the error information. |
-//! | WLAST | warning | no | WARNING('') does not reset the warning state. Use LASTWARN('') instead. |
+//! | WLAST | warning | yes (unsafe) | WARNING('') does not reset the warning state. Use LASTWARN('') instead. |
 //! | WNTAG | warning | no | The first argument of WARNING should be a message identifier. Using a message identifier allows users better control over the message. |
 //! | ERTAG | warning | no | The first argument of ERROR should be a message identifier. |
-//! | STCMP | warning | no | Use STRCMP instead of == or ~= to compare character vectors, or convert character vectors to string scalars for direct comparison. |
+//! | STCMP | warning | yes (unsafe) | Use STRCMP instead of == or ~= to compare character vectors, or convert character vectors to string scalars for direct comparison. |
 //! | STCI | warning | yes (unsafe) | Use STRCMPI(str1,str2) instead of using UPPER/LOWER in a call to STRCMP. |
-//! | STISA | warning | no | Consider using ISA instead of comparing the class name. |
+//! | STISA | warning | yes (unsafe) | Consider using ISA instead of comparing the class name. |
 //! | STRNU | warning | no | This variable, apparently a structure, is changed but the value might be unused. |
-//! | EVLCS | warning | no | 'eval' is inefficient and makes code less clear. Call the statement directly. |
+//! | EVLCS | warning | yes (unsafe) | 'eval' is inefficient and makes code less clear. Call the statement directly. |
 //! | EVLDOT | warning | no | 'eval' is inefficient and makes code less clear. Use dynamic field names to access structure fields or object properties instead. |
 //! | EVLEQ | warning | no | 'eval' is inefficient and makes code less clear. Assign to the variable directly. |
 //! | EVLSYS | warning | no | 'eval' is inefficient and makes code less clear. To make calls to the operating system use the system function instead. |
@@ -65,9 +65,9 @@
 //! | FNCOLND | warning | no | Consider explicitly defining the array, and then using the END operator to index into it. |
 //! | COMNC | warning | yes | Comment with percent (%) following comma acts as a row separator. Replace the comma with a semicolon to make the row separation clearer. Alternatively, replace the percent (%) with an ellipsis (...) to add a comment inside a row. |
 //! | ITERS | warning | no | The Code Analyzer type analysis may be incorrect here. |
-//! | LOGPROD | warning | no | Using 'prod' on a logical expression is hard to understand and might be incorrect. Consider using 'all' instead. |
-//! | LOGMIN | warning | no | Using 'min' on a logical expression is hard to understand and might be incorrect. Consider using 'all' instead. |
-//! | LOGMAX | warning | no | Using 'max' on a logical expression is hard to understand and might be incorrect. Consider using 'any' instead. |
+//! | LOGPROD | warning | yes (unsafe) | Using 'prod' on a logical expression is hard to understand and might be incorrect. Consider using 'all' instead. |
+//! | LOGMIN | warning | yes (unsafe) | Using 'min' on a logical expression is hard to understand and might be incorrect. Consider using 'all' instead. |
+//! | LOGMAX | warning | yes (unsafe) | Using 'max' on a logical expression is hard to understand and might be incorrect. Consider using 'any' instead. |
 //! | ELARLOG | warning | no | The VAR_NAME operator in the expression VAR_NAME(A VAR_NAME B) is unexpected. Should this be VAR_NAME(A) VAR_NAME B? |
 //! | SHOCIRAA | warning | no | Using the VAR_NAME operator in the expression VAR_NAME(A VAR_NAME B) is probably unintended. |
 //! | FXSETL | warning | no | <name> is also the loop variable for an outer loop. Rename this variable, so this loop does not affect the outer loop variable. |
@@ -77,7 +77,7 @@
 //! | XPORD | warning | no | Use parentheses to clarify the evaluation order of chained exponents. |
 //! | UNRPWR | warning | no | Combining exponentiation operators with unary operators (such as logical negation) without parentheses will not be supported in a future release. Use parentheses to clarify the evaluation order. |
 //! | ADAPPREF | warning | no | Use app as the first argument for VAR_NAME. |
-//! | KEYBOARDFUN | warning | no | Consider removing 'keyboard' function once you have finished debugging. This function may have security implications. |
+//! | KEYBOARDFUN | warning | yes (unsafe) | Consider removing 'keyboard' function once you have finished debugging. This function may have security implications. |
 //! | GVMIS | warning | no | Global variables are inefficient and make errors difficult to diagnose. Use a function with input variables instead. |
 //! | PFEVB | warning | no | Using EVALIN('base') or ASSIGNIN('base') inside a PARFOR loop refers to the worker machines' base workspaces. |
 //! | PFGP | warning | no | Avoid assigning to GLOBAL or PERSISTENT variable VAR_NAME inside a PARFOR loop. |
@@ -93,10 +93,10 @@
 //! | SPGV | warning | no | Using the GLOBAL or PERSISTENT variable VAR_NAME in an SPMD block might fail because it is accessed on a worker machine. |
 //! | DSPMDA | warning | no | Distributed array must be created outside of an SPMD block. |
 //! | DUALC | warning | no | Command might be prematurely ended by comma. |
-//! | RMFLD | warning | no | RMFIELD output must be assigned back to the structure. |
+//! | RMFLD | warning | yes (unsafe) | RMFIELD output must be assigned back to the structure. |
 //! | RMWRN | warning | no | The warning with tag VAR_NAME has been removed from MATLAB, so this statement has no effect. |
-//! | STFLD | warning | no | SETFIELD output must be assigned back to the structure. |
-//! | STRSZ | warning | no | Use STRCMP to compare character vectors that can have different sizes. |
+//! | STFLD | warning | yes (unsafe) | SETFIELD output must be assigned back to the structure. |
+//! | STRSZ | warning | yes (unsafe) | Use STRCMP to compare character vectors that can have different sizes. |
 //! | ATTF | warning | no | The Code Analyzer is unable to determine if the expression assigned to the VAR_NAME attribute evaluates to true or false. |
 //! | ATTOF | warning | no | Setting the class attribute Abstract to false is not recommended. |
 //! | MCPO | warning | no | VAR_NAME property has no effect in a value class. |
@@ -165,6 +165,25 @@
 //!   `lower`/`upper` and the case-insensitive comparison differ on some
 //!   non-ASCII text; when both arguments convert, only the first conversion
 //!   goes (`strcmpi(a, lower(b))`), as MATLAB's fix writes it.
+//!
+//! The remaining fixes are unsafe, they change what the code does in some
+//! situation, and need `--unsafe-fixes`:
+//!
+//! - `s == 'abc'` → `strcmp(s, 'abc')` and `s ~= 'abc'` → `~strcmp(s, 'abc')`
+//!   (STCMP, STRSZ), for plain operands (names, field reads, calls, literals).
+//!   `==` errors on operands of different length where `strcmp` answers false.
+//! - `strcmp(class(x), 'double')` → `isa(x, 'double')` (STISA); `isa` is also
+//!   true for a subclass.
+//! - `prod(a > b)` → `all(a > b)`, `min` → `all`, `max` → `any` (LOGPROD,
+//!   LOGMIN, LOGMAX), for the single comparison argument that is reported; the
+//!   result class and the answer for an empty input change.
+//! - `warning('')` → `lastwarn('')` (WLAST): the first does nothing, the second
+//!   clears the last warning, which is what the author meant.
+//! - `rmfield(s, 'a');` → `s = rmfield(s, 'a');` and the same for `setfield`
+//!   (RMFLD, STFLD), when the first argument is a variable.
+//! - A `keyboard` statement that has its line to itself is deleted (KEYBOARDFUN).
+//! - `eval('x = 1;')` as a statement → `x = 1;` (EVLCS), for one literal without
+//!   quote escapes that parses by itself.
 //!
 //! ## Examples
 //!
@@ -465,7 +484,13 @@ impl GoodPracticesEngine {
                 byte_range: call.start_byte()..call.end_byte(),
                 line: pos.row + 1,
                 column: pos.column + 1,
-                fix: None,
+                // Unsafe: `warning('')` does nothing, `lastwarn('')` clears the last
+                // warning, which is what the author meant but not what the code does.
+                fix: find_child_of_kind(call, "arguments")
+                    .filter(|args| count_named_children(*args) == 1)
+                    .map(|_| {
+                        crate::performance::fix_rename_func(call, source, "lastwarn").unsafe_fix()
+                    }),
             });
         }
 
@@ -512,7 +537,18 @@ impl GoodPracticesEngine {
             byte_range: node.start_byte()..node.end_byte(),
             line: pos.row + 1,
             column: pos.column + 1,
-            fix: None,
+            // `rmfield(s, 'a');` becomes `s = rmfield(s, 'a');`. Unsafe: the call
+            // used to set `ans` and leave `s` alone; the author surely wanted the update.
+            fix: find_child_of_kind(node, "arguments")
+                .and_then(first_named_child)
+                .filter(|first| first.kind() == "identifier")
+                .map(|first| {
+                    malt_core::Fix::insert(
+                        node.start_byte(),
+                        format!("{} = ", node_text(first, source)),
+                    )
+                    .unsafe_fix()
+                }),
         }]
     }
 
@@ -2450,6 +2486,50 @@ pub(crate) fn all_descendants_of_kind<'a>(node: Node<'a>, kind: &str) -> Vec<Nod
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_util::{fix_of, reported_without_fix};
+
+    #[test]
+    fn wlast_fix_renames_to_lastwarn() {
+        let (safe, fixed) = fix_of(&engine(), "warning('');\n", "WLAST").unwrap();
+        assert!(!safe);
+        assert_eq!(fixed, "lastwarn('');\n");
+        let still = crate::test_util::lint_all(&engine(), &fixed);
+        assert!(still.iter().all(|d| d.rule_id != "WLAST"), "{still:?}");
+    }
+
+    #[test]
+    fn wlast_no_fix_with_more_arguments() {
+        assert!(reported_without_fix(
+            &engine(),
+            "warning('', 3);\n",
+            "WLAST"
+        ));
+    }
+
+    #[test]
+    fn rmfld_and_stfld_fix_assign_the_result_back() {
+        let (safe, fixed) = fix_of(&engine(), "rmfield(s, 'a');\n", "RMFLD").unwrap();
+        assert!(!safe);
+        assert_eq!(fixed, "s = rmfield(s, 'a');\n");
+        let (_, fixed) = fix_of(
+            &engine(),
+            "if c\n    setfield(opts, 'k', 1)\nend\n",
+            "STFLD",
+        )
+        .unwrap();
+        assert_eq!(fixed, "if c\n    opts = setfield(opts, 'k', 1)\nend\n");
+        let still = crate::test_util::lint_all(&engine(), &fixed);
+        assert!(still.iter().all(|d| d.rule_id != "STFLD"), "{still:?}");
+    }
+
+    #[test]
+    fn rmfld_no_fix_for_a_non_variable_first_argument() {
+        assert!(reported_without_fix(
+            &engine(),
+            "rmfield(a.b, 'x');\n",
+            "RMFLD"
+        ));
+    }
 
     /// The twelve OOP/class/property check IDs implemented by GOODPRAC G1.
     const OOP_CHECK_IDS: &[&str] = &[

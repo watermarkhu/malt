@@ -5,6 +5,8 @@
 #                    reports, `qammod(x, 4, pi/4)` does not).
 #   pairs_from     - N: from argument N on the arguments are name-value pairs (an even
 #                    count); `args_any` names one of those names (BUFSIZE).
+#   renames_to     - the message names a direct replacement; the fix renames the callee,
+#                    the command or the handle to this name and keeps the arguments.
 #   function_prefix - matches every member of the package `function_name` (JAPIMATHWORKS:
 #                    `com.mathworks.util.X`, not `com.mathworks`).
 #   low_reliability - true: off by default (on with the behavior-changes category or the
@@ -381,6 +383,7 @@ handle = true
 function_name = "hgsave"
 severity = "warning"
 message = "'hgsave' will be removed in a future release. Use 'savefig' instead, which is a direct replacement."
+renames_to = "savefig"
 category = "compatibility"
 
 [[checks]]
@@ -485,6 +488,7 @@ handle = true
 function_name = "filterbuilder"
 severity = "warning"
 message = "'filterbuilder' will be removed in a future release. Use 'filterBuilder' instead, which is a direct replacement."
+renames_to = "filterBuilder"
 category = "compatibility"
 
 [[checks]]
@@ -493,6 +497,7 @@ handle = true
 function_name = "fdatool"
 severity = "warning"
 message = "'fdatool' will be removed in a future release. Use 'filterDesigner' instead, which is a direct replacement."
+renames_to = "filterDesigner"
 category = "compatibility"
 
 [[checks]]
@@ -501,6 +506,7 @@ handle = true
 function_name = "wintool"
 severity = "warning"
 message = "'wintool' will be removed in a future release. Use 'windowDesigner' instead, which is a direct replacement."
+renames_to = "windowDesigner"
 category = "compatibility"
 
 [[checks]]
@@ -549,6 +555,7 @@ handle = true
 function_name = "mam2sug"
 severity = "error"
 message = "'mam2sug' has been removed. Use 'convertToSugeno' instead, which is a direct replacement."
+renames_to = "convertToSugeno"
 category = "compatibility"
 
 [[checks]]
@@ -901,6 +908,7 @@ handle = true
 function_name = "seriallist"
 severity = "warning"
 message = "'seriallist' will be removed in a future release. Use 'serialportlist' instead, which is a direct replacement."
+renames_to = "serialportlist"
 category = "compatibility"
 
 [[checks]]
@@ -909,6 +917,7 @@ handle = true
 function_name = "range2bw"
 severity = "warning"
 message = "'range2bw' will be removed in a future release. Use 'rangeres2bw' instead, which is a direct replacement."
+renames_to = "rangeres2bw"
 category = "compatibility"
 
 [[checks]]
@@ -917,6 +926,7 @@ handle = true
 function_name = "bw2range"
 severity = "warning"
 message = "'bw2range' will be removed in a future release. Use 'bw2rangeres' instead, which is a direct replacement."
+renames_to = "bw2rangeres"
 category = "compatibility"
 
 [[checks]]
@@ -1061,6 +1071,7 @@ handle = true
 function_name = "vrjoystick"
 severity = "error"
 message = "'vrjoystick' has been removed. Use 'sim3d.io.Joystick' instead, which is a direct replacement."
+renames_to = "sim3d.io.Joystick"
 category = "compatibility"
 
 [[checks]]
@@ -1069,6 +1080,7 @@ handle = true
 function_name = "vrspacemouse"
 severity = "error"
 message = "'vrspacemouse' has been removed. Use 'sim3d.io.SpaceMouse' instead, which is a direct replacement."
+renames_to = "sim3d.io.SpaceMouse"
 category = "compatibility"
 
 [[checks]]
@@ -1493,6 +1505,7 @@ handle = true
 function_name = "dsp.SpectrumAnalyzer"
 severity = "warning"
 message = "'dsp.SpectrumAnalyzer' will be removed in a future release. Use 'spectrumAnalyzer' instead, which is a direct replacement."
+renames_to = "spectrumAnalyzer"
 category = "compatibility"
 
 [[checks]]
@@ -1501,6 +1514,7 @@ handle = true
 function_name = "loadCompactModel"
 severity = "error"
 message = "'loadCompactModel' has been removed. Use 'loadLearnerForCoder' instead, which is a direct replacement."
+renames_to = "loadLearnerForCoder"
 category = "compatibility"
 
 [[checks]]
@@ -1509,6 +1523,7 @@ handle = true
 function_name = "saveCompactModel"
 severity = "error"
 message = "'saveCompactModel' has been removed. Use 'saveLearnerForCoder' instead, which is a direct replacement."
+renames_to = "saveLearnerForCoder"
 category = "compatibility"
 
 [[checks]]
@@ -10345,6 +10360,7 @@ handle = true
 function_name = "lteZadoffChuSeq"
 severity = "error"
 message = "'lteZadoffChuSeq' has been removed. Use 'zadoffChuSeq' instead, which is a direct replacement."
+renames_to = "zadoffChuSeq"
 category = "compatibility"
 
 [[checks]]
@@ -10361,6 +10377,7 @@ handle = true
 function_name = "daq.reset"
 severity = "warning"
 message = "'daq.reset' will be removed in a future release. Use 'daqreset' instead, which is a direct replacement."
+renames_to = "daqreset"
 category = "compatibility"
 
 [[checks]]
@@ -10377,6 +10394,7 @@ handle = true
 function_name = "daq.getVendors"
 severity = "warning"
 message = "'daq.getVendors' will be removed in a future release. Use 'daqvendorlist' instead, which is a direct replacement."
+renames_to = "daqvendorlist"
 category = "compatibility"
 
 [[checks]]
@@ -10753,6 +10771,7 @@ handle = true
 function_name = "dsp.TimeScope"
 severity = "error"
 message = "'dsp.TimeScope' has been removed. Use 'timescope' instead, which is a direct replacement."
+renames_to = "timescope"
 category = "compatibility"
 
 [[checks]]
@@ -11297,6 +11316,7 @@ handle = true
 function_name = "combntns"
 severity = "error"
 message = "'combntns' has been removed. Use 'nchoosek' instead, which is a direct replacement."
+renames_to = "nchoosek"
 category = "compatibility"
 
 [[checks]]
@@ -11905,6 +11925,7 @@ handle = true
 function_name = "radarWaveformAnalyzer"
 severity = "warning"
 message = "'radarWaveformAnalyzer' will be removed in a future release. Use 'pulseWaveformAnalyzer' instead, which is a direct replacement."
+renames_to = "pulseWaveformAnalyzer"
 category = "compatibility"
 
 [[checks]]
@@ -11929,6 +11950,7 @@ handle = true
 function_name = "Simulink.VariantManager.convertToVariant"
 severity = "warning"
 message = "'Simulink.VariantManager.convertToVariant' will be removed in a future release. Use 'Simulink.VariantUtils.convertToVariantSubsystem' instead, which is a direct replacement."
+renames_to = "Simulink.VariantUtils.convertToVariantSubsystem"
 category = "compatibility"
 
 [[checks]]
@@ -11937,6 +11959,7 @@ handle = true
 function_name = "Simulink.VariantManager.convertToVariantAssemblySubsystem"
 severity = "warning"
 message = "'Simulink.VariantManager.convertToVariantAssemblySubsystem' will be removed in a future release. Use 'Simulink.VariantUtils.convertToVariantAssemblySubsystem' instead, which is a direct replacement."
+renames_to = "Simulink.VariantUtils.convertToVariantAssemblySubsystem"
 category = "compatibility"
 
 [[checks]]
@@ -11945,6 +11968,7 @@ handle = true
 function_name = "Simulink.VariantManager.variantLegend"
 severity = "warning"
 message = "'Simulink.VariantManager.variantLegend' will be removed in a future release. Use 'Simulink.VariantUtils.variantLegend' instead, which is a direct replacement."
+renames_to = "Simulink.VariantUtils.variantLegend"
 category = "compatibility"
 
 [[checks]]
@@ -11977,6 +12001,7 @@ handle = true
 function_name = "movieview"
 severity = "error"
 message = "'movieview' has been removed. Use 'implay' instead, which is a direct replacement."
+renames_to = "implay"
 category = "compatibility"
 
 [[checks]]
@@ -11985,6 +12010,7 @@ handle = true
 function_name = "imageview"
 severity = "error"
 message = "'imageview' has been removed. Use 'imshow' instead, which is a direct replacement."
+renames_to = "imshow"
 category = "compatibility"
 
 [[checks]]
@@ -12113,6 +12139,7 @@ handle = true
 function_name = "ltehdlFramesToSamples"
 severity = "error"
 message = "'ltehdlFramesToSamples' has been removed. Use 'whdlFramesToSamples' instead, which is a direct replacement."
+renames_to = "whdlFramesToSamples"
 category = "compatibility"
 
 [[checks]]
@@ -12121,6 +12148,7 @@ handle = true
 function_name = "ltehdlSamplesToFrames"
 severity = "error"
 message = "'ltehdlSamplesToFrames' has been removed. Use 'whdlSamplesToFrames' instead, which is a direct replacement."
+renames_to = "whdlSamplesToFrames"
 category = "compatibility"
 
 [[checks]]
@@ -14778,6 +14806,7 @@ id = "ISPIX"
 handle = true
 function_name = "pixelLabelImageSource"
 severity = "error"
+renames_to = "pixelLabelImageDatastore"
 category = "compatibility"
 message = "'pixelLabelImageSource' has been removed. Use 'pixelLabelImageDatastore' instead, which is a direct replacement."
 
@@ -14787,6 +14816,7 @@ id = "ISAUG"
 handle = true
 function_name = "augmentedImageSource"
 severity = "error"
+renames_to = "augmentedImageDatastore"
 category = "compatibility"
 message = "'augmentedImageSource' has been removed. Use 'augmentedImageDatastore' instead, which is a direct replacement."
 
@@ -14796,5 +14826,6 @@ id = "ISDNS"
 handle = true
 function_name = "denoisingImageSource"
 severity = "error"
+renames_to = "denoisingImageDatastore"
 category = "compatibility"
 message = "'denoisingImageSource' has been removed. Use 'denoisingImageDatastore' instead, which is a direct replacement."

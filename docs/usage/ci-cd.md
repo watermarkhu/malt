@@ -4,15 +4,9 @@ icon: lucide/git-branch
 
 # CI/CD integration
 
-::: info Coming Soon
+## GitHub Actions
 
-CI/CD integration guides are planned for a future release. This page sketches the intended workflow.
-
-:::
-
-## GitHub Actions (planned)
-
-Once malt is published to crates.io, a GitHub Action will be available:
+The [malt action](github-action.md) lints the workspace and reports annotations and a job summary, with no install step:
 
 ```yaml title=".github/workflows/lint.yml"
 name: Lint MATLAB
@@ -23,12 +17,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: watermarkhu/malt-action@main  # planned
+      - uses: watermarkhu/malt@v0
 ```
 
 ## Manual CI setup
 
-Until a dedicated action exists, install and run malt yourself:
+To use the command line instead of the action, install malt and run it in the folder. Without a path it lints the current folder and everything below it, and `exclude` in `.malt.toml` decides what to skip. `--output github` turns the findings into annotations and a step summary:
 
 ```yaml title=".github/workflows/lint.yml"
 name: Lint MATLAB
@@ -44,9 +38,32 @@ jobs:
         run: pipx install malt
 
       - name: Lint
-        run: |
-          find . -name '*.m' -not -path './vendor/*' | xargs malt
+        run: malt --output github --log-level off --output-json malt-results.json
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: malt-results
+          path: malt-results.json
 ```
+
+## GitLab CI
+
+`--output gitlab` writes the Code Quality report, which GitLab shows in merge requests:
+
+```yaml title=".gitlab-ci.yml"
+malt:
+  image: python:3
+  script:
+    - pip install malt
+    - malt --output gitlab > gl-code-quality-report.json
+  artifacts:
+    when: always
+    reports:
+      codequality: gl-code-quality-report.json
+```
+
+The text lines go to the job log on stderr. See [Output formats](cli.md#output-formats) for the details.
 
 ## Large files and shared runners
 
@@ -62,19 +79,9 @@ malt's exit codes map directly onto a pass or fail build:
 | `1`  | Diagnostics found | Build fails |
 | `2`  | Runtime error | Build fails |
 
-## Pre-commit hook (planned)
+## Pre-commit hook
 
-A pre-commit hook configuration is planned:
-
-```yaml title=".pre-commit-config.yaml"
-repos:
-  - repo: https://github.com/watermarkhu/malt
-    rev: v0.1.0  # use latest version
-    hooks:
-      - id: malt
-        types: [file]
-        files: '\.m$'
-```
+To lint the staged files before each commit, use the hooks for pre-commit and prek. They are set up on [their own page](pre-commit.md).
 
 ## Contributing
 

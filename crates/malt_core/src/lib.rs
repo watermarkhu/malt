@@ -11,6 +11,7 @@
 
 pub mod config;
 pub mod diagnostic;
+pub mod files;
 pub mod fix;
 pub mod known_ids;
 pub mod limits;
@@ -18,6 +19,7 @@ pub mod linter;
 pub mod matlab_config;
 pub mod preset;
 pub mod registry;
+pub mod report;
 pub mod rule;
 pub mod suppression;
 
@@ -26,7 +28,9 @@ pub use config::{Config, ConfigError, RuleConfig};
 pub use diagnostic::{Applicability, Diagnostic, Fix, Severity};
 pub use fix::{apply_fixes, apply_fixes_with, fix_source, position_of, FixMode, FixOutcome};
 pub use limits::{Limits, LimitsConfig};
-pub use linter::{note_parse, parse_epoch, LintError, Linter, DEFAULT_MAX_TREE_DEPTH};
+pub use linter::{
+    note_parse, parse_epoch, parses_cleanly, LintError, Linter, DEFAULT_MAX_TREE_DEPTH,
+};
 pub use preset::{PresetDef, DEFAULT_PRESET, PRESETS};
 pub use registry::RuleRegistry;
 pub use rule::{Category, FileContext, Maturity, NodeContext, ProjectIndex, Rule};

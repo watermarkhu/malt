@@ -1,4 +1,5 @@
 use std::collections::BTreeMap;
+use std::env;
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
@@ -15,19 +16,25 @@ use malt_core::{
 };
 
 mod colour;
+mod discover;
 mod ignored;
+mod output;
 mod path_index;
 
 use ignored::IgnoredFiles;
 
 use colour::{paint, ColorWhen, Colours};
+use malt_core::report::{self, Record};
+use output::{LogLevel, OutputFormat};
 
 /// malt — An ultra-fast, extensible linter for MATLAB.
 #[derive(Parser, Debug)]
 #[command(name = "malt", version, about)]
 struct Cli {
-    /// MATLAB files to lint.
-    #[arg(required = true)]
+    /// MATLAB files and folders to lint. A folder is searched for `.m` files, below it
+    /// too (see `include`, `exclude` and `respect_gitignore` in the config file).
+    /// Default: the current folder.
+    #[arg(value_name = "PATH")]
     files: Vec<PathBuf>,
 
     /// Apply safe auto-fixes where available, repeating until nothing changes.
@@ -44,7 +51,7 @@ struct Cli {
     #[arg(long, value_name = "PATH")]
     config: Option<PathBuf>,
 
-    /// Named preset to base the configuration on (all, mathworks, recommended).
+    /// Named preset to base the configuration on (all, mathworks, recommended, monkeyproof).
     /// Overrides the `[lint] preset` value in the config file.
     #[arg(long, value_name = "PRESET")]
     preset: Option<String>,
@@ -79,6 +86,23 @@ struct Cli {
     /// do not change the exit code; `--fix` still fixes them.
     #[arg(long, value_name = "LEVEL", value_enum, default_value_t = Level::Info)]
     level: Level,
+
+    /// How findings are written to stdout: `text` (the default), `github` (workflow
+    /// command annotations, plus a step summary in `GITHUB_STEP_SUMMARY` when set) or
+    /// `gitlab` (the Code Quality report as JSON; the text lines go to stderr).
+    #[arg(long, value_name = "FORMAT", value_enum, default_value_t = OutputFormat::Text)]
+    output: OutputFormat,
+
+    /// The least severe findings written as text lines, whatever `--output` is:
+    /// `off`, `error`, `warning` or `info` (the default). Unlike `--level`, it hides
+    /// no finding from the annotations, the report, the JSON file or the exit code.
+    #[arg(long, value_name = "LEVEL", value_enum, default_value_t = LogLevel::Info)]
+    log_level: LogLevel,
+
+    /// Write the results as JSON to this file: the malt version, the configuration used,
+    /// the files linted and every finding. Combines with any `--output`.
+    #[arg(long, value_name = "PATH")]
+    output_json: Option<PathBuf>,
 }
 
 /// How severe a finding must be to be shown (`--level`): that severity or a more severe one.
@@ -103,6 +127,20 @@ impl Level {
         };
         rank <= self
     }
+}
+
+/// Whether text lines go to stderr: with `--output gitlab`, stdout is the JSON report.
+static TEXT_TO_STDERR: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Print a line of the text output: to stdout, or to stderr for `--output gitlab`.
+macro_rules! text_line {
+    ($($arg:tt)*) => {{
+        if TEXT_TO_STDERR.load(Ordering::Relaxed) {
+            eprintln!($($arg)*);
+        } else {
+            println!($($arg)*);
+        }
+    }};
 }
 
 /// Stack size of the thread that lints. Many rules walk the syntax tree
@@ -137,9 +175,26 @@ fn main() {
 
 fn run(mut cli: Cli, colours: Colours) -> Result<()> {
     // Load configuration from .malt.toml (or --config path).
+    TEXT_TO_STDERR.store(cli.output == OutputFormat::Gitlab, Ordering::Relaxed);
     let loaded = load_config(&cli, colours)?;
     let mut config = loaded.config;
+    let config_file = config_source(&cli);
+    let found = discover::discover(&cli.files, &config, &loaded.anchor)?;
+    cli.files = found.files;
+    for warning in &found.warnings {
+        eprintln!(
+            "{}: {warning}",
+            paint(colours.stderr, colour::warning(), "warning")
+        );
+    }
     if cli.verbose > 0 {
+        for folder in &found.searched {
+            eprintln!(
+                "{} searched {}",
+                paint(colours.stderr, colour::dim(), "malt:"),
+                folder.display()
+            );
+        }
         if let Some(path) = &loaded.matlab {
             eprintln!(
                 "{} configuration: {}",
@@ -170,6 +225,13 @@ fn run(mut cli: Cli, colours: Colours) -> Result<()> {
                 }
             );
         }
+    }
+
+    if cli.files.is_empty() {
+        eprintln!(
+            "{}: no MATLAB files found",
+            paint(colours.stderr, colour::warning(), "warning")
+        );
     }
 
     // A --preset override takes priority over the config file's `[lint] preset`.
@@ -213,11 +275,11 @@ fn run(mut cli: Cli, colours: Colours) -> Result<()> {
         let mut linter = new_linter();
         for file_path in &cli.files {
             let checked = check_file(&mut linter, file_path, &cli)?;
-            summary.report(file_path, checked, cli.verbose, cli.level, colours);
+            summary.report(file_path, checked, &cli, colours);
         }
     } else {
         lint_in_parallel(&cli, threads, new_linter, |file_path, checked| {
-            summary.report(file_path, checked?, cli.verbose, cli.level, colours);
+            summary.report(file_path, checked?, &cli, colours);
             Ok(())
         })?;
     }
@@ -231,8 +293,16 @@ fn run(mut cli: Cli, colours: Colours) -> Result<()> {
         );
     }
 
+    write_outputs(
+        &cli,
+        &config,
+        config_file.as_deref(),
+        loaded.matlab.as_deref(),
+        &summary,
+    )?;
+
     if summary.total_diagnostics > 0 {
-        println!(
+        text_line!(
             "\n{}",
             paint(
                 colours.stdout,
@@ -255,7 +325,7 @@ fn run(mut cli: Cli, colours: Colours) -> Result<()> {
             )
         );
         if summary.fixable > 0 {
-            println!(
+            text_line!(
                 "{}",
                 paint(
                     colours.stdout,
@@ -265,7 +335,7 @@ fn run(mut cli: Cli, colours: Colours) -> Result<()> {
             );
         }
         if summary.unsafe_fixable > 0 && !cli.unsafe_fixes {
-            println!(
+            text_line!(
                 "{}",
                 paint(
                     colours.stdout,
@@ -280,6 +350,75 @@ fn run(mut cli: Cli, colours: Colours) -> Result<()> {
         process::exit(1);
     }
 
+    Ok(())
+}
+
+/// The `.malt.toml` this run reads: the one `--config` names, or the one in the current
+/// folder. `None` when there is none (a MATLAB configuration is reported separately).
+fn config_source(cli: &Cli) -> Option<PathBuf> {
+    match cli.config.as_deref() {
+        Some(path) if is_json(path) => None,
+        Some(path) => Some(path.to_path_buf()),
+        None => Path::new(".malt.toml")
+            .is_file()
+            .then(|| PathBuf::from(".malt.toml")),
+    }
+}
+
+/// Write what `--output` and `--output-json` ask for, after the files are linted: the
+/// annotations and step summary, the Code Quality report, the JSON results file.
+fn write_outputs(
+    cli: &Cli,
+    config: &Config,
+    config_file: Option<&Path>,
+    matlab_config: Option<&Path>,
+    summary: &Summary,
+) -> Result<()> {
+    match cli.output {
+        OutputFormat::Text => {}
+        OutputFormat::Github => {
+            let workspace = env::var_os("GITHUB_WORKSPACE").map(PathBuf::from);
+            for record in &summary.records {
+                println!(
+                    "{}",
+                    report::github_annotation(record, workspace.as_deref())
+                );
+            }
+            if let Some(path) = env::var_os("GITHUB_STEP_SUMMARY") {
+                let text = report::github_step_summary(&summary.records, cli.files.len());
+                let mut file = fs::OpenOptions::new()
+                    .create(true)
+                    .append(true)
+                    .open(&path)
+                    .with_context(|| {
+                        format!(
+                            "cannot write the step summary: {}",
+                            Path::new(&path).display()
+                        )
+                    })?;
+                io::Write::write_all(&mut file, text.as_bytes())
+                    .context("cannot write the step summary")?;
+            }
+        }
+        OutputFormat::Gitlab => {
+            let report = report::gitlab_report(&summary.records);
+            println!("{}", serde_json::to_string_pretty(&report)?);
+        }
+    }
+    if let Some(path) = &cli.output_json {
+        let files: Vec<String> = cli.files.iter().map(|f| f.display().to_string()).collect();
+        let run = report::RunInfo {
+            config_file,
+            matlab_config,
+            files: &files,
+            files_with_findings: summary.files_with_issues,
+        };
+        let value = report::results_json(config, &run, &summary.records);
+        let mut text = serde_json::to_string_pretty(&value)?;
+        text.push('\n');
+        fs::write(path, text)
+            .with_context(|| format!("cannot write the results file: {}", path.display()))?;
+    }
     Ok(())
 }
 
@@ -445,7 +584,7 @@ fn check_file_untimed(linter: &mut Linter, file_path: &Path, cli: &Cli) -> Resul
         if outcome.source != source {
             fs::write(file_path, &outcome.source)
                 .with_context(|| format!("failed to write {}", file_path.display()))?;
-            println!(
+            text_line!(
                 "Fixed {} issue{} in {}",
                 outcome.applied,
                 if outcome.applied == 1 { "" } else { "s" },
@@ -475,18 +614,14 @@ struct Summary {
     files_with_issues: usize,
     fixable: usize,
     unsafe_fixable: usize,
+    /// Every finding that `--level` shows, for the annotations, the report and the JSON file.
+    records: Vec<Record>,
 }
 
 impl Summary {
     /// Print the diagnostics of one file and count them.
-    fn report(
-        &mut self,
-        file_path: &Path,
-        checked: Checked,
-        verbose: u8,
-        level: Level,
-        colours: Colours,
-    ) {
+    fn report(&mut self, file_path: &Path, checked: Checked, cli: &Cli, colours: Colours) {
+        let (verbose, level) = (cli.verbose, cli.level);
         let Checked { outcome, elapsed } = checked;
         let diagnostics = match outcome {
             FileOutcome::Unreadable(diag) => {
@@ -498,7 +633,10 @@ impl Summary {
                         diag.rule_id
                     );
                 }
-                print_diagnostic(file_path, &diag, colours.stdout);
+                if cli.log_level.shows(diag.severity) {
+                    print_diagnostic(file_path, &diag, colours.stdout);
+                }
+                self.records.push(Record::new(file_path, &diag));
                 self.total_diagnostics += 1;
                 self.files_with_issues += 1;
                 return;
@@ -524,7 +662,10 @@ impl Summary {
             return;
         }
         for diag in &diagnostics {
-            print_diagnostic(file_path, diag, colours.stdout);
+            if cli.log_level.shows(diag.severity) {
+                print_diagnostic(file_path, diag, colours.stdout);
+            }
+            self.records.push(Record::new(file_path, diag));
             match diag.fix.as_ref() {
                 Some(f) if f.is_safe() => self.fixable += 1,
                 Some(_) => self.unsafe_fixable += 1,
@@ -556,7 +697,7 @@ fn print_diagnostic(file_path: &Path, diag: &Diagnostic, on: bool) {
         Severity::Warning => ("W", colour::warning()),
         Severity::Info => ("I", colour::info()),
     };
-    println!(
+    text_line!(
         "{}{} {} {}: {}",
         paint(on, colour::emphasis(), file_path.display()),
         paint(on, colour::dim(), format!(":{}:{}", diag.line, diag.column)),
@@ -604,6 +745,9 @@ struct Loaded {
     matlab: Option<PathBuf>,
     /// A MATLAB configuration that exists but is not used (for `-v`).
     skipped_matlab: Option<PathBuf>,
+    /// The folder that the `include` and `exclude` patterns are relative to: the one
+    /// of the configuration file, or the current folder without one.
+    anchor: PathBuf,
 }
 
 /// Discover and load the configuration.
@@ -643,6 +787,7 @@ fn load_config(cli: &Cli, colours: Colours) -> Result<Loaded> {
                     config: malt_core::matlab_config::layer(matlab.config, toml_config),
                     matlab: Some(path),
                     skipped_matlab: None,
+                    anchor: PathBuf::from("."),
                 })
             }
             None => Ok(Loaded {
@@ -650,6 +795,7 @@ fn load_config(cli: &Cli, colours: Colours) -> Result<Loaded> {
                 ignored: None,
                 matlab: None,
                 skipped_matlab: matlab_path.is_file().then(|| matlab_path.to_path_buf()),
+                anchor: PathBuf::from("."),
             }),
         };
     }
@@ -661,6 +807,7 @@ fn load_config(cli: &Cli, colours: Colours) -> Result<Loaded> {
         ignored: None,
         matlab: None,
         skipped_matlab: None,
+        anchor: PathBuf::from("."),
     })
 }
 
@@ -676,6 +823,7 @@ fn toml_only(path: &Path, strict: bool, colours: Colours) -> Result<Loaded> {
         ignored: None,
         matlab: None,
         skipped_matlab: None,
+        anchor: folder_of(path),
     })
 }
 
@@ -687,7 +835,24 @@ fn matlab_only(path: &Path, strict: bool, colours: Colours) -> Result<Loaded> {
         config: matlab.config,
         matlab: Some(path.to_path_buf()),
         skipped_matlab: None,
+        anchor: folder_of(path),
     })
+}
+
+/// The folder of a configuration file; for a MATLAB configuration in a `resources`
+/// folder, the folder that holds it (as for `ignoredFiles`).
+fn folder_of(path: &Path) -> PathBuf {
+    let folder = path.parent().filter(|p| !p.as_os_str().is_empty());
+    let folder = folder.unwrap_or(Path::new("."));
+    if folder.file_name().is_some_and(|name| name == "resources") {
+        folder
+            .parent()
+            .filter(|p| !p.as_os_str().is_empty())
+            .unwrap_or(Path::new("."))
+            .to_path_buf()
+    } else {
+        folder.to_path_buf()
+    }
 }
 
 /// Read a `.malt.toml`, reporting its rule and parameter problems.

@@ -108,6 +108,9 @@ impl GoodPracticesEngine {
             return Vec::new();
         }
 
+        let fix = (check_id == "EVLCS")
+            .then(|| eval_statement_fix(node, source))
+            .flatten();
         vec![Diagnostic {
             rule_id: check_id,
             message: message.to_string(),
@@ -115,7 +118,7 @@ impl GoodPracticesEngine {
             byte_range: node.start_byte()..node.end_byte(),
             line: pos.row + 1,
             column: pos.column + 1,
-            fix: None,
+            fix,
         }]
     }
 
@@ -304,9 +307,72 @@ fn command_word_concatenation(arg: Node, source: &str) -> bool {
         && !text.contains('=')
 }
 
+/// The unsafe fix of EVLCS: `eval('x = 1;')` as a statement becomes `x = 1;`.
+///
+/// Offered for a one-line quoted literal (no quote escape) on a statement of its
+/// own that parses by itself. Unsafe: `eval` evaluates the text at run time, so
+/// a syntax error, a `return` or the display of the result behave differently once
+/// the code is part of the file.
+fn eval_statement_fix(node: Node, source: &str) -> Option<malt_core::Fix> {
+    if node.kind() != "function_call"
+        || !node
+            .parent()
+            .is_some_and(|p| matches!(p.kind(), "block" | "source_file"))
+    {
+        return None;
+    }
+    let args = find_child_of_kind(node, "arguments")?;
+    if args.named_child_count() != 1 {
+        return None;
+    }
+    let inner = crate::fix_util::simple_literal_text(args.named_child(0)?, source)?.trim();
+    if inner.is_empty() || inner.contains(['\n', '\r']) || !crate::fix_util::parses_cleanly(inner) {
+        return None;
+    }
+    // `eval('x = 1;');` keeps one `;`.
+    let ends_here = source[node.end_byte()..].trim_start_matches([' ', '\t']);
+    let inner = if ends_here.starts_with(';') {
+        inner.strip_suffix(';').unwrap_or(inner).trim_end()
+    } else {
+        inner
+    };
+    Some(malt_core::Fix::new(node.byte_range(), inner).unsafe_fix())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_util::{fix_of, lint_all, reported_without_fix};
+
+    #[test]
+    fn evlcs_fix_inlines_the_literal_statement() {
+        let (safe, fixed) = fix_of(&engine(), "eval('x = 1;');\ny = x;\n", "EVLCS").unwrap();
+        assert!(!safe);
+        assert_eq!(fixed, "x = 1;\ny = x;\n");
+        let (_, fixed) = fix_of(&engine(), "eval('disp(2)')\n", "EVLCS").unwrap();
+        assert_eq!(fixed, "disp(2)\n");
+        let (_, fixed) = fix_of(&engine(), "eval(\"a = 3\");\n", "EVLCS").unwrap();
+        assert_eq!(fixed, "a = 3;\n");
+        let still = lint_all(&engine(), &fixed);
+        assert!(still.iter().all(|d| d.rule_id != "EVLCS"), "{still:?}");
+    }
+
+    #[test]
+    fn evlcs_no_fix_for_value_positions_escapes_and_bad_text() {
+        for source in [
+            "y = eval('1');\n",
+            "eval('x = ''a'';');\n",
+            "eval('x = (1;');\n",
+            "eval('x = 1;', 'disp(0)');\n",
+        ] {
+            let d = lint_all(&engine(), source);
+            assert!(
+                d.iter().all(|d| d.rule_id != "EVLCS" || d.fix.is_none()),
+                "{source}: {d:?}"
+            );
+        }
+        assert!(reported_without_fix(&engine(), "y = eval('1');\n", "EVLCS"));
+    }
 
     #[test]
     fn test_evldual_fires_on_concatenated_command() {

@@ -43,6 +43,24 @@ impl GoodPracticesEngine {
             return Vec::new();
         }
 
+        // `strcmp(class(x), 'double')` is `isa(x, 'double')` for any value whose
+        // class is exactly that. Unsafe: `isa` is also true for a subclass.
+        let (class_call, literal) = if is_class_call(first) {
+            (*first, *second)
+        } else {
+            (*second, *first)
+        };
+        let fix = single_arg(class_call).map(|object| {
+            malt_core::Fix::new(
+                node.byte_range(),
+                format!(
+                    "isa({}, {})",
+                    node_text(object, source),
+                    node_text(literal, source)
+                ),
+            )
+            .unsafe_fix()
+        });
         let pos = node.start_position();
         vec![Diagnostic {
             rule_id: "STISA",
@@ -51,14 +69,42 @@ impl GoodPracticesEngine {
             byte_range: node.start_byte()..node.end_byte(),
             line: pos.row + 1,
             column: pos.column + 1,
-            fix: None,
+            fix,
         }]
     }
+}
+
+/// The only argument of a call, when it has exactly one.
+fn single_arg(call: Node) -> Option<Node> {
+    let args = find_child_of_kind(call, "arguments")?;
+    (count_named_children(args) == 1).then(|| first_named_child(args))?
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_util::{fix_of, lint_all, reported_without_fix};
+
+    #[test]
+    fn stisa_fix_rewrites_to_isa_and_is_unsafe() {
+        let (safe, fixed) =
+            fix_of(&engine(), "if strcmp(class(x), 'double')\nend\n", "STISA").unwrap();
+        assert!(!safe);
+        assert_eq!(fixed, "if isa(x, 'double')\nend\n");
+        let (_, fixed) = fix_of(&engine(), "t = strcmp('single', class(a.b));\n", "STISA").unwrap();
+        assert_eq!(fixed, "t = isa(a.b, 'single');\n");
+        let still = lint_all(&engine(), &fixed);
+        assert!(still.iter().all(|d| d.rule_id != "STISA"), "{still:?}");
+    }
+
+    #[test]
+    fn stisa_no_fix_without_a_single_class_argument() {
+        assert!(reported_without_fix(
+            &engine(),
+            "t = strcmp(class(x, y), 'double');\n",
+            "STISA"
+        ));
+    }
 
     /// Run STISA on the first function call in `source` (the `strcmp` in these tests).
     fn stisa_count(source: &str) -> usize {

@@ -87,9 +87,10 @@ config file.
 
 | Preset | Disabled categories | Description |
 | ------ | ------------------- | ----------- |
-| `mathworks` *(default)* | `custom-checks`, `naming` | Matches MATLAB Code Analyzer's factory configuration: complexity metrics and naming conventions are opt-in, and the individual checks MATLAB's default analysis never reports are off too (see [Default Behavior](#default-behavior)). |
-| `all` | none | Every rule enabled, including the [default-off engines](#default-behavior). |
-| `recommended` | `performance`, `readability`, `formatting`, `suggested-improvements`, `naming`, `custom-checks` | Errors and warnings on; Info-level style/suggestion checks off. |
+| `mathworks` *(default)* | `custom-checks`, `naming`, `monkeyproof` | Matches MATLAB Code Analyzer's factory configuration: complexity metrics and naming conventions are opt-in, and the individual checks MATLAB's default analysis never reports are off too (see [Default Behavior](#default-behavior)). |
+| `all` | `monkeyproof` | Every rule of MATLAB's Code Analyzer and malt enabled, including the [default-off engines](#default-behavior). The MonkeyProof standard is a separate set and stays off. |
+| `recommended` | `performance`, `readability`, `formatting`, `suggested-improvements`, `naming`, `custom-checks`, `monkeyproof` | Errors and warnings on; Info-level style/suggestion checks off. |
+| `monkeyproof` | `custom-checks`, `naming` | The `mathworks` defaults plus the [MonkeyProof Coding Standard](monkeyproof.md). |
 
 ```toml
 [lint]
@@ -103,6 +104,8 @@ malt --preset all src/**/*.m
 A preset only removes categories; the specialized engines that are
 [off by default](#default-behavior) stay off under `mathworks` and
 `recommended`. `all` is the exception and turns them on as well.
+
+The `monkeyproof` preset is the `mathworks` defaults plus the [MonkeyProof Coding Standard](monkeyproof.md), an extra set of style checks that is not part of MATLAB's Code Analyzer. malt is not affiliated with MonkeyProof Solutions.
 
 Precedence: `--preset` > `[lint] preset` > `mathworks`. Explicit
 `[lint.categories]` / `[lint.rules]` entries always win over the preset, so a
@@ -155,8 +158,12 @@ results are the same as before the flag existed.
 ```toml title=".malt.toml"
 [lint]
 # Global lint settings
+include = ["*.m"]                # Files a folder run picks up
 exclude = ["vendor/", "third_party/"]
-preset = "recommended"          # Preset: all | mathworks | recommended
+extend_exclude = ["generated/"]  # Added to exclude
+respect_gitignore = true         # Skip what .gitignore ignores
+force_exclude = false            # Apply exclude to files named on the command line
+preset = "recommended"          # Preset: all | mathworks | recommended | monkeyproof
 experimental = false            # Also run the experimental checks (see "Experimental checks")
 
 [lint.categories]
@@ -181,21 +188,64 @@ max_file_size = "5 MiB"
 
 ## `[lint]` Section
 
-### `exclude`
+### Files and folders
 
-A list of glob patterns for files and directories to skip when linting.
+`malt` without a path lints the current folder, and a folder on the command line is searched for MATLAB files. These
+settings say which files that search finds. They only matter for folders: a file named on the command line is linted as
+it is, unless `force_exclude` is set.
+
+The patterns are gitignore patterns (`vendor/`, `**/generated`, `test/*.m`, `!keep.m`). A pattern without a slash matches
+at any depth, and a leading slash anchors it. They are relative to the folder of the configuration file, which is the
+current folder when the file is `.malt.toml` there. The search follows no symbolic links.
+
+#### `include`
+
+The files a folder run picks up, as patterns. **Default:** `["*.m"]`.
+
+```toml
+[lint]
+include = ["*.m", "*.matlab"]
+```
+
+#### `exclude`
+
+Files and folders to skip. A folder that matches is not entered. Setting it replaces the default list.
 
 ```toml
 [lint]
 exclude = [
-    "vendor/**",
-    "third_party/**",
-    "test/fixtures/**",
+    "vendor/",
+    "third_party/",
+    "test/fixtures/",
 ]
 ```
 
-**Type:** Array of strings (glob patterns)
-**Default:** `[]` (no exclusions)
+**Type:** array of strings. **Default:** `[".git/", ".hg/", ".svn/", "node_modules/", ".venv/", "slprj/"]`
+
+#### `extend_exclude`
+
+Patterns added to `exclude`, so the default list stays.
+
+```toml
+[lint]
+extend_exclude = ["generated/"]
+```
+
+#### `respect_gitignore`
+
+Whether the `.gitignore` files of the tree, and of the folders above it, exclude files from a folder run.
+**Default:** `true`. The `.gitignore` files count whether or not the folder is a git repository.
+
+#### `force_exclude`
+
+Whether `exclude` also applies to files named on the command line. **Default:** `false`, because naming a file is asking for
+it. Turn it on when an editor or a [pre-commit hook](usage/pre-commit.md#excluded-files) passes every changed file and you still want `exclude` to hold.
+
+```toml
+[lint]
+exclude = ["vendor/"]
+force_exclude = true
+```
 
 ### `matlab_config`
 
@@ -218,7 +268,7 @@ The named preset to base the configuration on. See [Presets](#presets).
 preset = "recommended"
 ```
 
-**Type:** string (`"all"`, `"mathworks"`, or `"recommended"`)
+**Type:** string (`"all"`, `"mathworks"`, `"recommended"` or `"monkeyproof"`)
 **Default:** `"mathworks"`
 
 ### `experimental`
