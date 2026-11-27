@@ -4,15 +4,9 @@ icon: lucide/git-branch
 
 # CI/CD integration
 
-::: info Coming Soon
+## GitHub Actions
 
-CI/CD integration guides are planned for a future release. This page sketches the intended workflow.
-
-:::
-
-## GitHub Actions (planned)
-
-Once malt is published to crates.io, a GitHub Action will be available:
+The [malt action](github-action.md) lints the workspace and reports annotations and a job summary, with no install step:
 
 ```yaml title=".github/workflows/lint.yml"
 name: Lint MATLAB
@@ -23,12 +17,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: watermarkhu/malt-action@main  # planned
+      - uses: watermarkhu/malt@v0
 ```
 
 ## Manual CI setup
 
-Install malt and run it in the folder. Without a path it lints the current folder and everything below it, and `exclude` in `.malt.toml` decides what to skip. `--output github` turns the findings into annotations and a step summary:
+To use the command line instead of the action, install malt and run it in the folder. Without a path it lints the current folder and everything below it, and `exclude` in `.malt.toml` decides what to skip. `--output github` turns the findings into annotations and a step summary:
 
 ```yaml title=".github/workflows/lint.yml"
 name: Lint MATLAB

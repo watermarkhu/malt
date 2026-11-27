@@ -201,11 +201,65 @@ jobs:
     with:
       push: false
 
+  # The GitHub Action: its tests, then the action itself on a sample project. It uses the
+  # wasm package that the build job made, as the release does.
+  action:
+    name: GitHub Action
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Download WASM package
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: wasm-pkg
+          path: wasm-pkg/pkg
+
+      - name: Setup mise
+        uses: jdx/mise-action@b44d12e7d0d8ee7461bb893e1b1993500433185b # v5.2.7
+        with:
+          experimental: true
+          install: true
+          install_args: "bun node"
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Build the action
+        run: bun action/build.mjs wasm-pkg/pkg
+
+      - name: Test the action
+        run: bun test action
+
+      - name: Run the action on a sample project
+        id: malt
+        uses: ./
+        with:
+          paths: action/test/project
+          fail-on: never
+          output-json: ${{ runner.temp }}/malt-results.json
+
+      - name: Check the results
+        env:
+          FINDINGS: ${{ steps.malt.outputs.findings }}
+          ERRORS: ${{ steps.malt.outputs.errors }}
+          RESULTS: ${{ steps.malt.outputs.results-file }}
+        run: |
+          test "${ERRORS}" -ge 1
+          test "${FINDINGS}" -ge "${ERRORS}"
+          test "$(jq -r '.schema_version' "${RESULTS}")" = "1"
+          test "$(jq -r '.summary.findings' "${RESULTS}")" = "${FINDINGS}"
+          jq -e '.findings | map(.file) | all(. == "action/test/project/bad.m")' "${RESULTS}"
+
   # Single required status check for branch protection.
   qualified:
     name: Qualified
     if: always()
-    needs: [lint, test, matlab, python, build, docs]
+    needs: [lint, test, matlab, python, build, docs, action]
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:

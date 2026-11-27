@@ -12,10 +12,14 @@
 //! empty library.
 
 #[cfg(feature = "wasm")]
+mod action;
+
+#[cfg(feature = "wasm")]
 mod wasm {
     use std::collections::HashMap;
     use std::path::Path;
 
+    use malt_core::report::Record;
     use malt_core::{fix_source, position_of, Config, Diagnostic, FixMode, RuleRegistry, Severity};
     use wasm_bindgen::prelude::*;
 
@@ -179,7 +183,33 @@ mod wasm {
     /// Build a `Linter` from a `.malt.toml` string, returning a plain error
     /// string (host-testable; the `#[wasm_bindgen]` wrapper maps it to `JsValue`).
     fn from_toml_str(toml: &str) -> Result<Linter, String> {
-        let malt_config = Config::from_toml(toml).map_err(|e| format!("Invalid config: {e}"))?;
+        from_toml_with_str(toml, "{}")
+    }
+
+    /// Like [`from_toml_str`], with overrides given as a JSON object that win over the
+    /// file: `{"preset": "monkeyproof"}`. An unknown preset or key is an error.
+    pub(crate) fn from_toml_with_str(toml: &str, overrides: &str) -> Result<Linter, String> {
+        let mut malt_config =
+            Config::from_toml(toml).map_err(|e| format!("Invalid config: {e}"))?;
+        let overrides: serde_json::Map<String, serde_json::Value> =
+            serde_json::from_str(overrides).map_err(|e| format!("Invalid overrides: {e}"))?;
+        for (key, value) in &overrides {
+            match (key.as_str(), value) {
+                ("preset", serde_json::Value::String(name)) if !name.is_empty() => {
+                    let preset = malt_core::preset::resolve(name).ok_or_else(|| {
+                        let names = malt_core::preset::PRESETS
+                            .iter()
+                            .map(|p| p.name)
+                            .collect::<Vec<_>>()
+                            .join(", ");
+                        format!("Unknown preset '{name}' (expected one of: {names})")
+                    })?;
+                    malt_config.set_preset(preset);
+                }
+                ("preset", _) => {}
+                _ => return Err(format!("Unknown override '{key}'")),
+            }
+        }
         let warnings = malt_rules::config_check::config_warnings(&malt_config);
         let mut linter = build_linter(malt_config);
         linter.config_warnings = warnings;
@@ -197,7 +227,41 @@ mod wasm {
     #[wasm_bindgen]
     pub struct Linter {
         linter: malt_core::Linter,
+        config: Config,
         config_warnings: Vec<String>,
+    }
+
+    impl Linter {
+        /// The resolved configuration.
+        pub(crate) fn config(&self) -> &Config {
+            &self.config
+        }
+
+        /// The warnings found while reading the configuration.
+        pub(crate) fn config_warnings(&self) -> &[String] {
+            &self.config_warnings
+        }
+    }
+
+    /// The findings of `content` as records for the file at `path`: what the outputs of
+    /// `malt_core::report` are written from. A file that cannot be analyzed gives one
+    /// error record.
+    pub(crate) fn records_of(linter: &mut Linter, content: &str, path: &str) -> Vec<Record> {
+        match linter.linter.lint(content, Path::new(path)) {
+            Ok(diagnostics) => diagnostics
+                .iter()
+                .map(|d| Record::new(Path::new(path), d))
+                .collect(),
+            Err(e) => vec![Record {
+                path: path.to_string(),
+                line: 1,
+                column: 1,
+                rule_id: "MALT_ERROR".to_string(),
+                severity: Severity::Error,
+                message: e.to_string(),
+                fix: None,
+            }],
+        }
     }
 
     /// Build a `Linter` from a JS-facing config (shared with tests).
@@ -218,6 +282,7 @@ mod wasm {
         linter.set_limits(malt_config.limits.resolve(malt_core::Limits::wasm()));
         Linter {
             linter,
+            config: malt_config,
             config_warnings: Vec::new(),
         }
     }
@@ -250,6 +315,12 @@ mod wasm {
         /// * `toml` - The contents of a `.malt.toml` file.
         pub fn from_toml(toml: &str) -> Result<Linter, JsValue> {
             from_toml_str(toml).map_err(|e| JsValue::from_str(&e))
+        }
+
+        /// Create a new `Linter` from a `.malt.toml` string and overrides that win over
+        /// it, as a JSON object: `{"preset": "monkeyproof"}`.
+        pub fn from_toml_with(toml: &str, overrides: &str) -> Result<Linter, JsValue> {
+            from_toml_with_str(toml, overrides).map_err(|e| JsValue::from_str(&e))
         }
 
         /// Lint MATLAB content and return warnings as JSON.
@@ -307,6 +378,82 @@ mod wasm {
         }
     }
 
+    /// The file system of a run, as three JavaScript callbacks: `stat(path)` gives
+    /// `"file"`, `"dir"`, `"other"` or null; `list(dir)` an array of `[name, kind]` (and
+    /// throws when the folder cannot be read); `read(path)` a `Uint8Array` or null.
+    struct JsFs {
+        stat: js_sys::Function,
+        list: js_sys::Function,
+        read: js_sys::Function,
+    }
+
+    fn kind_of(value: &JsValue) -> Option<malt_core::files::Kind> {
+        use malt_core::files::Kind;
+        match value.as_string()?.as_str() {
+            "file" => Some(Kind::File),
+            "dir" => Some(Kind::Dir),
+            "other" => Some(Kind::Other),
+            _ => None,
+        }
+    }
+
+    impl malt_core::files::Fs for JsFs {
+        fn kind(&self, path: &str) -> Option<malt_core::files::Kind> {
+            let value = self
+                .stat
+                .call1(&JsValue::NULL, &JsValue::from_str(path))
+                .ok()?;
+            kind_of(&value)
+        }
+
+        fn list(&self, dir: &str) -> Result<Vec<(String, malt_core::files::Kind)>, String> {
+            let value = self
+                .list
+                .call1(&JsValue::NULL, &JsValue::from_str(dir))
+                .map_err(|e| {
+                    e.as_string()
+                        .unwrap_or_else(|| "cannot read the folder".into())
+                })?;
+            let mut entries = Vec::new();
+            for entry in js_sys::Array::from(&value).iter() {
+                let pair = js_sys::Array::from(&entry);
+                let name = pair.get(0).as_string().unwrap_or_default();
+                let kind = kind_of(&pair.get(1)).unwrap_or(malt_core::files::Kind::Other);
+                entries.push((name, kind));
+            }
+            Ok(entries)
+        }
+
+        fn read(&self, path: &str) -> Option<Vec<u8>> {
+            let value = self
+                .read
+                .call1(&JsValue::NULL, &JsValue::from_str(path))
+                .ok()?;
+            if value.is_null() || value.is_undefined() {
+                return None;
+            }
+            Some(js_sys::Uint8Array::new(&value).to_vec())
+        }
+    }
+
+    /// Run the GitHub Action: the raw inputs as a JSON object, and the file system as three
+    /// callbacks (see `JsFs`). Returns a JSON object: `stdout`, `summary_markdown`,
+    /// `results_json`, `findings`, `errors`, `warnings`, `files` and `failed`. An invalid
+    /// input is an error string.
+    #[wasm_bindgen]
+    pub fn run_action(
+        inputs: &str,
+        stat: js_sys::Function,
+        list: js_sys::Function,
+        read: js_sys::Function,
+    ) -> Result<String, JsValue> {
+        let inputs: crate::action::Inputs = serde_json::from_str(inputs)
+            .map_err(|e| JsValue::from_str(&format!("Invalid inputs: {e}")))?;
+        let outcome = crate::action::run(&JsFs { stat, list, read }, &inputs)
+            .map_err(|e| JsValue::from_str(&e))?;
+        serde_json::to_string(&outcome).map_err(|e| JsValue::from_str(&e.to_string()))
+    }
+
     /// Initialize the WASM module with better panic messages.
     #[wasm_bindgen(start)]
     pub fn init() {
@@ -319,6 +466,52 @@ mod wasm {
 
         fn linter() -> Linter {
             from_config(LinterConfig::default())
+        }
+
+        #[test]
+        fn overrides_win_over_the_toml() {
+            let source = "function f(x)\n  y = 1;\nend\n";
+            let ids = |l: &mut Linter| -> Vec<String> {
+                records_of(l, source, "a.m")
+                    .iter()
+                    .map(|r| r.rule_id.clone())
+                    .collect()
+            };
+            let mut plain = from_toml_with_str("[lint]\npreset = \"mathworks\"\n", "{}").unwrap();
+            assert!(!ids(&mut plain).iter().any(|id| id.starts_with("MP_")));
+            let mut monkeyproof = from_toml_with_str(
+                "[lint]\npreset = \"mathworks\"\n",
+                r#"{"preset": "monkeyproof"}"#,
+            )
+            .unwrap();
+            assert!(ids(&mut monkeyproof).iter().any(|id| id.starts_with("MP_")));
+        }
+
+        #[test]
+        fn an_empty_preset_override_keeps_the_file() {
+            let linter =
+                from_toml_with_str("[lint]\npreset = \"recommended\"\n", r#"{"preset": ""}"#)
+                    .unwrap();
+            assert_eq!(linter.config().preset.name, "recommended");
+        }
+
+        #[test]
+        fn bad_overrides_are_errors() {
+            let unknown_preset = from_toml_with_str("", r#"{"preset": "bogus"}"#)
+                .err()
+                .unwrap();
+            assert!(
+                unknown_preset.contains("Unknown preset 'bogus'"),
+                "{unknown_preset}"
+            );
+            let unknown_key = from_toml_with_str("", r#"{"colour": "red"}"#)
+                .err()
+                .unwrap();
+            assert!(
+                unknown_key.contains("Unknown override 'colour'"),
+                "{unknown_key}"
+            );
+            assert!(from_toml_with_str("", "not json").is_err());
         }
 
         /// Every conformance fixture (`matlab_files.txt`, with the findings MATLAB R2026b

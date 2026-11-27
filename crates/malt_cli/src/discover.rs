@@ -1,21 +1,17 @@
-//! Finding the files of a run.
+//! Finding the files of a run on the command line: the shared search of
+//! [`malt_core::files`] over the real file system.
 //!
-//! A path named on the command line is a file or a folder. A file is linted as it is. A
-//! folder is searched, recursively, for the files that `[lint] include` picks up, minus
-//! what `exclude` (and `extend_exclude`) skips and, with `respect_gitignore`, what the
-//! `.gitignore` files of the tree ignore. Without any path, the current folder is the one
-//! searched.
-//!
-//! Patterns are gitignore patterns (`vendor/`, `**/generated`, `test/*.m`) anchored at the
-//! folder of the configuration file, which is the current folder without one.
+//! A path named on the command line is a file or a folder. Without any path, the current
+//! folder is the one searched. Patterns are anchored at the folder of the configuration file,
+//! which is the current folder without one.
 
 use std::collections::HashSet;
 use std::env;
+use std::fs;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
-use ignore::gitignore::{Gitignore, GitignoreBuilder};
-use ignore::WalkBuilder;
+use malt_core::files::{self, Fs, Kind};
 use malt_core::Config;
 
 /// The files of a run, and what the search found along the way.
@@ -25,143 +21,120 @@ pub struct Found {
     pub files: Vec<PathBuf>,
     /// The folders that were searched.
     pub searched: Vec<PathBuf>,
-    /// Entries that could not be read (a broken link, a folder without permission). They
-    /// are skipped, and the rest of the search goes on.
+    /// Entries that could not be read (a folder without permission). They are skipped, and
+    /// the rest of the search goes on.
     pub warnings: Vec<String>,
+}
+
+/// The real file system under the anchor folder.
+struct StdFs {
+    root: PathBuf,
+}
+
+impl StdFs {
+    fn real(&self, path: &str) -> PathBuf {
+        if path == "." {
+            self.root.clone()
+        } else {
+            self.root.join(path)
+        }
+    }
+}
+
+impl Fs for StdFs {
+    fn kind(&self, path: &str) -> Option<Kind> {
+        // A path that was named follows links, as `path.is_dir()` does.
+        let meta = fs::metadata(self.real(path)).ok()?;
+        Some(if meta.is_dir() {
+            Kind::Dir
+        } else if meta.is_file() {
+            Kind::File
+        } else {
+            Kind::Other
+        })
+    }
+
+    fn list(&self, dir: &str) -> Result<Vec<(String, Kind)>, String> {
+        let entries = fs::read_dir(self.real(dir)).map_err(|e| e.to_string())?;
+        let mut out = Vec::new();
+        for entry in entries {
+            let entry = entry.map_err(|e| e.to_string())?;
+            let kind = match entry.file_type() {
+                Ok(t) if t.is_dir() => Kind::Dir,
+                Ok(t) if t.is_file() => Kind::File,
+                _ => Kind::Other,
+            };
+            out.push((entry.file_name().to_string_lossy().into_owned(), kind));
+        }
+        Ok(out)
+    }
+
+    fn read(&self, path: &str) -> Option<Vec<u8>> {
+        fs::read(self.real(path)).ok()
+    }
 }
 
 /// Find the files of a run: `paths` (the current folder when empty), searched and
 /// filtered by `config`, with patterns anchored at `anchor`.
+///
+/// A path below the anchor is searched with the patterns relative to the anchor. A folder
+/// elsewhere (another drive, a temporary folder) is searched with its own folder as the
+/// anchor; a file elsewhere is linted as named.
 pub fn discover(paths: &[PathBuf], config: &Config, anchor: &Path) -> Result<Found> {
-    let anchor = absolute(anchor)?;
-    let exclude = matcher(&anchor, &config.exclude)?;
-    let include = matcher(&anchor, &config.include)?;
-    let default = [PathBuf::from(".")];
-    let paths = if paths.is_empty() { &default } else { paths };
+    files::validate_patterns(config).map_err(anyhow::Error::msg)?;
+    let cwd = env::current_dir().context("cannot read the current folder")?;
+    let anchor = absolute(anchor, &cwd);
+    let named: Vec<PathBuf> = if paths.is_empty() {
+        vec![PathBuf::from(".")]
+    } else {
+        paths.to_vec()
+    };
 
-    let mut found = Found::default();
-    let mut seen = HashSet::new();
-    let mut add = |file: PathBuf, found: &mut Found| {
+    let mut result = Found::default();
+    let mut seen: HashSet<PathBuf> = HashSet::new();
+    let mut add = |file: PathBuf, result: &mut Found| {
         if seen.insert(file.clone()) {
-            found.files.push(file);
+            result.files.push(file);
         }
     };
-    for path in paths {
-        if path.is_dir() {
-            found.searched.push(path.clone());
-            let (files, warnings) = search(path, config, &anchor, &exclude, &include);
-            found.warnings.extend(warnings);
-            for file in files {
-                add(file, &mut found);
-            }
-        } else if config.force_exclude && excluded(&exclude, &anchor, path, false, true) {
-            continue;
-        } else {
-            add(path.clone(), &mut found);
-        }
-    }
-    Ok(found)
-}
-
-/// The files of one folder, in path order.
-fn search(
-    root: &Path,
-    config: &Config,
-    anchor: &Path,
-    exclude: &Gitignore,
-    include: &Gitignore,
-) -> (Vec<PathBuf>, Vec<String>) {
-    let mut walk = WalkBuilder::new(root);
-    walk.hidden(false)
-        .parents(config.respect_gitignore)
-        .git_ignore(config.respect_gitignore)
-        .git_exclude(config.respect_gitignore)
-        .git_global(false)
-        .ignore(false)
-        .require_git(false)
-        .sort_by_file_path(|a, b| a.cmp(b));
-    let anchor = anchor.to_path_buf();
-    let skip = exclude.clone();
-    // The walk prunes an excluded folder, so only the entry itself is matched, and the
-    // folder that was named is never skipped.
-    walk.filter_entry(move |entry| {
-        let is_dir = entry.file_type().is_some_and(|t| t.is_dir());
-        entry.depth() == 0 || !excluded(&skip, &anchor, entry.path(), is_dir, false)
-    });
-
-    let mut files = Vec::new();
-    let mut warnings = Vec::new();
-    for entry in walk.build() {
-        let entry = match entry {
-            Ok(entry) => entry,
-            Err(err) => {
-                warnings.push(format!("skipped an unreadable entry: {err}"));
+    for original in &named {
+        let abs = absolute(original, &cwd);
+        let (root, virtual_path) = match abs.strip_prefix(&anchor) {
+            Ok(relative) => (
+                anchor.clone(),
+                files::normalize(&relative.to_string_lossy()),
+            ),
+            Err(_) if abs.is_dir() => (abs.clone(), ".".to_string()),
+            Err(_) => {
+                add(original.clone(), &mut result);
                 continue;
             }
         };
-        if !entry.file_type().is_some_and(|t| t.is_file()) {
-            continue;
+        let stdfs = StdFs { root: root.clone() };
+        let found = files::discover(&stdfs, &[virtual_path], config);
+        result.warnings.extend(found.warnings);
+        if found.searched.is_empty() {
+            // A file, or a path that does not exist (linting it reports NOFIL where it was
+            // named): printed as it was named.
+            for _ in &found.files {
+                add(original.clone(), &mut result);
+            }
+        } else {
+            result.searched.push(original.clone());
+            for file in &found.files {
+                let real = stdfs.real(file);
+                add(tidy(real.strip_prefix(&cwd).unwrap_or(&real)), &mut result);
+            }
         }
-        if !included(include, entry.path()) {
-            continue;
-        }
-        files.push(tidy(entry.path()));
     }
-    (files, warnings)
+    Ok(result)
 }
 
-/// A gitignore matcher for `patterns`, anchored at `anchor`.
-fn matcher(anchor: &Path, patterns: &[String]) -> Result<Gitignore> {
-    let mut builder = GitignoreBuilder::new(anchor);
-    for pattern in patterns {
-        builder
-            .add_line(None, pattern)
-            .with_context(|| format!("invalid pattern in the configuration: {pattern}"))?;
-    }
-    builder
-        .build()
-        .context("invalid patterns in the configuration")
-}
-
-/// Whether `path` matches an exclude pattern; with `parents`, also when a folder above it
-/// (below the anchor) does.
-fn excluded(exclude: &Gitignore, anchor: &Path, path: &Path, is_dir: bool, parents: bool) -> bool {
-    let Some(relative) = relative_to(anchor, path) else {
-        return false;
-    };
-    if relative.as_os_str().is_empty() {
-        return false;
-    }
-    if parents {
-        exclude
-            .matched_path_or_any_parents(&relative, is_dir)
-            .is_ignore()
-    } else {
-        exclude.matched(&relative, is_dir).is_ignore()
-    }
-}
-
-/// Whether a file matches an include pattern: by its name for a pattern without a slash
-/// (`*.m`), by its path from the anchor otherwise.
-fn included(include: &Gitignore, path: &Path) -> bool {
-    let name = path.file_name().map(Path::new);
-    name.is_some_and(|name| include.matched(name, false).is_ignore())
-        || include.matched(path, false).is_ignore()
-}
-
-/// `path` below `anchor`, as a relative path; `None` when it is not below it.
-fn relative_to(anchor: &Path, path: &Path) -> Option<PathBuf> {
-    let absolute = absolute(path).ok()?;
-    absolute.strip_prefix(anchor).ok().map(Path::to_path_buf)
-}
-
-fn absolute(path: &Path) -> Result<PathBuf> {
+fn absolute(path: &Path, cwd: &Path) -> PathBuf {
     if path.is_absolute() {
-        Ok(path.to_path_buf())
+        path.to_path_buf()
     } else {
-        Ok(env::current_dir()
-            .context("cannot read the current folder")?
-            .join(path))
+        cwd.join(path)
     }
 }
 

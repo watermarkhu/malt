@@ -27,6 +27,15 @@ configuration, `--fix` and a few rule IDs changed.
 PyPI and crates.io install the same `malt` command; the npm package is a
 WebAssembly library for browsers and Node.js.
 
+## GitHub Action
+
+```yaml
+- uses: actions/checkout@v4
+- uses: watermarkhu/malt@v0
+```
+
+Annotations, a job summary and a JSON results file, with no install step. See the [action docs](https://watermarkhu.nl/malt/usage/github-action).
+
 ## Usage
 
 ```bash

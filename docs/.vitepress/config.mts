@@ -56,6 +56,7 @@ export default defineConfig({
             { text: 'CLI Reference', link: '/usage/cli' },
             { text: 'Editor Integration', link: '/usage/editors' },
             { text: 'CI/CD', link: '/usage/ci-cd' },
+            { text: 'GitHub Action', link: '/usage/github-action' },
             { text: 'WebAssembly & npm', link: '/usage/wasm' },
           ],
         },
