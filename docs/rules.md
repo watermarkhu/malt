@@ -20,7 +20,7 @@ icon: lucide/list-checks
 | [`LANGUAGE_SPEC_ENGINE`](rules/language-spec.md) | Language Specification | Language specification constraint violation | Error | Yes | Mixed (13 of 161 experimental) |
 | [`MP_FUNCTIONS_ENGINE`](rules/monkeyproof-functions.md) | MonkeyProof Coding Standard | Emits 0 check IDs (see the rule page for details). | Info | No | Stable |
 | [`MP_LAYOUT_ENGINE`](rules/monkeyproof-layout.md) | MonkeyProof Coding Standard | Emits 0 check IDs (see the rule page for details). | Info | No | Stable |
-| [`MP_NAMING_ENGINE`](rules/monkeyproof-naming.md) | MonkeyProof Coding Standard | Emits 0 check IDs (see the rule page for details). | Info | No | Stable |
+| [`MP_NAMING_ENGINE`](rules/monkeyproof-naming.md) | MonkeyProof Coding Standard | Emits 7 check IDs (see the rule page for details). | Info | No | Stable |
 | [`MP_SECURITY_ENGINE`](rules/monkeyproof-security.md) | MonkeyProof Coding Standard | Emits 0 check IDs (see the rule page for details). | Info | No | Stable |
 | [`MP_STATEMENTS_ENGINE`](rules/monkeyproof-statements.md) | MonkeyProof Coding Standard | Emits 0 check IDs (see the rule page for details). | Info | No | Stable |
 | [`NAMING_ENGINE`](rules/naming.md) | Naming | Naming convention checks (81 sub-rules for 9 entity types x 9 check types) | Info | No | Mixed (77 of 81 experimental) |
@@ -38,7 +38,7 @@ These rows are generated from the rule docstrings by `docs/scripts/gen_rules_doc
 
 <!-- GENERATED: Check Counts -->
 
-**How many checks malt implements.** 2698 unique check IDs, counted from the rule sources whenever these pages are generated: 532 in the engine tables above, 81 `naming.<entity>.<check>` IDs, 6 single-check rules (`MP_FUNCTIONS_ENGINE`, `MP_LAYOUT_ENGINE`, `MP_NAMING_ENGINE`, `MP_SECURITY_ENGINE`, `MP_STATEMENTS_ENGINE`, `NOSEMI`), 1832 compatibility entries (920 compatibility, 7 forward-compatibility, 905 behavior-changes; 914 of them are low-reliability and off by default), 243 suggested-improvement entries (241 unique IDs), and 6 emitted outside the rule engines (`MSNE`, `MSNU`, `QUIT`, `NOFIL`, `RDERR`, `SZCLN`). 1344 of them are experimental (verified against the documentation only, or low-reliability: off by default, see [Experimental checks](configuration.md#experimental-checks)). Which of them are on by default, and which engines are verified against MATLAB, is on the [How malt is verified](verification.md) page.
+**How many checks malt implements.** 2704 unique check IDs, counted from the rule sources whenever these pages are generated: 539 in the engine tables above, 81 `naming.<entity>.<check>` IDs, 5 single-check rules (`MP_FUNCTIONS_ENGINE`, `MP_LAYOUT_ENGINE`, `MP_SECURITY_ENGINE`, `MP_STATEMENTS_ENGINE`, `NOSEMI`), 1832 compatibility entries (920 compatibility, 7 forward-compatibility, 905 behavior-changes; 914 of them are low-reliability and off by default), 243 suggested-improvement entries (241 unique IDs), and 6 emitted outside the rule engines (`MSNE`, `MSNU`, `QUIT`, `NOFIL`, `RDERR`, `SZCLN`). 1344 of them are experimental (verified against the documentation only, or low-reliability: off by default, see [Experimental checks](configuration.md#experimental-checks)). Which of them are on by default, and which engines are verified against MATLAB, is on the [How malt is verified](verification.md) page.
 
 ## Data-Driven Check IDs
 
