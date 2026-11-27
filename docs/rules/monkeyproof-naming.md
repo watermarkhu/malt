@@ -11,7 +11,7 @@ icon: lucide/type
 **Enabled by default:** Yes
 **Maturity:** Stable
 
-> *Not part of MATLAB's Code Analyzer. Off unless the monkeyproof preset or category is on.*
+> *Not part of MATLAB's Code Analyzer, and malt is not affiliated with MonkeyProof Solutions. Off unless the monkeyproof preset or category is on.*
 
 ## What this rule does
 
