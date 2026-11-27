@@ -414,6 +414,7 @@ dependencies = [
 name = "malt-core"
 version = "0.0.0"
 dependencies = [
+ "ignore",
  "regex",
  "serde",
  "serde_json",
@@ -467,6 +468,7 @@ name = "malt_wasm"
 version = "0.0.0"
 dependencies = [
  "console_error_panic_hook",
+ "js-sys",
  "malt-core",
  "malt-rules",
  "serde",

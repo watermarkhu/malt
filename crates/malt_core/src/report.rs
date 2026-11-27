@@ -107,7 +107,7 @@ pub fn severity_name(severity: Severity) -> &'static str {
 // ---------------------------------------------------------------------------
 
 /// Escape the message part of a workflow command (`%`, CR and LF).
-fn escape_data(text: &str) -> String {
+pub fn escape_data(text: &str) -> String {
     text.replace('%', "%25")
         .replace('\r', "%0D")
         .replace('\n', "%0A")

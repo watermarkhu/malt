@@ -12,11 +12,14 @@
 //! empty library.
 
 #[cfg(feature = "wasm")]
+mod action;
+
+#[cfg(feature = "wasm")]
 mod wasm {
     use std::collections::HashMap;
     use std::path::Path;
 
-    use malt_core::report::{self, Record};
+    use malt_core::report::Record;
     use malt_core::{fix_source, position_of, Config, Diagnostic, FixMode, RuleRegistry, Severity};
     use wasm_bindgen::prelude::*;
 
@@ -185,7 +188,7 @@ mod wasm {
 
     /// Like [`from_toml_str`], with overrides given as a JSON object that win over the
     /// file: `{"preset": "monkeyproof"}`. An unknown preset or key is an error.
-    fn from_toml_with_str(toml: &str, overrides: &str) -> Result<Linter, String> {
+    pub(crate) fn from_toml_with_str(toml: &str, overrides: &str) -> Result<Linter, String> {
         let mut malt_config =
             Config::from_toml(toml).map_err(|e| format!("Invalid config: {e}"))?;
         let overrides: serde_json::Map<String, serde_json::Value> =
@@ -226,6 +229,39 @@ mod wasm {
         linter: malt_core::Linter,
         config: Config,
         config_warnings: Vec<String>,
+    }
+
+    impl Linter {
+        /// The resolved configuration.
+        pub(crate) fn config(&self) -> &Config {
+            &self.config
+        }
+
+        /// The warnings found while reading the configuration.
+        pub(crate) fn config_warnings(&self) -> &[String] {
+            &self.config_warnings
+        }
+    }
+
+    /// The findings of `content` as records for the file at `path`: what the outputs of
+    /// `malt_core::report` are written from. A file that cannot be analyzed gives one
+    /// error record.
+    pub(crate) fn records_of(linter: &mut Linter, content: &str, path: &str) -> Vec<Record> {
+        match linter.linter.lint(content, Path::new(path)) {
+            Ok(diagnostics) => diagnostics
+                .iter()
+                .map(|d| Record::new(Path::new(path), d))
+                .collect(),
+            Err(e) => vec![Record {
+                path: path.to_string(),
+                line: 1,
+                column: 1,
+                rule_id: "MALT_ERROR".to_string(),
+                severity: Severity::Error,
+                message: e.to_string(),
+                fix: None,
+            }],
+        }
     }
 
     /// Build a `Linter` from a JS-facing config (shared with tests).
@@ -282,41 +318,9 @@ mod wasm {
         }
 
         /// Create a new `Linter` from a `.malt.toml` string and overrides that win over
-        /// it, as a JSON object: `{"preset": "monkeyproof"}`. This is how the GitHub
-        /// Action lets its inputs overrule the file.
+        /// it, as a JSON object: `{"preset": "monkeyproof"}`.
         pub fn from_toml_with(toml: &str, overrides: &str) -> Result<Linter, JsValue> {
             from_toml_with_str(toml, overrides).map_err(|e| JsValue::from_str(&e))
-        }
-
-        /// The settings that decide which files a folder run picks up, as JSON:
-        /// `include`, `exclude` (with `extend_exclude` added), `respect_gitignore` and
-        /// `force_exclude`.
-        pub fn get_file_settings(&self) -> String {
-            file_settings_json(&self.config)
-        }
-
-        /// Lint MATLAB content and return the findings as records, a JSON array of
-        /// `{file, line, column, rule, severity, message, fix}`, the input of
-        /// `github_annotations`, `step_summary` and `results_json`.
-        pub fn check_records(&mut self, content: &str, path: &str) -> String {
-            records_json(&mut self.linter, content, path)
-        }
-
-        /// The JSON results file of a run, as `--output-json` writes it: the malt
-        /// version, this linter's configuration, the files, a summary and the findings.
-        ///
-        /// # Arguments
-        /// * `records` - A JSON array of records (see `check_records`).
-        /// * `files` - A JSON array of the files linted.
-        /// * `config_file` - The configuration file that was read, if any.
-        pub fn results_json(
-            &self,
-            records: &str,
-            files: &str,
-            config_file: Option<String>,
-        ) -> Result<String, JsValue> {
-            results_json_str(&self.config, records, files, config_file.as_deref())
-                .map_err(|e| JsValue::from_str(&e))
         }
 
         /// Lint MATLAB content and return warnings as JSON.
@@ -374,99 +378,80 @@ mod wasm {
         }
     }
 
-    /// GitHub Actions workflow commands for a JSON array of records, one per line.
-    /// `workspace` is `GITHUB_WORKSPACE`: paths are made relative to it.
-    #[wasm_bindgen]
-    pub fn github_annotations(records: &str, workspace: Option<String>) -> Result<String, JsValue> {
-        github_annotations_str(records, workspace.as_deref()).map_err(|e| JsValue::from_str(&e))
+    /// The file system of a run, as three JavaScript callbacks: `stat(path)` gives
+    /// `"file"`, `"dir"`, `"other"` or null; `list(dir)` an array of `[name, kind]` (and
+    /// throws when the folder cannot be read); `read(path)` a `Uint8Array` or null.
+    struct JsFs {
+        stat: js_sys::Function,
+        list: js_sys::Function,
+        read: js_sys::Function,
     }
 
-    /// The markdown step summary for a JSON array of records.
-    #[wasm_bindgen]
-    pub fn step_summary(records: &str, files_linted: usize) -> Result<String, JsValue> {
-        step_summary_str(records, files_linted).map_err(|e| JsValue::from_str(&e))
+    fn kind_of(value: &JsValue) -> Option<malt_core::files::Kind> {
+        use malt_core::files::Kind;
+        match value.as_string()?.as_str() {
+            "file" => Some(Kind::File),
+            "dir" => Some(Kind::Dir),
+            "other" => Some(Kind::Other),
+            _ => None,
+        }
     }
 
-    /// The findings of `content` as records (host-testable).
-    fn records_json(linter: &mut malt_core::Linter, content: &str, path: &str) -> String {
-        let diagnostics = match linter.lint(content, Path::new(path)) {
-            Ok(diagnostics) => diagnostics,
-            Err(e) => {
-                let record = Record {
-                    path: path.to_string(),
-                    line: 1,
-                    column: 1,
-                    rule_id: "MALT_ERROR".to_string(),
-                    severity: Severity::Error,
-                    message: e.to_string(),
-                    fix: None,
-                };
-                return serde_json::to_string(&[record.to_json()]).unwrap_or_else(|_| "[]".into());
+    impl malt_core::files::Fs for JsFs {
+        fn kind(&self, path: &str) -> Option<malt_core::files::Kind> {
+            let value = self
+                .stat
+                .call1(&JsValue::NULL, &JsValue::from_str(path))
+                .ok()?;
+            kind_of(&value)
+        }
+
+        fn list(&self, dir: &str) -> Result<Vec<(String, malt_core::files::Kind)>, String> {
+            let value = self
+                .list
+                .call1(&JsValue::NULL, &JsValue::from_str(dir))
+                .map_err(|e| {
+                    e.as_string()
+                        .unwrap_or_else(|| "cannot read the folder".into())
+                })?;
+            let mut entries = Vec::new();
+            for entry in js_sys::Array::from(&value).iter() {
+                let pair = js_sys::Array::from(&entry);
+                let name = pair.get(0).as_string().unwrap_or_default();
+                let kind = kind_of(&pair.get(1)).unwrap_or(malt_core::files::Kind::Other);
+                entries.push((name, kind));
             }
-        };
-        let records: Vec<serde_json::Value> = diagnostics
-            .iter()
-            .map(|d| Record::new(Path::new(path), d).to_json())
-            .collect();
-        serde_json::to_string(&records).unwrap_or_else(|_| "[]".to_string())
+            Ok(entries)
+        }
+
+        fn read(&self, path: &str) -> Option<Vec<u8>> {
+            let value = self
+                .read
+                .call1(&JsValue::NULL, &JsValue::from_str(path))
+                .ok()?;
+            if value.is_null() || value.is_undefined() {
+                return None;
+            }
+            Some(js_sys::Uint8Array::new(&value).to_vec())
+        }
     }
 
-    fn parse_records(records: &str) -> Result<Vec<Record>, String> {
-        let values: Vec<serde_json::Value> =
-            serde_json::from_str(records).map_err(|e| format!("Invalid records: {e}"))?;
-        values
-            .iter()
-            .map(|v| Record::from_json(v).ok_or_else(|| "Invalid record".to_string()))
-            .collect()
-    }
-
-    fn github_annotations_str(records: &str, workspace: Option<&str>) -> Result<String, String> {
-        let records = parse_records(records)?;
-        let workspace = workspace.map(Path::new);
-        Ok(records
-            .iter()
-            .map(|r| report::github_annotation(r, workspace))
-            .collect::<Vec<_>>()
-            .join("\n"))
-    }
-
-    fn step_summary_str(records: &str, files_linted: usize) -> Result<String, String> {
-        Ok(report::github_step_summary(
-            &parse_records(records)?,
-            files_linted,
-        ))
-    }
-
-    fn results_json_str(
-        config: &Config,
-        records: &str,
-        files: &str,
-        config_file: Option<&str>,
-    ) -> Result<String, String> {
-        let records = parse_records(records)?;
-        let files: Vec<String> =
-            serde_json::from_str(files).map_err(|e| format!("Invalid files: {e}"))?;
-        let mut with_findings: Vec<&str> = records.iter().map(|r| r.path.as_str()).collect();
-        with_findings.sort_unstable();
-        with_findings.dedup();
-        let run = report::RunInfo {
-            config_file: config_file.map(Path::new),
-            matlab_config: None,
-            files: &files,
-            files_with_findings: with_findings.len(),
-        };
-        serde_json::to_string_pretty(&report::results_json(config, &run, &records))
-            .map_err(|e| e.to_string())
-    }
-
-    fn file_settings_json(config: &Config) -> String {
-        serde_json::json!({
-            "include": config.include,
-            "exclude": config.exclude,
-            "respect_gitignore": config.respect_gitignore,
-            "force_exclude": config.force_exclude,
-        })
-        .to_string()
+    /// Run the GitHub Action: the raw inputs as a JSON object, and the file system as three
+    /// callbacks (see `JsFs`). Returns a JSON object: `stdout`, `summary_markdown`,
+    /// `results_json`, `findings`, `errors`, `warnings`, `files` and `failed`. An invalid
+    /// input is an error string.
+    #[wasm_bindgen]
+    pub fn run_action(
+        inputs: &str,
+        stat: js_sys::Function,
+        list: js_sys::Function,
+        read: js_sys::Function,
+    ) -> Result<String, JsValue> {
+        let inputs: crate::action::Inputs = serde_json::from_str(inputs)
+            .map_err(|e| JsValue::from_str(&format!("Invalid inputs: {e}")))?;
+        let outcome = crate::action::run(&JsFs { stat, list, read }, &inputs)
+            .map_err(|e| JsValue::from_str(&e))?;
+        serde_json::to_string(&outcome).map_err(|e| JsValue::from_str(&e.to_string()))
     }
 
     /// Initialize the WASM module with better panic messages.
@@ -483,30 +468,23 @@ mod wasm {
             from_config(LinterConfig::default())
         }
 
-        fn rule_ids(linter: &mut Linter, source: &str) -> Vec<String> {
-            let records: Vec<serde_json::Value> =
-                serde_json::from_str(&records_json(&mut linter.linter, source, "a.m")).unwrap();
-            records
-                .iter()
-                .map(|r| r["rule"].as_str().unwrap().to_string())
-                .collect()
-        }
-
         #[test]
         fn overrides_win_over_the_toml() {
             let source = "function f(x)\n  y = 1;\nend\n";
+            let ids = |l: &mut Linter| -> Vec<String> {
+                records_of(l, source, "a.m")
+                    .iter()
+                    .map(|r| r.rule_id.clone())
+                    .collect()
+            };
             let mut plain = from_toml_with_str("[lint]\npreset = \"mathworks\"\n", "{}").unwrap();
-            assert!(!rule_ids(&mut plain, source)
-                .iter()
-                .any(|id| id.starts_with("MP_")));
+            assert!(!ids(&mut plain).iter().any(|id| id.starts_with("MP_")));
             let mut monkeyproof = from_toml_with_str(
                 "[lint]\npreset = \"mathworks\"\n",
                 r#"{"preset": "monkeyproof"}"#,
             )
             .unwrap();
-            assert!(rule_ids(&mut monkeyproof, source)
-                .iter()
-                .any(|id| id.starts_with("MP_")));
+            assert!(ids(&mut monkeyproof).iter().any(|id| id.starts_with("MP_")));
         }
 
         #[test]
@@ -514,7 +492,7 @@ mod wasm {
             let linter =
                 from_toml_with_str("[lint]\npreset = \"recommended\"\n", r#"{"preset": ""}"#)
                     .unwrap();
-            assert_eq!(linter.config.preset.name, "recommended");
+            assert_eq!(linter.config().preset.name, "recommended");
         }
 
         #[test]
@@ -534,61 +512,6 @@ mod wasm {
                 "{unknown_key}"
             );
             assert!(from_toml_with_str("", "not json").is_err());
-        }
-
-        #[test]
-        fn file_settings_follow_the_resolved_config() {
-            let linter = from_toml_with_str(
-                "[lint]\nextend_exclude = [\"gen/\"]\nrespect_gitignore = false\n",
-                "{}",
-            )
-            .unwrap();
-            let v: serde_json::Value =
-                serde_json::from_str(&file_settings_json(&linter.config)).unwrap();
-            assert_eq!(v["include"], serde_json::json!(["*.m"]));
-            assert!(v["exclude"].as_array().unwrap().iter().any(|p| p == "gen/"));
-            assert!(v["exclude"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .any(|p| p == ".git/"));
-            assert_eq!(v["respect_gitignore"], false);
-            assert_eq!(v["force_exclude"], false);
-        }
-
-        #[test]
-        fn records_feed_the_annotations_the_summary_and_the_results() {
-            let mut linter = from_toml_with_str("", "{}").unwrap();
-            let records = records_json(&mut linter.linter, "x = 1\nfunction f(\n", "src/a.m");
-            let annotations = github_annotations_str(&records, Some("/work")).unwrap();
-            assert!(
-                annotations.contains("::notice file=src/a.m,line=1,col=3,title=NOPTS::"),
-                "{annotations}"
-            );
-            assert!(
-                annotations.contains("::error file=src/a.m,line=2,"),
-                "{annotations}"
-            );
-            let summary = step_summary_str(&records, 1).unwrap();
-            assert!(summary.starts_with("## malt"), "{summary}");
-            let results = results_json_str(
-                &linter.config,
-                &records,
-                r#"["src/a.m"]"#,
-                Some(".malt.toml"),
-            )
-            .unwrap();
-            let v: serde_json::Value = serde_json::from_str(&results).unwrap();
-            assert_eq!(v["malt_version"], env!("CARGO_PKG_VERSION"));
-            assert_eq!(v["config"]["config_file"], ".malt.toml");
-            assert_eq!(v["summary"]["files_with_findings"], 1);
-            assert_eq!(v["findings"].as_array().unwrap().len(), 2);
-        }
-
-        #[test]
-        fn invalid_records_are_an_error_not_a_panic() {
-            assert!(github_annotations_str("not json", None).is_err());
-            assert!(step_summary_str(r#"[{"file": 1}]"#, 0).is_err());
         }
 
         /// Every conformance fixture (`matlab_files.txt`, with the findings MATLAB R2026b

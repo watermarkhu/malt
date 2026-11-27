@@ -11,6 +11,7 @@
 
 pub mod config;
 pub mod diagnostic;
+pub mod files;
 pub mod fix;
 pub mod known_ids;
 pub mod limits;

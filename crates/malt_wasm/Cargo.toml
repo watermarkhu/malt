@@ -26,6 +26,7 @@ serde_json = "1"
 wasm-bindgen = { version = "0.2", optional = true }
 serde-wasm-bindgen = { version = "0.6", optional = true }
 console_error_panic_hook = { version = "0.1", optional = true }
+js-sys = { version = "0.3", optional = true }
 
 # `malt-rules` and `serde_json` are used only by the code behind the `wasm` feature and the
 # tests, so cargo's unused-dependency lint is a false alarm for the default feature set.
@@ -34,8 +35,9 @@ unused_dependencies = "allow"
 
 [features]
 default = []
-wasm = ["wasm-bindgen", "console_error_panic_hook", "serde-wasm-bindgen"]
+wasm = ["wasm-bindgen", "console_error_panic_hook", "serde-wasm-bindgen", "js-sys"]
 
 [dev-dependencies]
+malt-core = { workspace = true, features = ["test-util"] }
 tree-sitter.workspace = true
 tree-sitter-matlab.workspace = true

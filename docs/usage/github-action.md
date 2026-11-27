@@ -84,10 +84,9 @@ Add the [MonkeyProof coding standard](../monkeyproof.md) on top of the configura
 
 - **Annotations.** GitHub shows only the first 10 errors and 10 warnings of a step as annotations. The job summary lists every finding.
 - **The workspace.** The action runs in the workspace and reads `.malt.toml` from its root. To lint a subfolder, name it in `paths`. A configuration file inside a subfolder is not read.
-- **Nested `.gitignore` files** are read in each folder below the one you name. The ones above it are not.
 - **The path index** (`[index]` in `.malt.toml`) needs the file system and is not available in the WebAssembly build, so checks that read other files report as with the index off.
 - **Versions.** `@v0` is the moving tag of the latest 0.x release, and `@v0.3.0` is one release. Each release tag carries the bundled action; the `main` branch does not, so do not use `@main`.
 
-## What it writes
+## What it is
 
-The annotations and the job summary have the same format as `malt --output github` of the command line, and the results file the same keys as `--output-json`. See [Output formats](cli.md#output-formats) for both.
+The action is a thin shell around the `malt-wasm` package: it passes the inputs and the workspace's files to the same code the command line runs, and writes the result. Finding the files, reading `.malt.toml`, the annotations, the job summary and the results file are the same as for `malt --output github` and `--output-json`. See [Output formats](cli.md#output-formats) for the formats.
