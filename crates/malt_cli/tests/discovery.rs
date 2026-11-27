@@ -34,14 +34,13 @@ fn linted(output: &Output) -> Vec<String> {
     let mut files: Vec<String> = Vec::new();
     for line in stdout.lines() {
         if let Some((file, _)) = line.split_once(':') {
-            if (file.ends_with(".m") || file.ends_with(".txt"))
-                && files.last() != Some(&file.to_string())
-            {
+            if file.ends_with(".m") || file.ends_with(".txt") {
                 files.push(file.replace('\\', "/"));
             }
         }
     }
     files.sort();
+    files.dedup();
     files
 }
 
