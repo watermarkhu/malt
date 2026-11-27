@@ -5,9 +5,10 @@
 //! folder is the one searched. Patterns are anchored at the folder of the configuration file,
 //! which is the current folder without one.
 
+use std::collections::HashSet;
 use std::env;
 use std::fs;
-use std::path::{Component, Path, PathBuf};
+use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 use malt_core::files::{self, Fs, Kind};
@@ -75,54 +76,57 @@ impl Fs for StdFs {
 
 /// Find the files of a run: `paths` (the current folder when empty), searched and
 /// filtered by `config`, with patterns anchored at `anchor`.
+///
+/// A path below the anchor is searched with the patterns relative to the anchor. A folder
+/// elsewhere (another drive, a temporary folder) is searched with its own folder as the
+/// anchor; a file elsewhere is linted as named.
 pub fn discover(paths: &[PathBuf], config: &Config, anchor: &Path) -> Result<Found> {
     files::validate_patterns(config).map_err(anyhow::Error::msg)?;
     let cwd = env::current_dir().context("cannot read the current folder")?;
     let anchor = absolute(anchor, &cwd);
-    let stdfs = StdFs {
-        root: anchor.clone(),
-    };
-
-    // The search works on paths relative to the anchor; the files come back relative to the
-    // current folder, and a file that was named is printed as it was named.
-    let named: Vec<(String, PathBuf)> = if paths.is_empty() {
-        vec![(String::from("."), PathBuf::from("."))]
+    let named: Vec<PathBuf> = if paths.is_empty() {
+        vec![PathBuf::from(".")]
     } else {
-        paths
-            .iter()
-            .map(|p| (relative(&anchor, &absolute(p, &cwd)), p.clone()))
-            .collect()
+        paths.to_vec()
     };
-    let virtual_paths: Vec<String> = named.iter().map(|(v, _)| v.clone()).collect();
-    let found = files::discover(&stdfs, &virtual_paths, config);
 
-    let map = |virtual_path: &str| -> PathBuf {
-        match named
-            .iter()
-            .find(|(v, _)| files::normalize(v) == virtual_path)
-        {
-            Some((_, original)) => original.clone(),
-            None => {
-                let real = stdfs.real(virtual_path);
-                tidy(real.strip_prefix(&cwd).unwrap_or(&real))
-            }
+    let mut result = Found::default();
+    let mut seen: HashSet<PathBuf> = HashSet::new();
+    let mut add = |file: PathBuf, result: &mut Found| {
+        if seen.insert(file.clone()) {
+            result.files.push(file);
         }
     };
-    let result = Found {
-        files: found.files.iter().map(|f| map(f)).collect(),
-        searched: found
-            .searched
-            .iter()
-            .map(|s| {
-                named
-                    .iter()
-                    .find(|(v, _)| files::normalize(v) == *s)
-                    .map_or_else(|| map(s), |(_, original)| original.clone())
-            })
-            .collect(),
-        warnings: found.warnings,
-    };
-    // A named path that does not exist is in `files` in its place: linting it reports NOFIL.
+    for original in &named {
+        let abs = absolute(original, &cwd);
+        let (root, virtual_path) = match abs.strip_prefix(&anchor) {
+            Ok(relative) => (
+                anchor.clone(),
+                files::normalize(&relative.to_string_lossy()),
+            ),
+            Err(_) if abs.is_dir() => (abs.clone(), ".".to_string()),
+            Err(_) => {
+                add(original.clone(), &mut result);
+                continue;
+            }
+        };
+        let stdfs = StdFs { root: root.clone() };
+        let found = files::discover(&stdfs, &[virtual_path], config);
+        result.warnings.extend(found.warnings);
+        if found.searched.is_empty() {
+            // A file, or a path that does not exist (linting it reports NOFIL where it was
+            // named): printed as it was named.
+            for _ in &found.files {
+                add(original.clone(), &mut result);
+            }
+        } else {
+            result.searched.push(original.clone());
+            for file in &found.files {
+                let real = stdfs.real(file);
+                add(tidy(real.strip_prefix(&cwd).unwrap_or(&real)), &mut result);
+            }
+        }
+    }
     Ok(result)
 }
 
@@ -132,21 +136,6 @@ fn absolute(path: &Path, cwd: &Path) -> PathBuf {
     } else {
         cwd.join(path)
     }
-}
-
-/// `path` relative to `anchor`, with `/` and `..` where it is not below it.
-fn relative(anchor: &Path, path: &Path) -> String {
-    let anchor: Vec<Component> = anchor.components().collect();
-    let path: Vec<Component> = path.components().collect();
-    let common = anchor.iter().zip(&path).take_while(|(a, b)| a == b).count();
-    let mut parts: Vec<String> = Vec::new();
-    for _ in common..anchor.len() {
-        parts.push("..".to_string());
-    }
-    for part in &path[common..] {
-        parts.push(part.as_os_str().to_string_lossy().into_owned());
-    }
-    files::normalize(&parts.join("/"))
 }
 
 /// A path without a leading `./`.

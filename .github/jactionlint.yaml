@@ -21,3 +21,10 @@ ignores:
     file: .github/workflows/release.yml
     reason: bootstrap token until trusted publishers are configured on crates.io
     expires: "2026-12-06"
+
+  # The action's dist is built by the job that runs it (and by the release workflow into
+  # the release tag): it is never committed to main, so the file the linter looks for is
+  # not in the checkout.
+  - rule: invalid-local-action
+    file: .github/workflows/qualify.yml
+    reason: "action/dist is built in the job before the local action runs, and is not committed to main"
