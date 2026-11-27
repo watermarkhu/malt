@@ -8,7 +8,7 @@
 //! fix = false
 //! slug = "monkeyproof-naming"
 //! icon = "lucide/type"
-//! note = "Not part of MATLAB's Code Analyzer. Off unless the monkeyproof preset or category is on."
+//! note = "Not part of MATLAB's Code Analyzer, and malt is not affiliated with MonkeyProof Solutions. Off unless the monkeyproof preset or category is on."
 //! ```
 //!
 //! ## Rule

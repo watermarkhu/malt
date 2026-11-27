@@ -2,7 +2,9 @@
 //!
 //! The standard is published by MonkeyProof Solutions B.V. at
 //! <https://doc.monkeyproofsolutions.nl/code-checker-for-matlab/monkeyproof-coding-standard-for-matlab/>.
-//! It is not part of MATLAB's Code Analyzer. The checks here are malt's own reading of the
+//! It is not part of MATLAB's Code Analyzer. malt is not affiliated with, endorsed by or
+//! connected to MonkeyProof Solutions B.V. in any way; "MonkeyProof" is its name and is used
+//! here only to say which standard the checks follow. The checks here are malt's own reading of the
 //! rules the standard marks as automatically checkable, so they are off unless the
 //! `monkeyproof` preset or the `monkeyproof` category is switched on.
 //!

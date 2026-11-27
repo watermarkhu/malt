@@ -105,7 +105,7 @@ A preset only removes categories; the specialized engines that are
 [off by default](#default-behavior) stay off under `mathworks` and
 `recommended`. `all` is the exception and turns them on as well.
 
-The `monkeyproof` preset is the `mathworks` defaults plus the [MonkeyProof Coding Standard](monkeyproof.md), an extra set of style checks that is not part of MATLAB's Code Analyzer.
+The `monkeyproof` preset is the `mathworks` defaults plus the [MonkeyProof Coding Standard](monkeyproof.md), an extra set of style checks that is not part of MATLAB's Code Analyzer. malt is not affiliated with MonkeyProof Solutions.
 
 Precedence: `--preset` > `[lint] preset` > `mathworks`. Explicit
 `[lint.categories]` / `[lint.rules]` entries always win over the preset, so a

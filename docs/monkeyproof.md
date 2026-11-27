@@ -9,8 +9,12 @@ a published set of naming, layout, statement, design and security rules by Monke
 on top of malt's own checks. It is not part of MATLAB's Code Analyzer, so it is off unless you switch it on, and it never
 changes what malt reports under the default configuration.
 
-The checks are malt's own reading of the standard's rules. They are not MonkeyProof's tool and they do not promise the
-same findings as it. Where a rule's text leaves room, each page says what malt decided.
+malt is not affiliated with, endorsed by or connected to MonkeyProof Solutions B.V. in any way. MonkeyProof is the name of that
+company and its standard, used here only to say which published standard the checks follow. The standard and its name
+belong to them.
+
+The checks are malt's own reading of the standard's rules, written independently. They are not MonkeyProof's tool (CC4M)
+and they do not promise the same findings as it. Where a rule's text leaves room, each page says what malt decided.
 
 ## Switching it on
 
