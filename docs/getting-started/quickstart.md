@@ -14,7 +14,15 @@ malt src/compute.m
 
 # Lint multiple files
 malt src/compute.m src/utils.m lib/helpers.m
+
+# Lint a folder, and everything below it
+malt src/
+
+# Lint the current folder
+malt
 ```
+
+Which files a folder run picks up, and which it skips, is set in [`.malt.toml`](../configuration.md#files-and-folders).
 
 ### Auto-fix issues
 

@@ -182,7 +182,10 @@ pub fn layer(json: Config, toml: Config) -> Config {
     let mut categories = json.categories;
     categories.extend(toml.categories);
     Config {
+        include: toml.include,
         exclude: toml.exclude,
+        respect_gitignore: toml.respect_gitignore,
+        force_exclude: toml.force_exclude,
         rules,
         categories,
         preset: toml.preset,

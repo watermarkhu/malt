@@ -15,6 +15,7 @@ use malt_core::{
 };
 
 mod colour;
+mod discover;
 mod ignored;
 mod path_index;
 
@@ -26,8 +27,10 @@ use colour::{paint, ColorWhen, Colours};
 #[derive(Parser, Debug)]
 #[command(name = "malt", version, about)]
 struct Cli {
-    /// MATLAB files to lint.
-    #[arg(required = true)]
+    /// MATLAB files and folders to lint. A folder is searched for `.m` files, below it
+    /// too (see `include`, `exclude` and `respect_gitignore` in the config file).
+    /// Default: the current folder.
+    #[arg(value_name = "PATH")]
     files: Vec<PathBuf>,
 
     /// Apply safe auto-fixes where available, repeating until nothing changes.
@@ -139,7 +142,22 @@ fn run(mut cli: Cli, colours: Colours) -> Result<()> {
     // Load configuration from .malt.toml (or --config path).
     let loaded = load_config(&cli, colours)?;
     let mut config = loaded.config;
+    let found = discover::discover(&cli.files, &config, &loaded.anchor)?;
+    cli.files = found.files;
+    for warning in &found.warnings {
+        eprintln!(
+            "{}: {warning}",
+            paint(colours.stderr, colour::warning(), "warning")
+        );
+    }
     if cli.verbose > 0 {
+        for folder in &found.searched {
+            eprintln!(
+                "{} searched {}",
+                paint(colours.stderr, colour::dim(), "malt:"),
+                folder.display()
+            );
+        }
         if let Some(path) = &loaded.matlab {
             eprintln!(
                 "{} configuration: {}",
@@ -170,6 +188,13 @@ fn run(mut cli: Cli, colours: Colours) -> Result<()> {
                 }
             );
         }
+    }
+
+    if cli.files.is_empty() {
+        eprintln!(
+            "{}: no MATLAB files found",
+            paint(colours.stderr, colour::warning(), "warning")
+        );
     }
 
     // A --preset override takes priority over the config file's `[lint] preset`.
@@ -604,6 +629,9 @@ struct Loaded {
     matlab: Option<PathBuf>,
     /// A MATLAB configuration that exists but is not used (for `-v`).
     skipped_matlab: Option<PathBuf>,
+    /// The folder that the `include` and `exclude` patterns are relative to: the one
+    /// of the configuration file, or the current folder without one.
+    anchor: PathBuf,
 }
 
 /// Discover and load the configuration.
@@ -643,6 +671,7 @@ fn load_config(cli: &Cli, colours: Colours) -> Result<Loaded> {
                     config: malt_core::matlab_config::layer(matlab.config, toml_config),
                     matlab: Some(path),
                     skipped_matlab: None,
+                    anchor: PathBuf::from("."),
                 })
             }
             None => Ok(Loaded {
@@ -650,6 +679,7 @@ fn load_config(cli: &Cli, colours: Colours) -> Result<Loaded> {
                 ignored: None,
                 matlab: None,
                 skipped_matlab: matlab_path.is_file().then(|| matlab_path.to_path_buf()),
+                anchor: PathBuf::from("."),
             }),
         };
     }
@@ -661,6 +691,7 @@ fn load_config(cli: &Cli, colours: Colours) -> Result<Loaded> {
         ignored: None,
         matlab: None,
         skipped_matlab: None,
+        anchor: PathBuf::from("."),
     })
 }
 
@@ -676,6 +707,7 @@ fn toml_only(path: &Path, strict: bool, colours: Colours) -> Result<Loaded> {
         ignored: None,
         matlab: None,
         skipped_matlab: None,
+        anchor: folder_of(path),
     })
 }
 
@@ -687,7 +719,24 @@ fn matlab_only(path: &Path, strict: bool, colours: Colours) -> Result<Loaded> {
         config: matlab.config,
         matlab: Some(path.to_path_buf()),
         skipped_matlab: None,
+        anchor: folder_of(path),
     })
+}
+
+/// The folder of a configuration file; for a MATLAB configuration in a `resources`
+/// folder, the folder that holds it (as for `ignoredFiles`).
+fn folder_of(path: &Path) -> PathBuf {
+    let folder = path.parent().filter(|p| !p.as_os_str().is_empty());
+    let folder = folder.unwrap_or(Path::new("."));
+    if folder.file_name().is_some_and(|name| name == "resources") {
+        folder
+            .parent()
+            .filter(|p| !p.as_os_str().is_empty())
+            .unwrap_or(Path::new("."))
+            .to_path_buf()
+    } else {
+        folder.to_path_buf()
+    }
 }
 
 /// Read a `.malt.toml`, reporting its rule and parameter problems.
