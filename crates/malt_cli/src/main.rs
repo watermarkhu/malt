@@ -24,7 +24,8 @@ mod path_index;
 use ignored::IgnoredFiles;
 
 use colour::{paint, ColorWhen, Colours};
-use output::{LogLevel, OutputFormat, Record};
+use malt_core::report::{self, Record};
+use output::{LogLevel, OutputFormat};
 
 /// malt — An ultra-fast, extensible linter for MATLAB.
 #[derive(Parser, Debug)]
@@ -380,11 +381,11 @@ fn write_outputs(
             for record in &summary.records {
                 println!(
                     "{}",
-                    output::github_annotation(record, workspace.as_deref())
+                    report::github_annotation(record, workspace.as_deref())
                 );
             }
             if let Some(path) = env::var_os("GITHUB_STEP_SUMMARY") {
-                let text = output::github_step_summary(&summary.records, cli.files.len());
+                let text = report::github_step_summary(&summary.records, cli.files.len());
                 let mut file = fs::OpenOptions::new()
                     .create(true)
                     .append(true)
@@ -400,19 +401,19 @@ fn write_outputs(
             }
         }
         OutputFormat::Gitlab => {
-            let report = output::gitlab_report(&summary.records);
+            let report = report::gitlab_report(&summary.records);
             println!("{}", serde_json::to_string_pretty(&report)?);
         }
     }
     if let Some(path) = &cli.output_json {
         let files: Vec<String> = cli.files.iter().map(|f| f.display().to_string()).collect();
-        let run = output::RunInfo {
+        let run = report::RunInfo {
             config_file,
             matlab_config,
             files: &files,
             files_with_findings: summary.files_with_issues,
         };
-        let value = output::results_json(config, &run, &summary.records);
+        let value = report::results_json(config, &run, &summary.records);
         let mut text = serde_json::to_string_pretty(&value)?;
         text.push('\n');
         fs::write(path, text)

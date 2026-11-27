@@ -18,6 +18,7 @@ pub mod linter;
 pub mod matlab_config;
 pub mod preset;
 pub mod registry;
+pub mod report;
 pub mod rule;
 pub mod suppression;
 
