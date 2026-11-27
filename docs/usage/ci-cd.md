@@ -81,15 +81,7 @@ malt's exit codes map directly onto a pass or fail build:
 
 ## Pre-commit hook
 
-malt has hooks for [pre-commit and prek](pre-commit.md), to lint the staged files before each commit:
-
-```yaml title=".pre-commit-config.yaml"
-repos:
-  - repo: https://github.com/watermarkhu/malt
-    rev: v0.4.0  # use the latest release
-    hooks:
-      - id: malt
-```
+To lint the staged files before each commit, use the hooks for pre-commit and prek. They are set up on [their own page](pre-commit.md).
 
 ## Contributing
 

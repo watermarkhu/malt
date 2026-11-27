@@ -239,7 +239,7 @@ Whether the `.gitignore` files of the tree, and of the folders above it, exclude
 #### `force_exclude`
 
 Whether `exclude` also applies to files named on the command line. **Default:** `false`, because naming a file is asking for
-it. Turn it on when an editor or a pre-commit hook passes every changed file and you still want `exclude` to hold.
+it. Turn it on when an editor or a [pre-commit hook](usage/pre-commit.md#excluded-files) passes every changed file and you still want `exclude` to hold.
 
 ```toml
 [lint]
