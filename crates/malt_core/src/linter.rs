@@ -262,6 +262,24 @@ pub fn note_parse() {
     PARSE_EPOCH.with(|current| current.set(epoch));
 }
 
+/// Whether `text` parses as MATLAB without a syntax error.
+///
+/// For rules that check a fix before offering it (the text of an `eval` that
+/// would be inlined). The tree is dropped and no parse epoch starts, so the
+/// caller's own tree and its analysis memos stay valid.
+pub fn parses_cleanly(text: &str) -> bool {
+    let mut parser = Parser::new();
+    if parser
+        .set_language(&tree_sitter_matlab::LANGUAGE.into())
+        .is_err()
+    {
+        return false;
+    }
+    parser
+        .parse(text, None)
+        .is_some_and(|tree| !tree.root_node().has_error())
+}
+
 /// Errors that can occur during linting.
 #[derive(Debug, thiserror::Error)]
 pub enum LintError {

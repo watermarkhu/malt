@@ -5,7 +5,7 @@
 //! title = "Compatibility"
 //! category = "compatibility"
 //! severity = "warning"
-//! fix = false
+//! fix = true
 //! icon = "lucide/archive"
 //! slug = "compatibility"
 //! data_file = "compatibility.toml"
@@ -38,6 +38,18 @@
 //! forward-compatibility version gates, and behavior-change figure and axes
 //! properties) and dispatched from `check_file`.
 //!
+//! ## Fix
+//!
+//! The entries whose message says the replacement is a direct replacement
+//! (`Use 'savefig' instead, which is a direct replacement`) carry a fix that
+//! renames the function and leaves the arguments as they are: `hgsave(h, f)`
+//! becomes `savefig(h, f)`, `combntns(1:4, 2)` becomes `nchoosek(1:4, 2)`,
+//! `daq.getVendors()` becomes `daqvendorlist()`. The command form
+//! (`fdatool`) and the handle form (`@combntns`) are renamed too. The fix is
+//! safe, as the new name is the old function's documented successor. Entries that
+//! say "with appropriate code changes" have no fix, nor do the ones that
+//! offer several replacements.
+//!
 //! ## Examples
 //!
 //! ### Incorrect
@@ -52,6 +64,13 @@
 //! ```matlab
 //! periodogram(x)
 //! textscan(s)
+//! ```
+//!
+//! ### Fixed
+//!
+//! ```diff
+//! - hgsave(h, 'plot.fig')
+//! + savefig(h, 'plot.fig')
 //! ```
 //!
 //! ## Configuration
@@ -153,6 +172,10 @@ struct CompatEntry {
     /// Matches every function whose dotted name starts with `function_name` followed
     /// by a dot (`com.mathworks.util.X`). Not looked up by the exact name.
     function_prefix: bool,
+    /// The message names a direct replacement (`Use 'savefig' instead, which is a
+    /// direct replacement`): the fix renames the callee, the reference or the handle
+    /// to this name and leaves the arguments as they are. Empty: no fix.
+    renames_to: &'static str,
 }
 
 // ---------------------------------------------------------------------------
@@ -437,11 +460,36 @@ impl Rule for CompatibilityEngine {
                 byte_range: ctx.node.start_byte()..ctx.node.end_byte(),
                 line: start.row + 1,
                 column: start.column + 1,
-                fix: None,
+                fix: (!entry.renames_to.is_empty())
+                    .then(|| rename_fix(ctx.node, ctx.source, entry))
+                    .flatten(),
             });
         }
 
         diagnostics
+    }
+}
+
+/// The fix of an entry with `renames_to`: the callee of a call, a command or a bare
+/// reference, or the name inside a handle (`@hgsave`), becomes the replacement.
+fn rename_fix(
+    node: tree_sitter::Node,
+    source: &str,
+    entry: &CompatEntry,
+) -> Option<malt_core::Fix> {
+    let replacement = entry.renames_to;
+    match node.kind() {
+        "handle_operator" => {
+            let name = node.named_child(0)?;
+            matches!(name.kind(), "identifier" | "field_expression")
+                .then(|| malt_core::Fix::new(name.byte_range(), replacement))
+        }
+        "command" => {
+            let name = node.child(0)?;
+            (&source[name.byte_range()] == entry.function_name)
+                .then(|| malt_core::Fix::new(name.byte_range(), replacement))
+        }
+        _ => crate::suggested_improvements::callee_rename_fix(node, replacement),
     }
 }
 
@@ -758,6 +806,62 @@ mod tests {
 
     fn engine() -> Box<dyn Rule> {
         CompatibilityEngine::from_config(&Config::default())
+    }
+
+    /// The source with the fix of the `id` diagnostics applied (and whether it was safe).
+    fn fixed(source: &str, id: &str) -> (bool, String) {
+        crate::test_util::fix_of(&*engine(), source, id)
+            .unwrap_or_else(|| panic!("no fix for {id} on {source:?}"))
+    }
+
+    #[test]
+    fn direct_replacement_renames_the_call_safely() {
+        let (safe, out) = fixed("hgsave(h, 'f.fig');\n", "HGSAVE");
+        assert!(safe);
+        assert_eq!(out, "savefig(h, 'f.fig');\n");
+        assert_eq!(
+            fixed("n = combntns(1:4, 2);\n", "CMBNT").1,
+            "n = nchoosek(1:4, 2);\n"
+        );
+        assert_eq!(
+            fixed("[a, b] = lteZadoffChuSeq(1, 63);\n", "ZADOF").1,
+            "[a, b] = zadoffChuSeq(1, 63);\n"
+        );
+    }
+
+    #[test]
+    fn direct_replacement_renames_a_dotted_callee_and_a_handle() {
+        assert_eq!(
+            fixed("s = daq.getVendors();\n", "SESSIONGV").1,
+            "s = daqvendorlist();\n"
+        );
+        assert_eq!(
+            fixed("Simulink.VariantManager.variantLegend(m);\n", "SVMVL").1,
+            "Simulink.VariantUtils.variantLegend(m);\n"
+        );
+        assert_eq!(fixed("f = @combntns;\n", "CMBNT").1, "f = @nchoosek;\n");
+    }
+
+    #[test]
+    fn direct_replacement_renames_a_command() {
+        assert_eq!(fixed("fdatool\n", "FDATOOL").1, "filterDesigner\n");
+    }
+
+    #[test]
+    fn renamed_code_no_longer_reports() {
+        let (_, out) = fixed("a = bw2range(x);\nb = range2bw(y);\n", "BW2RNG");
+        let diags = lint_nodes(&*engine(), &out);
+        assert!(!has_id(&diags, "BW2RNG"), "got: {diags:?}");
+    }
+
+    #[test]
+    fn entries_that_need_code_changes_have_no_fix() {
+        // "With appropriate code changes" is not a direct replacement.
+        assert!(crate::test_util::reported_without_fix(
+            &*engine(),
+            "weibcdf(x, 1, 2);\n",
+            "WEIBCDF"
+        ));
     }
 
     /// Assert that calling `name` (function-call form) emits a diagnostic with

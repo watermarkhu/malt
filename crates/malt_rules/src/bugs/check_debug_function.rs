@@ -22,7 +22,10 @@ impl BugsEngine {
                 byte_range: node.start_byte()..node.end_byte(),
                 line: pos.row + 1,
                 column: pos.column + 1,
-                fix: None,
+                // A debug call on a line of its own is deleted. Unsafe: it is code the
+                // author wrote, even if it only works at the command line.
+                fix: crate::fix_util::delete_statement_line(node, source)
+                    .map(malt_core::Fix::unsafe_fix),
             }]
         } else {
             Vec::new()
@@ -33,7 +36,26 @@ impl BugsEngine {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_util::has_id;
+    use crate::test_util::{fix_of, has_id, reported_without_fix};
+
+    #[test]
+    fn debugfun_fix_deletes_the_statement_line() {
+        let (safe, fixed) = fix_of(&*engine(), "x = 1;\ndbstep();\ny = 2;\n", "DEBUGFUN").unwrap();
+        assert!(!safe);
+        assert_eq!(fixed, "x = 1;\ny = 2;\n");
+        assert!(!has_id(&node_diags(&fixed), "DEBUGFUN"));
+    }
+
+    #[test]
+    fn debugfun_no_fix_when_not_alone_on_its_line() {
+        for src in [
+            "x = 1; dbstep();\n",
+            "dbup(); x = 1;\n",
+            "if a, dbstep(), end\n",
+        ] {
+            assert!(reported_without_fix(&*engine(), src, "DEBUGFUN"), "{src}");
+        }
+    }
 
     // -- DEBUGFUN ------------------------------------------------------------
 

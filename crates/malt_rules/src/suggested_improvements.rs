@@ -1025,7 +1025,10 @@ fn rewrite_fix(
 /// are (probed: MATLAB's fix on `gop(@plus, x)` gives `spmdReduce(@plus, x)`,
 /// and on `Simulink.Variant('a')` the whole dotted path becomes
 /// `Simulink.VariantExpression`).
-fn callee_rename_fix(node: tree_sitter::Node, replacement: &'static str) -> Option<malt_core::Fix> {
+pub(crate) fn callee_rename_fix(
+    node: tree_sitter::Node,
+    replacement: &'static str,
+) -> Option<malt_core::Fix> {
     if node.kind() == "function_call" {
         let name = node
             .child_by_field_name("name")

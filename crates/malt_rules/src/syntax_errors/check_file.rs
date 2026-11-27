@@ -95,7 +95,10 @@ impl SyntaxErrorsEngine {
                             byte_range: i..i + ch_len,
                             line,
                             column: i - line_start + 1,
-                            fix: None,
+                            // Outside strings and comments the character separates tokens
+                            // like a blank does; a line or paragraph separator is left alone.
+                            fix: (!matches!(ch, '\u{85}' | '\u{2028}' | '\u{2029}'))
+                                .then(|| malt_core::Fix::new(i..i + ch_len, " ")),
                         });
                         i += ch_len;
                         continue;
@@ -312,6 +315,24 @@ mod tests {
     fn badsp_fires_on_non_ascii_space() {
         let diags = lint_file(&*engine(), "x = 1;\u{a0}\n");
         assert!(has_id(&diags, "BADSP"), "got: {diags:?}");
+    }
+
+    #[test]
+    fn badsp_fix_replaces_the_character_with_a_blank() {
+        let (safe, fixed) =
+            crate::test_util::fix_of(&*engine(), "x\u{a0}= 1;\ny =\u{2003}2;\n", "BADSP").unwrap();
+        assert!(safe);
+        assert_eq!(fixed, "x = 1;\ny = 2;\n");
+        assert!(!has_id(&lint_file(&*engine(), &fixed), "BADSP"));
+    }
+
+    #[test]
+    fn badsp_no_fix_for_a_line_separator() {
+        assert!(crate::test_util::reported_without_fix(
+            &*engine(),
+            "x = 1;\u{2028}y = 2;\n",
+            "BADSP"
+        ));
     }
 
     #[test]

@@ -64,7 +64,7 @@ pub(crate) fn walk_for_no_effect(
                     byte_range: op.start_byte()..op.end_byte(),
                     line: pos.row + 1,
                     column: pos.column + 1,
-                    fix: None,
+                    fix: eqeff_fix(node, expr, op, source),
                 });
             }
         }
@@ -104,6 +104,22 @@ pub(crate) fn walk_for_no_effect(
     }
 }
 
+/// `x == 1;` becomes `x = 1;`.
+///
+/// Unsafe: the statement may be a comparison someone meant to display, and the
+/// assignment changes the variable. Offered for a plain variable or a field path
+/// on the left (no call, no index) and no parentheses around the statement, where
+/// `=` is a valid assignment.
+fn eqeff_fix(node: Node, expr: Node, op: Node, source: &str) -> Option<malt_core::Fix> {
+    if node.id() != expr.id() {
+        return None;
+    }
+    let left = expr.named_child(0)?;
+    let text = &source[left.byte_range()];
+    let path = !text.is_empty() && text.split('.').all(crate::fix_util::is_plain_identifier);
+    path.then(|| malt_core::Fix::new(op.byte_range(), "=").unsafe_fix())
+}
+
 /// `obj.method(args)` parses as a `field_expression` that ends in a call: a
 /// statement that does something, not an expression without effect.
 fn is_method_call(node: Node) -> bool {
@@ -135,7 +151,24 @@ fn operator_or_text(node: tree_sitter::Node, source: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_util::{has_id, lint_file};
+    use crate::test_util::{fix_of, has_id, lint_file, reported_without_fix};
+
+    #[test]
+    fn eqeff_fix_turns_the_comparison_into_an_assignment() {
+        let (safe, fixed) = fix_of(&*engine(), "x == 1;\n", "EQEFF").unwrap();
+        assert!(!safe);
+        assert_eq!(fixed, "x = 1;\n");
+        let (_, fixed) = fix_of(&*engine(), "s.a.b == y + 1\n", "EQEFF").unwrap();
+        assert_eq!(fixed, "s.a.b = y + 1\n");
+        assert!(!has_id(&lint_file(&*engine(), &fixed), "EQEFF"));
+    }
+
+    #[test]
+    fn eqeff_no_fix_for_indexed_or_parenthesised_statements() {
+        for src in ["x(2) == 1;\n", "(x == 1);\n", "c{1} == 1;\n"] {
+            assert!(reported_without_fix(&*engine(), src, "EQEFF"), "{src}");
+        }
+    }
 
     fn engine() -> Box<dyn Rule> {
         // NOEFF is off under the mathworks preset (never emitted by MATLAB), so

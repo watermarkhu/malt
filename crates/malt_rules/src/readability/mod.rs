@@ -31,11 +31,11 @@
 //! | Check ID | Severity | Fix | Description |
 //! | --- | --- | --- | --- |
 //! | COMNL | info | yes | Newline following comma acts as a row separator. Replace the comma with a semicolon to make the row separation clearer. Alternatively, use an ellipsis (...) to continue the current row on the next line. |
-//! | SPERR | info | no | ERROR takes SPRINTF-like arguments directly. |
-//! | SPWRN | info | no | WARNING takes SPRINTF-like arguments directly. |
+//! | SPERR | info | yes (unsafe) | ERROR takes SPRINTF-like arguments directly. |
+//! | SPWRN | info | yes (unsafe) | WARNING takes SPRINTF-like arguments directly. |
 //! | NCHKE | info | no | Use NARGOUTCHK without ERROR. |
 //! | DSPSP | info | yes | 'disp(sprintf(...))' can usually be replaced by 'fprintf(...\n)'. |
-//! | DSPSY | info | no | 'display(sprintf(...))' can usually be replaced by 'fprintf(...\n)'. |
+//! | DSPSY | info | yes (unsafe) | 'display(sprintf(...))' can usually be replaced by 'fprintf(...\n)'. |
 //! | STLOW | info | yes | In this comparison the call to UPPER/LOWER is unnecessary. |
 //! | FLUDLR | info | yes | For readability, consider using rot90(x,2) instead of flipud(fliplr(x)) or fliplr(flipud(x)). |
 //! | RPMT1 | info | yes | For readability, consider using 'ones(x,y)' instead of 'repmat(1,x,y)'. |
@@ -88,6 +88,11 @@
 //!   `cellfun(@isempty, strfind(s, p))` → `~contains(s, p)`;
 //!   `if strfind(s, p)` → `if contains(s, p)`.
 //! - `strcmpi(lower(x), y)` → `strcmpi(x, y)` (STLOW).
+//! - `error(sprintf(f, a))` → `error(f, a)`, `error('a:b', sprintf(f, a))` →
+//!   `error('a:b', f, a)` and the same for `warning` (SPERR, SPWRN).
+//!   Unsafe: a message passed on its own is not formatted, one with arguments is.
+//! - `display(sprintf('f', a))` → `fprintf('f\n', a)` for a literal format (DSPSY).
+//!   Unsafe: `display` prints the value's name too.
 //! - `i`/`j` as the imaginary unit → `1i` (IJCL; MATLAB's fix writes `1i`
 //!   for `j` too, and `1i` and `1j` are the same constant).
 //! - A trailing comma before a newline in a matrix becomes a semicolon (COMNL).
@@ -95,7 +100,7 @@
 //!   blocks (FVINR).
 //!
 //! Fixes that can change behaviour (STLOW, STREMP, STRCL1, STRCLFH, STRIFCND,
-//! ISROW, ISCOL, IJCL) are unsafe and need `--unsafe-fixes`.
+//! ISROW, ISCOL, IJCL, SPERR, SPWRN, DSPSY) are unsafe and need `--unsafe-fixes`.
 //!
 //! ## Examples
 //!
@@ -179,8 +184,12 @@ pub struct ReadabilityConfig {
 ///   cell and non-text input, and for empty patterns;
 /// - ISROW / ISCOL: `size(x, 1) == 1` is true for an N-d array, `isrow(x)` is not;
 /// - IJCL: `i` may come from `load`/`eval` rather than the built-in unit.
+/// - SPERR / SPWRN: `error(sprintf(f, a))` does not process escapes in the message,
+///   `error(f, a)` does, and a format that looks like an identifier is read as one;
+/// - DSPSY: `display` prints the name of the value, `fprintf` does not.
 const UNSAFE_FIXES: &[&str] = &[
-    "STLOW", "STREMP", "STRCL1", "STRCLFH", "STRIFCND", "ISROW", "ISCOL", "IJCL",
+    "STLOW", "STREMP", "STRCL1", "STRCLFH", "STRIFCND", "ISROW", "ISCOL", "IJCL", "SPERR", "SPWRN",
+    "DSPSY",
 ];
 
 // ---------------------------------------------------------------------------

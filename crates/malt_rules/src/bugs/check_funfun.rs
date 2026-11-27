@@ -55,7 +55,16 @@ impl BugsEngine {
                 byte_range: node.start_byte()..node.end_byte(),
                 line: pos.row + 1,
                 column: pos.column + 1,
-                fix: None,
+                // `cellfun('myfun', c)` becomes `cellfun(@myfun, c)`. Unsafe: a name
+                // that is a variable, not a function, would stop working.
+                fix: first_arg_node(node)
+                    .filter(|arg| {
+                        crate::fix_util::simple_literal_text(*arg, source)
+                            .is_some_and(crate::fix_util::is_plain_identifier)
+                    })
+                    .map(|arg| {
+                        malt_core::Fix::new(arg.byte_range(), format!("@{fn_name}")).unsafe_fix()
+                    }),
             }]
         } else {
             Vec::new()
@@ -66,7 +75,32 @@ impl BugsEngine {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_util::has_id;
+    use crate::test_util::{fix_of, has_id, reported_without_fix};
+
+    #[test]
+    fn funfun_fix_turns_the_name_into_a_handle() {
+        let eng = engine();
+        let (safe, fixed) = fix_of(&*eng, "y = arrayfun('myfun', x);\n", "FUNFUN").unwrap();
+        assert!(!safe);
+        assert_eq!(fixed, "y = arrayfun(@myfun, x);\n");
+        let (_, fixed) = fix_of(&*eng, "structfun(\"disp\", s);\n", "FUNFUN").unwrap();
+        assert_eq!(fixed, "structfun(@disp, s);\n");
+        assert!(!has_id(&node_diags(&fixed), "FUNFUN"));
+    }
+
+    #[test]
+    fn funfun_no_fix_for_a_text_that_is_not_a_name() {
+        assert!(reported_without_fix(
+            &*engine(),
+            "arrayfun('x + 1', v);\n",
+            "FUNFUN"
+        ));
+        assert!(reported_without_fix(
+            &*engine(),
+            "arrayfun('a.b', v);\n",
+            "FUNFUN"
+        ));
+    }
 
     // -- FUNFUN --------------------------------------------------------------
 
