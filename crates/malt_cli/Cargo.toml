@@ -22,6 +22,7 @@ malt-index.workspace = true
 clap.workspace = true
 anyhow.workspace = true
 ignore.workspace = true
+serde_json.workspace = true
 anstyle = "1.0.14"
 anstyle-query = "1.1.5"
 

@@ -1,4 +1,5 @@
 use std::collections::BTreeMap;
+use std::env;
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
@@ -17,11 +18,13 @@ use malt_core::{
 mod colour;
 mod discover;
 mod ignored;
+mod output;
 mod path_index;
 
 use ignored::IgnoredFiles;
 
 use colour::{paint, ColorWhen, Colours};
+use output::{LogLevel, OutputFormat, Record};
 
 /// malt — An ultra-fast, extensible linter for MATLAB.
 #[derive(Parser, Debug)]
@@ -82,6 +85,23 @@ struct Cli {
     /// do not change the exit code; `--fix` still fixes them.
     #[arg(long, value_name = "LEVEL", value_enum, default_value_t = Level::Info)]
     level: Level,
+
+    /// How findings are written to stdout: `text` (the default), `github` (workflow
+    /// command annotations, plus a step summary in `GITHUB_STEP_SUMMARY` when set) or
+    /// `gitlab` (the Code Quality report as JSON; the text lines go to stderr).
+    #[arg(long, value_name = "FORMAT", value_enum, default_value_t = OutputFormat::Text)]
+    output: OutputFormat,
+
+    /// The least severe findings written as text lines, whatever `--output` is:
+    /// `off`, `error`, `warning` or `info` (the default). Unlike `--level`, it hides
+    /// no finding from the annotations, the report, the JSON file or the exit code.
+    #[arg(long, value_name = "LEVEL", value_enum, default_value_t = LogLevel::Info)]
+    log_level: LogLevel,
+
+    /// Write the results as JSON to this file: the malt version, the configuration used,
+    /// the files linted and every finding. Combines with any `--output`.
+    #[arg(long, value_name = "PATH")]
+    output_json: Option<PathBuf>,
 }
 
 /// How severe a finding must be to be shown (`--level`): that severity or a more severe one.
@@ -106,6 +126,20 @@ impl Level {
         };
         rank <= self
     }
+}
+
+/// Whether text lines go to stderr: with `--output gitlab`, stdout is the JSON report.
+static TEXT_TO_STDERR: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Print a line of the text output: to stdout, or to stderr for `--output gitlab`.
+macro_rules! text_line {
+    ($($arg:tt)*) => {{
+        if TEXT_TO_STDERR.load(Ordering::Relaxed) {
+            eprintln!($($arg)*);
+        } else {
+            println!($($arg)*);
+        }
+    }};
 }
 
 /// Stack size of the thread that lints. Many rules walk the syntax tree
@@ -140,8 +174,10 @@ fn main() {
 
 fn run(mut cli: Cli, colours: Colours) -> Result<()> {
     // Load configuration from .malt.toml (or --config path).
+    TEXT_TO_STDERR.store(cli.output == OutputFormat::Gitlab, Ordering::Relaxed);
     let loaded = load_config(&cli, colours)?;
     let mut config = loaded.config;
+    let config_file = config_source(&cli);
     let found = discover::discover(&cli.files, &config, &loaded.anchor)?;
     cli.files = found.files;
     for warning in &found.warnings {
@@ -238,11 +274,11 @@ fn run(mut cli: Cli, colours: Colours) -> Result<()> {
         let mut linter = new_linter();
         for file_path in &cli.files {
             let checked = check_file(&mut linter, file_path, &cli)?;
-            summary.report(file_path, checked, cli.verbose, cli.level, colours);
+            summary.report(file_path, checked, &cli, colours);
         }
     } else {
         lint_in_parallel(&cli, threads, new_linter, |file_path, checked| {
-            summary.report(file_path, checked?, cli.verbose, cli.level, colours);
+            summary.report(file_path, checked?, &cli, colours);
             Ok(())
         })?;
     }
@@ -256,8 +292,16 @@ fn run(mut cli: Cli, colours: Colours) -> Result<()> {
         );
     }
 
+    write_outputs(
+        &cli,
+        &config,
+        config_file.as_deref(),
+        loaded.matlab.as_deref(),
+        &summary,
+    )?;
+
     if summary.total_diagnostics > 0 {
-        println!(
+        text_line!(
             "\n{}",
             paint(
                 colours.stdout,
@@ -280,7 +324,7 @@ fn run(mut cli: Cli, colours: Colours) -> Result<()> {
             )
         );
         if summary.fixable > 0 {
-            println!(
+            text_line!(
                 "{}",
                 paint(
                     colours.stdout,
@@ -290,7 +334,7 @@ fn run(mut cli: Cli, colours: Colours) -> Result<()> {
             );
         }
         if summary.unsafe_fixable > 0 && !cli.unsafe_fixes {
-            println!(
+            text_line!(
                 "{}",
                 paint(
                     colours.stdout,
@@ -305,6 +349,75 @@ fn run(mut cli: Cli, colours: Colours) -> Result<()> {
         process::exit(1);
     }
 
+    Ok(())
+}
+
+/// The `.malt.toml` this run reads: the one `--config` names, or the one in the current
+/// folder. `None` when there is none (a MATLAB configuration is reported separately).
+fn config_source(cli: &Cli) -> Option<PathBuf> {
+    match cli.config.as_deref() {
+        Some(path) if is_json(path) => None,
+        Some(path) => Some(path.to_path_buf()),
+        None => Path::new(".malt.toml")
+            .is_file()
+            .then(|| PathBuf::from(".malt.toml")),
+    }
+}
+
+/// Write what `--output` and `--output-json` ask for, after the files are linted: the
+/// annotations and step summary, the Code Quality report, the JSON results file.
+fn write_outputs(
+    cli: &Cli,
+    config: &Config,
+    config_file: Option<&Path>,
+    matlab_config: Option<&Path>,
+    summary: &Summary,
+) -> Result<()> {
+    match cli.output {
+        OutputFormat::Text => {}
+        OutputFormat::Github => {
+            let workspace = env::var_os("GITHUB_WORKSPACE").map(PathBuf::from);
+            for record in &summary.records {
+                println!(
+                    "{}",
+                    output::github_annotation(record, workspace.as_deref())
+                );
+            }
+            if let Some(path) = env::var_os("GITHUB_STEP_SUMMARY") {
+                let text = output::github_step_summary(&summary.records, cli.files.len());
+                let mut file = fs::OpenOptions::new()
+                    .create(true)
+                    .append(true)
+                    .open(&path)
+                    .with_context(|| {
+                        format!(
+                            "cannot write the step summary: {}",
+                            Path::new(&path).display()
+                        )
+                    })?;
+                io::Write::write_all(&mut file, text.as_bytes())
+                    .context("cannot write the step summary")?;
+            }
+        }
+        OutputFormat::Gitlab => {
+            let report = output::gitlab_report(&summary.records);
+            println!("{}", serde_json::to_string_pretty(&report)?);
+        }
+    }
+    if let Some(path) = &cli.output_json {
+        let files: Vec<String> = cli.files.iter().map(|f| f.display().to_string()).collect();
+        let run = output::RunInfo {
+            config_file,
+            matlab_config,
+            files: &files,
+            files_with_findings: summary.files_with_issues,
+        };
+        let value = output::results_json(config, &run, &summary.records);
+        let mut text = serde_json::to_string_pretty(&value)?;
+        text.push('\n');
+        fs::write(path, text)
+            .with_context(|| format!("cannot write the results file: {}", path.display()))?;
+    }
     Ok(())
 }
 
@@ -470,7 +583,7 @@ fn check_file_untimed(linter: &mut Linter, file_path: &Path, cli: &Cli) -> Resul
         if outcome.source != source {
             fs::write(file_path, &outcome.source)
                 .with_context(|| format!("failed to write {}", file_path.display()))?;
-            println!(
+            text_line!(
                 "Fixed {} issue{} in {}",
                 outcome.applied,
                 if outcome.applied == 1 { "" } else { "s" },
@@ -500,18 +613,14 @@ struct Summary {
     files_with_issues: usize,
     fixable: usize,
     unsafe_fixable: usize,
+    /// Every finding that `--level` shows, for the annotations, the report and the JSON file.
+    records: Vec<Record>,
 }
 
 impl Summary {
     /// Print the diagnostics of one file and count them.
-    fn report(
-        &mut self,
-        file_path: &Path,
-        checked: Checked,
-        verbose: u8,
-        level: Level,
-        colours: Colours,
-    ) {
+    fn report(&mut self, file_path: &Path, checked: Checked, cli: &Cli, colours: Colours) {
+        let (verbose, level) = (cli.verbose, cli.level);
         let Checked { outcome, elapsed } = checked;
         let diagnostics = match outcome {
             FileOutcome::Unreadable(diag) => {
@@ -523,7 +632,10 @@ impl Summary {
                         diag.rule_id
                     );
                 }
-                print_diagnostic(file_path, &diag, colours.stdout);
+                if cli.log_level.shows(diag.severity) {
+                    print_diagnostic(file_path, &diag, colours.stdout);
+                }
+                self.records.push(Record::new(file_path, &diag));
                 self.total_diagnostics += 1;
                 self.files_with_issues += 1;
                 return;
@@ -549,7 +661,10 @@ impl Summary {
             return;
         }
         for diag in &diagnostics {
-            print_diagnostic(file_path, diag, colours.stdout);
+            if cli.log_level.shows(diag.severity) {
+                print_diagnostic(file_path, diag, colours.stdout);
+            }
+            self.records.push(Record::new(file_path, diag));
             match diag.fix.as_ref() {
                 Some(f) if f.is_safe() => self.fixable += 1,
                 Some(_) => self.unsafe_fixable += 1,
@@ -581,7 +696,7 @@ fn print_diagnostic(file_path: &Path, diag: &Diagnostic, on: bool) {
         Severity::Warning => ("W", colour::warning()),
         Severity::Info => ("I", colour::info()),
     };
-    println!(
+    text_line!(
         "{}{} {} {}: {}",
         paint(on, colour::emphasis(), file_path.display()),
         paint(on, colour::dim(), format!(":{}:{}", diag.line, diag.column)),

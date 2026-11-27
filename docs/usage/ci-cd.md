@@ -28,7 +28,7 @@ jobs:
 
 ## Manual CI setup
 
-Until a dedicated action exists, install and run malt yourself:
+Install malt and run it in the folder. Without a path it lints the current folder and everything below it, and `exclude` in `.malt.toml` decides what to skip. `--output github` turns the findings into annotations and a step summary:
 
 ```yaml title=".github/workflows/lint.yml"
 name: Lint MATLAB
@@ -44,9 +44,32 @@ jobs:
         run: pipx install malt
 
       - name: Lint
-        run: |
-          find . -name '*.m' -not -path './vendor/*' | xargs malt
+        run: malt --output github --log-level off --output-json malt-results.json
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: malt-results
+          path: malt-results.json
 ```
+
+## GitLab CI
+
+`--output gitlab` writes the Code Quality report, which GitLab shows in merge requests:
+
+```yaml title=".gitlab-ci.yml"
+malt:
+  image: python:3
+  script:
+    - pip install malt
+    - malt --output gitlab > gl-code-quality-report.json
+  artifacts:
+    when: always
+    reports:
+      codequality: gl-code-quality-report.json
+```
+
+The text lines go to the job log on stderr. See [Output formats](cli.md#output-formats) for the details.
 
 ## Large files and shared runners
 
