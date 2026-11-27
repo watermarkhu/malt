@@ -35,7 +35,7 @@
 //! | CFALSE | error | no | This logical comparison always returns false. Did you mean to use <name> to evaluate function argument: <name>(...<name>...)? |
 //! | SHOCIRT | error | no | The <name> operator is unexpected because <name>(A <name> B) always returns true. |
 //! | SHOCIRF | error | no | The <name> operator is unexpected because <name>(A <name> B) always returns false. |
-//! | DEBUGFUN | error | no | Debug functions are intended to be used at the command line. At runtime, they will generate an error. Remove the debug function. |
+//! | DEBUGFUN | error | yes (unsafe) | Debug functions are intended to be used at the command line. At runtime, they will generate an error. Remove the debug function. |
 //! | INCR | error | yes (unsafe) | ++x operation does not increment the value of x. To increase the value by 1, use x = x + 1. |
 //! | DECR | error | yes (unsafe) | --x operation does not decrement the value of x. To decrease the value by 1, use x = x - 1. |
 //! | CMDAND | error | yes (unsafe) | Use 'A && B' or 'A & B' to test whether A and B are both true in MATLAB. |
@@ -45,7 +45,7 @@
 //! | LOGEMP | error | no | Using 'isempty' on a logical expression creates incorrect results. To determine if all the conditions are false, use '~any(..., "all")' instead. |
 //! | STCUL | error | no | The comparison will likely fail due to case mismatch. |
 //! | LBODUP | error | no | Since both operands are identical, the second operand has no effect on the <reserved word> operation. This indicates a bug in the code. Change one of the operands or remove the <reserved word> operation. |
-//! | FUNFUN | error | no | The first input argument must be a function handle. Did you mean '@<name>'? |
+//! | FUNFUN | error | yes (unsafe) | The first input argument must be a function handle. Did you mean '@<name>'? |
 //! | DEFSIZE | error | no | Do not overload 'size' for fundamental data types. |
 //! | VARARG | error | no | Initialize VARARGOUT with a CELL. |
 //! | STRCMPCSTR | error | no | 'strcmp' always returns false for string elements of a cell array. Use ["str1", "str2"] instead of {"str1", "str2"}. |
@@ -71,7 +71,14 @@
 //! - `x == NaN` → `isnan(x)` (and `x ~= NaN` → `~isnan(x)`); with an
 //!   elementwise operator behind it the rest is kept, as MATLAB's fix does
 //!   (`if n == NaN | n > 3` → `if isnan(n) | n > 3`).
-//! - `isempty(cond)` on a logical expression → `~any(cond, "all")`.
+//! - `cellfun('name', c)` → `cellfun(@name, c)` when the first argument is a
+//!   literal that is a plain name (FUNFUN). Unsafe: a name that is a variable
+//!   stops working.
+//! - A debug call such as `dbstep();` that has its line to itself is deleted
+//!   (DEBUGFUN). Unsafe: it is code the author wrote.
+//!
+//! `isempty(cond)` on a logical expression (LOGEMP) has no fix: `~any(cond, "all")`
+//! is true when no element is set, `isempty` only when there are no elements.
 //!
 //! ## Examples
 //!

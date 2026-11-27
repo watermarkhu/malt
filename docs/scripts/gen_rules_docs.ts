@@ -254,7 +254,7 @@ function parseChecks(tomlPath: string): CheckEntry[] {
   const text = readFileSync(tomlPath, 'utf8')
   const entries: CheckEntry[] = []
   let current: CheckEntry | null = null
-  const keyval = /^(id|function_name|severity|message|category|pattern|low_reliability)\s*=\s*(".*?"|\S+)/
+  const keyval = /^(id|function_name|severity|message|category|pattern|low_reliability|renames_call|renames_to|rewrite)\s*=\s*(".*?"|\S+)/
   for (const raw of text.split('\n')) {
     const line = raw.trim()
     if (line.startsWith('[[checks]]')) {
@@ -395,7 +395,8 @@ function loadChecks(fm: FrontMatter, sections: Section[]): CheckRow[] {
     return parseChecks(path).map((e) => ({
       id: e.id ?? '',
       severity: e.severity ?? 'warning',
-      fix: false,
+      // A data entry carries a fix when it renames the callee or rewrites the call.
+      fix: e.renames_call === 'true' || !!e.renames_to || !!e.rewrite,
       description: e.message ?? '',
       category: e.category,
     }))

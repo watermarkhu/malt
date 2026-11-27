@@ -4,7 +4,11 @@
 //!
 //! ```toml
 //! [lint]
+//! include = ["*.m"]                     # which files a folder run picks up
 //! exclude = ["vendor/**", "test/fixtures/**"]
+//! extend_exclude = ["generated/"]       # added to `exclude`
+//! respect_gitignore = true
+//! force_exclude = false
 //!
 //! [lint.rules]
 //! M001 = "warn"           # shorthand: set severity
@@ -53,6 +57,20 @@ pub enum ConfigError {
 // Raw TOML file representation (what serde deserializes directly)
 // ---------------------------------------------------------------------------
 
+/// The files a folder run picks up when `[lint] include` is not set: MATLAB code files.
+pub const DEFAULT_INCLUDE: &[&str] = &["*.m"];
+
+/// The folders a folder run skips when `[lint] exclude` is not set: version control
+/// metadata, dependencies, a virtual environment and the Simulink cache.
+pub const DEFAULT_EXCLUDE: &[&str] = &[
+    ".git/",
+    ".hg/",
+    ".svn/",
+    "node_modules/",
+    ".venv/",
+    "slprj/",
+];
+
 /// The raw `.malt.toml` file structure.
 #[derive(Debug, Deserialize, Default)]
 pub struct ConfigFile {
@@ -63,9 +81,27 @@ pub struct ConfigFile {
 /// The `[lint]` section of the config file.
 #[derive(Debug, Deserialize)]
 pub struct LintSection {
-    /// Glob patterns for files/directories to exclude from linting.
+    /// Patterns of the files a folder run picks up (default: [`DEFAULT_INCLUDE`]).
     #[serde(default)]
-    pub exclude: Vec<String>,
+    pub include: Option<Vec<String>>,
+
+    /// Patterns of files and folders to skip when linting (default: [`DEFAULT_EXCLUDE`]).
+    /// Replaces the default list; see `extend_exclude` to add to it.
+    #[serde(default)]
+    pub exclude: Option<Vec<String>>,
+
+    /// Patterns added to `exclude`, keeping the default list.
+    #[serde(default)]
+    pub extend_exclude: Vec<String>,
+
+    /// Whether `.gitignore` files exclude files from a folder run (default `true`).
+    #[serde(default = "default_true")]
+    pub respect_gitignore: bool,
+
+    /// Whether `exclude` also applies to files named on the command line (default
+    /// `false`: a file named on the command line is linted).
+    #[serde(default)]
+    pub force_exclude: bool,
 
     /// Whether `%#ok<...>` inline suppression directives are honored.
     /// Defaults to `true` (mirrors MATLAB's inline suppression).
@@ -107,7 +143,11 @@ pub struct LintSection {
 impl Default for LintSection {
     fn default() -> Self {
         Self {
-            exclude: Vec::new(),
+            include: None,
+            exclude: None,
+            extend_exclude: Vec::new(),
+            respect_gitignore: true,
+            force_exclude: false,
             inline_suppression: true,
             preset: None,
             experimental: false,
@@ -177,8 +217,15 @@ pub struct CheckSetting {
 /// or created with [`Config::default()`] for unconfigured usage.
 #[derive(Debug, Clone)]
 pub struct Config {
-    /// Glob patterns for files/directories to exclude.
+    /// Patterns of the files a folder run picks up (`[lint] include`).
+    pub include: Vec<String>,
+    /// Patterns of files and folders to skip (`[lint] exclude`, with `extend_exclude`
+    /// already added).
     pub exclude: Vec<String>,
+    /// Whether `.gitignore` files exclude files from a folder run.
+    pub respect_gitignore: bool,
+    /// Whether `exclude` also applies to files named on the command line.
+    pub force_exclude: bool,
     /// Per-rule configuration, keyed by rule ID.
     pub rules: HashMap<String, RuleConfig>,
     /// Per-category severity overrides, keyed by [`Category`].
@@ -236,7 +283,10 @@ fn edit_distance(a: &str, b: &str) -> usize {
 impl Default for Config {
     fn default() -> Self {
         Self {
-            exclude: Vec::new(),
+            include: DEFAULT_INCLUDE.iter().map(|s| s.to_string()).collect(),
+            exclude: DEFAULT_EXCLUDE.iter().map(|s| s.to_string()).collect(),
+            respect_gitignore: true,
+            force_exclude: false,
             rules: HashMap::new(),
             categories: HashMap::new(),
             preset: preset::default_preset(),
@@ -344,7 +394,19 @@ impl Config {
         };
 
         Ok(Self {
-            exclude: file.lint.exclude,
+            include: file
+                .lint
+                .include
+                .unwrap_or_else(|| DEFAULT_INCLUDE.iter().map(|s| s.to_string()).collect()),
+            exclude: file
+                .lint
+                .exclude
+                .unwrap_or_else(|| DEFAULT_EXCLUDE.iter().map(|s| s.to_string()).collect())
+                .into_iter()
+                .chain(file.lint.extend_exclude)
+                .collect(),
+            respect_gitignore: file.lint.respect_gitignore,
+            force_exclude: file.lint.force_exclude,
             rules,
             categories,
             preset: preset.with_experimental(file.lint.experimental),
@@ -495,7 +557,10 @@ mod tests {
     #[test]
     fn test_empty_config() {
         let config = Config::from_toml("").unwrap();
-        assert!(config.exclude.is_empty());
+        assert_eq!(config.exclude, DEFAULT_EXCLUDE);
+        assert_eq!(config.include, DEFAULT_INCLUDE);
+        assert!(config.respect_gitignore);
+        assert!(!config.force_exclude);
         assert!(config.rules.is_empty());
     }
 
@@ -581,6 +646,29 @@ exclude = ["vendor/**", "test/fixtures/**"]
 "#;
         let config = Config::from_toml(toml).unwrap();
         assert_eq!(config.exclude, vec!["vendor/**", "test/fixtures/**"]);
+    }
+
+    #[test]
+    fn test_exclude_replaces_the_defaults_and_extend_adds() {
+        let config = Config::from_toml("[lint]\nexclude = []\n").unwrap();
+        assert!(config.exclude.is_empty());
+        let config = Config::from_toml("[lint]\nextend_exclude = [\"gen/\"]\n").unwrap();
+        assert_eq!(config.exclude.last().map(String::as_str), Some("gen/"));
+        assert_eq!(config.exclude.len(), DEFAULT_EXCLUDE.len() + 1);
+        let config =
+            Config::from_toml("[lint]\nexclude = [\"a/\"]\nextend_exclude = [\"b/\"]\n").unwrap();
+        assert_eq!(config.exclude, ["a/", "b/"]);
+    }
+
+    #[test]
+    fn test_path_settings() {
+        let config = Config::from_toml(
+            "[lint]\ninclude = [\"*.m\", \"*.mlx\"]\nrespect_gitignore = false\nforce_exclude = true\n",
+        )
+        .unwrap();
+        assert_eq!(config.include, ["*.m", "*.mlx"]);
+        assert!(!config.respect_gitignore);
+        assert!(config.force_exclude);
     }
 
     #[test]

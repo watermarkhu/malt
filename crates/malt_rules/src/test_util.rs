@@ -101,3 +101,39 @@ pub fn lint_file(rule: &dyn Rule, source: &str) -> Vec<Diagnostic> {
 pub fn has_id(diags: &[Diagnostic], id: &str) -> bool {
     diags.iter().any(|d| d.rule_id == id)
 }
+
+/// Every diagnostic of `rule` on `source`, node-level and file-level.
+pub fn lint_all(rule: &dyn Rule, source: &str) -> Vec<Diagnostic> {
+    let mut diagnostics = lint_nodes(rule, source);
+    diagnostics.extend(lint_file(rule, source));
+    diagnostics
+}
+
+/// `source` after the fixes of `rule`, unsafe ones included (one pass).
+pub fn fixed_all(rule: &dyn Rule, source: &str) -> String {
+    let diagnostics = lint_all(rule, source);
+    malt_core::apply_fixes_with(source, &diagnostics, malt_core::FixMode::All).0
+}
+
+/// The fix of the single diagnostic `id` on `source`: whether it is safe, and
+/// the source with only that diagnostic's fix applied. `None` when the
+/// diagnostic is absent or has no fix.
+pub fn fix_of(rule: &dyn Rule, source: &str, id: &str) -> Option<(bool, String)> {
+    let diagnostics: Vec<Diagnostic> = lint_all(rule, source)
+        .into_iter()
+        .filter(|d| d.rule_id == id)
+        .collect();
+    let first = diagnostics.first()?;
+    let safe = first.fix.as_ref()?.is_safe();
+    let fixed = malt_core::apply_fixes_with(source, &diagnostics, malt_core::FixMode::All).0;
+    Some((safe, fixed))
+}
+
+/// Whether `id` is reported on `source` with no fix.
+pub fn reported_without_fix(rule: &dyn Rule, source: &str, id: &str) -> bool {
+    let diagnostics: Vec<Diagnostic> = lint_all(rule, source)
+        .into_iter()
+        .filter(|d| d.rule_id == id)
+        .collect();
+    !diagnostics.is_empty() && diagnostics.iter().all(|d| d.fix.is_none())
+}

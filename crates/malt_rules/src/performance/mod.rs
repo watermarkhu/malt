@@ -34,8 +34,8 @@
 //! | SAGROW | info | no | Variable appears to change size on every loop iteration (within a script). Consider preallocating for speed. |
 //! | AND2 | info | yes (unsafe) | When both arguments are numeric scalars, consider replacing & with && for performance. |
 //! | OR2 | info | yes (unsafe) | When both arguments are numeric scalars, consider replacing \| with \|\| for performance. |
-//! | MINV | info | no | INV(A)*b can be slower and less accurate than A\b. Consider using A\b for INV(A)*b or b/A for b*INV(A). |
-//! | GFLD | info | no | Use dynamic fieldnames with structures instead of GETFIELD. |
+//! | MINV | info | yes (unsafe) | INV(A)*b can be slower and less accurate than A\b. Consider using A\b for INV(A)*b or b/A for b*INV(A). |
+//! | GFLD | info | yes (unsafe) | Use dynamic fieldnames with structures instead of GETFIELD. |
 //! | SFLD | info | no | Use dynamic fieldnames with structures instead of SETFIELD. |
 //! | EXIST | info | no | EXIST with two input arguments is generally faster and clearer than with one input argument. |
 //! | PFBNS | info | no | The entire array or structure 'VAR_NAME' is a broadcast variable. This might result in unnecessary communication overhead. |
@@ -45,7 +45,7 @@
 //! | ISCL | info | yes (unsafe) | To improve performance, use 'isscalar' instead of length comparison. |
 //! | ST2NM | info | yes (unsafe) | If you are operating on scalar values, consider using 'str2double' for faster performance. |
 //! | FLPST | info | yes (unsafe) | For better performance in some cases, use SORT with the 'descend' option. |
-//! | MXFND | info | no | Use FIND with the 'first' or 'last' option. |
+//! | MXFND | info | yes (unsafe) | Use FIND with the 'first' or 'last' option. |
 //! | EFIND | info | yes (unsafe) | To improve performance, replace ISEMPTY(FIND(X)) with ISEMPTY(FIND( X, 1 )). |
 //! | UDIM | info | no | Instead of using transpose (' or .'), consider using a different DIMENSION input argument to VAR_NAME. |
 //! | FREAD | info | no | FREAD(FID,...,'*char') is more efficient than CHAR(FREAD(...)). |
@@ -94,6 +94,11 @@
 //! - `x(find(L))` → `x(L)` and `idx = find(L); x(idx)` → `idx = L; x(idx)`
 //!   (FNDSB). Unsafe: `L` has to be logical at runtime, and the two forms
 //!   do not fail alike when `x` is shorter than `L`.
+//! - `inv(A) * b` → `A \ b` and `b * inv(A)` → `b / A` (MINV), when exactly one
+//!   operand is an `inv` call with one argument. The answer agrees up to rounding.
+//! - `getfield(s, 'a')` → `s.a` and `getfield(s, f)` → `s.(f)` (GFLD).
+//! - `min(find(x))` → `find(x, 1)` and `max(find(x))` → `find(x, 1, 'last')`
+//!   (MXFND); an empty result differs in its shape.
 //! - `strncmp(lower(a), b, n)` → `strncmpi(a, b, n)` (STNCI); only the first
 //!   conversion goes, as MATLAB's fix leaves the other. Unsafe: case folding
 //!   differs for some non-ASCII text.

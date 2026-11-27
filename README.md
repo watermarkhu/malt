@@ -30,6 +30,7 @@ WebAssembly library for browsers and Node.js.
 ## Usage
 
 ```bash
+malt                      # lint the current folder and everything below it
 malt src/                 # lint a directory
 malt --fix src/foo.m      # apply automatic fixes
 malt --preset all src/    # enable every rule

@@ -47,7 +47,7 @@ Best practice is for CATCH to be followed by an identifier that gets the error i
 
 ### WLAST
 
-Severity: **warning** · Auto-fix: **no** · Maturity: **stable**
+Severity: **warning** · Auto-fix: **yes** · Maturity: **stable**
 
 WARNING('') does not reset the warning state. Use LASTWARN('') instead.
 
@@ -65,7 +65,7 @@ The first argument of ERROR should be a message identifier.
 
 ### STCMP
 
-Severity: **warning** · Auto-fix: **no** · Maturity: **stable**
+Severity: **warning** · Auto-fix: **yes** · Maturity: **stable**
 
 Use STRCMP instead of == or ~= to compare character vectors, or convert character vectors to string scalars for direct comparison.
 
@@ -77,7 +77,7 @@ Use STRCMPI(str1,str2) instead of using UPPER/LOWER in a call to STRCMP.
 
 ### STISA
 
-Severity: **warning** · Auto-fix: **no** · Maturity: **stable**
+Severity: **warning** · Auto-fix: **yes** · Maturity: **stable**
 
 Consider using ISA instead of comparing the class name.
 
@@ -89,7 +89,7 @@ This variable, apparently a structure, is changed but the value might be unused.
 
 ### EVLCS
 
-Severity: **warning** · Auto-fix: **no** · Maturity: **stable**
+Severity: **warning** · Auto-fix: **yes** · Maturity: **stable**
 
 'eval' is inefficient and makes code less clear. Call the statement directly.
 
@@ -221,19 +221,19 @@ The Code Analyzer type analysis may be incorrect here.
 
 ### LOGPROD
 
-Severity: **warning** · Auto-fix: **no** · Maturity: **stable**
+Severity: **warning** · Auto-fix: **yes** · Maturity: **stable**
 
 Using 'prod' on a logical expression is hard to understand and might be incorrect. Consider using 'all' instead.
 
 ### LOGMIN
 
-Severity: **warning** · Auto-fix: **no** · Maturity: **stable**
+Severity: **warning** · Auto-fix: **yes** · Maturity: **stable**
 
 Using 'min' on a logical expression is hard to understand and might be incorrect. Consider using 'all' instead.
 
 ### LOGMAX
 
-Severity: **warning** · Auto-fix: **no** · Maturity: **stable**
+Severity: **warning** · Auto-fix: **yes** · Maturity: **stable**
 
 Using 'max' on a logical expression is hard to understand and might be incorrect. Consider using 'any' instead.
 
@@ -293,7 +293,7 @@ Use app as the first argument for VAR_NAME.
 
 ### KEYBOARDFUN
 
-Severity: **warning** · Auto-fix: **no** · Maturity: **stable**
+Severity: **warning** · Auto-fix: **yes** · Maturity: **stable**
 
 Consider removing 'keyboard' function once you have finished debugging. This function may have security implications.
 
@@ -389,7 +389,7 @@ Command might be prematurely ended by comma.
 
 ### RMFLD
 
-Severity: **warning** · Auto-fix: **no** · Maturity: **stable**
+Severity: **warning** · Auto-fix: **yes** · Maturity: **stable**
 
 RMFIELD output must be assigned back to the structure.
 
@@ -401,13 +401,13 @@ The warning with tag VAR_NAME has been removed from MATLAB, so this statement ha
 
 ### STFLD
 
-Severity: **warning** · Auto-fix: **no** · Maturity: **stable**
+Severity: **warning** · Auto-fix: **yes** · Maturity: **stable**
 
 SETFIELD output must be assigned back to the structure.
 
 ### STRSZ
 
-Severity: **warning** · Auto-fix: **no** · Maturity: **stable**
+Severity: **warning** · Auto-fix: **yes** · Maturity: **stable**
 
 Use STRCMP to compare character vectors that can have different sizes.
 
@@ -705,6 +705,25 @@ Rewrites the flagged construct into the cleaner equivalent:
   `lower`/`upper` and the case-insensitive comparison differ on some
   non-ASCII text; when both arguments convert, only the first conversion
   goes (`strcmpi(a, lower(b))`), as MATLAB's fix writes it.
+
+The remaining fixes are unsafe, they change what the code does in some
+situation, and need `--unsafe-fixes`:
+
+- `s == 'abc'` → `strcmp(s, 'abc')` and `s ~= 'abc'` → `~strcmp(s, 'abc')`
+  (STCMP, STRSZ), for plain operands (names, field reads, calls, literals).
+  `==` errors on operands of different length where `strcmp` answers false.
+- `strcmp(class(x), 'double')` → `isa(x, 'double')` (STISA); `isa` is also
+  true for a subclass.
+- `prod(a > b)` → `all(a > b)`, `min` → `all`, `max` → `any` (LOGPROD,
+  LOGMIN, LOGMAX), for the single comparison argument that is reported; the
+  result class and the answer for an empty input change.
+- `warning('')` → `lastwarn('')` (WLAST): the first does nothing, the second
+  clears the last warning, which is what the author meant.
+- `rmfield(s, 'a');` → `s = rmfield(s, 'a');` and the same for `setfield`
+  (RMFLD, STFLD), when the first argument is a variable.
+- A `keyboard` statement that has its line to itself is deleted (KEYBOARDFUN).
+- `eval('x = 1;')` as a statement → `x = 1;` (EVLCS), for one literal without
+  quote escapes that parses by itself.
 
 ## Examples
 

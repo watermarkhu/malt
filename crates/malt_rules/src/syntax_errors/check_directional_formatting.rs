@@ -38,7 +38,16 @@ impl SyntaxErrorsEngine {
                 byte_range: at..at + 1,
                 line,
                 column,
-                fix: None,
+                // The character is deleted: safe in a comment, unsafe in a string,
+                // whose value changes.
+                fix: (rule_id == "BADCT").then(|| {
+                    let fix = malt_core::Fix::new(i..i + ch.len_utf8(), "");
+                    if source[at..].starts_with('%') {
+                        fix
+                    } else {
+                        fix.unsafe_fix()
+                    }
+                }),
             });
         }
 
@@ -49,8 +58,32 @@ impl SyntaxErrorsEngine {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_util::{has_id, lint_file};
+    use crate::test_util::{fix_of, has_id, lint_file, reported_without_fix};
     use malt_core::Config;
+
+    #[test]
+    fn badct_fix_deletes_the_character_safely_in_a_comment() {
+        let (safe, fixed) = fix_of(&*engine(), "x = 3 % a\u{202a}b\n", "BADCT").unwrap();
+        assert!(safe);
+        assert_eq!(fixed, "x = 3 % ab\n");
+        assert!(!has_id(&lint_file(&*engine(), &fixed), "BADCT"));
+    }
+
+    #[test]
+    fn badct_fix_is_unsafe_in_a_string() {
+        let (safe, fixed) = fix_of(&*engine(), "s = 'a\u{2067}b';\n", "BADCT").unwrap();
+        assert!(!safe);
+        assert_eq!(fixed, "s = 'ab';\n");
+    }
+
+    #[test]
+    fn badch_in_code_has_no_fix() {
+        assert!(reported_without_fix(
+            &*engine(),
+            "x = 3;\u{202a}\n",
+            "BADCH"
+        ));
+    }
 
     fn engine() -> Box<dyn Rule> {
         SyntaxErrorsEngine::from_config(&Config::default())

@@ -11,7 +11,7 @@ icon: lucide/list-checks
 | ------- | -------- | ----------- | ---------------- | -------- | -------- |
 | [`BUGS_ENGINE`](rules/bugs.md) | Bugs | Bug detection checks for likely bugs and logic errors | Error | Yes | Mixed (7 of 33 experimental) |
 | [`CODEGEN_ENGINE`](rules/codegen.md) | Code Generation | MATLAB code generation constraint checks | Error | No | Experimental |
-| [`COMPAT`](rules/compatibility.md) | Compatibility | Deprecated or removed function usage | Warning | No | Mixed (1123 of 1832 experimental) |
+| [`COMPAT`](rules/compatibility.md) | Compatibility | Deprecated or removed function usage | Warning | Yes | Mixed (1123 of 1832 experimental) |
 | [`CUSTOM_CHECKS`](rules/custom-checks.md) | Custom Checks | Code complexity and style metrics | Warning | No | Mixed (20 of 25 experimental) |
 | [`DEPLOYMENT_ENGINE`](rules/deployment.md) | Deployment | MATLAB Compiler deployment constraint checks | Warning | No | Experimental |
 | [`FORMATTING_ENGINE`](rules/formatting.md) | Formatting | Formatting suggestion checks (NOCOMMA, NO4LP, ALIGN, NOPTS, NOPRT, NCOMMA) | Info | Yes | Stable |
@@ -32,7 +32,7 @@ icon: lucide/list-checks
 | [`SYSTEM_OBJECTS_ENGINE`](rules/system-objects.md) | System Objects | System object validation checks | Warning | No | Experimental |
 | [`UNSET_VARIABLES_ENGINE`](rules/unset-variables.md) | Unset Variables | Detects variables that might not be defined before use | Warning | No | Mixed (2 of 5 experimental) |
 | [`UNSUPPORTED_ENGINE`](rules/unsupported.md) | Unsupported | Unsupported or deprecated feature checks | Warning | No | Experimental |
-| [`UNUSED_ENGINE`](rules/unused.md) | Unused Constructions | Detect unused variables, functions, and dead code | Warning | No | Mixed (2 of 15 experimental) |
+| [`UNUSED_ENGINE`](rules/unused.md) | Unused Constructions | Detect unused variables, functions, and dead code | Warning | Yes | Mixed (2 of 15 experimental) |
 
 These rows are generated from the rule docstrings by `docs/scripts/gen_rules_docs.ts`. Rebuild the docs (`bun run docs:gen`) to refresh them.
 

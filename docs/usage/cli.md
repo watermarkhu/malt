@@ -7,14 +7,14 @@ icon: lucide/terminal
 ## Synopsis
 
 ```text
-malt [OPTIONS] <FILES>...
+malt [OPTIONS] [PATH]...
 ```
 
 ## Arguments
 
 | Argument   | Description              |
 | ---------- | ------------------------ |
-| `<FILES>` | One or more MATLAB files to lint (required) |
+| `[PATH]...` | MATLAB files and folders to lint. A folder is searched for `.m` files, below it too. Without a path, malt lints the current folder |
 
 ## Options
 
@@ -35,13 +35,26 @@ malt [OPTIONS] <FILES>...
 
 ## Commands
 
-### Lint files
+### Lint files and folders
 
-Lint one or more MATLAB files and print diagnostics to stdout:
+Lint MATLAB files and print diagnostics to stdout:
 
 ```bash
 malt src/compute.m src/utils.m
 ```
+
+A folder is searched, recursively, for `.m` files. Without a path, malt lints the current folder and everything below
+it:
+
+```bash
+malt            # the current folder
+malt src test   # two folders
+```
+
+A file named on the command line is linted whatever its name. A folder is searched for the files that `[lint] include`
+picks up (`*.m`), without what `exclude` skips (version control folders, `node_modules` and a few more by default) and
+without what the `.gitignore` files of the tree ignore. All of it is set in [`.malt.toml`](../configuration.md#files-and-folders).
+Paths are printed relative to where you ran malt. If nothing is found, malt warns on stderr and exits with `0`.
 
 Output format:
 

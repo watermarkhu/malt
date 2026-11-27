@@ -5,7 +5,7 @@ icon: lucide/archive
 # Compatibility
 
 **Default severity:** Warning
-**Auto-fix:** No
+**Auto-fix:** Yes
 **Category:** Compatibility
 **Can be disabled:** Yes
 **Enabled by default:** Yes
@@ -1903,6 +1903,18 @@ Experimental checks are off by default and run with `[lint] experimental = true`
 
 183 checks (marked in the table above): MATLAB reports these only on a variable of the class, which needs class tracking that malt does not have; never emitted.
 
+## Automatic fixes
+
+The entries whose message says the replacement is a direct replacement
+(`Use 'savefig' instead, which is a direct replacement`) carry a fix that
+renames the function and leaves the arguments as they are: `hgsave(h, f)`
+becomes `savefig(h, f)`, `combntns(1:4, 2)` becomes `nchoosek(1:4, 2)`,
+`daq.getVendors()` becomes `daqvendorlist()`. The command form
+(`fdatool`) and the handle form (`@combntns`) are renamed too. The fix is
+safe, as the new name is the old function's documented successor. Entries that
+say "with appropriate code changes" have no fix, nor do the ones that
+offer several replacements.
+
 ## Examples
 
 ### Incorrect
@@ -1917,6 +1929,13 @@ strread(s)        % STREAD — removed; use textscan
 ```matlab
 periodogram(x)
 textscan(s)
+```
+
+### Fixed
+
+```diff
+- hgsave(h, 'plot.fig')
++ savefig(h, 'plot.fig')
 ```
 
 ## Configuration

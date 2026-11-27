@@ -10,7 +10,7 @@ use crate::analysis::symbols::SymbolTable;
 type Node<'a> = tree_sitter::Node<'a>;
 
 /// Named argument nodes of a `function_call`.
-fn call_args<'a>(node: Node<'a>) -> Vec<Node<'a>> {
+pub(super) fn call_args<'a>(node: Node<'a>) -> Vec<Node<'a>> {
     match find_arguments(node) {
         Some(a) => {
             let mut c = a.walk();
@@ -247,6 +247,32 @@ fn fieldfn_applies(func: &str, args: &[tree_sitter::Node], source: &str) -> bool
         })
 }
 
+/// `getfield(s, 'a')` becomes `s.a` and `getfield(s, f)` becomes `s.(f)`.
+///
+/// Unsafe: `getfield` also works on a variable that is not a struct in ways
+/// the dot syntax does not (an object with a `subsref` overload, for one).
+fn getfield_fix(node: tree_sitter::Node, args: &[tree_sitter::Node], source: &str) -> Option<Fix> {
+    let [base, field] = args else { return None };
+    if !matches!(
+        base.kind(),
+        "identifier" | "function_call" | "cell_index" | "field_expression"
+    ) {
+        return None;
+    }
+    let access = match crate::fix_util::simple_literal_text(*field, source) {
+        Some(name) if crate::fix_util::is_plain_identifier(name) => format!(".{name}"),
+        Some(_) => return None,
+        None => format!(".({})", node_text(*field, source)),
+    };
+    Some(
+        Fix::new(
+            node.byte_range(),
+            format!("{}{access}", node_text(*base, source)),
+        )
+        .unsafe_fix(),
+    )
+}
+
 /// Reductions taking a DIM argument.
 const DIM_FUNCS: &[&str] = &[
     "sum", "prod", "max", "min", "mean", "median", "mode", "any", "all", "cumsum", "cumprod",
@@ -272,9 +298,9 @@ impl PerformanceEngine {
 
         match func_name {
             // GFLD / SFLD
-            "getfield" if on("GFLD") && fieldfn_applies("getfield", &args, source) => {
-                diags.push(make_diag("GFLD", node))
-            }
+            "getfield" if on("GFLD") && fieldfn_applies("getfield", &args, source) => diags.push(
+                make_diag_with_fix("GFLD", node, getfield_fix(node, &args, source)),
+            ),
             "setfield" if on("SFLD") && fieldfn_applies("setfield", &args, source) => {
                 diags.push(make_diag("SFLD", node))
             }
@@ -314,7 +340,19 @@ impl PerformanceEngine {
             && args.len() == 1
             && call_to(args[0], source, "find").is_some()
         {
-            diags.push(make_diag("MXFND", node));
+            // `min(find(A))` is `find(A, 1)`, `max(find(A))` is `find(A, 1, 'last')`.
+            // Unsafe: for an empty result the two differ in the shape of the empty array.
+            let fix = call_to(args[0], source, "find")
+                .filter(|find_args| find_args.len() == 1)
+                .map(|find_args| {
+                    let tail = if func_name == "min" { "1" } else { "1, 'last'" };
+                    Fix::new(
+                        node.byte_range(),
+                        format!("find({}, {tail})", node_text(find_args[0], source)),
+                    )
+                    .unsafe_fix()
+                });
+            diags.push(make_diag_with_fix("MXFND", node, fix));
         }
 
         // EFIND: isempty(find(A))
@@ -610,11 +648,57 @@ impl PerformanceEngine {
 mod tests {
     use super::super::test_support::engine;
     use super::super::PerformanceEngine;
-    use crate::test_util::{has_id, lint_nodes};
+    use crate::test_util::{fix_of, has_id, lint_nodes, reported_without_fix};
     use malt_core::Config;
 
     fn fires(src: &str, id: &str) -> bool {
         has_id(&lint_nodes(&*engine(), src), id)
+    }
+
+    #[test]
+    fn gfld_fix_uses_dot_syntax() {
+        let (safe, fixed) = fix_of(
+            &*engine(),
+            "s = struct();\nv = getfield(s, 'field');\n",
+            "GFLD",
+        )
+        .unwrap();
+        assert!(!safe);
+        assert_eq!(fixed, "s = struct();\nv = s.field;\n");
+        let (_, fixed) = fix_of(
+            &*engine(),
+            "s = struct();\nv = getfield(s, name);\n",
+            "GFLD",
+        )
+        .unwrap();
+        assert_eq!(fixed, "s = struct();\nv = s.(name);\n");
+        assert!(!fires(&fixed, "GFLD"));
+    }
+
+    #[test]
+    fn gfld_no_fix_for_a_literal_that_is_not_a_name() {
+        assert!(reported_without_fix(
+            &*engine(),
+            "s = struct();\nv = getfield(s, 'a b');\n",
+            "GFLD"
+        ));
+    }
+
+    #[test]
+    fn mxfnd_fix_asks_find_for_the_first_or_last_index() {
+        let (safe, fixed) = fix_of(&*engine(), "k = min(find(x > 3));\n", "MXFND").unwrap();
+        assert!(!safe);
+        assert_eq!(fixed, "k = find(x > 3, 1);\n");
+        let (_, fixed) = fix_of(&*engine(), "k = max(find(x));\n", "MXFND").unwrap();
+        assert_eq!(fixed, "k = find(x, 1, 'last');\n");
+        assert!(!fires(&fixed, "MXFND"));
+    }
+
+    #[test]
+    fn mxfnd_no_fix_when_find_already_has_a_count() {
+        // `max(find(x, 3))` is not reported by MATLAB as MXFND either way; if it is, no fix.
+        let src = "k = max(find(x, 3));\n";
+        assert!(!fires(src, "MXFND") || reported_without_fix(&*engine(), src, "MXFND"));
     }
 
     #[test]
