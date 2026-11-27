@@ -1,4 +1,4 @@
-//! `check_directional_formatting` — one check of the Syntax Errors engine.
+//! `check_directional_formatting`: one check of the Syntax Errors engine.
 
 use super::*;
 

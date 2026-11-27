@@ -1,4 +1,4 @@
-//! `check_file` — one check of the Syntax Errors engine.
+//! `check_file`: one check of the Syntax Errors engine.
 
 use super::*;
 

@@ -138,7 +138,7 @@ Experimental checks are off by default (they are already off under the `mathwork
 
 - `[lint] experimental = true` turns all of them on for the preset in use. The preset's
   disabled categories stay disabled (`naming` and `custom-checks` remain opt-in by category).
-- `--preset all` (or `[lint] preset = "all"`) runs everything, as before.
+- `--preset all` (or `[lint] preset = "all"`) runs everything.
 - An explicit setting for the engine, the category or the check (for example
   `[lint.categories] code-generation = "error"` or `[lint.rules] FCDQS = "error"`) turns that
   one on and always wins; an explicit `"off"` also wins over `experimental = true`. A check
@@ -150,8 +150,7 @@ Experimental checks are off by default (they are already off under the `mathwork
 experimental = true    # default: false
 ```
 
-The default output of malt does not change: with `experimental = false` (the default) the
-results are the same as before the flag existed.
+With `experimental = false` (the default), malt's output is the same as without the flag.
 
 ## Schema Overview
 
@@ -380,7 +379,7 @@ warning: .malt.toml: unknown parameter 'max_variable_nam_length' for rule 'GOOD_
 - Rule keys must be a rule ID malt knows, spelled exactly: an engine ID (`GOOD_PRACTICES_ENGINE`), a check ID (`NOSEMI`, `FVINR`), or a `naming.<entity>.<check>` ID. Rule keys are case-sensitive, so `nosemi` is a problem. A rule that the preset leaves off is still a valid key.
 - Parameter names are checked for the engines that take parameters (see Per-Engine Parameters), including the parameters of an engine that is turned off. `severity` is always allowed in a table. An engine without parameters, such as `NOSEMI`, reports every key other than `severity`. Keys of check IDs that are not engines are not checked.
 - Dotted IDs must be quoted. `[lint.rules.naming.class.casing]` is read as the rule `naming` with nested tables, and malt reports it. Write `[lint.rules."naming.class.casing"]`.
-- Presets and categories are not warnings. An unknown `[lint] preset` or `[lint.categories]` key is an error (exit code `2`), as before.
+- Presets and categories are not warnings. An unknown `[lint] preset` or `[lint.categories]` key is an error (exit code `2`).
 
 Add `--strict-config` to turn the warnings into an error: malt then prints the warnings and exits with code `2` without linting. Use it in CI to keep typos out of the configuration. Without it, the exit code does not depend on the warnings.
 

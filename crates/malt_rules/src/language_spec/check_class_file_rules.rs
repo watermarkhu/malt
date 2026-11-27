@@ -2,14 +2,14 @@
 //!
 //! File-level checks about the class definition itself:
 //!
-//! - **CLSAT** — class attributes must be specified before the name of the
+//! - CLSAT: class attributes must be specified before the name of the
 //!   class. The tree-sitter grammar enforces `classdef (attrs) Name`, so this
 //!   only fires if a malformed ordering ever reaches the AST.
-//! - **CLSUNK** — a superclass cannot be resolved on MATLAB's path. Since the
+//! - CLSUNK: a superclass cannot be resolved on MATLAB's path. Since the
 //!   linter cannot resolve the path, this is a narrow heuristic: it fires for
 //!   bare superclass names that are not known MATLAB base classes and for
 //!   dotted names whose first (lowercase) segment is not a known package.
-//! - **NOPRV** — a class definition cannot live inside a `private` directory.
+//! - NOPRV: a class definition cannot live inside a `private` directory.
 //!
 //! See the parent module `super` for the shared engine and helpers.
 

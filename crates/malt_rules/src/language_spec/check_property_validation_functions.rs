@@ -4,12 +4,12 @@
 //! name, in a `properties` block of a class or in an `arguments` block). Probed
 //! against `checkcode` in R2026b:
 //!
-//! - **VTPEAL** — a validator called with no arguments, `{mustBeNumeric()}`, in a
+//! - VTPEAL: a validator called with no arguments, `{mustBeNumeric()}`, in a
 //!   class property or an argument. A bare name, `{mustBeNumeric}`, is not one.
-//! - **VTPIN** — (class properties) the validator does not use the property.
-//! - **VTPCON** — (class properties) the validator uses a name other than the
+//! - VTPIN: (class properties) the validator does not use the property.
+//! - VTPCON: (class properties) the validator uses a name other than the
 //!   property, or a variable, in place of a literal.
-//! - **VTFIN** — the property is an argument of the validator but not the first.
+//! - VTFIN: the property is an argument of the validator but not the first.
 //!
 //! Only the validator calls are checked; the value of the default (`= expr`) is
 //! FVNIV's business.

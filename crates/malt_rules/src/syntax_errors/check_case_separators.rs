@@ -1,4 +1,4 @@
-//! `check_case_separators` — SEPEXR for a `case` value followed by a statement
+//! `check_case_separators`: SEPEXR for a `case` value followed by a statement
 //! on the same line, as in `case 1 disp(1)` or `case 1 end`.
 
 use super::*;

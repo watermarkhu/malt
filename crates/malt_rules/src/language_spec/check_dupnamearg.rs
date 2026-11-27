@@ -1,4 +1,4 @@
-//! `check_dupnamearg` — one check of the Language Specification engine.
+//! `check_dupnamearg` is one check of the Language Specification engine.
 
 use super::*;
 

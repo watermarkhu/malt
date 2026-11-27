@@ -1,4 +1,4 @@
-//! EOFMI: Incomplete file — last node is ERROR or MISSING.
+//! EOFMI: Incomplete file, last node is ERROR or MISSING.
 
 use super::*;
 

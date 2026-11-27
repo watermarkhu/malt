@@ -1,4 +1,4 @@
-//! `check_call_syntax` — one check of the Syntax Errors engine.
+//! `check_call_syntax`: one check of the Syntax Errors engine.
 
 use super::*;
 

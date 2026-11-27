@@ -1,4 +1,4 @@
-//! `check_assignment_lhs` — one check of the Syntax Errors engine.
+//! `check_assignment_lhs`: one check of the Syntax Errors engine.
 
 use super::*;
 

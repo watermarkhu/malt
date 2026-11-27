@@ -1,10 +1,10 @@
 //! SOTUNPROP1/3/4: Tunable property constraints on MATLAB System blocks.
 //!
-//! - **SOTUNPROP1** — a logical attribute is not supported for tunable
+//! - SOTUNPROP1: a logical attribute is not supported for tunable
 //!   properties on MATLAB System blocks (the property is made Nontunable).
-//! - **SOTUNPROP3** — tunable properties on System blocks must be numeric; a
+//! - SOTUNPROP3: tunable properties on System blocks must be numeric; a
 //!   `char` (character-vector) property is made Nontunable.
-//! - **SOTUNPROP4** — tunable properties on System blocks must be numeric; a
+//! - SOTUNPROP4: tunable properties on System blocks must be numeric; a
 //!   `string` property is made Nontunable.
 
 use super::*;

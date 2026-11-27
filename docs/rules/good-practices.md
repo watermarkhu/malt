@@ -706,8 +706,8 @@ Rewrites the flagged construct into the cleaner equivalent:
   non-ASCII text; when both arguments convert, only the first conversion
   goes (`strcmpi(a, lower(b))`), as MATLAB's fix writes it.
 
-The remaining fixes are unsafe, they change what the code does in some
-situation, and need `--unsafe-fixes`:
+The remaining fixes are unsafe: they change what the code does in some
+situation, and they need `--unsafe-fixes`:
 
 - `s == 'abc'` → `strcmp(s, 'abc')` and `s ~= 'abc'` → `~strcmp(s, 'abc')`
   (STCMP, STRSZ), for plain operands (names, field reads, calls, literals).

@@ -4,8 +4,6 @@ icon: lucide/hammer
 
 # Development
 
-Where the index lives, how to build it, and what the tests cover.
-
 ## Layout
 
 | Path | What it is |

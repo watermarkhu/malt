@@ -4,23 +4,23 @@
 //! `methods`, and `events` blocks, plus the `Input`/`Output` attributes of
 //! `arguments` blocks:
 //!
-//! - **ATUNK** — the attribute name is not a valid MATLAB attribute.
-//! - **ATTF** — a logical attribute (`Abstract`, `Sealed`, `Hidden`, `Dependent`, ...)
+//! - ATUNK: the attribute name is not a valid MATLAB attribute.
+//! - ATTF: a logical attribute (`Abstract`, `Sealed`, `Hidden`, `Dependent`, ...)
 //!   has a value other than `true`, `false`, `1` or `0`, such as `TRUE` or `~true`.
-//! - **ATTOF** — the class attribute `Abstract` is set to `false` or `0`.
-//! - **ATLAB** — the `Input`/`Output` arguments-block attribute is assigned a
+//! - ATTOF: the class attribute `Abstract` is set to `false` or `0`.
+//! - ATLAB: the `Input`/`Output` arguments-block attribute is assigned a
 //!   value or negated.
-//! - **ATAS** — a meta-class attribute (`AllowedSubclasses`,
+//! - ATAS: a meta-class attribute (`AllowedSubclasses`,
 //!   `InferiorClasses`) has a value that is neither a single meta-class object
 //!   nor a cell array of meta-class objects.
-//! - **ATNPI** — a class-level access attribute has an unexpected value.
-//! - **ATPPP** — an events-block access attribute has an unexpected value
+//! - ATNPI: a class-level access attribute has an unexpected value.
+//! - ATPPP: an events-block access attribute has an unexpected value
 //!   (no `immutable`).
-//! - **ATPPI** — a properties-block access attribute has an unexpected value.
-//! - **ATPPP** — a methods-block access attribute has an unexpected value
+//! - ATPPI: a properties-block access attribute has an unexpected value.
+//! - ATPPP: a methods-block access attribute has an unexpected value
 //!   (no `immutable`).
-//! - **ATAS** — a non-class meta-class attribute has an unexpected value.
-//! - **ATVIZE** — an attribute named `Visible` is used.
+//! - ATAS: a non-class meta-class attribute has an unexpected value.
+//! - ATVIZE: an attribute named `Visible` is used.
 //!
 //! See the parent module `super` for the shared engine and helpers.
 

@@ -1,4 +1,4 @@
-//! `check_unterminated` — one check of the Syntax Errors engine.
+//! `check_unterminated`: one check of the Syntax Errors engine.
 
 use super::*;
 

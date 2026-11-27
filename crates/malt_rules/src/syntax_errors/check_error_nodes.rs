@@ -1,4 +1,4 @@
-//! `check_error_nodes` — one check of the Syntax Errors engine.
+//! `check_error_nodes`: one check of the Syntax Errors engine.
 
 use super::*;
 

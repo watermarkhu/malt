@@ -1,7 +1,7 @@
 # malt Rule Documentation Schema
 
 Every rule module in `crates/malt_rules/src` documents itself through a
-**standardized header docstring** written in markdown inside the Rust `//!`
+standardized header docstring written in markdown inside the Rust `//!`
 module comment. `docs/scripts/gen_rules_docs.ts` reads these docstrings and
 generates one documentation page per rule.
 
@@ -95,7 +95,7 @@ and each row also feeds the global rule index in `docs/rules.md`.
 
 ## `## Fix`
 
-Required **iff** `fix = true`. Describes what the auto-fix rewrites. Omit the
+Required if and only if `fix = true`. Describes what the auto-fix rewrites. Omit the
 whole section when `fix = false`.
 
 ## `## Examples`
