@@ -29,6 +29,9 @@ malt [OPTIONS] [PATH]...
 | `--no-index`          | Do not use the path index, even when `[index] enabled = true` |
 | `-v`, `--verbose`     | Report on stderr which files are linted and the total time; `-vv` adds the time and the number of findings of each file |
 | `--color <WHEN>`      | When to colour the text output: `auto` (default), `always` or `never`. Alias `--colour`; see [Colours](#colours) |
+| `--output <FORMAT>`   | How findings are written to stdout: `text` (default), `github` (workflow annotations and a step summary) or `gitlab` (the Code Quality report). See [Output formats](#output-formats) |
+| `--log-level <LEVEL>` | The least severe findings written as text lines: `off`, `error`, `warning` or `info` (default), whatever `--output` is. See [Output formats](#output-formats) |
+| `--output-json <PATH>` | Write the results to a JSON file: the malt version, the configuration used, the files and the findings. See [JSON results](#json-results) |
 | `--level <LEVEL>`    | The least severe findings to show: `error` (errors only), `warning` (errors and warnings; alias `warn`) or `info` (everything, the default). See [Levels](#levels) |
 | `-h`, `--help`        | Print help information                           |
 | `-V`, `--version`     | Print version information                        |
@@ -192,6 +195,57 @@ code: with `--level error`, a file that has only warnings exits 0. An unreadable
 RDERR) is an error and is always shown. `--fix` is not filtered: it still applies the fixes of
 hidden findings. The severity of a rule can be changed in the config file (see
 [Configuration](../configuration.md)).
+
+## Output formats
+
+`--output` chooses how findings reach stdout. The text lines, the exit code and every other option work the same in each.
+
+### GitHub Actions
+
+`--output github` prints one workflow command per finding, which GitHub shows as an annotation on the file and line:
+
+```text
+::error file=src/a.m,line=2,col=11,title=EOLPAR::A '(' might be missing a closing ')', causing invalid syntax at end of line.
+```
+
+Errors become `error` annotations, warnings `warning` and info findings `notice`. Paths are made relative to `GITHUB_WORKSPACE`. When `GITHUB_STEP_SUMMARY` is set, which it is in a workflow step, malt also appends a markdown summary to that file: the counts by severity, the rules that fired most, and the findings of each file in a folded list. GitHub shows only the first 10 errors and 10 warnings of a step as annotations, so the summary is the complete list.
+
+### GitLab
+
+`--output gitlab` prints the [Code Quality report](https://docs.gitlab.com/ci/testing/code_quality/) as JSON on stdout. The text lines and the closing summary go to stderr, so a redirect gets a clean report:
+
+```yaml title=".gitlab-ci.yml"
+malt:
+  script:
+    - malt --output gitlab > gl-code-quality-report.json
+  artifacts:
+    reports:
+      codequality: gl-code-quality-report.json
+```
+
+Errors are `critical`, warnings `major` and info findings `info`. The fingerprint of a finding comes from its file, rule and message, so it stays the same when the line moves. GitLab has no step summary: the report shows as findings in the merge request.
+
+### Quieting the text lines
+
+`--log-level` says which findings are written as text lines, whatever `--output` is. `--log-level off` leaves the log clean while the annotations, the report, the JSON file and the exit code still carry every finding. It differs from `--level`, which hides findings altogether.
+
+```bash
+malt --output github --log-level off      # annotations only
+malt --log-level error                    # text lines for errors, the count for all
+```
+
+### JSON results
+
+`--output-json results.json` writes the run as JSON, next to any `--output`. The file is written whether or not there are findings. Its keys:
+
+| Key | Content |
+| --- | ------- |
+| `schema_version` | The layout of the file, `1` today |
+| `malt_version` | The version of malt that ran |
+| `config` | The configuration used: the config files read, `preset`, `experimental`, `inline_suppression`, `include`, `exclude`, `respect_gitignore`, `force_exclude`, `categories`, `rules` with their parameters, and the resolved `limits` |
+| `files` | The files linted |
+| `summary` | `files_linted`, `files_with_findings`, `findings`, `by_severity` and `by_rule` |
+| `findings` | Each finding: `file`, `line`, `column`, `rule`, `severity`, `message` and `fix` (`null`, `"safe"` or `"unsafe"`) |
 
 ## Colours
 
