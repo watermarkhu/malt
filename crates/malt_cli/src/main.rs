@@ -44,7 +44,7 @@ struct Cli {
     #[arg(long, value_name = "PATH")]
     config: Option<PathBuf>,
 
-    /// Named preset to base the configuration on (all, mathworks, recommended).
+    /// Named preset to base the configuration on (all, mathworks, recommended, monkeyproof).
     /// Overrides the `[lint] preset` value in the config file.
     #[arg(long, value_name = "PRESET")]
     preset: Option<String>,
