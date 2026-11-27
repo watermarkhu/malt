@@ -174,18 +174,18 @@ pub fn run(fs: &dyn Fs, inputs: &Inputs) -> Result<Outcome, String> {
         say(&format!("::warning::{}", report::escape_data(warning)));
     }
 
-    let mut records: Vec<Record> = found
-        .missing
-        .iter()
-        .map(|file| {
-            record(
+    let linted = found.files.len() - found.missing.len();
+    let mut records: Vec<Record> = Vec::new();
+    for file in &found.files {
+        // A named path that does not exist is a NOFIL error, in the place it was named.
+        if found.missing.contains(file) {
+            records.push(record(
                 file,
                 "NOFIL",
                 format!("Unable to open file {file}. File is not found."),
-            )
-        })
-        .collect();
-    for file in &found.files {
+            ));
+            continue;
+        }
         match fs.read(file) {
             Some(bytes) => records.extend(records_of(&mut linter, &decode(&bytes), file)),
             None => records.push(record(
@@ -198,7 +198,7 @@ pub fn run(fs: &dyn Fs, inputs: &Inputs) -> Result<Outcome, String> {
     let shown = |severity: Severity| rank(severity) <= rank_of(&level);
     records.retain(|r| shown(r.severity));
 
-    if found.files.is_empty() && found.missing.is_empty() {
+    if found.files.is_empty() {
         say(&format!(
             "::warning::malt found no MATLAB files under {}",
             named.join(", ")
@@ -213,11 +213,9 @@ pub fn run(fs: &dyn Fs, inputs: &Inputs) -> Result<Outcome, String> {
             ));
         }
     }
-    let summary_markdown =
-        summary.then(|| report::github_step_summary(&records, found.files.len()));
+    let summary_markdown = summary.then(|| report::github_step_summary(&records, linted));
 
-    let mut listed: Vec<String> = found.missing.clone();
-    listed.extend(found.files.iter().cloned());
+    let listed = &found.files;
     let results_json = if inputs.output_json.trim().is_empty() {
         None
     } else {
@@ -229,7 +227,7 @@ pub fn run(fs: &dyn Fs, inputs: &Inputs) -> Result<Outcome, String> {
                 .is_some()
                 .then(|| std::path::Path::new(CONFIG_FILE)),
             matlab_config: None,
-            files: &listed,
+            files: listed,
             files_with_findings: with_findings.len(),
         };
         let json = report::results_json(linter.config(), &run, &records);
@@ -254,8 +252,8 @@ pub fn run(fs: &dyn Fs, inputs: &Inputs) -> Result<Outcome, String> {
     say(&format!(
         "malt {}: linted {} file{}, {} finding{} ({errors} error, {warnings} warning, {infos} info)",
         env!("CARGO_PKG_VERSION"),
-        found.files.len(),
-        plural(found.files.len()),
+        linted,
+        plural(linted),
         records.len(),
         plural(records.len()),
     ));
@@ -273,7 +271,7 @@ pub fn run(fs: &dyn Fs, inputs: &Inputs) -> Result<Outcome, String> {
         findings: records.len(),
         errors,
         warnings,
-        files: found.files.len(),
+        files: linted,
         failed: failing > 0,
     })
 }

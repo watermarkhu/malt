@@ -42,9 +42,11 @@ pub trait Fs {
 /// The files of a run, and what the search found along the way.
 #[derive(Debug, Default, PartialEq, Eq)]
 pub struct Found {
-    /// The files to lint: named files in the order given, the files of a folder in path order.
+    /// The files to lint, in the order the paths were named, the files of a folder in path
+    /// order. A named path that does not exist is in its place too, so that linting it reports
+    /// it where it was named.
     pub files: Vec<String>,
-    /// Named paths that do not exist.
+    /// The named paths that do not exist (they are also in `files`).
     pub missing: Vec<String>,
     /// The folders that were searched.
     pub searched: Vec<String>,
@@ -138,7 +140,12 @@ pub fn discover(fs: &dyn Fs, paths: &[String], config: &Config) -> Found {
                 let stack = parents_gitignores(fs, &path, config);
                 walk(fs, &path, config, &matchers, &stack, &mut found, &mut seen);
             }
-            None => found.missing.push(path),
+            None => {
+                found.missing.push(path.clone());
+                if seen.insert(path.clone()) {
+                    found.files.push(path);
+                }
+            }
             Some(_) => {
                 // A named file is linted as it is, unless `force_exclude` applies the
                 // patterns to it, or a folder above it, too.
@@ -370,7 +377,8 @@ mod tests {
     fn a_missing_path_is_reported() {
         let fs = MemFs::new(&[("a.m", "")]);
         let result = discover(&fs, &["nope.m".into(), "a.m".into()], &Config::default());
-        assert_eq!(result.files, ["a.m"]);
+        // In the order named, so that the missing file is reported where it was named.
+        assert_eq!(result.files, ["nope.m", "a.m"]);
         assert_eq!(result.missing, ["nope.m"]);
     }
 

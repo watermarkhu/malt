@@ -108,7 +108,7 @@ pub fn discover(paths: &[PathBuf], config: &Config, anchor: &Path) -> Result<Fou
             }
         }
     };
-    let mut result = Found {
+    let result = Found {
         files: found.files.iter().map(|f| map(f)).collect(),
         searched: found
             .searched
@@ -122,16 +122,7 @@ pub fn discover(paths: &[PathBuf], config: &Config, anchor: &Path) -> Result<Fou
             .collect(),
         warnings: found.warnings,
     };
-    // A named path that does not exist is linted as it is, which reports it as NOFIL.
-    for missing in &found.missing {
-        let original = named
-            .iter()
-            .find(|(v, _)| files::normalize(v) == *missing)
-            .map_or_else(|| PathBuf::from(missing), |(_, original)| original.clone());
-        if !result.files.contains(&original) {
-            result.files.push(original);
-        }
-    }
+    // A named path that does not exist is in `files` in its place: linting it reports NOFIL.
     Ok(result)
 }
 
