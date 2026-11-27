@@ -120,6 +120,18 @@ export default defineConfig({
               ],
             },
             {
+              text: 'MonkeyProof standard',
+              collapsed: true,
+              items: [
+                { text: 'Overview', link: '/monkeyproof' },
+                { text: 'Naming conventions', link: '/rules/monkeyproof-naming' },
+                { text: 'Layout & comments', link: '/rules/monkeyproof-layout' },
+                { text: 'Statements & expressions', link: '/rules/monkeyproof-statements' },
+                { text: 'Higher level rules', link: '/rules/monkeyproof-functions' },
+                { text: 'Security', link: '/rules/monkeyproof-security' },
+              ],
+            },
+            {
               text: 'Specialized',
               collapsed: true,
               items: [

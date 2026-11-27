@@ -23,7 +23,7 @@ malt [OPTIONS] [PATH]...
 | `--fix`               | Apply safe automatic fixes, repeating until nothing changes |
 | `--unsafe-fixes`      | With `--fix`: also apply fixes that may change behaviour |
 | `--config <PATH>`     | Path to config file: a `.malt.toml`, or a MATLAB `codeAnalyzerConfiguration.json` (default: `.malt.toml` in CWD, else `resources/codeAnalyzerConfiguration.json` in CWD) |
-| `--preset <PRESET>`   | Preset to use (`all`, `mathworks`, `recommended`); overrides `[lint] preset` |
+| `--preset <PRESET>`   | Preset to use (`all`, `mathworks`, `recommended`, `monkeyproof`); overrides `[lint] preset` |
 | `--strict-config`     | Exit with code `2` when the config file has an unknown rule ID or parameter (each is a warning on stderr otherwise) |
 | `--index`             | Use the path index: checks that read the classes on the search path (MCEB) also report the value-class case MATLAB refuses to load. Overrides `[index] enabled` |
 | `--no-index`          | Do not use the path index, even when `[index] enabled = true` |

@@ -66,6 +66,7 @@ const CATEGORY_HUMAN: Record<string, string> = {
   naming: 'Naming',
   'custom-checks': 'Custom Checks',
   'fixed-point': 'Fixed-Point',
+  monkeyproof: 'MonkeyProof Coding Standard',
 }
 
 const CATEGORY_ICON: Record<string, string> = {
@@ -88,6 +89,7 @@ const CATEGORY_ICON: Record<string, string> = {
   'suggested-improvements': 'lucide/lightbulb',
   naming: 'lucide/type',
   'custom-checks': 'lucide/sliders-horizontal',
+  monkeyproof: 'lucide/badge-check',
 }
 
 const SEVERITY_LABEL: Record<string, string> = {

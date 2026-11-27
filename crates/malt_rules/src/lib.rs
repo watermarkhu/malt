@@ -34,6 +34,7 @@ pub mod good_practices;
 pub mod incomplete_analysis;
 pub mod language_spec;
 pub mod maturity;
+pub mod monkeyproof;
 pub mod naming;
 pub mod nosemi;
 pub mod performance;
@@ -107,6 +108,11 @@ const RULE_ORDER: &[&str] = &[
     "UNUSED_ENGINE",
     "GOOD_PRACTICES_ENGINE",
     "LANGUAGE_SPEC_ENGINE",
+    "MP_NAMING_ENGINE",
+    "MP_LAYOUT_ENGINE",
+    "MP_STATEMENTS_ENGINE",
+    "MP_FUNCTIONS_ENGINE",
+    "MP_SECURITY_ENGINE",
 ];
 
 /// Every registered rule, in [`RULE_ORDER`].
@@ -230,11 +236,34 @@ mod tests {
         let config = Config::from_toml("[lint]\npreset = \"all\"\n").unwrap();
         let active = active_ids(&config);
         for id in all_rules(&config).iter().map(|r| r.id()) {
+            // The MonkeyProof standard is a separate set: only its own preset enables it.
+            if id.starts_with("MP_") {
+                continue;
+            }
             assert!(
                 active.contains(&id.to_string()),
                 "{id} should be on under 'all'"
             );
         }
+    }
+
+    #[test]
+    fn the_monkeyproof_standard_is_on_only_under_its_own_preset_or_category() {
+        let mp = |toml: &str| {
+            active_ids(&Config::from_toml(toml).unwrap())
+                .iter()
+                .filter(|id| id.starts_with("MP_"))
+                .count()
+        };
+        assert_eq!(mp(""), 0, "mathworks");
+        assert_eq!(mp("[lint]\npreset = \"all\"\n"), 0, "all");
+        assert_eq!(mp("[lint]\npreset = \"recommended\"\n"), 0, "recommended");
+        assert_eq!(mp("[lint]\npreset = \"monkeyproof\"\n"), 5, "monkeyproof");
+        assert_eq!(
+            mp("[lint.categories]\nmonkeyproof = \"warn\"\n"),
+            5,
+            "category"
+        );
     }
 
     #[test]

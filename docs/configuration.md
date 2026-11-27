@@ -87,9 +87,10 @@ config file.
 
 | Preset | Disabled categories | Description |
 | ------ | ------------------- | ----------- |
-| `mathworks` *(default)* | `custom-checks`, `naming` | Matches MATLAB Code Analyzer's factory configuration: complexity metrics and naming conventions are opt-in, and the individual checks MATLAB's default analysis never reports are off too (see [Default Behavior](#default-behavior)). |
-| `all` | none | Every rule enabled, including the [default-off engines](#default-behavior). |
-| `recommended` | `performance`, `readability`, `formatting`, `suggested-improvements`, `naming`, `custom-checks` | Errors and warnings on; Info-level style/suggestion checks off. |
+| `mathworks` *(default)* | `custom-checks`, `naming`, `monkeyproof` | Matches MATLAB Code Analyzer's factory configuration: complexity metrics and naming conventions are opt-in, and the individual checks MATLAB's default analysis never reports are off too (see [Default Behavior](#default-behavior)). |
+| `all` | `monkeyproof` | Every rule of MATLAB's Code Analyzer and malt enabled, including the [default-off engines](#default-behavior). The MonkeyProof standard is a separate set and stays off. |
+| `recommended` | `performance`, `readability`, `formatting`, `suggested-improvements`, `naming`, `custom-checks`, `monkeyproof` | Errors and warnings on; Info-level style/suggestion checks off. |
+| `monkeyproof` | `custom-checks`, `naming` | The `mathworks` defaults plus the [MonkeyProof Coding Standard](monkeyproof.md). |
 
 ```toml
 [lint]
@@ -103,6 +104,8 @@ malt --preset all src/**/*.m
 A preset only removes categories; the specialized engines that are
 [off by default](#default-behavior) stay off under `mathworks` and
 `recommended`. `all` is the exception and turns them on as well.
+
+The `monkeyproof` preset is the `mathworks` defaults plus the [MonkeyProof Coding Standard](monkeyproof.md), an extra set of style checks that is not part of MATLAB's Code Analyzer.
 
 Precedence: `--preset` > `[lint] preset` > `mathworks`. Explicit
 `[lint.categories]` / `[lint.rules]` entries always win over the preset, so a
@@ -160,7 +163,7 @@ exclude = ["vendor/", "third_party/"]
 extend_exclude = ["generated/"]  # Added to exclude
 respect_gitignore = true         # Skip what .gitignore ignores
 force_exclude = false            # Apply exclude to files named on the command line
-preset = "recommended"          # Preset: all | mathworks | recommended
+preset = "recommended"          # Preset: all | mathworks | recommended | monkeyproof
 experimental = false            # Also run the experimental checks (see "Experimental checks")
 
 [lint.categories]
@@ -265,7 +268,7 @@ The named preset to base the configuration on. See [Presets](#presets).
 preset = "recommended"
 ```
 
-**Type:** string (`"all"`, `"mathworks"`, or `"recommended"`)
+**Type:** string (`"all"`, `"mathworks"`, `"recommended"` or `"monkeyproof"`)
 **Default:** `"mathworks"`
 
 ### `experimental`
