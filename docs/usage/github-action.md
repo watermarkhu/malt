@@ -82,10 +82,10 @@ Add the [MonkeyProof coding standard](../monkeyproof.md) on top of the configura
 
 ## Limits
 
-- **Annotations.** GitHub shows only the first 10 errors and 10 warnings of a step as annotations. The job summary lists every finding.
-- **The workspace.** The action runs in the workspace and reads `.malt.toml` from its root. To lint a subfolder, name it in `paths`. A configuration file inside a subfolder is not read.
-- **The path index** (`[index]` in `.malt.toml`) needs the file system and is not available in the WebAssembly build, so checks that read other files report as with the index off.
-- **Versions.** `@v0` is the moving tag of the latest 0.x release, and `@v0.3.0` is one release. Each release tag carries the bundled action; the `main` branch does not, so do not use `@main`.
+- Annotations: GitHub shows only the first 10 errors and 10 warnings of a step as annotations. The job summary lists every finding.
+- Workspace: The action runs in the workspace and reads `.malt.toml` from its root. To lint a subfolder, name it in `paths`. A configuration file inside a subfolder is not read.
+- The path index (`[index]` in `.malt.toml`) needs the file system and is not available in the WebAssembly build, so checks that read other files report as with the index off.
+- Versions: `@v0` is the moving tag of the latest 0.x release, and `@v0.3.0` is one release. Each release tag carries the bundled action; the `main` branch does not, so do not use `@main`.
 
 ## What it is
 

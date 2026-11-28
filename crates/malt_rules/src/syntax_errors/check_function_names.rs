@@ -1,4 +1,4 @@
-//! `check_function_names` — one check of the Syntax Errors engine.
+//! `check_function_names`: one check of the Syntax Errors engine.
 
 use super::*;
 

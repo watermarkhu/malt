@@ -1,4 +1,4 @@
-//! `check_number_literals` — one check of the Syntax Errors engine.
+//! `check_number_literals`: one check of the Syntax Errors engine.
 
 use super::*;
 

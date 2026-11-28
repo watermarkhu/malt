@@ -5,7 +5,7 @@ icon: lucide/box
 # Rust API
 
 The crate is [`malt-index`](https://crates.io/crates/malt-index) and the library is `malt_index`. The full item
-documentation is on [docs.rs](https://docs.rs/malt-index). This page is the tour.
+documentation is on [docs.rs](https://docs.rs/malt-index).
 
 ## The index
 

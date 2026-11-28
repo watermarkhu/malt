@@ -10,12 +10,12 @@
 //! ignored; a definition the walker cannot classify (an input, a call, an index
 //! assignment, a copy) is silent.
 //!
-//! - BDLGI  — a reaching definition is non-logical: a range, a matrix literal, a
+//! - BDLGI: a reaching definition is non-logical: a range, a matrix literal, a
 //!   char vector, a cell, a function handle, `*` `/` `^` `\` arithmetic or `-x`.
-//! - BDSCI  — a reaching definition is non-scalar: a range, a matrix literal, a
+//! - BDSCI: a reaching definition is non-scalar: a range, a matrix literal, a
 //!   char vector of two or more characters, a cell, or element-wise arithmetic.
-//! - BDLOG1 — a transposed condition or `&&`/`||` operand (`if a'`, `x && a'`).
-//! - BDLOG2 — an arithmetic operator (`+ - * / \ ^`) at the root of a condition or
+//! - BDLOG1: a transposed condition or `&&`/`||` operand (`if a'`, `x && a'`).
+//! - BDLOG2: an arithmetic operator (`+ - * / \ ^`) at the root of a condition or
 //!   `&&`/`||` operand, reported at the operator (`if z + 1`); the elementwise operators
 //!   (`.* ./ .^ .\`) give BDLOG1.
 //!

@@ -9,8 +9,7 @@ Analyzer reports, no more and no less. MATLAB is the ground truth: every
 behaviour claim was probed against a running `checkcode` (R2026b). The probes,
 the policy and the open gaps are recorded in [docs/VERIFY.md](VERIFY.md), the
 working log of the conformance work (also on
-[GitHub](https://github.com/watermarkhu/malt/blob/main/docs/VERIFY.md)). This
-page summarises how the claims are enforced.
+[GitHub](https://github.com/watermarkhu/malt/blob/main/docs/VERIFY.md)).
 
 ## The conformance suite
 
@@ -28,7 +27,7 @@ of MATLAB's own analyzer:
   `cargo test`.
 
 The four corpora were written before their differences were fixed, so they
-measure generalisation, not memorisation: corpus1 (31 files) matched 44 of
+measure how well malt generalises: corpus1 (31 files) matched 44 of
 MATLAB's 45 findings with 28 extra; corpus2 (31 files) 24 of 27 with 7 extra;
 corpus3 (33 messy files, 160 findings) 134 matched; corpus4 (32 class-heavy
 files, 174 findings) 170 matched. All differences were then fixed and the files
@@ -83,8 +82,8 @@ only when the comparison showed no difference before any fix. Rounds 1 to 8 each
 found real misses or extras (EXIST command form, MINV on a variable, NASGU
 across `catch`, SBTMP on cell indices, PFBNS at the loop header, DSPSP, NODEF,
 PREALL, GFLD/SFLD). All were fixed, with the MATLAB evidence recorded in
-[VERIFY.md](VERIFY.md#phase-4-rounds-2026-11-17)); **rounds 9, 10 and 11 were
-clean**, meeting the exit criterion of three consecutive clean rounds.
+[VERIFY.md](VERIFY.md#phase-4-rounds-2026-11-17)). Rounds 9, 10 and 11 were
+clean, meeting the exit criterion of three consecutive clean rounds.
 
 ## The path-index cross-check
 

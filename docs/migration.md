@@ -153,7 +153,7 @@ These were emitted before and no longer exist:
 
 | ID | Why removed |
 | --- | --- |
-| `BDCFG`, `CFERR`, `BDOPT`, `CFIG` | MATLAB emits them only for `checkcode -config` on its own configuration files, which malt does not read. The whole `CONFIG_ISSUES_ENGINE` was dropped; the `configuration-issues` category is now empty but **the `[lint.categories]` key is still accepted** |
+| `BDCFG`, `CFERR`, `BDOPT`, `CFIG` | MATLAB emits them only for `checkcode -config` on its own configuration files, which malt does not read. The whole `CONFIG_ISSUES_ENGINE` was dropped; the `configuration-issues` category is now empty but the `[lint.categories]` key is still accepted |
 | `PRTCAL` | official formatting check, but MATLAB never fired it in any probe (built-in calls, local functions, methods, scripts) or fixture |
 | `VTPOD` (removed, then back) | removed because MATLAB reported `FVSYN` where malt reported `VTPOD`; emitted again for a class written before the size (`a double (1,1)`), which MATLAB reports as `VTPOD` |
 | `DEEPS`, `MBIG`, `TEXTL` | official incomplete-analysis limits that MATLAB in practice never reports (files of 1 to 16 MB, 5,000,000-character lines, deep nesting); deleted |
@@ -161,7 +161,7 @@ These were emitted before and no longer exist:
 | `TNMLP` | not reproducible (it concerns loops over many functions) |
 | `EMS2N` | a Coder check `checkcode` never emits (probed with MATLAB Coder installed) |
 
-Declared but **never emitted** anymore (MATLAB reports none of them; the
+Declared but never emitted anymore (MATLAB reports none of them; the
 complete table with probe evidence is [`Official IDs malt does not
 emit`](VERIFY.md#official-ids-malt-does-not-emit)): the code-gated `FVUBD`,
 `FVONV`, `CLSUNK`, `SHVAI`, `SHVAU`, `LNGNM`, `BADOT`, `SYNEND`, `READSZK`,

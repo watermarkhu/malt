@@ -7,15 +7,15 @@
 //!
 //! Resolution is two-tier:
 //!
-//! 1. **Same-file functions**: calls are matched against the functions and
+//! 1. Same-file functions: calls are matched against the functions and
 //!    local functions defined in the same file (via [`FileMeta`]). A function
 //!    whose last input is `varargin` accepts any number of extra arguments.
-//! 2. **Builtin table**: calls whose name appears in `data/arity.toml` are
+//! 2. Builtin table: calls whose name appears in `data/arity.toml` are
 //!    checked against that function's declared `[min_args, max_args]` range.
 //!
 //! ## Documented limitation
 //!
-//! Cross-file resolution is **not** implemented (deferred): a call to a
+//! Cross-file resolution is not implemented (deferred): a call to a
 //! function that is neither defined in the same file nor present in the
 //! builtin table is skipped entirely, even if the callee is a known MATLAB
 //! toolbox function with a fixed arity. Function-call nodes that are actually

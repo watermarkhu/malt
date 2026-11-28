@@ -17,9 +17,9 @@
 //! from MATLAB's Code Analyzer. The check IDs are the Cartesian product of
 //! 9 entity types × 9 check types:
 //!
-//! - **Entities**: class, function, localFunction, method, nestedFunction,
+//! - Entities: class, function, localFunction, method, nestedFunction,
 //!   property, event, enumeration, variable
-//! - **Check types**: maxLength, minLength, regularExpression, requiredPrefix,
+//! - Check types: maxLength, minLength, regularExpression, requiredPrefix,
 //!   disallowedPrefix, disallowedPhrase, requiredSuffix, disallowedSuffix,
 //!   casing
 //!

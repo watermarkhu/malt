@@ -1,4 +1,4 @@
-//! `check_reserved_and_not` — one check of the Syntax Errors engine.
+//! `check_reserved_and_not`: one check of the Syntax Errors engine.
 
 use super::*;
 

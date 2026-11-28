@@ -1,4 +1,4 @@
-//! `check_statements` — one check of the Syntax Errors engine.
+//! `check_statements`: one check of the Syntax Errors engine.
 
 use super::*;
 
